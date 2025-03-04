@@ -26,6 +26,12 @@ class LogConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
+    FASTAPI_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
+    TOIL_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
+    USER_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'DEBUG'
+    ERROR_LEVEL: Literal['ERROR'] = 'ERROR'
+    LOG_RETENTION: str = '1 week'
+    LOG_ROTATION: str = '10 MB'
 
 
 class Settings(BaseSettings):
