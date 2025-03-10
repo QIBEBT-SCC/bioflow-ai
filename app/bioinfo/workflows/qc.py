@@ -9,7 +9,7 @@ from toil.job import Job, logger
 from toil.lib.docker import apiDockerCall
 from toil.lib.io import mkdtemp
 
-from app.bioinfo import FASTP_IMAGE
+from app.bioinfo.workflows import FASTP_IMAGE
 
 
 class FastpWorkflow(Job):
