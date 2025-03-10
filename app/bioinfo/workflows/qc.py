@@ -54,7 +54,6 @@ class FastpWorkflow(Job):
         parameters.extend(['-h', '/data/fastp.html', '-j', '/data/fastp.json', '-w', '8'])
         output_files.extend(['fastp.html', 'fastp.json'])
 
-        # Call fastQC
         apiDockerCall(job=self, image=FASTP_IMAGE, working_dir=self.tempDir, parameters=parameters)
 
         output_ids = {}
@@ -74,7 +73,6 @@ def run_fastp(output_path: str | os.PathLike, r1_file: str | os.PathLike, r2_fil
     options.logLevel = 'INFO'
     options.clean = 'always'
 
-    # 确保输出目录存在
     output_dir = Path(output_path) if isinstance(output_path, str) else output_path
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,7 +80,6 @@ def run_fastp(output_path: str | os.PathLike, r1_file: str | os.PathLike, r2_fil
     r2_path = Path(r2_file) if isinstance(r2_file, str) else r2_file
 
     with Toil(options) as toil:
-        # 导入原始FASTQ文件
         logger.info('导入原始FASTQ文件...')
         r1_id = toil.importFile(f'file://{r1_path.absolute()}')
         r2_id = toil.importFile(f'file://{r2_path.absolute()}')
