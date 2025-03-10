@@ -66,7 +66,19 @@ class FastpWorkflow(Job):
         return output_ids
 
 
-def run_fastp(output_path: str | os.PathLike, r1_file: str | os.PathLike, r2_file):
+def run_fastp(
+    output_path: str | os.PathLike, r1_file: str | os.PathLike, r2_file: Optional[str | os.PathLike]
+) -> dict[str, str]:
+    """
+
+    Args:
+        output_path: fastp输出文件夹
+        r1_file: pair-end file1
+        r2_file: pair-end file2
+
+    Returns:
+        工作流返回文件列表
+    """
     job_store: str = mkdtemp('toil_fastp')
     shutil.rmtree(job_store)
     options = Job.Runner.getDefaultOptions(job_store)
@@ -92,3 +104,5 @@ def run_fastp(output_path: str | os.PathLike, r1_file: str | os.PathLike, r2_fil
             output_path = os.path.join(output_dir, file_name)
             toil.exportFile(file_id, f'file://{os.path.abspath(output_path)}')
             logger.info(f'已导出文件: {output_path}')
+
+        return result
