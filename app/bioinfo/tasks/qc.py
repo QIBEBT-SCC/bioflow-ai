@@ -1,5 +1,3 @@
-import shutil
-import tempfile
 from os import PathLike
 from pathlib import Path
 from typing import Optional
@@ -20,11 +18,7 @@ class FastpOutput(BaseModel):
 
 @task(log_prints=True)
 def fastp(
-    r1: str | PathLike,
-    r2: Optional[str | PathLike] = None,
-    *,
-    output_dir: str | PathLike,
-    thread: int = 8,
+    r1: str | PathLike, r2: str | PathLike, output_dir: str | PathLike, *, thread: int = 8
 ) -> FastpOutput:
     """运行Fastp软件对原始数据进行质控
 
@@ -44,49 +38,28 @@ def fastp(
     client = docker.from_env()
 
     outputs = {}
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_r1 = Path(temp_dir) / f'{sample_name}_R1.fq.gz'
-        shutil.copy(r1_file, temp_r1)
-        command = [
-            'fastp',
-            '-i',
-            f'/data/{sample_name}_R1.fq.gz',
-            '-o',
-            f'/data/output/{sample_name}_fastp_R1.fq.gz',
-        ]
-        outputs['r1'] = output_path / f'{sample_name}_fastp_R1.fq.gz'
-        if r2_file:
-            temp_r2 = Path(temp_dir) / f'{sample_name}_R2.fq.gz'
-            shutil.copy(r2_file, temp_r2)
-            command.extend(
-                [
-                    '-I',
-                    f'/data/{sample_name}_R2.fq.gz',
-                    '-O',
-                    f'/data/output/{sample_name}_fastp_R2.fq.gz',
-                ]
-            )
-            outputs['r2'] = output_path / f'{sample_name}_fastp_R2.fq.gz'
-        command.extend(
-            [
-                '-h',
-                f'/data/output/{sample_name}_fastp.html',
-                '-j',
-                f'/data/output/{sample_name}_fastp.json',
-                '-w',
-                thread,
-            ]
-        )
-        outputs['json_report'] = output_path / f'{sample_name}_fastp.json'
+    commands = [
+        'fastp',
+        f'-i /data/raw/{r1_file.name}',
+        f'-I /data/raw/{r1_file.name}',
+        f'-o /data/output/{sample_name}_fastp_R1.fq.gz',
+        f'-O /data/output/{sample_name}_fastp_R2.fq.gz',
+        f'-j /data/output/{sample_name}_fastp.json',
+        f'-w {thread}',
+    ]
 
-        client.containers.run(
-            FASTP_IMAGE,
-            command,
-            volumes={
-                temp_dir: {'bind': '/data', 'mode': 'rw'},
-                output_path.absolute(): {'bind': '/data/output', 'mode': 'rw'},
-            },
-            auto_remove=True,
-        )
+    outputs['r1'] = output_path / f'{sample_name}_fastp_R1.fq.gz'
+    outputs['r2'] = output_path / f'{sample_name}_fastp_R2.fq.gz'
+    outputs['json_report'] = output_path / f'{sample_name}_fastp.json'
 
-        return FastpOutput.model_validate(outputs)
+    client.containers.run(
+        FASTP_IMAGE,
+        ' '.join(commands),
+        volumes={
+            r1_file.absolute().parent: {'bind': '/data/raw', 'mode': 'rw'},
+            output_path.absolute(): {'bind': '/data/output', 'mode': 'rw'},
+        },
+        auto_remove=True,
+    )
+
+    return FastpOutput.model_validate(outputs)

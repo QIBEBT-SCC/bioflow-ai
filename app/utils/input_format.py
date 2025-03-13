@@ -20,4 +20,6 @@ def get_path(
 
     sample_name = os.path.commonprefix([r1_file.name, r2_file.name]).strip('_')
 
+    output_path.mkdir(parents=True, exist_ok=True)
+
     return r1_file, r2_file, output_path, sample_name
