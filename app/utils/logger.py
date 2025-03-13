@@ -19,47 +19,58 @@ class InterceptHandler(logging.Handler):
         初始化拦截处理器
 
         Args:
-            logger_type: 日志类型，用于分类存储，可选值: "default", "fastapi", "toil", "user"
+            logger_type: 日志类型，用于分类存储，可选值: "default", "fastapi"
         """
         super().__init__()
         self.logger_type = logger_type
 
     def emit(self, record: logging.LogRecord) -> None:
-        # 获取对应的 Loguru 日志级别
         try:
             level = logger.level(record.levelname).name
         except ValueError:
             level = str(record.levelno)
 
-        # 查找日志消息的调用者
         frame, depth = logging.currentframe(), 2
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = cast(FrameType, frame.f_back)
             depth += 1
 
-        # 提取额外的上下文信息
         extra = {
             'logger_type': self.logger_type,
-            'logger_name': record.name,
-            'pathname': record.pathname,
+            'name': record.name,
+            'module': record.module,
+            'filename': record.filename,
             'funcName': record.funcName,
-            'created': record.created,
-            'thread': record.thread,
-            'threadName': record.threadName,
-            'process': record.process,
-            'processName': record.processName,
+            'lineno': record.lineno,
         }
 
-        # 使用 bind 方法添加上下文信息
+        if 'flow_runs' in record.name:
+            extra['logger_type'] = 'prefect.work'
+            extra['runDes'] = 'Flow run'
+            extra['runName'] = record.flow_run_name
+        elif 'task_runs' in record.name:
+            extra['logger_type'] = 'prefect.work'
+            extra['runDes'] = 'Task run'
+            extra['runName'] = record.task_run_name
+
         bound_logger = logger.bind(**extra)
 
-        # 特殊处理认证相关日志
-        if '/api/v1/auth' in record.getMessage():
-            bound_logger.opt(depth=depth, exception=record.exc_info).log(
-                'DEBUG', record.getMessage()
-            )
-        else:
-            bound_logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+        # print(record.__dict__.items())
+        bound_logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+class IgnoreHandler(logging.Handler):
+    def __init__(self):
+        super().__init__()
+
+    def emit(self, record: logging.LogRecord):
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = cast(FrameType, frame.f_back)
+            depth += 1
+
+        bound_logger = logger.bind(logger_type='httpx')
+        bound_logger.opt(depth=depth, exception=record.exc_info).debug(record.getMessage())
 
 
 now = datetime.now()
@@ -75,14 +86,29 @@ log_config = settings.logger
 # 基础日志配置
 loguru_config = {
     'handlers': [
+        # 其它普通重定向
         {
             'sink': sys.stdout,
             'level': log_config.LEVEL,
             'format': '<green>{time:HH:mm:ss}</green> <red>|</red> '
             '<level>{level: <8}</level> <red>|</red>'
             '<bold>{extra[logger_type]: <7}</bold><red>|</red> '
-            '<cyan>{module}</cyan><red>:</red><cyan>{file.name}</cyan><red>:</red><cyan>{line}</cyan> <red>-</red> <level>{message}</level>',
-            'filter': lambda record: 'logger_type' in record['extra'],
+            '<cyan>{extra[name]}</cyan><red>:</red><cyan>{extra[funcName]}</cyan><red>:</red><cyan>{extra[lineno]}</cyan> <red>-</red> <level>{message}</level>',
+            'filter': lambda record: 'logger_type' in record['extra']
+            and record['extra']['logger_type'] != 'prefect.work',
+            'colorize': True,
+        },
+        # prefect 重定向
+        {
+            'sink': sys.stdout,
+            'level': log_config.LEVEL,
+            'format': '<green>{time:HH:mm:ss}</green> <red>|</red> '
+            '<level>{level: <8}</level> <red>|</red>'
+            '<bold><yellow>prefect</yellow></bold><red>|</red> '
+            "{extra[runDes]} '<magenta>{extra[runName]}</magenta>' "
+            '<red>-</red> <level>{message}</level>',
+            'filter': lambda record: 'logger_type' in record['extra']
+            and record['extra']['logger_type'] == 'prefect.work',
             'colorize': True,
         },
         {
@@ -91,7 +117,7 @@ loguru_config = {
             'format': '<green>{time:HH:mm:ss}</green> <red>|</red> '
             '<level>{level: <8}</level> <red>|</red>'
             '<bold>default</bold><red>|</red> '
-            '<cyan>{module}</cyan><red>:</red><cyan>{file.name}</cyan><red>:</red><cyan>{line}</cyan> <red>-</red> <level>{message}</level>',
+            '<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> <red>-</red> <level>{message}</level>',
             'filter': lambda record: 'logger_type' not in record['extra'],
             'colorize': True,
         },
@@ -112,17 +138,7 @@ loguru_config = {
             'retention': log_config.LOG_RETENTION,
             'encoding': 'utf-8',
             'format': '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | fastapi | {function}:{line} - {message}',
-            'filter': lambda record: record['extra'].get('logger_type') == 'fastapi',
-        },
-        # Toil日志
-        {
-            'sink': f'log/toil/toil_{year}{month:02d}{day:02d}.log',
-            'level': log_config.TOIL_LEVEL,
-            'rotation': log_config.LOG_ROTATION,
-            'retention': log_config.LOG_RETENTION,
-            'encoding': 'utf-8',
-            'format': '{time:YYYY-MM-DD HH:mm:ss.SSS} |{level: <8}| {module}:{file.name}:{line} - {message}',
-            'filter': lambda record: record['extra'].get('logger_type') == 'toil',
+            'filter': lambda record: record['extra'].get('logger_type', '') == 'fastapi',
         },
         # 错误日志（所有类型的错误都会记录）
         {
@@ -141,8 +157,8 @@ def init_logging():
     """初始化日志系统，拦截所有库的日志并重定向到loguru"""
 
     # 设置默认的日志处理器
-    logging.getLogger().handlers = [InterceptHandler()]
-    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger().handlers = [InterceptHandler('other')]
+    logging.getLogger().propagate = False
 
     # FastAPI相关日志
     fastapi_loggers = ['uvicorn.asgi', 'uvicorn.access', 'uvicorn', 'fastapi']
@@ -151,12 +167,16 @@ def init_logging():
         logging_logger.handlers = [InterceptHandler(logger_type='fastapi')]
         logging_logger.propagate = False
 
-    # Toil相关日志
-    toil_loggers = ['toil']
-    for logger_name in toil_loggers:
-        logging_logger = logging.getLogger(logger_name)
-        logging_logger.handlers = [InterceptHandler(logger_type='toil')]
-        logging_logger.propagate = False
+    # prefect日志重定向
+    prefect_logger = logging.getLogger('prefect')
+    prefect_logger.handlers = [InterceptHandler(logger_type='prefect')]
+    prefect_logger.propagate = False
+
+    # httpx日志重定向
+    httpx_logger = logging.getLogger('httpx')
+    # httpx_logger.handlers = [IgnoreHandler()]
+    httpx_logger.handlers = [InterceptHandler(logger_type='httpx')]
+    httpx_logger.propagate = False
 
     # 配置loguru
     logger.configure(**loguru_config)

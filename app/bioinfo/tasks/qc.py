@@ -11,7 +11,7 @@ from prefect import task
 from app.bioinfo.tasks import FASTP_IMAGE
 
 
-@task
+@task(log_prints=True)
 def fastp(
     r1: str | PathLike, r2: str | PathLike, output_dir: str | PathLike
 ) -> tuple[PathLike, Optional[PathLike]]:
