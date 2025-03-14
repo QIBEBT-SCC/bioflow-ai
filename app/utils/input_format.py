@@ -18,7 +18,7 @@ def get_path(
     r2_file = Path(r2) if isinstance(r2, str) else r2
     output_path = Path(output_dir) if isinstance(output_dir, str) else output_dir
 
-    sample_name = os.path.commonprefix([r1_file.name, r2_file.name]).strip('_')
+    sample_name = os.path.commonprefix([r1_file.name, r2_file.name]).strip('_R').strip('_')
 
     output_path.mkdir(parents=True, exist_ok=True)
 
