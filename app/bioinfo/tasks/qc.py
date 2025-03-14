@@ -17,7 +17,7 @@ class FastpOutput(BaseModel):
 
 
 @task(log_prints=True)
-def fastp(
+async def fastp(
     r1: str | PathLike, r2: str | PathLike, output_dir: str | PathLike, *, thread: int = 8
 ) -> FastpOutput:
     """运行Fastp软件对原始数据进行质控

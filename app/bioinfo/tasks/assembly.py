@@ -4,16 +4,16 @@ from os import PathLike
 from pathlib import Path
 from typing import Literal
 
-import docker
 from prefect import task
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
+from app.utils.docker import run_container_async
 from app.utils.input_format import get_path
 
 
 @task(log_prints=True)
-def rename(input_file: str | PathLike, output_dir: str | PathLike) -> Path:
+async def rename(input_file: str | PathLike, output_dir: str | PathLike) -> Path:
     """对fastq文件进行重命名
 
     Args:
@@ -28,10 +28,8 @@ def rename(input_file: str | PathLike, output_dir: str | PathLike) -> Path:
     origin_name = input_path.name.split('.')[0]
     new_name = input_path.name.replace(origin_name, f'{origin_name}_rename')
 
-    client = docker.from_env()
     commands = [
-        'bash -c',
-        '"gzip',
+        'gzip',
         f'-cd /data/raw/{input_path.name}',
         '|',
         'fastx_renamer',
@@ -39,19 +37,18 @@ def rename(input_file: str | PathLike, output_dir: str | PathLike) -> Path:
         '-i /dev/stdin',
         '-Q33',
         '-z',
-        f'-o /data/output/{new_name}"',
+        '-o',
+        f'/data/output/{new_name}',
     ]
 
     image_cfg = get_settings().docker.fastx
-    client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
-    client.containers.run(
+    await run_container_async(
         image_cfg.get_image(),
-        ' '.join(commands),
-        volumes={
-            input_path.absolute().parent: {'bind': '/data/raw', 'mode': 'rw'},
-            output_path.absolute(): {'bind': '/data/output', 'mode': 'rw'},
-        },
-        auto_remove=True,
+        commands=['/bin/bash', '-c', ' '.join(commands)],
+        volumes_binds=[
+            f'{input_path.absolute().parent}:/data/raw',
+            f'{output_path.absolute()}:/data/output',
+        ],
     )
 
     return output_path / new_name
@@ -63,7 +60,7 @@ class BBNormOutput(BaseModel):
 
 
 @task
-def bb_norm(
+async def bb_norm(
     r1: str | PathLike,
     r2: str | PathLike,
     output_dir: str | PathLike,
@@ -84,28 +81,25 @@ def bb_norm(
 
     """
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
+    image_cfg = get_settings().docker.bbmap
 
-    client = docker.from_env()
     commands = [
         'bbnorm.sh',
-        f'in=/data/{r1_file.name}',
-        f'in2=/data/{r2_file.name}',
-        f'out=/data/{sample_name}_R1_norm.fq.gz',
-        f'out2=/data/{sample_name}_R2_norm.fq.gz',
+        f'in=/data/raw/{r1_file.name}',
+        f'in2=/data/raw/{r2_file.name}',
+        f'out=/data/output/{sample_name}_R1_norm.fq.gz',
+        f'out2=/data/output/{sample_name}_R2_norm.fq.gz',
         f'threads={thread}',
         f'-Xmx{memory}g',
     ]
 
-    image_cfg = get_settings().docker.bbmap
-    client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
-    client.containers.run(
+    await run_container_async(
         image_cfg.get_image(),
-        ' '.join(commands),
-        volumes={
-            r1_file.absolute().parent: {'bind': '/data', 'mode': 'rw'},
-            output_path.absolute(): {'bind': '/data/output', 'mode': 'rw'},
-        },
-        auto_remove=True,
+        commands=commands,
+        volumes_binds=[
+            f'{r1_file.absolute().parent}:/data/raw',
+            f'{output_path.absolute()}:/data/output',
+        ],
     )
 
     return BBNormOutput(
@@ -121,7 +115,7 @@ class SpadesOutput(BaseModel):
 
 
 @task
-def spades(
+async def spades(
     r1: str | PathLike,
     r2: str | PathLike,
     output_dir: str | PathLike,
@@ -130,33 +124,26 @@ def spades(
     thread: int = 64,
 ):
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
+    image_cfg = get_settings().docker.spades
 
-    client = docker.from_env()
     with tempfile.TemporaryDirectory() as temp_dir:
-        command = [
+        commands = [
             'spades.py',
-            '-1',
-            f'/data/{r1_file.name}',
-            '-2',
-            f'/data/{r2_file.name}',
+            f'-1 /data/raw/{r1_file.name}',
+            f'-2 /data/raw/{r2_file.name}',
             f'--{mode}',
-            '-t',
-            f'{thread}',
+            f'-t {thread}',
             '--gfa11',
-            '-o',
-            '/data/output',
+            '-o /data/output',
         ]
 
-        image_cfg = get_settings().docker.spades
-        client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
-        client.containers.run(
+        await run_container_async(
             image_cfg.get_image(),
-            command,
-            volumes={
-                r1_file.absolute().parent: {'bind': '/data', 'mode': 'rw'},
-                output_path.absolute(): {'bind': '/data/output', 'mode': 'rw'},
-            },
-            auto_remove=True,
+            commands=[' '.join(commands)],
+            volumes_binds=[
+                f'{r1_file.absolute().parent}:/data/raw',
+                f'{output_path.absolute()}:/data/output',
+            ],
         )
 
         shutil.copy(Path(temp_dir) / 'contigs.fasta', output_path / 'contigs.fasta')

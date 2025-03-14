@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "aiodocker>=0.24.0",
     "docker>=7.1.0",
     "fastapi>=0.115.8",
     "langgraph>=0.2.73",
