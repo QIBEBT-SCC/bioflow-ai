@@ -13,13 +13,32 @@ from pydantic_settings import (
 )
 
 
+class ImageConfig(BaseModel):
+    REPOSITORY: str
+    TAG: str = 'latest'
+
+    def get_image(self) -> str:
+        return f'{self.REPOSITORY}:{self.TAG}'
+
+
 class DockerConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    FAST_QC_IMAGE: str = 'imagehub.cstcloud.cn/biocontainers/fastqc:0.11.5--4'
-    FASTP_IMAGE: str = 'imagehub.cstcloud.cn/biocontainers/fastp:0.23.4--h125f33a_5'
-    METAPHLAN_IMAGE: str = 'imagehub.cstcloud.cn/biocontainers/metaphlan:4.1.1--pyhdfd78af_0'
-    PGGB_IMAGE: str = 'imagehub.cstcloud.cn/biocontainers/pggb:0.7.2--h9ee0642_0'
+    fast_qc: ImageConfig = ImageConfig(
+        REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastqc', TAG='0.11.5--4'
+    )
+    fastp: ImageConfig = ImageConfig(
+        REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastp', TAG='0.23.4--h125f33a_5'
+    )
+    fastx: ImageConfig = ImageConfig(
+        REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastx_toolkit', TAG='0.0.14--he1b5a44_8'
+    )
+    bbmap: ImageConfig = ImageConfig(
+        REPOSITORY='imagehub.cstcloud.cn/biocontainers/bbmap', TAG='39.10--h92535d8_0'
+    )
+    spades: ImageConfig = ImageConfig(
+        REPOSITORY='imagehub.cstcloud.cn/biocontainers/spades', TAG='4.0.0--h6dccd9a_3'
+    )
 
 
 class LogConfig(BaseModel):
@@ -27,8 +46,7 @@ class LogConfig(BaseModel):
 
     LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     FASTAPI_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
-    TOIL_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
-    USER_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'DEBUG'
+    PREFECT_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     ERROR_LEVEL: Literal['ERROR'] = 'ERROR'
     LOG_RETENTION: str = '1 week'
     LOG_ROTATION: str = '10 MB'
@@ -42,8 +60,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = 'Smart SCHOOL'
     VERSION: str = '2.0.0'
 
-    docker: DockerConfig = DockerConfig()
     logger: LogConfig = LogConfig()
+    docker: DockerConfig = DockerConfig()
 
     @classmethod
     def settings_customise_sources(

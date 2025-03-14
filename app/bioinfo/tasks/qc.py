@@ -6,7 +6,7 @@ import docker
 from prefect import task
 from pydantic import BaseModel
 
-from app.bioinfo.tasks import FASTP_IMAGE
+from app.utils.config import get_settings
 from app.utils.input_format import get_path
 
 
@@ -52,8 +52,10 @@ def fastp(
     outputs['r2'] = output_path / f'{sample_name}_fastp_R2.fq.gz'
     outputs['json_report'] = output_path / f'{sample_name}_fastp.json'
 
+    image_cfg = get_settings().docker.fastp
+    client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
     client.containers.run(
-        FASTP_IMAGE,
+        image_cfg.get_image(),
         ' '.join(commands),
         volumes={
             r1_file.absolute().parent: {'bind': '/data/raw', 'mode': 'rw'},
