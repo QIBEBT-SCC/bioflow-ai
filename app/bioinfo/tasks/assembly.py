@@ -28,6 +28,9 @@ async def rename(input_file: str | PathLike, output_dir: str | PathLike) -> Path
     origin_name = input_path.name.split('.')[0]
     new_name = input_path.name.replace(origin_name, f'{origin_name}_rename')
 
+    if (output_path / new_name).exists():
+        return output_path / new_name
+
     commands = [
         'gzip',
         f'-cd /data/raw/{input_path.name}',
@@ -35,7 +38,6 @@ async def rename(input_file: str | PathLike, output_dir: str | PathLike) -> Path
         'fastx_renamer',
         '-n COUNT',
         '-i /dev/stdin',
-        '-Q33',
         '-z',
         '-o',
         f'/data/output/{new_name}',
@@ -83,6 +85,13 @@ async def bb_norm(
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
     image_cfg = get_settings().docker.bbmap
 
+    outputs = {
+        'r1': output_path / f'{sample_name}_R1_norm.fq.gz',
+        'r2': output_path / f'{sample_name}_R2_norm.fq.gz',
+    }
+    if all(path.exists() for path in outputs.values()):
+        return BBNormOutput.model_validate(outputs)
+
     commands = [
         'bbnorm.sh',
         f'in=/data/raw/{r1_file.name}',
@@ -102,15 +111,11 @@ async def bb_norm(
         ],
     )
 
-    return BBNormOutput(
-        r1=output_path / f'{sample_name}_R1_norm.fq.gz',
-        r2=output_path / f'{sample_name}_R2_norm.fq.gz',
-    )
+    return BBNormOutput.model_validate(outputs)
 
 
 class SpadesOutput(BaseModel):
     contig: Path
-    scaffolds: Path
     log: Path
 
 
@@ -126,32 +131,34 @@ async def spades(
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
     image_cfg = get_settings().docker.spades
 
-    with tempfile.TemporaryDirectory() as temp_dir:
+    outputs = {
+        'contig': output_path / 'contigs.fasta',
+        'log': output_path / 'spades.log',
+    }
+
+    if all(path.exists() for path in outputs.values()):
+        return SpadesOutput.model_validate(outputs)
+
+    with tempfile.TemporaryDirectory(prefix='prefect_spades_') as temp_dir:
         commands = [
             'spades.py',
             f'-1 /data/raw/{r1_file.name}',
             f'-2 /data/raw/{r2_file.name}',
             f'--{mode}',
             f'-t {thread}',
-            '--gfa11',
             '-o /data/output',
         ]
 
         await run_container_async(
             image_cfg.get_image(),
-            commands=[' '.join(commands)],
+            commands=['/bin/bash', '-c', ' '.join(commands)],
             volumes_binds=[
                 f'{r1_file.absolute().parent}:/data/raw',
-                f'{output_path.absolute()}:/data/output',
+                f'{Path(temp_dir).absolute()}:/data/output',
             ],
         )
 
         shutil.copy(Path(temp_dir) / 'contigs.fasta', output_path / 'contigs.fasta')
-        shutil.copy(Path(temp_dir) / 'scaffolds.fasta', output_path / 'scaffolds.fasta')
         shutil.copy(Path(temp_dir) / 'spades.log', output_path / 'spades.log')
 
-    return SpadesOutput(
-        contig=output_path / 'contigs.fasta',
-        scaffolds=output_path / 'scaffolds.fasta',
-        log=output_path / 'spades.log',
-    )
+    return SpadesOutput.model_validate(outputs)
