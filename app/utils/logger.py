@@ -158,7 +158,7 @@ def init_logging():
 
     # 设置默认的日志处理器
     logging.getLogger().handlers = [InterceptHandler('other')]
-    logging.getLogger().propagate = False
+    # logging.getLogger().propagate = False
 
     # FastAPI相关日志
     fastapi_loggers = ['uvicorn.asgi', 'uvicorn.access', 'uvicorn', 'fastapi']

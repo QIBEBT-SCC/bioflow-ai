@@ -28,7 +28,7 @@ class DockerConfig(BaseModel):
         REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastqc', TAG='0.11.5--4'
     )
     fastp: ImageConfig = ImageConfig(
-        REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastp', TAG='0.23.4--h125f33a_5'
+        REPOSITORY='staphb/fastp', TAG='0.24.0'
     )
     fastx: ImageConfig = ImageConfig(
         REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastx_toolkit', TAG='0.0.14--he1b5a44_8'

@@ -6,13 +6,16 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiodocker>=0.24.0",
+    "aiofiles>=24.1.0",
     "docker>=7.1.0",
     "fastapi>=0.115.8",
     "langgraph>=0.2.73",
     "loguru>=0.7.3",
     "prefect>=3.2.12",
     "pydantic-settings>=2.8.1",
+    "sqlmodel>=0.0.24",
     "tomli-w>=1.2.0",
+    "tqdm>=4.67.1",
 ]
 
 [tool.prefect]

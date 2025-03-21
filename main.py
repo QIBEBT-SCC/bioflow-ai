@@ -1,9 +1,56 @@
 import asyncio
+from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+from loguru import logger
+from starlette.middleware.cors import CORSMiddleware
+
+from app.api.v1.endpoints import workflow
 from app.bioinfo.workflows import main_flow
+from app.utils.config import get_settings
 from app.utils.logger import init_logging
 
 
-if __name__ == '__main__':
+@asynccontextmanager
+async def lifespan(main_app: FastAPI):  # pylint: disable=unused-argument
     init_logging()
-    asyncio.run(main_flow())
+    # create_db_and_tables()
+    yield
+
+    logger.info('server stop')
+
+
+app = FastAPI(title=get_settings().PROJECT_NAME, version=get_settings().VERSION, lifespan=lifespan)
+
+origins = ['http://localhost', 'http://127.0.0.1']
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+
+app.include_router(workflow.router, prefix='/api/v1/workflow', tags=['workflow'])
+
+
+def main() -> None:
+    config = uvicorn.Config(
+        'main:app',
+        host='0.0.0.0',
+        # port=get_settings().network.SERVICE_HOST_PORT,
+        access_log=True,
+        workers=1,
+    )
+    server = uvicorn.Server(config)
+
+    try:
+        server.run()
+    except KeyboardInterrupt as e:
+        logger.error(f'server closed for {e}')
+
+
+if __name__ == '__main__':
+    main()
