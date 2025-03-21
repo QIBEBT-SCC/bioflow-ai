@@ -27,7 +27,6 @@ async def run_container_async(image: str, commands: list[str], volumes_binds: li
                 logs_str = ''.join(logs)
                 raise RuntimeError(f'Container exited with code {exit_code}. log: {logs_str}')
         finally:
-
             await container.delete(force=True)
 
 
