@@ -14,12 +14,12 @@ class InterceptHandler(logging.Handler):
     拦截标准库logging的日志处理器，将其重定向到loguru
     """
 
-    def __init__(self, logger_type: str = 'default'):
+    def __init__(self, logger_type: str = 'other'):
         """
         初始化拦截处理器
 
         Args:
-            logger_type: 日志类型，用于分类存储，可选值: "default", "fastapi"
+            logger_type: 日志类型，用于分类存储
         """
         super().__init__()
         self.logger_type = logger_type
@@ -52,10 +52,11 @@ class InterceptHandler(logging.Handler):
             extra['logger_type'] = 'prefect.work'
             extra['runDes'] = 'Task run'
             extra['runName'] = record.task_run_name
+        # else:
+        #     print(record.__dict__.items())
 
         bound_logger = logger.bind(**extra)
 
-        # print(record.__dict__.items())
         bound_logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
@@ -86,13 +87,13 @@ log_config = settings.logger
 # 基础日志配置
 loguru_config = {
     'handlers': [
-        # 其它普通重定向
+        # fastapi 重定向
         {
             'sink': sys.stdout,
             'level': log_config.LEVEL,
             'format': '<green>{time:HH:mm:ss}</green> <red>|</red> '
             '<level>{level: <8}</level> <red>|</red>'
-            '<bold>{extra[logger_type]: <7}</bold><red>|</red> '
+            '<bold><light-blue>{extra[logger_type]: <7}</light-blue></bold><red>|</red> '
             '<cyan>{extra[name]}</cyan><red>:</red><cyan>{extra[funcName]}</cyan><red>:</red><cyan>{extra[lineno]}</cyan> <red>-</red> <level>{message}</level>',
             'filter': lambda record: 'logger_type' in record['extra']
             and record['extra']['logger_type'] != 'prefect.work',
@@ -147,7 +148,7 @@ loguru_config = {
             'retention': log_config.LOG_RETENTION,
             'rotation': log_config.LOG_ROTATION,
             'encoding': 'utf-8',
-            'format': '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {extra[logger_type]: <8} | {file.name}:{line} - {message}\n{exception}',
+            'format': '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {file.name}:{line} - {message}\n{exception}',
         },
     ]
 }
@@ -158,7 +159,7 @@ def init_logging():
 
     # 设置默认的日志处理器
     logging.getLogger().handlers = [InterceptHandler('other')]
-    # logging.getLogger().propagate = False
+    logging.getLogger().propagate = False
 
     # FastAPI相关日志
     fastapi_loggers = ['uvicorn.asgi', 'uvicorn.access', 'uvicorn', 'fastapi']

@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -7,14 +6,12 @@ from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.v1.endpoints import workflow
-from app.bioinfo.workflows import main_flow
 from app.utils.config import get_settings
 from app.utils.logger import init_logging
 
 
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):  # pylint: disable=unused-argument
-    init_logging()
     # create_db_and_tables()
     yield
 
@@ -45,11 +42,12 @@ def main() -> None:
         workers=1,
     )
     server = uvicorn.Server(config)
+    init_logging()
 
     try:
         server.run()
-    except KeyboardInterrupt as e:
-        logger.error(f'server closed for {e}')
+    except KeyboardInterrupt:
+        logger.bind().error('server closed by user')
 
 
 if __name__ == '__main__':

@@ -1,5 +1,7 @@
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
+from loguru import logger
+
 from app.schema.react_flow import WorkflowDefinition
 from app.bioinfo.workflow_builder import WorkflowBuilder
 
@@ -16,7 +18,7 @@ async def run_workflow(workflow: WorkflowDefinition) -> Dict[str, Any]:
     Returns:
         工作流执行结果
     """
-    print(workflow)
+    logger.info(workflow.model_dump_json())
     return {'status': 'success', 'result': 'OK'}
     # try:
     #     # 创建工作流构建器
