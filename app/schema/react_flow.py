@@ -1,5 +1,5 @@
-from typing import List
-from pydantic import BaseModel
+from typing import List, Any
+from pydantic import BaseModel, Field
 
 
 class Position(BaseModel):
@@ -17,6 +17,7 @@ class Node(BaseModel):
     type: str
     position: Position
     measured: Measured
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class Edge(BaseModel):
