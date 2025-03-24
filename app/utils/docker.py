@@ -1,4 +1,16 @@
+import os
 from app.utils.config import ImageConfig
+
+
+def get_current_user_identity() -> str:
+    """获取当前用户的UID:GID
+
+    Returns:
+        str: 格式为 "UID:GID" 的字符串
+    """
+    uid = os.getuid()
+    gid = os.getgid()
+    return f'{uid}:{gid}'
 
 
 async def run_container_async(image: str, commands: list[str], volumes_binds: list[str]) -> None:
@@ -14,7 +26,12 @@ async def run_container_async(image: str, commands: list[str], volumes_binds: li
     async with aiodocker.Docker() as docker:
         await docker.pull(image)
 
-        container_config = {'Image': image, 'Cmd': commands, 'HostConfig': {'Binds': volumes_binds}}
+        container_config = {
+            'Image': image,
+            'Cmd': commands,
+            'HostConfig': {'Binds': volumes_binds},
+            'User': get_current_user_identity(),
+        }
         container = await docker.containers.run(config=container_config)
 
         try:
@@ -38,5 +55,9 @@ def run_container(
     client = docker.from_env()
     client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
     client.containers.run(
-        image_cfg.get_image(), commands, volumes=volumes_binds, auto_remove=auto_remove
+        image_cfg.get_image(),
+        commands,
+        volumes=volumes_binds,
+        user=get_current_user_identity(),
+        auto_remove=auto_remove,
     )
