@@ -13,34 +13,6 @@ from pydantic_settings import (
 )
 
 
-class ImageConfig(BaseModel):
-    REPOSITORY: str
-    TAG: str = 'latest'
-
-    def get_image(self) -> str:
-        return f'{self.REPOSITORY}:{self.TAG}'
-
-
-class DockerConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    fast_qc: ImageConfig = ImageConfig(
-        REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastqc', TAG='0.11.5--4'
-    )
-    fastp: ImageConfig = ImageConfig(
-        REPOSITORY='staphb/fastp', TAG='0.24.0'
-    )
-    fastx: ImageConfig = ImageConfig(
-        REPOSITORY='imagehub.cstcloud.cn/biocontainers/fastx_toolkit', TAG='0.0.14--he1b5a44_8'
-    )
-    bbmap: ImageConfig = ImageConfig(
-        REPOSITORY='imagehub.cstcloud.cn/biocontainers/bbmap', TAG='39.10--h92535d8_0'
-    )
-    spades: ImageConfig = ImageConfig(
-        REPOSITORY='imagehub.cstcloud.cn/biocontainers/spades', TAG='4.0.0--h6dccd9a_3'
-    )
-
-
 class LogConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
@@ -52,6 +24,38 @@ class LogConfig(BaseModel):
     LOG_ROTATION: str = '10 MB'
 
 
+class NetworkConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    HOST: str = '0.0.0.0'
+    PORT: int = 8000
+    PROXY_TYPE: Literal['http', 'socks5'] = 'http'
+    PROXY_HOST: str = 'localhost'
+    PROXY_PORT: int = 7890
+    USE_PROXY: bool = False
+
+
+class PersistenceConfig(BaseModel):
+    db_url: str = 'postgresql://root:123456@127.0.0.1:5432/smart_school'
+    storage_path: str = './storage'
+
+
+class ImageConfig(BaseModel):
+    REPOSITORY: str
+    TAG: str = 'latest'
+
+    def get_image(self) -> str:
+        return f'{self.REPOSITORY}:{self.TAG}'
+
+
+class DockerConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    fastp: ImageConfig = ImageConfig(REPOSITORY='staphb/fastp', TAG='0.24.0')
+    bowtie2: ImageConfig = ImageConfig(REPOSITORY='staphb/bowtie2', TAG='2.5.4')
+    spades: ImageConfig = ImageConfig(REPOSITORY='staphb/spades', TAG='4.1.0')
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         toml_file='config.toml', alias_generator=lambda field_name: field_name.lower()
@@ -61,6 +65,8 @@ class Settings(BaseSettings):
     VERSION: str = '2.0.0'
 
     logger: LogConfig = LogConfig()
+    network: NetworkConfig = NetworkConfig()
+    persistent: PersistenceConfig = PersistenceConfig()
     docker: DockerConfig = DockerConfig()
 
     @classmethod
@@ -76,7 +82,6 @@ class Settings(BaseSettings):
 
     def save_to_file(self, file_path: str = 'config.toml'):
         """将当前配置保存到TOML文件"""
-        # 将配置转换为字典
         config_dict = self.model_dump(by_alias=True)
 
         for key, value in config_dict.items():
