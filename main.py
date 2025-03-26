@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import workflow
+from app.api.v1.endpoints import workflow, tool
 from app.utils.config import get_settings
 from app.utils.logger import init_logging
 
@@ -31,13 +31,14 @@ app.add_middleware(
 )
 
 app.include_router(workflow.router, prefix='/api/v1/workflow', tags=['workflow'])
+app.include_router(tool.router, prefix='/api/v1/tool', tags=['tool'])
 
 
 def main() -> None:
     config = uvicorn.Config(
         'main:app',
-        host='0.0.0.0',
-        # port=get_settings().network.SERVICE_HOST_PORT,
+        host=get_settings().network.HOST,
+        port=get_settings().network.PORT,
         access_log=True,
         workers=1,
     )

@@ -36,8 +36,16 @@ class NetworkConfig(BaseModel):
 
 
 class PersistenceConfig(BaseModel):
-    db_url: str = 'postgresql://root:123456@127.0.0.1:5432/smart_school'
-    storage_path: str = './storage'
+    DB_URL: str = 'postgresql://root:123456@127.0.0.1:5432/smart_school'
+    STORAGE_PATH: str = './storage'
+
+
+class ToolConfig(BaseModel):
+    THREADS: int = 8
+    MAX_MEM: str = '16g'
+    REFERENCE_PATH: str = './storage/reference'
+    KRAKEN_DB: str = './storage/bio_db/kraken'
+    CHECKM2_DB: str = './storage/bio_db/checkm2'
 
 
 class ImageConfig(BaseModel):
@@ -67,6 +75,7 @@ class Settings(BaseSettings):
     logger: LogConfig = LogConfig()
     network: NetworkConfig = NetworkConfig()
     persistent: PersistenceConfig = PersistenceConfig()
+    tool: ToolConfig = ToolConfig()
     docker: DockerConfig = DockerConfig()
 
     @classmethod
@@ -105,6 +114,7 @@ def get_settings() -> Settings:
         settings = Settings()
         settings.save_to_file(config_path)
         logger.warning(f'配置文件"{config_path}"不存在，已自动初始化默认配置，请完善相关设置')
+        exit(-1)
 
     settings = Settings()
     return settings
