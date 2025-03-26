@@ -2,7 +2,9 @@ from os import PathLike
 from pathlib import Path
 from typing import Optional
 
+from loguru import logger
 from prefect import task
+from prefect.context import get_run_context
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
@@ -34,6 +36,9 @@ async def fastp(
             r2: 清洗后的r2文件
             json_report: json格式的指控报告
     """
+    ctx = get_run_context()
+    logger.info(ctx)
+
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
     image_cfg = get_settings().docker.fastp
 
