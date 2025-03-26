@@ -16,7 +16,6 @@ class Node(BaseModel):
     id: str
     type: str
     position: Position
-    measured: Measured
     data: dict[str, Any] = Field(default_factory=dict)
 
 
