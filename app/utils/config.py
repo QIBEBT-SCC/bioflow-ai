@@ -36,19 +36,27 @@ class NetworkConfig(BaseModel):
 
 
 class PersistenceConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
     DB_URL: str = 'postgresql://root:123456@127.0.0.1:5432/smart_school'
     STORAGE_PATH: str = './storage'
 
 
 class ToolConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
     THREADS: int = 8
     MAX_MEM: str = '16g'
     REFERENCE_PATH: str = './storage/reference'
     KRAKEN_DB: str = './storage/bio_db/kraken'
     CHECKM2_DB: str = './storage/bio_db/checkm2'
+    DIAMOND_DB: str = './storage/bio_db/blast/diamond'
+    MEGAN_MAPPING_DB: str = './storage/bio_db/megan/megan-map.db'
 
 
 class ImageConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
     REPOSITORY: str
     TAG: str = 'latest'
 
@@ -59,9 +67,19 @@ class ImageConfig(BaseModel):
 class DockerConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    fastp: ImageConfig = ImageConfig(REPOSITORY='staphb/fastp', TAG='0.24.0')
-    bowtie2: ImageConfig = ImageConfig(REPOSITORY='staphb/bowtie2', TAG='2.5.4')
-    spades: ImageConfig = ImageConfig(REPOSITORY='staphb/spades', TAG='4.1.0')
+    fastp: ImageConfig = ImageConfig.model_validate({'repository': 'staphb/fastp', 'tag': '0.24.0'})
+    bowtie2: ImageConfig = ImageConfig.model_validate(
+        {'repository': 'staphb/bowtie2', 'tag': '2.5.4'}
+    )
+    spades: ImageConfig = ImageConfig.model_validate(
+        {'repository': 'staphb/spades', 'tag': '4.1.0'}
+    )
+    diamond: ImageConfig = ImageConfig.model_validate(
+        {'repository': 'staphb/diamond', 'tag': '2.1.11'}
+    )
+    megan: ImageConfig = ImageConfig.model_validate(
+        {'repository': 'imagehub.cstcloud.cn/biocontainers/megan', 'tag': '6.25.9--h9ee0642_0'}
+    )
 
 
 class Settings(BaseSettings):
@@ -89,7 +107,7 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (TomlConfigSettingsSource(settings_cls),)
 
-    def save_to_file(self, file_path: str = 'config.toml'):
+    def save_to_file(self, file_path: str = 'config1.toml'):
         """将当前配置保存到TOML文件"""
         config_dict = self.model_dump(by_alias=True)
 
@@ -112,7 +130,7 @@ def get_settings() -> Settings:
     config_path = 'config.toml'
     if not os.path.exists(config_path):
         settings = Settings()
-        settings.save_to_file(config_path)
+        settings.save_to_file('config.example.toml')
         logger.warning(f'配置文件"{config_path}"不存在，已自动初始化默认配置，请完善相关设置')
         exit(-1)
 
