@@ -12,4 +12,5 @@ wheels/
 .idea
 /test/
 /config.toml
-docker/prefect/docker-compose.yaml
+/storage/
+/log/
