@@ -1,8 +1,5 @@
 from pathlib import Path
 
-from loguru import logger
-from prefect import task
-from prefect.context import get_run_context
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
@@ -10,18 +7,25 @@ from app.utils.docker import run_container_async
 from app.utils.input_format import get_path
 
 
-@task(log_prints=True)
-async def diamond_blast(input_path: str | Path, output_dir: str | Path) -> Path:
-    ctx = get_run_context()
-    logger.info(ctx)
+async def diamond_blast(input_path: str | Path, output_dir: str | Path) -> str:
+    """Diamond BLAST分析
 
+    Celery版本返回字符串路径而不是Path对象，以便序列化
+
+    Args:
+        input_path: 输入文件路径
+        output_dir: 输出目录
+
+    Returns:
+        str: 输出文件的路径字符串
+    """
     input_file = input_path if isinstance(input_path, Path) else Path(input_path)
     output_path = output_dir if isinstance(output_dir, Path) else Path(output_dir)
     output_file = output_path / f'{input_file.name.removesuffix(".fq.gz")}.daa'
     db_path = Path(get_settings().tool.DIAMOND_DB)
 
     if output_file.exists():
-        return output_file
+        return str(output_file)
 
     output_path.mkdir(parents=True, exist_ok=True)
     image_cfg = get_settings().docker.diamond
@@ -48,7 +52,7 @@ async def diamond_blast(input_path: str | Path, output_dir: str | Path) -> Path:
         ],
     )
 
-    return output_file
+    return str(output_file)
 
 
 class MegaPrepareOutput(BaseModel):
@@ -56,7 +60,6 @@ class MegaPrepareOutput(BaseModel):
     log: Path
 
 
-@task(log_prints=True)
 async def megan_prepare(
     daa_r1: str | Path,
     daa_r2: str | Path,
@@ -85,8 +88,6 @@ async def megan_prepare(
     Returns:
 
     """
-    ctx = get_run_context()
-    logger.info(ctx)
 
     r1_file, r2_file, output_path, sample_name = get_path(daa_r1, daa_r2, output_dir=output_dir)
 
@@ -116,7 +117,7 @@ async def megan_prepare(
             f'--minSupportPercent {supp}',
             f'--lcaAlgorithm {alg}',
             f'-t {tool_cfg.THREADS}',
-            '&> /data/output/megan_prepare.log'
+            '&> /data/output/megan_prepare.log',
         ]
     )
 

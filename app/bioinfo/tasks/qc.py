@@ -2,9 +2,6 @@ from os import PathLike
 from pathlib import Path
 from typing import Optional
 
-from loguru import logger
-from prefect import task
-from prefect.context import get_run_context
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
@@ -18,9 +15,8 @@ class FastpOutput(BaseModel):
     json_report: Path
 
 
-@task(log_prints=True)
 async def fastp(
-    r1: str | PathLike, r2: str | PathLike, output_dir: str | PathLike, *, thread: int = 8
+    r1: str | Path, r2: str | Path, output_dir: str | Path, *, thread: int = 8
 ) -> FastpOutput:
     """运行Fastp软件对原始数据进行质控
 
@@ -31,14 +27,11 @@ async def fastp(
         thread: fastp 运行的进程数
 
     Returns:
-        FastpOutput:
-            r1: 清洗后的r1文件
-            r2: 清洗后的r2文件
-            json_report: json格式的指控报告
+        Dict:
+            r1: 清洗后的r1文件路径
+            r2: 清洗后的r2文件路径
+            json_report: json格式的质控报告路径
     """
-    ctx = get_run_context()
-    logger.info(ctx)
-
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
     image_cfg = get_settings().docker.fastp
 
@@ -54,7 +47,7 @@ async def fastp(
     commands = [
         'fastp',
         f'-i /data/raw/{r1_file.name}',
-        f'-I /data/raw/{r1_file.name}',
+        f'-I /data/raw/{r2_file.name}',
         f'-o /data/output/{sample_name}_fastp_R1.fq.gz',
         f'-O /data/output/{sample_name}_fastp_R2.fq.gz',
         f'-j /data/output/{sample_name}_fastp.json',

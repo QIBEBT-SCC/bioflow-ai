@@ -4,7 +4,6 @@ from os import PathLike
 from pathlib import Path
 from typing import Literal
 
-from prefect import task
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
@@ -17,7 +16,6 @@ class SpadesOutput(BaseModel):
     log: Path
 
 
-@task
 async def spades(
     r1: str | PathLike,
     r2: str | PathLike,
@@ -25,7 +23,7 @@ async def spades(
     *,
     mode: Literal['isolate', 'sc', 'bio', 'sewage', 'corona', 'rna'] = 'sc',
     thread: int = 64,
-):
+) -> SpadesOutput:
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
     image_cfg = get_settings().docker.spades
 
