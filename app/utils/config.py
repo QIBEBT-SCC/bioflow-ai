@@ -49,6 +49,7 @@ class ToolConfig(BaseModel):
     MAX_MEM: str = '16g'
     REFERENCE_PATH: str = './storage/reference'
     KRAKEN_DB: str = './storage/bio_db/kraken'
+    METAPHLAN_DB: str = './storage/bio_db/metaphlan'
     CHECKM2_DB: str = './storage/bio_db/checkm2'
     DIAMOND_DB: str = './storage/bio_db/blast/diamond'
     MEGAN_MAPPING_DB: str = './storage/bio_db/megan/megan-map.db'
@@ -68,6 +69,9 @@ class DockerConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     fastp: ImageConfig = ImageConfig.model_validate({'repository': 'staphb/fastp', 'tag': '0.24.0'})
+    metaphlan: ImageConfig = ImageConfig.model_validate(
+        {'repository': 'staphb/metaphlan', 'tag': '4.1.1'}
+    )
     bowtie2: ImageConfig = ImageConfig.model_validate(
         {'repository': 'staphb/bowtie2', 'tag': '2.5.4'}
     )
@@ -78,7 +82,7 @@ class DockerConfig(BaseModel):
         {'repository': 'staphb/diamond', 'tag': '2.1.11'}
     )
     megan: ImageConfig = ImageConfig.model_validate(
-        {'repository': 'imagehub.cstcloud.cn/biocontainers/megan', 'tag': '6.25.9--h9ee0642_0'}
+        {'repository': 'aye114514/megan', 'tag': '6.25.9'}
     )
 
 

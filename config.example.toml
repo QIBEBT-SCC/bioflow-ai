@@ -1,0 +1,56 @@
+project_name = "Smart SCHOOL"
+version = "2.0.0"
+
+[logger]
+level = "INFO"
+fastapi_level = "INFO"
+prefect_level = "INFO"
+error_level = "ERROR"
+log_retention = "1 week"
+log_rotation = "10 MB"
+
+[network]
+host = "0.0.0.0"
+port = 8000
+proxy_type = "http"
+proxy_host = "localhost"
+proxy_port = 7890
+use_proxy = false
+
+[persistent]
+db_url = "postgresql://root:123456@127.0.0.1:5432/smart_school"
+storage_path = "./storage"
+
+[tool]
+threads = 8
+max_mem = "16g"
+reference_path = "./storage/reference"
+kraken_db = "./storage/bio_db/kraken"
+metaphlan_db = "./storage/bio_db/metaphlan"
+checkm2_db = "./storage/bio_db/checkm2"
+diamond_db = "./storage/bio_db/blast/diamond"
+megan_mapping_db = "./storage/bio_db/megan/megan-map.db"
+
+[docker.fastp]
+repository = "staphb/fastp"
+tag = "0.24.0"
+
+[docker.metaphlan]
+repository = "staphb/metaphlan"
+tag = "4.1.1"
+
+[docker.bowtie2]
+repository = "staphb/bowtie2"
+tag = "2.5.4"
+
+[docker.spades]
+repository = "staphb/spades"
+tag = "4.1.0"
+
+[docker.diamond]
+repository = "staphb/diamond"
+tag = "2.1.11"
+
+[docker.megan]
+repository = "aye114514/megan"
+tag = "6.25.9"
