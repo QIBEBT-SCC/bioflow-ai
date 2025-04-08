@@ -1,76 +1,52 @@
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException
-from loguru import logger
+from pathlib import Path
+
+from fastapi import APIRouter
 
 from app.schema.react_flow import WorkflowDefinition
-from app.bioinfo.workflow_builder import WorkflowBuilder
+from app.utils.config import get_settings
 
 router = APIRouter()
 
 
-@router.post('/run')
-async def run_workflow(workflow: WorkflowDefinition) -> Dict[str, Any]:
-    """运行工作流
+@router.get('/flows')
+async def get_workflows() -> list[str]:
+    user = 'yeyu'
+
+    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user / 'workflow'
+    wf_store_path.mkdir(parents=True, exist_ok=True)
+
+    files = wf_store_path.glob('*.json')
+    flows = [file.stem for file in files]
+    return flows
+
+
+@router.get('/flows/{name}')
+async def get_workflow(name: str) -> WorkflowDefinition:
+    user = 'yeyu'
+
+    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user / 'workflow'
+    wf_store_path.mkdir(parents=True, exist_ok=True)
+
+    with open(wf_store_path / f'{name}.json', 'r') as f:
+        flow_str = f.read()
+
+    workflow = WorkflowDefinition.model_validate_json(flow_str)
+    return workflow
+
+
+@router.post('/flows/{name}')
+async def save_workflow(name: str, workflow: WorkflowDefinition) -> None:
+    """保存工作流
 
     Args:
+        name: 此工作流的名称
         workflow: 工作流定义，包含节点和边的信息
-
-    Returns:
-        工作流执行结果
     """
-    logger.info(workflow.model_dump_json())
-    return {'status': 'success', 'result': 'OK'}
-    # try:
-    #     # 创建工作流构建器
-    #     builder = WorkflowBuilder(
-    #         nodes=[node.model_dump() for node in workflow.nodes],
-    #         edges=[edge.model_dump() for edge in workflow.edges],
-    #     )
-    #
-    #     # 构建并运行工作流
-    #     flow = builder.build_flow()
-    #     result = await flow()
-    #
-    #     return {'status': 'success', 'result': result}
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=str(e))
 
+    user = 'yeyu'
 
-@router.post('/workflow/validate')
-async def validate_workflow(workflow: WorkflowDefinition) -> Dict[str, Any]:
-    """验证工作流定义是否有效
+    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user / 'workflow'
+    wf_store_path.mkdir(parents=True, exist_ok=True)
 
-    Args:
-        workflow: 工作流定义，包含节点和边的信息
-
-    Returns:
-        验证结果
-    """
-    try:
-        # 检查节点连接是否完整
-        node_ids = {node.id for node in workflow.nodes}
-        for edge in workflow.edges:
-            if edge.source not in node_ids:
-                raise ValueError(f'源节点 {edge.source} 不存在')
-            if edge.target not in node_ids:
-                raise ValueError(f'目标节点 {edge.target} 不存在')
-
-        # 检查输入输出端口是否匹配
-        for node in workflow.nodes:
-            # 检查输入端口
-            for edge in workflow.edges:
-                if edge.target == node.id:
-                    target_handle = edge.targetHandle.split('-')[-1]
-                    if not hasattr(node.data, f'{target_handle}Description'):
-                        raise ValueError(f'节点 {node.id} 的输入端口 {target_handle} 不存在')
-
-            # 检查输出端口
-            for edge in workflow.edges:
-                if edge.source == node.id:
-                    source_handle = edge.sourceHandle.split('-')[-1]
-                    if not hasattr(node.data, f'{source_handle}Description'):
-                        raise ValueError(f'节点 {node.id} 的输出端口 {source_handle} 不存在')
-
-        return {'status': 'success', 'message': '工作流定义有效'}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    with open(wf_store_path / f'{name}.json', 'w') as f:
+        f.write(workflow.model_dump_json())
