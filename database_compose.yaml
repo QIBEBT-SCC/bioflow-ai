@@ -1,0 +1,39 @@
+services:
+  rabbitmq-db:
+    image: rabbitmq:4.1.0-rc.1-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP 协议端口
+      - "15672:15672" # 管理界面端口
+    environment:
+      RABBITMQ_DEFAULT_USER: single_cell
+      RABBITMQ_DEFAULT_PASS: 123456
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/rabbitmq/data:/var/lib/rabbitmq:rw
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/rabbitmq/log:/var/log/rabbitmq:rw
+    networks:
+      - rabbitmq-net
+    restart: always
+
+  postgres-db:
+    image: postgres
+    shm_size: 2gb
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_USER: single_cell
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: postgres
+    ports:
+      - "15432:5432"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/postgres:/var/lib/postgresql/data:rw
+    networks:
+      - postgres-net
+    restart: unless-stopped
+
+networks:
+  rabbitmq-net:
+    name: rabbitmq
+  postgres-net:
+    name: postgres
