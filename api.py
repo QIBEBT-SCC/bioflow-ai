@@ -36,7 +36,7 @@ app.include_router(tool.router, prefix='/api/v1/tool', tags=['tool'])
 
 def main() -> None:
     config = uvicorn.Config(
-        'main:app',
+        'api:app',
         host=get_settings().network.HOST,
         port=get_settings().network.PORT,
         access_log=True,
