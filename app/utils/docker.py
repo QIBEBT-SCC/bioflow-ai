@@ -1,4 +1,8 @@
 import os
+import time
+
+from loguru import logger
+
 from app.utils.config import ImageConfig
 
 
@@ -51,13 +55,26 @@ def run_container(
     image_cfg: ImageConfig, commands: list[str], volumes_binds: list[str], auto_remove: bool = True
 ):
     import docker
+    from docker.errors import ImageNotFound
 
     client = docker.from_env()
-    client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
-    client.containers.run(
-        image_cfg.get_image(),
-        commands,
-        volumes=volumes_binds,
-        user=get_current_user_identity(),
-        auto_remove=auto_remove,
-    )
+    try:
+        client.containers.run(
+            image_cfg.get_image(),
+            commands,
+            volumes=volumes_binds,
+            user=get_current_user_identity(),
+            auto_remove=auto_remove,
+        )
+    except ImageNotFound:
+        logger.error(f'image {image_cfg.get_image()} not found, pull from docker hub.')
+        client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
+        time.sleep(1)
+        client.containers.run(
+            image_cfg.get_image(),
+            commands,
+            volumes=volumes_binds,
+            user=get_current_user_identity(),
+            auto_remove=auto_remove,
+        )
+

@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
-from app.utils.docker import run_container_async
+from app.utils.docker import run_container
 from app.utils.input_format import get_path
 
 
@@ -13,9 +13,7 @@ class MetaPhlAnOutput(BaseModel):
     log: Path
 
 
-async def metaphlan(
-    r1: str | Path, r2: str | Path, output_dir: str | Path
-) -> MetaPhlAnOutput:
+def metaphlan(r1: str | Path, r2: str | Path, output_dir: str | Path) -> MetaPhlAnOutput:
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
 
     image_cfg = get_settings().docker.metaphlan
@@ -39,10 +37,11 @@ async def metaphlan(
         f'-o /data/output/{sample_name}_profiled_metagenome.txt',
         '--bowtie2db /data/db',
         f'--nproc {tool_cfg.THREADS}',
+        '&> /data/output/metaphlan.log',
     ]
 
-    await run_container_async(
-        image_cfg.get_image(),
+    run_container(
+        image_cfg,
         commands=['/bin/bash', '-c', ' '.join(commands)],
         volumes_binds=[
             f'{r1_file.absolute().parent}:/data/raw',
@@ -52,3 +51,12 @@ async def metaphlan(
     )
 
     return MetaPhlAnOutput.model_validate(outputs)
+
+
+class TaxonInfo(BaseModel):
+    ncbi_name:str
+    ncbi_id:int
+    level:str
+
+def get_main_species(taxon_file:str|Path)->TaxonInfo:
+    with open(taxon_file,'r')as f:

@@ -1,21 +1,22 @@
-from os import PathLike
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
 from app.utils.config import get_settings
-from app.utils.docker import run_container_async
+from app.utils.docker import run_container
 from app.utils.input_format import get_path
+from worker import celery_app
 
 
 class FastpOutput(BaseModel):
     r1: Path
-    r2: Optional[Path] = None
+    r2: Path = None
     json_report: Path
+    log: Path
 
 
-async def fastp(
+@celery_app.task
+def fastp(
     r1: str | Path, r2: str | Path, output_dir: str | Path, *, thread: int = 8
 ) -> FastpOutput:
     """运行Fastp软件对原始数据进行质控
@@ -39,6 +40,7 @@ async def fastp(
         'r1': output_path / f'{sample_name}_fastp_R1.fq.gz',
         'r2': output_path / f'{sample_name}_fastp_R2.fq.gz',
         'json_report': output_path / f'{sample_name}_fastp.json',
+        'log':output_path / 'fastp.log',
     }
 
     if all(path.exists() for path in outputs.values()):
@@ -52,10 +54,11 @@ async def fastp(
         f'-O /data/output/{sample_name}_fastp_R2.fq.gz',
         f'-j /data/output/{sample_name}_fastp.json',
         f'-w {thread}',
+        '&> /data/output/fastp.log'
     ]
 
-    await run_container_async(
-        image_cfg.get_image(),
+    run_container(
+        image_cfg,
         commands=['/bin/bash', '-c', ' '.join(commands)],
         volumes_binds=[
             f'{r1_file.absolute().parent}:/data/raw',
