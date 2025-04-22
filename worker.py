@@ -1,13 +1,20 @@
 from celery import Celery
 
 celery_app = Celery(
-    'tasks',
-    backend='rpc://single_cell:single_cell@localhost:5672//',
-    broker='pyamqp://single_cell:single_cell@localhost:5672//',
+    'tasks', broker='amqp://single_cell:123456@localhost:5672//', backend='redis://localhost:6379/0'
 )
 
-celery_app.conf.update(enable_utc=True, timezone='Asia/Shanghai')
+celery_app.conf.update(
+    worker_concurrency=2,
+    task_serializer='pickle',
+    result_serializer='pickle',
+    accept_content=['pickle'],
+    enable_utc=True,
+    timezone='Asia/Shanghai',
+)
+celery_app.autodiscover_tasks(['app.bioinfo.tasks.qc', 'app.bioinfo.tasks.taxonomy'], None)
+
 
 if __name__ == '__main__':
-    args = ['worker', '--concurrency=1', '--loglevel=INFO']
+    args = ['worker', '--loglevel=INFO']
     celery_app.worker_main(argv=args)

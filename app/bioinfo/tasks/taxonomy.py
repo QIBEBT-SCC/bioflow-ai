@@ -1,10 +1,15 @@
 from pathlib import Path
+from typing import Optional, Any
 
+from celery import Task
+from loguru import logger
 from pydantic import BaseModel
 
+from app.bioinfo.base_task import BaseBioTask
 from app.utils.config import get_settings
 from app.utils.docker import run_container
 from app.utils.input_format import get_path
+from worker import celery_app
 
 
 class MetaPhlAnOutput(BaseModel):
@@ -13,10 +18,22 @@ class MetaPhlAnOutput(BaseModel):
     log: Path
 
 
-def metaphlan(r1: str | Path, r2: str | Path, output_dir: str | Path) -> MetaPhlAnOutput:
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def metaphlan(
+    self: Task,
+    result_dict: Optional[dict[str, Any]] = None,
+    *,
+    r1: Optional[str] = None,
+    r2: Optional[str] = None,
+    output_dir: str,
+) -> MetaPhlAnOutput:
+    if result_dict:
+        r1 = result_dict.get('r1')
+        r2 = result_dict.get('r2')
+
+    logger.info(self.request.id)
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
 
-    image_cfg = get_settings().docker.metaphlan
     tool_cfg = get_settings().tool
     db_path = Path(tool_cfg.METAPHLAN_DB)
 
@@ -40,6 +57,7 @@ def metaphlan(r1: str | Path, r2: str | Path, output_dir: str | Path) -> MetaPhl
         '&> /data/output/metaphlan.log',
     ]
 
+    image_cfg = get_settings().docker.metaphlan
     run_container(
         image_cfg,
         commands=['/bin/bash', '-c', ' '.join(commands)],
@@ -54,9 +72,6 @@ def metaphlan(r1: str | Path, r2: str | Path, output_dir: str | Path) -> MetaPhl
 
 
 class TaxonInfo(BaseModel):
-    ncbi_name:str
-    ncbi_id:int
-    level:str
-
-def get_main_species(taxon_file:str|Path)->TaxonInfo:
-    with open(taxon_file,'r')as f:
+    ncbi_name: str
+    ncbi_id: int
+    level: str

@@ -1,49 +1,68 @@
 from pathlib import Path
+from typing import Optional
 
+from celery import Task
 from pydantic import BaseModel
 
+from app.bioinfo.base_task import BaseBioTask
 from app.utils.config import get_settings
-from app.utils.docker import run_container_async
+from app.utils.docker import run_container_async, run_container
 from app.utils.input_format import get_path
+from worker import celery_app
 
 
-async def diamond_blast(input_path: str | Path, output_dir: str | Path) -> str:
+class DiamondBlastOutput(BaseModel):
+    daa_file: Path
+    log: Path
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def diamond_blast(
+    self: Task, *, input_path: str | Path, output_dir: str | Path, params: Optional[str] = None
+) -> DiamondBlastOutput:
     """Diamond BLAST分析
 
     Celery版本返回字符串路径而不是Path对象，以便序列化
 
     Args:
+        self:
         input_path: 输入文件路径
         output_dir: 输出目录
+        params: 其他参数
 
     Returns:
         str: 输出文件的路径字符串
     """
     input_file = input_path if isinstance(input_path, Path) else Path(input_path)
     output_path = output_dir if isinstance(output_dir, Path) else Path(output_dir)
-    output_file = output_path / f'{input_file.name.removesuffix(".fq.gz")}.daa'
-    db_path = Path(get_settings().tool.DIAMOND_DB)
-
-    if output_file.exists():
-        return str(output_file)
-
     output_path.mkdir(parents=True, exist_ok=True)
-    image_cfg = get_settings().docker.diamond
+
+    outputs = {
+        'daa_file': output_path / f'{input_file.name.removesuffix(".fq.gz")}.daa',
+        'log': output_path / 'blastx.log',
+    }
+
+    if all(path.exists() for path in outputs.values()):
+        return DiamondBlastOutput.model_validate(outputs)
+
+    db_path = Path(get_settings().tool.DIAMOND_DB)
 
     commands = [
         'diamond blastx',
         f'-q /data/raw/{input_file.name}',
-        f'-o /data/output/{output_file.name}',
+        f'-o /data/output/{input_file.name.removesuffix(".fq.gz")}.daa',
         '--fast',
         '-f 100',
         '-d /data/db/nr',
         '--evalue 1e-5',
         '--top 1',
         f'-p {get_settings().tool.THREADS}',
+        '&> /data/output/blastx.log',
     ]
 
-    await run_container_async(
-        image_cfg.get_image(),
+    image_cfg = get_settings().docker.diamond
+    run_container(
+        image_cfg,
         commands=['/bin/bash', '-c', ' '.join(commands)],
         volumes_binds=[
             f'{input_file.absolute().parent}:/data/raw',
@@ -52,7 +71,7 @@ async def diamond_blast(input_path: str | Path, output_dir: str | Path) -> str:
         ],
     )
 
-    return str(output_file)
+    return DiamondBlastOutput.model_validate(outputs)
 
 
 class MegaPrepareOutput(BaseModel):
@@ -60,30 +79,17 @@ class MegaPrepareOutput(BaseModel):
     log: Path
 
 
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 async def megan_prepare(
-    daa_r1: str | Path,
-    daa_r2: str | Path,
-    output_dir: str | Path,
-    *,
-    ms: float = 50.0,
-    me: float = 0.01,
-    mpi: float = 0.0,
-    top: float = 10.0,
-    supp: float = 0.01,
-    alg: str = 'naive',
+    self: Task, *, daa_r1: str | Path, daa_r2: str | Path, output_dir: str | Path
 ) -> MegaPrepareOutput:
     """Computes a MEGAN .rma6 file from a DIAMOND .daa file
 
     Args:
+        self:
         daa_r1: Input r1 DAA file
         daa_r2: Input r2 DAA file
         output_dir:
-        ms: Min score. Default value: 50.0.
-        me: Max expected. Default value: 0.01.
-        mpi: Min percent identity. Default value: 0.0.
-        top: Top percent. Default value: 10.0.
-        supp: Min support as percent of assigned reads (0==off). Default value: 0.01.
-        alg: Set the LCA algorithm to use for taxonomic assignment. Default value: naive. Legal values: naive, weighted, longReads
 
     Returns:
 
@@ -100,7 +106,6 @@ async def megan_prepare(
 
     tool_cfg = get_settings().tool
     db_path = Path(tool_cfg.MEGAN_MAPPING_DB)
-    image_cfg = get_settings().docker.megan
 
     commands = ' '.join(
         [
@@ -110,17 +115,12 @@ async def megan_prepare(
             f'--out /data/output/{sample_name}.rma6',
             f'--mapDB /data/db/{db_path.name}',
             '--paired',
-            f'--minScore {ms}',
-            f'--maxExpected {me}',
-            f'--minPercentIdentity {mpi}',
-            f'--topPercent {top}',
-            f'--minSupportPercent {supp}',
-            f'--lcaAlgorithm {alg}',
             f'-t {tool_cfg.THREADS}',
             '&> /data/output/megan_prepare.log',
         ]
     )
 
+    image_cfg = get_settings().docker.megan
     await run_container_async(
         image_cfg.get_image(),
         commands=['bash', '-c', commands],

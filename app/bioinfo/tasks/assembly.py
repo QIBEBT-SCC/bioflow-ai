@@ -2,13 +2,15 @@ import shutil
 import tempfile
 from os import PathLike
 from pathlib import Path
-from typing import Literal
 
+from celery import Task
 from pydantic import BaseModel
 
+from app.bioinfo.base_task import BaseBioTask
 from app.utils.config import get_settings
 from app.utils.docker import run_container_async
 from app.utils.input_format import get_path
+from worker import celery_app
 
 
 class SpadesOutput(BaseModel):
@@ -16,16 +18,16 @@ class SpadesOutput(BaseModel):
     log: Path
 
 
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 async def spades(
+    self: Task,
+    *,
     r1: str | PathLike,
     r2: str | PathLike,
     output_dir: str | PathLike,
-    *,
-    mode: Literal['isolate', 'sc', 'bio', 'sewage', 'corona', 'rna'] = 'sc',
     thread: int = 64,
 ) -> SpadesOutput:
     r1_file, r2_file, output_path, sample_name = get_path(r1, r2, output_dir=output_dir)
-    image_cfg = get_settings().docker.spades
 
     outputs = {'contig': output_path / 'contigs.fasta', 'log': output_path / 'spades.log'}
 
@@ -37,11 +39,12 @@ async def spades(
             'spades.py',
             f'-1 /data/raw/{r1_file.name}',
             f'-2 /data/raw/{r2_file.name}',
-            f'--{mode}',
+            '--sc',
             f'-t {thread}',
             '-o /data/output',
         ]
 
+        image_cfg = get_settings().docker.spades
         await run_container_async(
             image_cfg.get_image(),
             commands=['/bin/bash', '-c', ' '.join(commands)],
