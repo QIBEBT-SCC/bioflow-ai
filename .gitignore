@@ -14,3 +14,4 @@ wheels/
 /config.toml
 /storage/
 /log/
+/database/
