@@ -238,6 +238,9 @@ class HTTPDownloader:
                 return True
 
             except Exception:
+                if temp_file.exists():
+                    temp_file.unlink(missing_ok=True)
+
                 if self.global_pbar:
                     self.completed_files += 1
                     self.global_pbar.update(1)
@@ -245,9 +248,6 @@ class HTTPDownloader:
                 return False
 
             finally:
-                if temp_file.exists():
-                    temp_file.unlink(missing_ok=True)
-
                 await self.position_manager.release_position(task_id)
 
     async def download_files(

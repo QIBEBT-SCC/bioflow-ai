@@ -1,10 +1,9 @@
-import asyncio
 from pathlib import Path
 
 import aiofiles
 from urllib.parse import urlparse, unquote
 
-from app.utils.ftp import download_http_files, DownloadInfo
+from app.utils.ftp import DownloadInfo, download_http_files
 
 
 async def download_raw_data(
@@ -43,20 +42,8 @@ async def download_raw_data(
         else:
             local_file = parts[-1] if parts else 'unknown_file'
 
-        download_list.append(DownloadInfo(remote_link=origin_url,local_path=local_file))
+        download_list.append(DownloadInfo(remote_link=origin_url, local_path=local_file))
 
     await download_http_files(
-        file_list=download_list,
-        local_dir=save_dir,
-        max_concurrency=max_concurrent,
-        timeout=timeout,
-    )
-
-
-if __name__ == '__main__':
-    asyncio.run(
-        download_raw_data(
-            '/mnt/sda/gene/yeyu/scc/250417wc/linklist.txt',
-            '/mnt/sda/gene/yeyu/scc/250417wc/00_rawdata',
-        )
+        file_list=download_list, local_dir=save_dir, max_concurrency=max_concurrent, timeout=timeout
     )
