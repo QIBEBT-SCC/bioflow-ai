@@ -1,18 +1,29 @@
 services:
   rabbitmq-db:
     image: rabbitmq:4.1.0-rc.1-management
-    container_name: rabbitmq
     ports:
       - "5672:5672"   # AMQP 协议端口
       - "15672:15672" # 管理界面端口
     environment:
       RABBITMQ_DEFAULT_USER: single_cell
       RABBITMQ_DEFAULT_PASS: 123456
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 31622400000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-./database}/rabbitmq/data:/var/lib/rabbitmq:rw
       - ${DOCKER_VOLUME_DIRECTORY:-./database}/rabbitmq/log:/var/log/rabbitmq:rw
     networks:
       - rabbitmq-net
+    restart: always
+
+  redis-db:
+    image: redis:8.0-rc1-bookworm
+    ports:
+      - "6379:6379"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/data:/data:re
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/logs:/logs:rw
+    networks:
+      - redis-net
     restart: always
 
   postgres-db:
@@ -35,5 +46,7 @@ services:
 networks:
   rabbitmq-net:
     name: rabbitmq
+  redis-net:
+    name: redis
   postgres-net:
     name: postgres
