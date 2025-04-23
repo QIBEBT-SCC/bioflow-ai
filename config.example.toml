@@ -18,7 +18,7 @@ proxy_port = 7890
 use_proxy = false
 
 [persistent]
-db_url = "postgresql://root:123456@127.0.0.1:5432/smart_school"
+db_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
 storage_path = "./storage"
 
 [tool]

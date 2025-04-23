@@ -1,7 +1,7 @@
 from celery import Celery
 
 celery_app = Celery(
-    'tasks', broker='amqp://single_cell:123456@localhost:5672//', backend='redis://localhost:6379/0'
+    'tasks', broker='amqp://bioflow_ai:123456@localhost:5672//', backend='redis://localhost:6379/0'
 )
 
 celery_app.conf.update(
