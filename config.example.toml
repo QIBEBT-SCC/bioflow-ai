@@ -1,5 +1,6 @@
-project_name = "Smart SCHOOL"
-version = "2.0.0"
+[security]
+algorithm = "HS256"
+access_token_expire_minutes = 1440
 
 [logger]
 level = "INFO"

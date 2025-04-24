@@ -1,4 +1,5 @@
 import os
+import secrets
 from functools import lru_cache
 from typing import Type, Literal
 import tomli_w
@@ -11,6 +12,14 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     TomlConfigSettingsSource,
 )
+
+
+class SecurityConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    SECRET_KEY: str = secrets.token_urlsafe(32)
+    ALGORITHM: str = 'HS256'
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
 
 class LogConfig(BaseModel):
@@ -38,7 +47,7 @@ class NetworkConfig(BaseModel):
 class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    DB_URL: str = 'postgresql://root:123456@127.0.0.1:5432/smart_school'
+    DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
     STORAGE_PATH: str = './storage'
 
 
@@ -94,6 +103,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = 'Smart SCHOOL'
     VERSION: str = '2.0.0'
 
+    security: SecurityConfig = SecurityConfig()
     logger: LogConfig = LogConfig()
     network: NetworkConfig = NetworkConfig()
     persistent: PersistenceConfig = PersistenceConfig()
