@@ -5,15 +5,14 @@ from sqlalchemy import Select
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.models import UserTable
-from app.schema.user import User
+from app.models import User
 
 
 class UserExistError(ValueError):
     pass
 
 
-def insert(session: Session, user: UserTable) -> None:
+def insert(session: Session, user: User) -> None:
     try:
         logger.debug(f'新增用户请求 ({User.model_validate(user)})')
         session.add(user)
@@ -25,6 +24,6 @@ def insert(session: Session, user: UserTable) -> None:
             raise e
 
 
-def get(session: Session, email: str) -> Optional[UserTable]:
-    statement: Select = select(UserTable).where(UserTable.email == email)
+def get(session: Session, email: str) -> Optional[User]:
+    statement: Select = select(User).where(User.email == email)
     return session.exec(statement).first()

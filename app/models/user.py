@@ -1,13 +1,33 @@
+from enum import IntEnum
 from typing import Optional
 
-from sqlmodel import Field
-
-from app.schema.user import User
+from sqlmodel import Field, SQLModel
 
 
-class UserTable(User, table=True):
+class UserRole(IntEnum):
+    VISITOR = 0
+    MEMBER = 1
+    ADMIN = 2
+
+
+class User(SQLModel, table=True):
     __tablename__ = 'users'
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(default='')
+    email: str = Field(unique=True)
+    role: UserRole = Field(default=UserRole.VISITOR)
     hashed_password: str
     is_active: bool = Field(default=True)
+
+
+class UserPublic(SQLModel):
+    username: str
+    email: str
+    role: UserRole
+
+
+class UserUpdate(SQLModel):
+    username: Optional[str] = None
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = None

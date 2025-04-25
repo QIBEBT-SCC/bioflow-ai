@@ -6,7 +6,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.bioinfo.base_task import BaseBioTask
-from app.utils.config import get_settings
+from app.core.config import get_settings
 from app.utils.docker import run_container
 from app.utils.input_format import get_path
 from worker import celery_app

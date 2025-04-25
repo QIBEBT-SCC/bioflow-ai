@@ -7,7 +7,7 @@ from celery import Task
 from pydantic import BaseModel
 
 from app.bioinfo.base_task import BaseBioTask
-from app.utils.config import get_settings
+from app.core.config import get_settings
 from app.utils.docker import run_container_async
 from app.utils.input_format import get_path
 from worker import celery_app

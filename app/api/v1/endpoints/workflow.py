@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from app.schema.react_flow import WorkflowDefinition
-from app.utils.config import get_settings
+from app.core.config import get_settings
 
 router = APIRouter()
 

@@ -10,11 +10,11 @@ from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from starlette import status
 
-import app.db.crud.user as user_crud
-from app.db.session import SessionDep
-from app.models import UserTable
-from app.schema.user import TokenData
-from app.utils.config import get_settings
+import app.crud.user as user_crud
+from app.core.session import SessionDep
+from app.models import User
+from app.models.auth import TokenData
+from app.core.config import get_settings
 
 
 @dataclass
@@ -36,7 +36,7 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def authenticate_user(session: SessionDep, email: str, password: str) -> bool | UserTable:
+def authenticate_user(session: SessionDep, email: str, password: str) -> bool | User:
     user = user_crud.get(session, email)
     if not user:
         return False
@@ -60,7 +60,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
-) -> UserTable:
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail='Could not validate credentials',
@@ -84,9 +84,7 @@ async def get_current_user(
     return user
 
 
-async def get_current_active_user(
-    current_user: Annotated[UserTable, Depends(get_current_user)],
-) -> UserTable:
+async def get_current_active_user(current_user: Annotated[User, Depends(get_current_user)]) -> User:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail='Inactive user')
     return current_user

@@ -3,5 +3,8 @@ from loguru import logger
 
 
 class BaseBioTask(celery.Task):
+    def before_start(self, task_id, args, kwargs):
+        logger.info(task_id)
+
     def on_success(self, retval, task_id, args, kwargs):
         logger.info(f'{retval} success: {task_id}')

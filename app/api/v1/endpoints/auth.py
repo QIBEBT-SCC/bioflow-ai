@@ -4,10 +4,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from app.db.session import SessionDep
-from app.models.user import UserTable
-from app.schema.user import Token, User
-from app.utils.config import get_settings
+from app.core.session import SessionDep
+from app.models.auth import Token
+from app.models.user import UserPublic, User
+from app.core.config import get_settings
 from app.utils.security import create_access_token, get_current_active_user, authenticate_user
 
 router = APIRouter()
@@ -29,6 +29,6 @@ async def login_for_access_token(
     return Token(access_token=access_token, token_type='bearer')
 
 
-@router.get('/me', response_model=User)
-async def read_users_me(current_user: Annotated[UserTable, Depends(get_current_active_user)]):
+@router.get('/me', response_model=UserPublic)
+async def read_users_me(current_user: Annotated[User, Depends(get_current_active_user)]):
     return current_user

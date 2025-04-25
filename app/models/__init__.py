@@ -1,4 +1,4 @@
-__all__ = ['UserTable']
+__all__ = ['User']
 
 
-from app.models.user import UserTable
+from app.models.user import User

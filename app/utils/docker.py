@@ -3,7 +3,7 @@ import time
 
 from loguru import logger
 
-from app.utils.config import ImageConfig
+from app.core.config import ImageConfig
 
 
 def get_current_user_identity() -> str:
