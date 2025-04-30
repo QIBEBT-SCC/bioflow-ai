@@ -1,18 +1,21 @@
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.schema.react_flow import WorkflowDefinition
+from app.models.user import User
+from app.models.react_flow import WorkflowDefinition
 from app.core.config import get_settings
+from app.utils.security import get_current_active_user
 
 router = APIRouter()
 
 
 @router.get('/flows')
-async def get_workflows() -> list[str]:
-    user = 'yeyu'
-
-    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user / 'workflow'
+async def get_workflows(
+    user: Annotated[User, Depends(get_current_active_user)],
+) -> list[str]:
+    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user.username / 'workflow'
     wf_store_path.mkdir(parents=True, exist_ok=True)
 
     files = wf_store_path.glob('*.json')
@@ -21,10 +24,10 @@ async def get_workflows() -> list[str]:
 
 
 @router.get('/flows/{name}')
-async def get_workflow(name: str) -> WorkflowDefinition:
-    user = 'yeyu'
-
-    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user / 'workflow'
+async def get_workflow(
+    name: str, user: Annotated[User, Depends(get_current_active_user)]
+) -> WorkflowDefinition:
+    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user.username / 'workflow'
     wf_store_path.mkdir(parents=True, exist_ok=True)
 
     with open(wf_store_path / f'{name}.json', 'r') as f:
@@ -35,17 +38,22 @@ async def get_workflow(name: str) -> WorkflowDefinition:
 
 
 @router.post('/flows/{name}')
-async def save_workflow(name: str, workflow: WorkflowDefinition) -> None:
+async def save_workflow(
+    name: str,
+    workflow: WorkflowDefinition,
+    user: Annotated[User, Depends(get_current_active_user)],
+) -> None:
     """保存工作流
 
     Args:
         name: 此工作流的名称
         workflow: 工作流定义，包含节点和边的信息
+        user:
     """
 
-    user = 'yeyu'
-
-    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user / 'workflow'
+    wf_store_path = (
+            Path(get_settings().persistent.STORAGE_PATH) / user.username / 'workflow'
+    )
     wf_store_path.mkdir(parents=True, exist_ok=True)
 
     with open(wf_store_path / f'{name}.json', 'w') as f:
