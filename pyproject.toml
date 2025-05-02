@@ -1,9 +1,9 @@
 [project]
-name = "smart-school"
+name = "bioflow-ai"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Graph-based Intelligent BioAnalysis Platform"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "aiodocker>=0.24.0",
     "aiofiles>=24.1.0",
@@ -26,19 +26,10 @@ dependencies = [
     "uvicorn>=0.34.0",
 ]
 
-[tool.prefect]
-logging.level = "INFO"
-client.api.url = "http://0.0.0.0:4200/api"
-server.api.host = "0.0.0.0"
-server.api.port = 4200
-
 [tool.ruff]
-# Allow lines to be as long as 120.
 line-length = 100
 
 [tool.ruff.format]
-# 使用单引号
 quote-style = "single"
-# 启用docstring代码片段格式化
 docstring-code-format = true
 skip-magic-trailing-comma = true
