@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from loguru import logger
 from pydantic import BaseModel
 
 from app.crud import tag as tag_crud

@@ -1,7 +1,7 @@
 from datetime import datetime, UTC
 from typing import Optional, Any, Dict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlalchemy import func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import SQLModel, Field, Relationship, select
@@ -79,3 +79,7 @@ class ProjectPublic(SQLModel):
         kwargs['owner_name'] = project.owner.username if project.owner else ''
         kwargs['tags'] = project.tags
         return cls.model_validate(kwargs)
+
+    @field_serializer('create_time', 'update_time')
+    def serialize_datetime(self, value: datetime, _info):
+        return value.strftime('%Y-%m-%d %H:%M') if value else ''
