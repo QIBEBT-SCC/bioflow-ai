@@ -83,3 +83,11 @@ class ProjectPublic(SQLModel):
     @field_serializer('create_time', 'update_time')
     def serialize_datetime(self, value: datetime, _info):
         return value.strftime('%Y-%m-%d %H:%M') if value else ''
+
+
+class ProjectUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    starred: Optional[bool] = None
+    update_time: Optional[datetime] = None
+    tags: Optional[list[Tag]] = None
