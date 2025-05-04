@@ -100,8 +100,8 @@ class Settings(BaseSettings):
         toml_file='config.toml', alias_generator=lambda field_name: field_name.lower()
     )
 
-    PROJECT_NAME: str = 'Smart SCHOOL'
-    VERSION: str = '2.0.0'
+    PROJECT_NAME: str = 'BioFlow AI'
+    VERSION: str = '0.0.1'
 
     security: SecurityConfig = SecurityConfig()
     logger: LogConfig = LogConfig()
