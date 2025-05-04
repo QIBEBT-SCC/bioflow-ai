@@ -10,7 +10,7 @@ from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from starlette import status
 
-from app.crud import user_crud
+from app.crud import user as user_crud
 from app.core.session import SessionDep
 from app.models.user import User
 from app.models.auth import TokenData
