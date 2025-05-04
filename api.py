@@ -5,14 +5,14 @@ from fastapi import FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import workflow, tool, auth
+from app.api.v1.endpoints import workflow, tool, auth, project
 from app.core.session import create_db_and_tables
 from app.core.config import get_settings
 from app.utils.logger import init_logging
 
 
 @asynccontextmanager
-async def lifespan(main_app: FastAPI):  # pylint: disable=unused-argument
+async def lifespan(main_app: FastAPI):
     create_db_and_tables()
     yield
 
@@ -32,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
+app.include_router(project.router, prefix='/api/v1/project', tags=['project'])
 app.include_router(workflow.router, prefix='/api/v1/workflow', tags=['workflow'])
 app.include_router(tool.router, prefix='/api/v1/tool', tags=['tool'])
 
