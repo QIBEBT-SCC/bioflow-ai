@@ -25,7 +25,7 @@ class Project(SQLModel, table=True):
     __tablename__ = 'projects'
 
     id: int = Field(default=None, primary_key=True)
-    owner: int
+    owner: str
     name: str
     description: str = Field(default='')
     starred: bool = Field(default=False)
@@ -34,3 +34,14 @@ class Project(SQLModel, table=True):
     update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     tags: list['Tag'] = Relationship(back_populates='projects', link_model=ProjectTag)
+
+
+class ProjectPublic(SQLModel):
+    id: int
+    owner: str
+    name: str
+    description: str
+    starred: bool
+    create_time: datetime
+    update_time: datetime
+    tags: list[Tag]
