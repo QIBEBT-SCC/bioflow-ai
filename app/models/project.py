@@ -1,7 +1,9 @@
 from datetime import datetime, UTC
-from typing import Optional
+from typing import Optional, Any, Dict
 
 from sqlmodel import SQLModel, Field, Relationship
+
+from app.models.user import User
 
 
 class ProjectTag(SQLModel, table=True):
@@ -25,7 +27,7 @@ class Project(SQLModel, table=True):
     __tablename__ = 'projects'
 
     id: int = Field(default=None, primary_key=True)
-    owner: str
+    owner_id: int = Field(foreign_key='users.id')
     name: str
     description: str = Field(default='')
     starred: bool = Field(default=False)
@@ -34,14 +36,22 @@ class Project(SQLModel, table=True):
     update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     tags: list['Tag'] = Relationship(back_populates='projects', link_model=ProjectTag)
+    owner: Optional['User'] = Relationship()
 
 
 class ProjectPublic(SQLModel):
     id: int
-    owner: str
+    owner_name: str
     name: str
     description: str
     starred: bool
     create_time: datetime
     update_time: datetime
     tags: list[Tag]
+
+    @classmethod
+    def from_orm(cls, project: Project, update: Optional[Dict[str, Any]] = None):
+        kwargs = project.model_dump()
+        kwargs['owner_name'] = project.owner.username if project.owner else ''
+        kwargs['tags'] = project.tags
+        return cls.model_validate(kwargs)

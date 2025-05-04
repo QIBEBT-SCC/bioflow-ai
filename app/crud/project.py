@@ -15,5 +15,5 @@ def insert(session: Session, project: Project) -> Project:
 
 
 def get_all(session: Session) -> Sequence[Project]:
-    statement = select(Project).options(selectinload(Project.tags))
+    statement = select(Project).options(selectinload(Project.tags), selectinload(Project.owner))
     return session.exec(statement).all()

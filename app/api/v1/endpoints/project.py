@@ -30,12 +30,10 @@ def new_project(
 ):
     tags = []
     if project_prop.tag_ids:
-        logger.debug(project_prop.tag_ids)
         tags = tag_crud.get_all_by_id(session, project_prop.tag_ids)
 
-    logger.debug(tags)
     project = Project(
-        owner=current_user.username,
+        owner_id=current_user.id,
         name=project_prop.name,
         description=project_prop.description,
         starred=project_prop.starred,
@@ -51,4 +49,4 @@ def get_project_list(
     session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
 ):
     projects = project_crud.get_all(session)
-    return projects
+    return [ProjectPublic.from_orm(p) for p in projects]
