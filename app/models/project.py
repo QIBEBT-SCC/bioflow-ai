@@ -1,7 +1,10 @@
 from datetime import datetime, UTC
 from typing import Optional, Any, Dict
 
-from sqlmodel import SQLModel, Field, Relationship
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlmodel import SQLModel, Field, Relationship, select
 
 from app.models.user import User
 
@@ -15,12 +18,33 @@ class ProjectTag(SQLModel, table=True):
 
 class Tag(SQLModel, table=True):
     __tablename__ = 'tags'
+    model_config = {'ignored_types': (hybrid_property,)}
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     color: str
 
     projects: list['Project'] = Relationship(back_populates='tags', link_model=ProjectTag)
+
+    @hybrid_property
+    def project_count(self):
+        return len(self.projects)
+
+    @project_count.expression
+    def project_count(self):
+        return (
+            select(func.count(ProjectTag.project_id))
+            .where(ProjectTag.tag_id == self.id)
+            .correlate_except(ProjectTag)
+            .scalar_subquery()
+        )
+
+
+class TagWithCount(BaseModel):
+    id: int
+    name: str
+    color: str
+    project_count: int
 
 
 class Project(SQLModel, table=True):
