@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import workflow, tool, auth, project, tag
+from app.api.v1.endpoints import workflow, tool, auth, project, tag, user
 from app.core.session import create_db_and_tables
 from app.core.config import get_settings
 from app.utils.logger import init_logging
@@ -32,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
+app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
 app.include_router(tag.router, prefix='/api/v1/tags', tags=['project'])
 app.include_router(project.router, prefix='/api/v1/projects', tags=['project'])
 app.include_router(workflow.router, prefix='/api/v1/workflow', tags=['workflow'])
