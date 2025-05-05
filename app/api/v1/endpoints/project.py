@@ -65,6 +65,7 @@ def get_project_list(
     projects = project_crud.get_all(session, limit, offset, current_user.id)
     return [ProjectPublic.from_orm(p) for p in projects]
 
+
 @router.get('/starred', response_model=list[ProjectPublic])
 def get_starred_project_list(
     session: SessionDep,
@@ -75,6 +76,7 @@ def get_starred_project_list(
     projects = project_crud.get_all_star(session, limit, offset, current_user.id)
     return [ProjectPublic.from_orm(p) for p in projects]
 
+
 @router.get('/my', response_model=list[ProjectPublic])
 def get_my_project_list(
     session: SessionDep,
@@ -84,3 +86,13 @@ def get_my_project_list(
 ):
     projects = project_crud.get_all_my(session, limit, offset, current_user.id)
     return [ProjectPublic.from_orm(p) for p in projects]
+
+
+@router.get('/{project_id}', response_model=ProjectPublic)
+def get_project(
+    project_id: int,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    project = project_crud.get(session, project_id)
+    return ProjectPublic.from_orm(project)
