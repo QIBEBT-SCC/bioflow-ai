@@ -3,7 +3,7 @@ from typing import Sequence, Optional
 from fastapi import HTTPException
 from sqlalchemy import Select
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, select, or_
+from sqlmodel import Session, select, or_, col
 
 from app.models.project import Project, ProjectUpdate
 
@@ -37,7 +37,7 @@ def get_all(session: Session, limit: int, offset: int, user_id: int = 0) -> Sequ
     statement: Select = (
         select(Project)
         .where(or_(Project.public, Project.owner_id == user_id))
-        .options(selectinload(Project.tags), selectinload(Project.owner))
+        .options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore
         .offset(offset)
         .limit(limit)
     )
@@ -49,7 +49,7 @@ def get_all_star(session: Session, limit: int, offset: int, user_id: int = 0) ->
         select(Project)
         .where(or_(Project.public, Project.owner_id == user_id))
         .where(Project.starred)
-        .options(selectinload(Project.tags), selectinload(Project.owner))
+        .options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore
         .offset(offset)
         .limit(limit)
     )
@@ -60,7 +60,7 @@ def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> Seque
     statement: Select = (
         select(Project)
         .where(Project.owner_id == user_id)
-        .options(selectinload(Project.tags), selectinload(Project.owner))
+        .options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore
         .offset(offset)
         .limit(limit)
     )
@@ -69,4 +69,11 @@ def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> Seque
 
 def get(session: Session, project_id: int) -> Optional[Project]:
     statement: Select = select(Project).where(Project.id == project_id)
+    return session.exec(statement).first()
+
+
+def get_recent(session: Session, user_id: int) -> Optional[Project]:
+    statement: Select = (
+        select(Project).where(Project.owner_id == user_id).order_by(col(Project.update_time).desc())
+    )
     return session.exec(statement).first()

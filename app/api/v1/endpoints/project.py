@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from app.crud import tag as tag_crud
@@ -88,6 +88,16 @@ def get_my_project_list(
     return [ProjectPublic.from_orm(p) for p in projects]
 
 
+@router.get('/recent', response_model=ProjectPublic)
+def get_recent_project(
+    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
+):
+    project = project_crud.get_recent(session, current_user.id)
+    if project is None:
+        raise HTTPException(status_code=404, detail='Project not find！')
+    return ProjectPublic.from_orm(project)
+
+
 @router.get('/{project_id}', response_model=ProjectPublic)
 def get_project(
     project_id: int,
@@ -95,4 +105,6 @@ def get_project(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
     project = project_crud.get(session, project_id)
+    if project is None:
+        return None
     return ProjectPublic.from_orm(project)
