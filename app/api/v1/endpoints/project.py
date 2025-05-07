@@ -1,12 +1,12 @@
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.crud import tag as tag_crud
 from app.crud import project as project_crud
 from app.core.session import SessionDep
-from app.models.project import Project, ProjectPublic, ProjectUpdate
+from app.models.project import Project, ProjectPublic
 from app.models.user import User
 from app.utils.security import get_current_active_user
 
@@ -43,38 +43,42 @@ def new_project(
     return project
 
 
-@router.patch('/{project_id}/starred', response_model=ProjectPublic)
-def change_project_star(
+@router.post('/{project_id}/star')
+def star_project(
     project_id: int,
-    project_prop: ProjectUpdate,
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
-    project_update = ProjectUpdate(starred=project_prop.starred)
-    updated_project = project_crud.update(session, project_id, project_update)
-    return ProjectPublic.from_orm(updated_project)
+    project_crud.star_project(session, current_user.id, project_id)
 
 
-@router.get('', response_model=list[ProjectPublic])
+@router.post('/{project_id}/unstar')
+def unstar_project(
+    project_id: int,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    project_crud.unstar_project(session, current_user.id, project_id)
+
+
+@router.get('')
 def get_project_list(
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-):
-    projects = project_crud.get_all(session, limit, offset, current_user.id)
-    return [ProjectPublic.from_orm(p) for p in projects]
+) -> list[ProjectPublic]:
+    return project_crud.get_all(session, limit, offset, current_user.id)
 
 
-@router.get('/starred', response_model=list[ProjectPublic])
+@router.get('/starred')
 def get_starred_project_list(
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-):
-    projects = project_crud.get_all_star(session, limit, offset, current_user.id)
-    return [ProjectPublic.from_orm(p) for p in projects]
+) -> list[ProjectPublic]:
+    return project_crud.get_all_star(session, limit, offset, current_user.id)
 
 
 @router.get('/my', response_model=list[ProjectPublic])
@@ -84,27 +88,20 @@ def get_my_project_list(
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ):
-    projects = project_crud.get_all_my(session, limit, offset, current_user.id)
-    return [ProjectPublic.from_orm(p) for p in projects]
+    return project_crud.get_all_my(session, limit, offset, current_user.id)
 
 
-@router.get('/recent', response_model=ProjectPublic)
+@router.get('/recent')
 def get_recent_project(
     session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
-):
-    project = project_crud.get_recent(session, current_user.id)
-    if project is None:
-        raise HTTPException(status_code=404, detail='Project not find！')
-    return ProjectPublic.from_orm(project)
+) -> Optional[ProjectPublic]:
+    return project_crud.get_recent(session, current_user.id)
 
 
-@router.get('/{project_id}', response_model=ProjectPublic)
+@router.get('/{project_id}')
 def get_project(
     project_id: int,
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
-):
-    project = project_crud.get(session, project_id)
-    if project is None:
-        return None
-    return ProjectPublic.from_orm(project)
+) -> Optional[ProjectPublic]:
+    return project_crud.get(session, current_user.id, project_id)

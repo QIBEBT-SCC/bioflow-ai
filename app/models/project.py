@@ -16,6 +16,13 @@ class ProjectTag(SQLModel, table=True):
     tag_id: int = Field(foreign_key='tags.id', primary_key=True)
 
 
+class ProjectStar(SQLModel, table=True):
+    __tablename__ = 'project_star'
+
+    project_id: int = Field(foreign_key='projects.id', primary_key=True)
+    user_id: int = Field(foreign_key='users.id')
+
+
 class Tag(SQLModel, table=True):
     __tablename__ = 'tags'
     model_config = {'ignored_types': (hybrid_property,)}
@@ -54,7 +61,6 @@ class Project(SQLModel, table=True):
     owner_id: int = Field(foreign_key='users.id')
     name: str
     description: str = Field(default='')
-    starred: bool = Field(default=False)
     public: bool = Field(default=True)
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
     update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -78,6 +84,8 @@ class ProjectPublic(SQLModel):
         kwargs = project.model_dump()
         kwargs['owner_name'] = project.owner.username if project.owner else ''
         kwargs['tags'] = project.tags
+        if update:
+            kwargs.update(update)
         return cls.model_validate(kwargs)
 
     @field_serializer('create_time', 'update_time')
