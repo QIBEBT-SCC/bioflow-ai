@@ -1,24 +1,43 @@
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
 
 from app.crud import tag as tag_crud
 from app.crud import project as project_crud
 from app.core.session import SessionDep
-from app.models.project import Project, ProjectPublic
+from app.models.project import (
+    Project,
+    ProjectPublic,
+    ProjectCreateProp,
+    TagProp,
+    ProjectTag,
+    TagWithCount,
+)
 from app.models.user import User
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
+tag_router = APIRouter()
 
 
-class ProjectCreateProp(BaseModel):
-    name: str
-    description: str = ''
-    starred: bool = False
-    public: bool = True
-    tag_ids: list[int] = []
+@tag_router.post('')
+def new_tag(
+    tag_prop: TagProp,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    tag = ProjectTag(name=tag_prop.name, color=tag_prop.color)
+    tag_crud.insert(session, tag)
+
+    return tag
+
+
+@tag_router.get('')
+def get_tag_list(
+    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
+) -> Sequence[TagWithCount]:
+    tags = tag_crud.get_all(session)
+    return tags
 
 
 @router.post('')
