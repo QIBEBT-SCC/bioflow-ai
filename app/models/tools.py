@@ -5,7 +5,8 @@ from uuid import uuid4
 from pydantic import BaseModel
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import SQLModel, Field
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlmodel import SQLModel, Field, Relationship
 
 
 class ToolType(IntEnum):
@@ -69,6 +70,23 @@ class ToolGroup(SQLModel, table=True):
     parent_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
 
 
+class ToolTagLink(SQLModel, table=True):
+    __tablename__ = 'tool_tag_link'
+
+    tool_id: str = Field(foreign_key='tools.uid', primary_key=True)
+    tag_id: int = Field(foreign_key='tool_tags.id', primary_key=True)
+
+
+class ToolTag(SQLModel, table=True):
+    __tablename__ = 'tool_tags'
+    model_config = {'ignored_types': (hybrid_property,)}
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+
+    tools: list['ToolData'] = Relationship(back_populates='tags', link_model=ToolTagLink)
+
+
 class ToolData(SQLModel, table=True):
     __tablename__ = 'tools'
 
@@ -90,12 +108,15 @@ class ToolData(SQLModel, table=True):
 
     docker_config: Optional[DockerConfig] = Field(default=None, sa_column=Column(JSONB))
 
+    tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
+
 
 class DockerToolCreate(BaseModel):
     """创建Docker工具的请求模型"""
 
     name: str
     description: str
+    tool_tag: list[ToolTag]
 
     command_template: str
     required_params: list[ParamDefine]
@@ -117,6 +138,7 @@ class DockerToolCreate(BaseModel):
             uid=str(tool_id),
             name=self.name,
             description=self.description,
+            tags=self.tool_tag,
             tool_type=ToolType.DOCKER,
             command_template=self.command_template,
             required_params=self.required_params,

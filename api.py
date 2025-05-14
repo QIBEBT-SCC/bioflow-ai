@@ -36,7 +36,8 @@ app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
 app.include_router(tag.router, prefix='/api/v1/tags', tags=['project'])
 app.include_router(project.router, prefix='/api/v1/projects', tags=['project'])
 app.include_router(workflow.router, prefix='/api/v1/workflow', tags=['workflow'])
-app.include_router(tool.router, prefix='/api/v1/tool', tags=['tool'])
+app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'])
+app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'])
 
 
 def main() -> None:

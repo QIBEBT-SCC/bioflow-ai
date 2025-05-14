@@ -9,11 +9,11 @@ from sqlmodel import SQLModel, Field, Relationship, select
 from app.models.user import User
 
 
-class ProjectTag(SQLModel, table=True):
-    __tablename__ = 'project_tag'
+class ProjectTagLink(SQLModel, table=True):
+    __tablename__ = 'project_tag_link'
 
     project_id: int = Field(foreign_key='projects.id', primary_key=True)
-    tag_id: int = Field(foreign_key='tags.id', primary_key=True)
+    tag_id: int = Field(foreign_key='project_tags.id', primary_key=True)
 
 
 class ProjectStar(SQLModel, table=True):
@@ -23,15 +23,15 @@ class ProjectStar(SQLModel, table=True):
     user_id: int = Field(foreign_key='users.id')
 
 
-class Tag(SQLModel, table=True):
-    __tablename__ = 'tags'
+class ProjectTag(SQLModel, table=True):
+    __tablename__ = 'project_tags'
     model_config = {'ignored_types': (hybrid_property,)}
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     color: str
 
-    projects: list['Project'] = Relationship(back_populates='tags', link_model=ProjectTag)
+    projects: list['Project'] = Relationship(back_populates='tags', link_model=ProjectTagLink)
 
     @hybrid_property
     def project_count(self):
@@ -40,9 +40,9 @@ class Tag(SQLModel, table=True):
     @project_count.expression
     def project_count(self):
         return (
-            select(func.count(ProjectTag.project_id))
-            .where(ProjectTag.tag_id == self.id)
-            .correlate_except(ProjectTag)
+            select(func.count(ProjectTagLink.project_id))
+            .where(ProjectTagLink.tag_id == self.id)
+            .correlate_except(ProjectTagLink)
             .scalar_subquery()
         )
 
@@ -65,7 +65,7 @@ class Project(SQLModel, table=True):
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
     update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    tags: list['Tag'] = Relationship(back_populates='projects', link_model=ProjectTag)
+    tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
     owner: Optional['User'] = Relationship()
 
 
@@ -77,7 +77,7 @@ class ProjectPublic(SQLModel):
     starred: bool
     create_time: datetime
     update_time: datetime
-    tags: list[Tag]
+    tags: list[ProjectTag]
 
     @classmethod
     def from_orm(cls, project: Project, update: Optional[Dict[str, Any]] = None):
@@ -98,4 +98,4 @@ class ProjectUpdate(SQLModel):
     description: Optional[str] = None
     starred: Optional[bool] = None
     update_time: Optional[datetime] = None
-    tags: Optional[list[Tag]] = None
+    tags: Optional[list[ProjectTag]] = None
