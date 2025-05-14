@@ -60,6 +60,15 @@ class DockerConfig(SQLModel):
     docker_settings: dict[str, Any]
 
 
+class ToolGroup(SQLModel, table=True):
+    __tablename__ = 'tool_groups'
+
+    id: int = Field(primary_key=True)
+    name: str
+    description: Optional[str] = None
+    parent_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
+
+
 class ToolData(SQLModel, table=True):
     __tablename__ = 'tools'
 
@@ -67,6 +76,7 @@ class ToolData(SQLModel, table=True):
     name: str
     description: str
     tool_type: ToolType
+    group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
 
     command_template: str
     required_params: list[ParamDefine] = Field(default_factory=list, sa_column=Column(JSONB))
