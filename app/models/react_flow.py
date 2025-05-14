@@ -29,7 +29,7 @@ class WorkflowDefinition(BaseModel):
     nodes: List[Node]
     edges: List[Edge]
 
-    def get_graph_dict(self) -> list[NodeBase]:
+    def get_graph_list(self) -> list[NodeBase]:
         graph: dict[str, set[str]] = {}
         node_map = {}
         edge_map: dict[str, dict[str, tuple[str, str]]] = {}
@@ -37,14 +37,14 @@ class WorkflowDefinition(BaseModel):
         for edge in self.edges:
             if edge.target in graph:
                 graph[edge.target].add(edge.source)
-                edge_map[edge.target][edge.targetHandle] = (
+                edge_map[edge.target][edge.targetHandle.split('-in-')[-1]] = (
                     edge.sourceHandle.split('-out-')[0],
                     edge.sourceHandle.split('-out-')[-1],
                 )
             else:
                 graph[edge.target] = {edge.source}
                 edge_map[edge.target] = {
-                    edge.targetHandle.split('-')[-1]: (
+                    edge.targetHandle.split('-in-')[-1]: (
                         edge.sourceHandle.split('-out-')[0],
                         edge.sourceHandle.split('-out-')[-1],
                     )
