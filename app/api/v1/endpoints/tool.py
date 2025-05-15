@@ -1,12 +1,12 @@
-from typing import Sequence
+from typing import Sequence, Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 import app.crud.tool_tag as tag_crud
 import app.crud.tool as tool_crud
 from app.bioinfo.tool_info import DefaultArgs
 from app.core.session import SessionDep
-from app.models.tools import DockerToolCreate, ToolTag
+from app.models.tools import DockerToolCreate, ToolTag, SimpleToolPublic
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -39,3 +39,10 @@ def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
 def get_default_args() -> DefaultArgs:
     default_args = DefaultArgs()
     return default_args
+
+
+@router.get('')
+def get_project_list(
+    session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
+) -> list[SimpleToolPublic]:
+    return tool_crud.get_all(session, limit, offset)

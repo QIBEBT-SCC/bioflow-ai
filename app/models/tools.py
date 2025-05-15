@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 from sqlalchemy import Column
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import SQLModel, Field, Relationship
 
@@ -68,7 +67,6 @@ class ToolGroup(SQLModel, table=True):
 
     id: int = Field(primary_key=True)
     name: str
-    description: Optional[str] = None
     parent_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
 
 
@@ -154,3 +152,28 @@ class DockerToolCreate(BaseModel):
                 docker_settings=self.docker_config,
             ),
         )
+
+
+class SimpleToolPublic(SQLModel):
+    uid: str
+    name: str
+    description: str
+    tool_type: ToolType
+    group_id: Optional[int]
+
+    docker_image: str
+
+    tags: list[ToolTag]
+
+    @classmethod
+    def from_orm(cls, tool: ToolData, update: Optional[dict[str, Any]] = None):
+        kwargs = tool.model_dump()
+
+        if tool.tool_type == ToolType.DOCKER:
+            kwargs['docker_image'] = tool.docker_config.image.get_image()
+
+        kwargs['tags'] = tool.tags
+
+        if update:
+            kwargs.update(update)
+        return cls.model_validate(kwargs)
