@@ -2,7 +2,7 @@ from typing import Annotated, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Query
 
-from app.crud import tag as tag_crud
+from app.crud import projetc_tag as tag_crud
 from app.crud import project as project_crud
 from app.core.session import SessionDep
 from app.models.project import (

@@ -8,6 +8,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import SQLModel, Field, Relationship
 
+from app.models.decorator.special_field import PydanticJson
+
 
 class ToolType(IntEnum):
     DOCKER = 0
@@ -82,7 +84,7 @@ class ToolTag(SQLModel, table=True):
     model_config = {'ignored_types': (hybrid_property,)}
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
+    name: str = Field(unique=True)
 
     tools: list['ToolData'] = Relationship(back_populates='tags', link_model=ToolTagLink)
 
@@ -97,16 +99,16 @@ class ToolData(SQLModel, table=True):
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
 
     command_template: str
-    required_params: list[ParamDefine] = Field(default_factory=list, sa_column=Column(JSONB))
+    required_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
     optional_params: str
-    output_files: list[OutputFile] = Field(default_factory=list, sa_column=Column(JSONB))
+    output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 
     help_command: str
 
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig] = Field(default=None, sa_column=Column(JSONB))
+    docker_config: Optional[DockerConfig] = Field(sa_column=Column(PydanticJson(DockerConfig)))
 
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
 
