@@ -1,20 +1,32 @@
-from typing import Sequence, Annotated
+from typing import Sequence, Annotated, Optional
 
 from fastapi import APIRouter, Query
 
 import app.crud.tool_tag as tag_crud
+import app.crud.tool_group as group_crud
 import app.crud.tool as tool_crud
 from app.bioinfo.tool_info import DefaultArgs
 from app.core.session import SessionDep
-from app.models.tools import DockerToolCreate, ToolTag, SimpleToolPublic
+from app.models.tools import DockerToolCreate, ToolTag, SimpleToolPublic, ToolGroup, ToolPublic
 
 router = APIRouter()
 tag_router = APIRouter()
+group_router = APIRouter()
 
 
 @tag_router.get('')
 def get_exist_tags(session: SessionDep) -> Sequence[ToolTag]:
     return tag_crud.get_all(session)
+
+
+@group_router.post('')
+def add_group(session: SessionDep, group: ToolGroup) -> ToolGroup:
+    return group_crud.insert(session, group)
+
+
+@group_router.get('')
+def get_group_list(session: SessionDep, parent_id: Optional[int] = None) -> list[ToolGroup]:
+    return group_crud.get_all_recursive(session, parent_id)
 
 
 @router.post('')
@@ -26,7 +38,6 @@ def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
         exist_ids.extend([tag.id for tag in tags_to_add])
 
     tags = tag_crud.get_all_by_id(session, exist_ids)
-    tags.extend(tags_to_add)
 
     tool_data = tool_prop.to_tool_data()
     tool_data.tags = tags
@@ -42,7 +53,16 @@ def get_default_args() -> DefaultArgs:
 
 
 @router.get('')
-def get_project_list(
+def get_tool_list(
     session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
 ) -> list[SimpleToolPublic]:
     return tool_crud.get_all(session, limit, offset)
+
+
+@router.get('/{tool_uid}')
+def get_tool_detail(session: SessionDep, tool_uid: str) -> Optional[ToolPublic]:
+    tool_data = tool_crud.get(session, tool_uid)
+    if tool_data:
+        return ToolPublic.from_orm(tool_data)
+
+    return None

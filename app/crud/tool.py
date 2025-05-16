@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy import Select
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload
@@ -26,3 +28,8 @@ def get_all(session: Session, limit: int, offset: int) -> list[SimpleToolPublic]
         tool_public = SimpleToolPublic.from_orm(tool)
         result.append(tool_public)
     return result
+
+
+def get(session: Session, tool_uid: str) -> Optional[ToolData]:
+    statement: Select = select(ToolData).where(ToolData.uid == tool_uid)
+    return session.exec(statement).first()

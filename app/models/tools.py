@@ -154,7 +154,7 @@ class DockerToolCreate(BaseModel):
         )
 
 
-class SimpleToolPublic(SQLModel):
+class SimpleToolPublic(BaseModel):
     uid: str
     name: str
     description: str
@@ -172,6 +172,48 @@ class SimpleToolPublic(SQLModel):
         if tool.tool_type == ToolType.DOCKER:
             kwargs['docker_image'] = tool.docker_config.image.get_image()
 
+        kwargs['tags'] = tool.tags
+
+        if update:
+            kwargs.update(update)
+        return cls.model_validate(kwargs)
+
+
+class ToolPublic(BaseModel):
+    uid: str
+    name: str
+    description: str
+    tool_type: ToolType
+    group_id: Optional[int]
+
+    command_template: str
+    required_params: list[ParamDefine]
+    optional_params: str
+    output_files: list[OutputFile]
+
+    help_command: str
+    complete_command: str
+
+    mkdir_output: bool
+    use_temp_dir: bool
+
+    docker_repo: str
+    docker_tag: str
+
+    tags: list['ToolTag']
+
+    @classmethod
+    def from_orm(cls, tool: ToolData, update: Optional[dict[str, Any]] = None):
+        kwargs = tool.model_dump()
+
+        if tool.tool_type == ToolType.DOCKER:
+            kwargs['docker_repo'] = tool.docker_config.image.repository
+            kwargs['docker_tag'] = tool.docker_config.image.tag
+
+        kwargs['complete_command'] = tool.command_template.format(
+            required_params=' '.join([param.command for param in tool.required_params]),
+            optional_params=tool.optional_params,
+        )
         kwargs['tags'] = tool.tags
 
         if update:
