@@ -1,11 +1,14 @@
 from enum import IntEnum
 from typing import Optional, Any
-from uuid import uuid4
 
-from pydantic import BaseModel
-from sqlalchemy import Column
+from pydantic import BaseModel, UUID7
+from sqlalchemy import Column, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import SQLModel, Field, Relationship
+from uuid_extensions import uuid7
+
+from pydantic import Field as PField
 
 from app.models.decorator.special_field import PydanticJson
 
@@ -34,6 +37,7 @@ class ParamDefine(BaseModel):
     """
 
     name: str
+    description: str
     command: str
     param_type: ParamType
     is_file: bool
@@ -46,7 +50,9 @@ class ParamDefine(BaseModel):
 class OutputFile(BaseModel):
     name: str
     file_path: str
-    mount_path: Optional[str]
+    is_report: bool = False
+    is_log: bool = False
+    mount_path: Optional[str] = None
 
 
 class ImageConfig(SQLModel):
@@ -73,7 +79,7 @@ class ToolGroup(SQLModel, table=True):
 class ToolTagLink(SQLModel, table=True):
     __tablename__ = 'tool_tag_link'
 
-    tool_id: str = Field(foreign_key='tools.uid', primary_key=True)
+    tool_id: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid')))
     tag_id: int = Field(foreign_key='tool_tags.id', primary_key=True)
 
 
@@ -90,9 +96,10 @@ class ToolTag(SQLModel, table=True):
 class ToolData(SQLModel, table=True):
     __tablename__ = 'tools'
 
-    uid: str = Field(primary_key=True)
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     name: str
     description: str
+    homepage: str
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
 
@@ -124,6 +131,7 @@ class DockerToolCreate(BaseModel):
     output_files: list[OutputFile]
 
     help_command: str
+    homepage: str
 
     mkdir_output: bool = True
     use_temp_dir: bool = False
@@ -133,7 +141,7 @@ class DockerToolCreate(BaseModel):
     docker_config: dict[str, Any] = {}
 
     def to_tool_data(self) -> ToolData:
-        tool_id = uuid4()
+        tool_id = uuid7(as_type='str')
         return ToolData(
             uid=str(tool_id),
             name=self.name,
@@ -141,6 +149,7 @@ class DockerToolCreate(BaseModel):
             tags=self.tool_tag,
             tool_type=ToolType.DOCKER,
             command_template=self.command_template,
+            homepage=self.homepage,
             required_params=self.required_params,
             optional_params=self.optional_params,
             output_files=self.output_files,
@@ -155,7 +164,7 @@ class DockerToolCreate(BaseModel):
 
 
 class SimpleToolPublic(BaseModel):
-    uid: str
+    uid: UUID7
     name: str
     description: str
     tool_type: ToolType
@@ -180,9 +189,10 @@ class SimpleToolPublic(BaseModel):
 
 
 class ToolPublic(BaseModel):
-    uid: str
+    uid: UUID7
     name: str
     description: str
+    homepage: str
     tool_type: ToolType
     group_id: Optional[int]
 
@@ -215,6 +225,42 @@ class ToolPublic(BaseModel):
             optional_params=tool.optional_params,
         )
         kwargs['tags'] = tool.tags
+
+        if update:
+            kwargs.update(update)
+        return cls.model_validate(kwargs)
+
+
+class Handle(BaseModel):
+    name: str
+    description: str
+
+
+class ToolArgPublic(BaseModel):
+    uid: UUID7
+    name: str
+    description: str
+
+    input_handles: list[Handle] = PField(default_factory=list)
+    output_handles: list[Handle] = PField(default_factory=list)
+
+    optional_params: str
+
+    @classmethod
+    def from_orm(cls, tool: ToolData, update: Optional[dict[str, Any]] = None):
+        kwargs = tool.model_dump()
+
+        kwargs['input_handles'] = [
+            Handle(name=param.name, description=param.description)
+            for param in tool.required_params
+            if param.param_type == ParamType.INPUT
+        ]
+
+        kwargs['output_handles'] = [
+            Handle(name=file.name, description='')
+            for file in tool.output_files
+            if not (file.is_log or file.is_report)
+        ]
 
         if update:
             kwargs.update(update)

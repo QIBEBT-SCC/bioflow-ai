@@ -7,7 +7,14 @@ import app.crud.tool_group as group_crud
 import app.crud.tool as tool_crud
 from app.bioinfo.tool_info import DefaultArgs
 from app.core.session import SessionDep
-from app.models.tools import DockerToolCreate, ToolTag, SimpleToolPublic, ToolGroup, ToolPublic
+from app.models.tools import (
+    DockerToolCreate,
+    ToolTag,
+    SimpleToolPublic,
+    ToolGroup,
+    ToolPublic,
+    ToolArgPublic,
+)
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -27,6 +34,16 @@ def add_group(session: SessionDep, group: ToolGroup) -> ToolGroup:
 @group_router.get('')
 def get_group_list(session: SessionDep, parent_id: Optional[int] = None) -> list[ToolGroup]:
     return group_crud.get_all_recursive(session, parent_id)
+
+
+@group_router.get('/tools')
+def get_group_tools(
+    session: SessionDep,
+    parent_id: Optional[int] = None,
+    limit: Annotated[int, Query(le=20)] = 20,
+    offset: int = 0,
+) -> list[SimpleToolPublic]:
+    return tool_crud.get_all_by_group(session, parent_id, limit, offset)
 
 
 @router.post('')
@@ -59,6 +76,13 @@ def get_tool_list(
     return tool_crud.get_all(session, limit, offset)
 
 
+@router.get('/search')
+def get_tools_by_name(
+    session: SessionDep, name: str, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
+) -> list[SimpleToolPublic]:
+    return tool_crud.get_by_name_fuzzy(session, name, limit, offset)
+
+
 @router.get('/{tool_uid}')
 def get_tool_detail(session: SessionDep, tool_uid: str) -> Optional[ToolPublic]:
     tool_data = tool_crud.get(session, tool_uid)
@@ -66,3 +90,9 @@ def get_tool_detail(session: SessionDep, tool_uid: str) -> Optional[ToolPublic]:
         return ToolPublic.from_orm(tool_data)
 
     return None
+
+
+@router.get('/{tool_uid}/args')
+def get_tool_args(session: SessionDep, tool_uid: str) -> ToolArgPublic:
+    tool_data = tool_crud.get(session, tool_uid)
+    return ToolArgPublic.from_orm(tool_data)

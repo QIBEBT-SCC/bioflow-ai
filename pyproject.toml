@@ -23,6 +23,7 @@ dependencies = [
     "sqlmodel>=0.0.24",
     "tomli-w>=1.2.0",
     "tqdm>=4.67.1",
+    "uuid7>=0.1.0",
     "uvicorn>=0.34.0",
 ]
 
