@@ -92,15 +92,18 @@ class ProjectPublic(SQLModel):
     def serialize_datetime(self, value: datetime, _info):
         return value.strftime('%Y-%m-%d %H:%M') if value else ''
 
+
 class ProjectCreateProp(BaseModel):
     name: str
     description: str = ''
     public: bool = True
     tag_ids: list[int] = []
 
+
 class TagProp(BaseModel):
     name: str
     color: str
+
 
 class ProjectUpdate(SQLModel):
     name: Optional[str] = None
