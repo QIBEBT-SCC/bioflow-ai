@@ -95,7 +95,6 @@ class ProjectPublic(SQLModel):
 class ProjectCreateProp(BaseModel):
     name: str
     description: str = ''
-    starred: bool = False
     public: bool = True
     tag_ids: list[int] = []
 
