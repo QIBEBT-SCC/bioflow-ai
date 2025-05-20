@@ -1,6 +1,6 @@
 from graphlib import TopologicalSorter
-from typing import List, Any
-from pydantic import BaseModel, Field
+from typing import List, Optional
+from pydantic import BaseModel
 
 
 class Position(BaseModel):
@@ -8,10 +8,15 @@ class Position(BaseModel):
     y: float
 
 
+class Data(BaseModel):
+    tool_uid: Optional[str] = None
+    args: str
+
+
 class NodeBase(BaseModel):
     id: str
     type: str
-    data: dict[str, Any] = Field(default_factory=dict)
+    data: Data
 
 
 class Node(NodeBase):
@@ -19,6 +24,8 @@ class Node(NodeBase):
 
 
 class Edge(BaseModel):
+    id: str
+    animated: bool
     source: str
     sourceHandle: str
     target: str

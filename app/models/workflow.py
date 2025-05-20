@@ -1,7 +1,13 @@
 from datetime import datetime
 from typing import Optional
 
+from pydantic import UUID7
+from sqlalchemy import Column, UUID
 from sqlmodel import SQLModel, Field, Relationship
+
+from app.models.decorator.special_field import PydanticJson
+from app.models.react_flow import WorkflowDefinition
+from app.models.user import User
 
 
 # TABLE project_raw
@@ -13,18 +19,16 @@ from sqlmodel import SQLModel, Field, Relationship
 # uid, instance_uid, owner, task_type(name), web_node_id,other_args, status, local_path, result, time...
 
 
-class WorkflowInstance(SQLModel, table=True):
-    __tablename__ = 'workflow_instances'
+class Workflow(SQLModel, table=True):
+    __tablename__ = 'workflows'
 
-    uid: str = Field(primary_key=True)
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     name: str
-    owner: str = Relationship()
-    project: str
-    workflow: str
-    status: str
-    create_time: Optional[datetime] = None
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    owner_id: int = Field(foreign_key='users.id')
+    workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
+    public: bool = False
+
+    owner: Optional['User'] = Relationship()
 
 
 class TaskInstance(SQLModel):
