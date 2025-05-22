@@ -1,6 +1,5 @@
-from graphlib import TopologicalSorter
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import Optional
+from pydantic import BaseModel, Field
 
 
 class Position(BaseModel):
@@ -23,49 +22,31 @@ class Node(NodeBase):
     position: Position
 
 
-class Edge(BaseModel):
-    id: str
-    animated: bool
+class EdgeBase(BaseModel):
     source: str
     sourceHandle: str
     target: str
     targetHandle: str
 
 
+class Edge(EdgeBase):
+    id: str
+    animated: bool
+
+
 class WorkflowDefinition(BaseModel):
-    nodes: List[Node]
-    edges: List[Edge]
+    nodes: list[Node]
+    edges: list[Edge]
 
-    def get_graph_list(self) -> list[NodeBase]:
-        graph: dict[str, set[str]] = {}
-        node_map = {}
-        edge_map: dict[str, dict[str, tuple[str, str]]] = {}
-        task_list = []
-        for edge in self.edges:
-            if edge.target in graph:
-                graph[edge.target].add(edge.source)
-                edge_map[edge.target][edge.targetHandle.split('-in-')[-1]] = (
-                    edge.sourceHandle.split('-out-')[0],
-                    edge.sourceHandle.split('-out-')[-1],
-                )
-            else:
-                graph[edge.target] = {edge.source}
-                edge_map[edge.target] = {
-                    edge.targetHandle.split('-in-')[-1]: (
-                        edge.sourceHandle.split('-out-')[0],
-                        edge.sourceHandle.split('-out-')[-1],
-                    )
-                }
 
-        for node in self.nodes:
-            if node.id in edge_map:
-                node.data['kwargs'] = edge_map[node.id]
-            node_map[node.id] = NodeBase.model_validate(node.model_dump())
+class TaskInput(BaseModel):
+    source_uid: str
+    source_k: str
 
-        sorter = TopologicalSorter(graph)
-        node_list = tuple(sorter.static_order())
 
-        for node_id in node_list:
-            task_list.append(node_map[node_id])
-
-        return task_list
+class TaskNode(BaseModel):
+    id: str
+    type: str
+    tool_uid: Optional[str] = None
+    args: str
+    kwarg: dict[str, TaskInput] = Field(default_factory=dict)
