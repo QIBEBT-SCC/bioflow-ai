@@ -1,28 +1,19 @@
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from celery import Task
 from loguru import logger
 from pydantic import BaseModel
+from sqlmodel import Session
 
-from app.bioinfo.base_task import BaseBioTask
-from app.models.tools import ToolData, DockerToolCreate, ParamDefine, ParamType, OutputFile
+import app.crud.tool as tool_crud
+from app.tasks.base.base_task import BaseBioTask, get_tool_output
+from app.core.session import engine
+from app.models.react_flow import TaskInput
+from app.models.tools import ParamType
 from worker import celery_app
-
-
-def get_tool_output(uid: str, key: str):
-    """伪方法，用于临时占位"""
-    datas = {
-        '8c2d6f8b-69fa-4265-9f41-aca7807343a6': {
-            'file_path': '/mnt/sda/gene/yeyu/scc/250421sc_96/00_raw/2503-A31/2503-A31_1.fq.gz'
-        },
-        '72e050f3-9fc5-48d5-84d5-f474a5eb4a33': {
-            'file_path': '/mnt/sda/gene/yeyu/scc/250421sc_96/00_raw/2503-A31/2503-A31_2.fq.gz'
-        },
-    }
-    return datas[uid][key]
 
 
 class ToolOutput(BaseModel):
@@ -36,9 +27,10 @@ class ToolOutput(BaseModel):
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def docker_task(
     self: Task,
+    result_dict: Optional[dict[str, Any]] = None,
     *,
-    tool_config: ToolData,
-    inputs: dict[str, tuple[str, str]],
+    tool_uid: str,
+    inputs: dict[str, TaskInput],
     output_dir: str,
     params: str = '',
     sample_name: Optional[str] = None,
@@ -47,7 +39,8 @@ def docker_task(
 
     Args:
         self: Celery任务
-        tool_config: 工具设置信息
+        result_dict: 用于占位，防止celery链式调用时报错
+        tool_uid: 工具uid，用于从数据库获取具体信息
         inputs: 输入参数字典，格式为 {参数名: (uid, 类型)}
         output_dir: 输出目录
         params: 额外参数
@@ -56,6 +49,10 @@ def docker_task(
     Returns:
         ToolOutput: 工具输出结果
     """
+
+    with Session(engine) as session:
+        tool_config = tool_crud.get(session, tool_uid)
+
     logger.info(f'运行工具: {tool_config.name}, 任务ID: {self.request.id}')
 
     # 创建输出目录
@@ -80,24 +77,21 @@ def docker_task(
             mount_paths[container_output_dir] = host_output_path
 
         # 计算实际输出文件路径
-        host_file_path = Path(output_file.file_path.format(output_dir=host_output_path, name=sample_name))
+        host_file_path = Path(
+            output_file.file_path.format(output_dir=host_output_path, name=sample_name)
+        )
         expected_outputs[output_file.name] = host_file_path
 
-
     if all(path.exists() for path in expected_outputs.values()):
-        return ToolOutput(
-            tool_name=tool_config.name,
-            command='',
-            outputs=expected_outputs,
-        )
+        return ToolOutput(tool_name=tool_config.name, command='', outputs=expected_outputs)
 
     # 处理必需参数
     for param in tool_config.required_params:
         # 处理输入参数
         if param.param_type == ParamType.INPUT:
             if param.name in inputs:
-                uid, key = inputs[param.name]
-                file_path = get_tool_output(uid, key)
+                kwarg = inputs[param.name]
+                file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
                 input_file = Path(file_path)
 
                 # 添加挂载项
@@ -137,9 +131,9 @@ def docker_task(
             volume_binds = []
             for container_path, host_path in mount_paths.items():
                 if any(
-                        output_file.mount_path == container_path
-                        for output_file in tool_config.output_files
-                        if output_file.mount_path != '/data/raw'
+                    output_file.mount_path == container_path
+                    for output_file in tool_config.output_files
+                    if output_file.mount_path != '/data/raw'
                 ):
                     volume_binds.append(f'{Path(temp_dir)}:{container_path}:rw')
                 else:
@@ -186,89 +180,3 @@ def docker_task(
 
     # 返回结果
     return ToolOutput(tool_name=tool_config.name, command=tool_command, outputs=expected_outputs)
-
-
-if __name__ == '__main__':
-    fastp_config = DockerToolCreate(
-        name='fastp',
-        repository='staphb/fastp',
-        tag='0.24.0',
-        description='',
-        command_template='fastp {required_params} {optional_params}&> /data/output/fastp.log',
-        required_params=[
-            ParamDefine(
-                name='r1',
-                command='-i {r1}',
-                is_file=True,
-                mount_path='/data/raw',
-                param_type=ParamType.INPUT,
-            ),
-            ParamDefine(
-                name='r2',
-                command='-I {r2}',
-                is_file=True,
-                mount_path='/data/raw',
-                param_type=ParamType.INPUT,
-            ),
-            ParamDefine(
-                name='r1',
-                command='-o {output_dir}/{name}_fastp_R1.fq.gz',
-                is_file=True,
-                param_type=ParamType.OUTPUT,
-            ),
-            ParamDefine(
-                name='r2',
-                command='-O {output_dir}/{name}_fastp_R2.fq.gz',
-                is_file=True,
-                param_type=ParamType.OUTPUT,
-            ),
-            ParamDefine(
-                name='json_report',
-                command='-p {output_dir}/{name}_fastp.json',
-                is_file=True,
-                param_type=ParamType.OUTPUT,
-            ),
-            ParamDefine(
-                name='html_report',
-                command='-h {output_dir}/{name}_fastp.html',
-                is_file=True,
-                param_type=ParamType.OUTPUT,
-            ),
-        ],
-        optional_params='--thread 8',
-        output_files=[
-            OutputFile(
-                name='r1', file_path='{output_dir}/{name}_fastp_R1.fq.gz', mount_path='/data/output'
-            ),
-            OutputFile(
-                name='r2', file_path='{output_dir}/{name}_fastp_R2.fq.gz', mount_path='/data/output'
-            ),
-            OutputFile(
-                name='json_report',
-                file_path='{output_dir}/{name}_fastp.json',
-                mount_path='/data/output',
-            ),
-            OutputFile(
-                name='html_report',
-                file_path='{output_dir}/{name}_fastp.html',
-                mount_path='/data/output',
-            ),
-            OutputFile(name='log', file_path='{output_dir}/fastp.log', mount_path='/data/output'),
-        ],
-        mkdir_output=True,
-        use_temp_dir=False,
-        help_command='fastp --help',
-    )
-
-    tool_data = fastp_config.to_tool_data()
-
-    docker_task(
-        tool_config=tool_data,
-        inputs={
-            'r1': ('8c2d6f8b-69fa-4265-9f41-aca7807343a6', 'file_path'),
-            'r2': ('72e050f3-9fc5-48d5-84d5-f474a5eb4a33', 'file_path'),
-        },
-        output_dir='/mnt/sda/gene/yeyu/scc/250421sc_96/01_clean/2503-A31',
-        params='--thread 8',
-        sample_name='2503-A31',
-    )

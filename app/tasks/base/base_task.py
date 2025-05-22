@@ -7,4 +7,8 @@ class BaseBioTask(celery.Task):
         logger.info(task_id)
 
     def on_success(self, retval, task_id, args, kwargs):
-        logger.info(f'{retval} success: {task_id}')
+        logger.info(f'success: {task_id}')
+
+
+def get_tool_output(uid: str, k: str) -> str:
+    raise NotImplementedError

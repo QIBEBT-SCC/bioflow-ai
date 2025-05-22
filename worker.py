@@ -12,7 +12,7 @@ celery_app.conf.update(
     enable_utc=True,
     timezone='Asia/Shanghai',
 )
-celery_app.autodiscover_tasks(['app.bioinfo.tasks.qc', 'app.bioinfo.tasks.taxonomy'], None)
+celery_app.autodiscover_tasks(['app.tasks.run_tool', 'app.tasks.load_file'], None)
 
 
 if __name__ == '__main__':
