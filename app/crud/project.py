@@ -116,12 +116,9 @@ def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> list[
     return result
 
 
-def get(session: Session, user_id: int, project_id: int) -> Optional[ProjectPublic]:
+def get(session: Session, user_id: int, project_id: int) -> ProjectPublic:
     statement: Select = select(Project).where(Project.id == project_id)
-    project: Project = session.exec(statement).first()
-
-    if project is None:
-        return None
+    project: Project = session.exec(statement).one()
 
     statement: Select = select(ProjectStar).where(
         ProjectStar.user_id == user_id, ProjectStar.project_id == project.id

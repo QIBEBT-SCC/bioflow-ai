@@ -24,6 +24,6 @@ def insert(session: Session, user: User) -> None:
             raise e
 
 
-def get(session: Session, email: str) -> Optional[User]:
+def get(session: Session, email: str) -> User:
     statement: Select = select(User).where(User.email == email)
-    return session.exec(statement).first()
+    return session.exec(statement).one()

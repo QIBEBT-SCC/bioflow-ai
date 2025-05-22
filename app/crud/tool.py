@@ -68,6 +68,6 @@ def get_by_name_fuzzy(
     return result
 
 
-def get(session: Session, tool_uid: str) -> Optional[ToolData]:
+def get(session: Session, tool_uid: str) -> ToolData:
     statement: Select = select(ToolData).where(ToolData.uid == tool_uid)
-    return session.exec(statement).first()
+    return session.exec(statement).one()

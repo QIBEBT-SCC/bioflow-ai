@@ -1,5 +1,3 @@
-from typing import Optional
-
 from sqlalchemy import Select, func
 from sqlmodel import Session, select, or_
 
@@ -36,6 +34,6 @@ def get_count(session: Session, user_id: int) -> int:
     return session.exec(statement).one()
 
 
-def get(session: Session, wf_uid: str) -> Optional[Workflow]:
+def get(session: Session, wf_uid: str) -> Workflow:
     statement: Select = select(Workflow).where(Workflow.uid == wf_uid)
-    return session.exec(statement).first()
+    return session.exec(statement).one()
