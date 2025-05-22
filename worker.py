@@ -1,7 +1,9 @@
 from celery import Celery
 
+from app.core.config import get_settings
+
 celery_app = Celery(
-    'tasks', broker='amqp://bioflow_ai:123456@localhost:5672//', backend='redis://localhost:6379/0'
+    'tasks', broker=get_settings().celery.BROKER, backend=get_settings().celery.BACKEND
 )
 
 celery_app.conf.update(
@@ -16,5 +18,5 @@ celery_app.autodiscover_tasks(['app.tasks.run_tool', 'app.tasks.load_file'], Non
 
 
 if __name__ == '__main__':
-    args = ['worker', '--loglevel=INFO']
+    args = ['worker', f'--loglevel={get_settings().logger.CELERY_LEVEL}']
     celery_app.worker_main(argv=args)

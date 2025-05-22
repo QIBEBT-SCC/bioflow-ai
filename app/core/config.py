@@ -27,7 +27,7 @@ class LogConfig(BaseModel):
 
     LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     FASTAPI_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
-    PREFECT_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
+    CELERY_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     ERROR_LEVEL: Literal['ERROR'] = 'ERROR'
     LOG_RETENTION: str = '1 week'
     LOG_ROTATION: str = '10 MB'
@@ -51,48 +51,11 @@ class PersistenceConfig(BaseModel):
     STORAGE_PATH: str = './storage'
 
 
-class ToolConfig(BaseModel):
+class CeleryConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    THREADS: int = 8
-    MAX_MEM: str = '16g'
-    REFERENCE_PATH: str = './storage/reference'
-    KRAKEN_DB: str = './storage/bio_db/kraken'
-    METAPHLAN_DB: str = './storage/bio_db/metaphlan'
-    CHECKM2_DB: str = './storage/bio_db/checkm2'
-    DIAMOND_DB: str = './storage/bio_db/blast/diamond'
-    MEGAN_MAPPING_DB: str = './storage/bio_db/megan/megan-map.db'
-
-
-class ImageConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    REPOSITORY: str
-    TAG: str = 'latest'
-
-    def get_image(self) -> str:
-        return f'{self.REPOSITORY}:{self.TAG}'
-
-
-class DockerConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    fastp: ImageConfig = ImageConfig.model_validate({'repository': 'staphb/fastp', 'tag': '0.24.0'})
-    metaphlan: ImageConfig = ImageConfig.model_validate(
-        {'repository': 'staphb/metaphlan', 'tag': '4.1.1'}
-    )
-    bowtie2: ImageConfig = ImageConfig.model_validate(
-        {'repository': 'staphb/bowtie2', 'tag': '2.5.4'}
-    )
-    spades: ImageConfig = ImageConfig.model_validate(
-        {'repository': 'staphb/spades', 'tag': '4.1.0'}
-    )
-    diamond: ImageConfig = ImageConfig.model_validate(
-        {'repository': 'staphb/diamond', 'tag': '2.1.11'}
-    )
-    megan: ImageConfig = ImageConfig.model_validate(
-        {'repository': 'aye114514/megan', 'tag': '6.25.9'}
-    )
+    BROKER: str = 'amqp://bioflow_ai:123456@localhost:5672//'
+    BACKEND: str = 'redis://localhost:6379/0'
 
 
 class Settings(BaseSettings):
@@ -107,8 +70,7 @@ class Settings(BaseSettings):
     logger: LogConfig = LogConfig()
     network: NetworkConfig = NetworkConfig()
     persistent: PersistenceConfig = PersistenceConfig()
-    tool: ToolConfig = ToolConfig()
-    docker: DockerConfig = DockerConfig()
+    celery:CeleryConfig = CeleryConfig()
 
     @classmethod
     def settings_customise_sources(
