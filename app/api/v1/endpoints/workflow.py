@@ -57,8 +57,3 @@ def export_workflow(name: str, user: Annotated[User, Depends(get_current_active_
     wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user.username / 'workflow'
     file_path = wf_store_path / f'{name}.json'
     return FileResponse(path=file_path, filename=f'{name}.json', media_type='application/json')
-
-
-@router.post('/flows/{name}/run')
-def run_workflow():
-    pass

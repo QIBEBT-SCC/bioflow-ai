@@ -1,8 +1,10 @@
-from datetime import datetime
+from datetime import datetime, UTC
+from enum import IntEnum
 from typing import Optional
 
 from pydantic import UUID7
-from sqlalchemy import Column, UUID
+from sqlalchemy import Column, UUID, ForeignKey
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.decorator.special_field import PydanticJson
@@ -19,6 +21,13 @@ from app.models.user import User
 # uid, instance_uid, owner, task_type(name), web_node_id,other_args, status, local_path, result, time...
 
 
+class Status(IntEnum):
+    WAITING = 0
+    RUNNING = 1
+    ERROR = 2
+    SUCCESS = 3
+
+
 class Workflow(SQLModel, table=True):
     __tablename__ = 'workflows'
 
@@ -31,16 +40,53 @@ class Workflow(SQLModel, table=True):
     owner: Optional['User'] = Relationship()
 
 
-class TaskInstance(SQLModel):
+class RunInstance(SQLModel, table=True):
+    __tablename__ = 'run_instances'
+
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
+    owner_id: int = Field(foreign_key='users.id')
+    workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
+
+    status: Status
+
+    create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    start_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    end_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+
+    owner: Optional['User'] = Relationship()
+
+
+class RunUpdate(SQLModel):
+    workflow: Optional[WorkflowDefinition] = None
+    status: Optional[Status] = None
+
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+
+
+class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
-    uid: str = Field(primary_key=True)
-    instance_uid: str
-    owner: int
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    instance_uid: UUID7 = Field(
+        sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid'))
+    )
+    owner_id: int = Field(foreign_key='users.id')
     name: str
-    commands: str
-    result: str
-    status: str
-    create_time: Optional[datetime] = None
+    commands: Optional[str] = Field(default=None)
+    result: Optional[dict] = Field(sa_type=JSONB)
+    status: Status
+
+    create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    start_time: Optional[datetime] = Field(default=None)
+    end_time: Optional[datetime] = Field(default=None)
+
+
+class TaskUpdate(SQLModel):
+    commands: Optional[str] = None
+    result: Optional[dict] = None
+    status: Optional[Status] = None
+
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None

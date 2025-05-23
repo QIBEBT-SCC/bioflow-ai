@@ -5,23 +5,13 @@ from typing import Optional, Any
 
 from celery import Task
 from loguru import logger
-from pydantic import BaseModel
-from sqlmodel import Session
 
-import app.crud.tool as tool_crud
-from app.tasks.base.base_task import BaseBioTask, get_tool_output
-from app.core.session import engine
+from app.models.workflow import TaskUpdate
+from app.tasks.base.base_task import BaseBioTask, get_tool_output, get_tool_data, update_task
 from app.models.react_flow import TaskInput
 from app.models.tools import ParamType
+from app.utils.docker import run_container
 from worker import celery_app
-
-
-class ToolOutput(BaseModel):
-    """工具输出基类"""
-
-    tool_name: str
-    command: str
-    outputs: dict[str, Path]
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -34,7 +24,7 @@ def docker_task(
     output_dir: str,
     params: str = '',
     sample_name: Optional[str] = None,
-) -> ToolOutput:
+) -> dict[str, str]:
     """通用Docker工具执行任务
 
     Args:
@@ -49,11 +39,7 @@ def docker_task(
     Returns:
         ToolOutput: 工具输出结果
     """
-
-    with Session(engine) as session:
-        tool_config = tool_crud.get(session, tool_uid)
-
-    logger.info(f'运行工具: {tool_config.name}, 任务ID: {self.request.id}')
+    tool_config = get_tool_data(tool_uid)
 
     # 创建输出目录
     host_output_path = Path(output_dir)
@@ -64,6 +50,7 @@ def docker_task(
     output_cmds = []
     mount_paths = {}  # 存储挂载路径映射
     expected_outputs = {}  # 预期输出文件路径
+    param_outputs = {}  # 用于构建参数的输出文件
     container_output_dir = '/data/output'
 
     # 处理样本名
@@ -74,16 +61,19 @@ def docker_task(
         # 添加挂载项
         container_output_dir = output_file.mount_path
         if container_output_dir and container_output_dir not in mount_paths:
-            mount_paths[container_output_dir] = host_output_path
+            mount_paths[container_output_dir] = host_output_path.absolute()
 
         # 计算实际输出文件路径
         host_file_path = Path(
             output_file.file_path.format(output_dir=host_output_path, name=sample_name)
         )
-        expected_outputs[output_file.name] = host_file_path
+        expected_outputs[output_file.name] = host_file_path.absolute()
+        param_outputs[output_file.name] = output_file.file_path.format(
+            output_dir=container_output_dir, name=sample_name
+        )
 
     if all(path.exists() for path in expected_outputs.values()):
-        return ToolOutput(tool_name=tool_config.name, command='', outputs=expected_outputs)
+        return expected_outputs
 
     # 处理必需参数
     for param in tool_config.required_params:
@@ -113,16 +103,19 @@ def docker_task(
         # 处理输出参数
         elif param.param_type == ParamType.OUTPUT:
             # 构建命令
-            output_cmd = param.command.format(output_dir=container_output_dir, name=sample_name)
+            if param.name in param_outputs:
+                output_cmd = param.command.format(**{param.name: param_outputs[param.name]})
+            else:
+                output_cmd = param.command.format(output_dir=container_output_dir, name=sample_name)
+
             output_cmds.append(output_cmd)
 
     # 构建完整命令
     tool_command = tool_config.command_template.format(
         required_params=' '.join(input_cmds + output_cmds),
-        optional_params=params or tool_config.optional_params,
+        optional_params=params,
+        log=param_outputs['log'] if 'log' in param_outputs else '',
     )
-
-    logger.debug(mount_paths)
 
     # 执行Docker命令
     if tool_config.use_temp_dir:
@@ -139,19 +132,22 @@ def docker_task(
                 else:
                     volume_binds.append(f'{host_path}:{container_path}:rw')
 
-            logger.debug(f'执行命令: {tool_command}')
-            logger.debug(f'挂载卷: {volume_binds}')
+            data = TaskUpdate(
+                commands=f'docker run --rm {" ".join([f"-v {bind}" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
+            )
+            update_task(self.request.id, data)
+
             # 执行Docker命令
-            # run_container(
-            #     tool_config.docker_config.image,
-            #     commands=['/bin/bash', '-c', tool_command],
-            #     volumes_binds=temp_volume_binds,
-            #     **tool_config.docker_config.docker_settings,
-            # )
-            #
+            run_container(
+                tool_config.docker_config.image,
+                commands=['/bin/bash', '-c', tool_command],
+                volumes_binds=volume_binds,
+                **tool_config.docker_config.docker_settings,
+            )
+
             # 复制结果到最终输出目录
-            for output_name, host_output_path in expected_outputs.items():
-                relative_path = host_output_path.relative_to(output_dir)
+            for output_name, output_path in expected_outputs.items():
+                relative_path = output_path.relative_to(host_output_path.absolute())
                 temp_path = Path(temp_dir) / relative_path
 
                 if temp_path.exists():
@@ -162,16 +158,19 @@ def docker_task(
         volume_binds = [
             f'{host_path}:{container_path}:rw' for container_path, host_path in mount_paths.items()
         ]
-        logger.debug(f'挂载卷: {volume_binds}')
-        logger.debug(f'执行命令: {tool_command}')
+
+        data = TaskUpdate(
+            commands=f'docker run --rm {" ".join([f"-v {bind}" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
+        )
+        update_task(self.request.id, data)
 
         # 直接使用最终输出目录
-        # run_container(
-        #     tool_config.docker_config.image,
-        #     commands=['/bin/bash', '-c', tool_command],
-        #     volumes_binds=volume_binds,
-        #     **tool_config.docker_config.docker_settings,
-        # )
+        run_container(
+            tool_config.docker_config.image,
+            commands=['/bin/bash', '-c', tool_command],
+            volumes_binds=volume_binds,
+            **tool_config.docker_config.docker_settings,
+        )
 
     # 验证输出文件是否生成
     missing_outputs = [str(path) for name, path in expected_outputs.items() if not path.exists()]
@@ -179,4 +178,4 @@ def docker_task(
         logger.warning(f'部分输出文件未生成: {missing_outputs}')
 
     # 返回结果
-    return ToolOutput(tool_name=tool_config.name, command=tool_command, outputs=expected_outputs)
+    return expected_outputs

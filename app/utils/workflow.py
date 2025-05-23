@@ -3,7 +3,13 @@ import rustworkx as rx
 from pathlib import Path
 
 from celery import chain
+from sqlmodel import Session
 
+import app.crud.task_instance as task_crud
+import app.crud.tool as tool_crud
+from app.core.config import get_settings
+from app.models.user import User
+from app.models.workflow import TaskInstance, Status
 from app.tasks.run_tool import docker_task
 from app.tasks.load_file import load_file_task
 from app.models.react_flow import WorkflowDefinition, TaskNode, TaskInput
@@ -41,22 +47,44 @@ def build_task_list(workflow: WorkflowDefinition) -> list[TaskNode]:
     return [node_map[graph.nodes()[index]] for index in topo_sort]
 
 
-def send_task(task_nodes: list[TaskNode]):
+def send_task(
+    session: Session, task_nodes: list[TaskNode], sample_name: str, run_uid: str, owner: User
+):
     tasks = []
     task_index = 1
     for task_node in task_nodes:
         if task_node.type == 'tool':
+            tool_data = tool_crud.get(session, task_node.tool_uid)
+
+            task_instance = TaskInstance(
+                uid=task_node.id,
+                instance_uid=run_uid,
+                owner_id=owner.id,
+                name=tool_data.name,
+                status=Status.WAITING,
+            )
+            task_crud.insert(session, task_instance)
+
             tasks.append(
                 docker_task.s(
                     tool_uid=task_node.tool_uid,
                     inputs=task_node.kwarg,
-                    output_dir=f'testoutput/HC23/{task_index}_{task_node.tool_uid}',
+                    output_dir=f'{get_settings().persistent.STORAGE_PATH}/{owner.username}/{sample_name}/{task_index}_{tool_data.name}',
                     params=task_node.args,
-                    sample_name='HC23',
+                    sample_name=sample_name,
                 ).set(task_id=task_node.id)
             )
             task_index += 1
         elif task_node.type == 'fileInput':
+            task_instance = TaskInstance(
+                uid=task_node.id,
+                instance_uid=run_uid,
+                owner_id=owner.id,
+                name='read_file',
+                status=Status.WAITING,
+            )
+            task_crud.insert(session, task_instance)
+
             tasks.append(load_file_task.s(file_path=task_node.args).set(task_id=task_node.id))
 
     workflow = chain(*tasks)

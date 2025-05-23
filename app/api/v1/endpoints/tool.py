@@ -5,7 +5,6 @@ from fastapi import APIRouter, Query
 import app.crud.tool_tag as tag_crud
 import app.crud.tool_group as group_crud
 import app.crud.tool as tool_crud
-from app.bioinfo.tool_info import DefaultArgs
 from app.core.session import SessionDep
 from app.models.tools import (
     DockerToolCreate,
@@ -14,6 +13,7 @@ from app.models.tools import (
     ToolGroup,
     ToolPublic,
     ToolArgPublic,
+    ToolTaskInfo,
 )
 
 router = APIRouter()
@@ -63,12 +63,6 @@ def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
     return new_tool
 
 
-@router.get('/args')
-def get_default_args() -> DefaultArgs:
-    default_args = DefaultArgs()
-    return default_args
-
-
 @router.get('')
 def get_tool_list(
     session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
@@ -84,15 +78,17 @@ def get_tools_by_name(
 
 
 @router.get('/{tool_uid}')
-def get_tool_detail(session: SessionDep, tool_uid: str) -> Optional[ToolPublic]:
+def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
     tool_data = tool_crud.get(session, tool_uid)
-    if tool_data:
-        return ToolPublic.from_orm(tool_data)
-
-    return None
+    return ToolPublic.from_orm(tool_data)
 
 
 @router.get('/{tool_uid}/args')
 def get_tool_args(session: SessionDep, tool_uid: str) -> ToolArgPublic:
     tool_data = tool_crud.get(session, tool_uid)
     return ToolArgPublic.from_orm(tool_data)
+
+
+@router.get('/{tool_uid}/task_info', response_model=ToolTaskInfo)
+def get_tool4task(session: SessionDep, tool_uid: str):
+    return tool_crud.get(session, tool_uid)

@@ -220,9 +220,16 @@ class ToolPublic(BaseModel):
             kwargs['docker_repo'] = tool.docker_config.image.repository
             kwargs['docker_tag'] = tool.docker_config.image.tag
 
+        log = ''
+        for output_file in tool.output_files:
+            if output_file.is_log:
+                log = output_file.file_path
+                break
+
         kwargs['complete_command'] = tool.command_template.format(
             required_params=' '.join([param.command for param in tool.required_params]),
             optional_params=tool.optional_params,
+            log=log,
         )
         kwargs['tags'] = tool.tags
 
@@ -265,3 +272,18 @@ class ToolArgPublic(BaseModel):
         if update:
             kwargs.update(update)
         return cls.model_validate(kwargs)
+
+
+class ToolTaskInfo(BaseModel):
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    name: str
+
+    command_template: str
+    required_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
+    optional_params: str
+    output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
+
+    mkdir_output: bool
+    use_temp_dir: bool
+
+    docker_config: Optional[DockerConfig] = Field(sa_column=Column(PydanticJson(DockerConfig)))
