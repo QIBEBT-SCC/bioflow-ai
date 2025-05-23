@@ -3,6 +3,7 @@ import time
 
 from loguru import logger
 
+from app.core.config import get_settings
 from app.models.tools import ImageConfig
 
 
@@ -59,22 +60,23 @@ def run_container(
 
     client = docker.from_env()
     try:
-        client.containers.run(
-            image_cfg.get_image(),
-            commands,
-            volumes=volumes_binds,
-            user=get_current_user_identity(),
-            auto_remove=auto_remove,
-        )
+        client.images.get(image_cfg.get_image())
     except ImageNotFound:
         logger.error(f'image {image_cfg.get_image()} not found, pull from docker hub.')
-        client.images.pull(image_cfg.REPOSITORY, image_cfg.TAG)
-        time.sleep(1)
-        client.containers.run(
-            image_cfg.get_image(),
-            commands,
-            volumes=volumes_binds,
-            user=get_current_user_identity(),
-            auto_remove=auto_remove,
+        client.images.pull(
+            image_cfg.repository,
+            image_cfg.tag,
+            auth_config={
+                'username': get_settings().docker.USERNAME,
+                'password': get_settings().docker.PASSWORD,
+            },
         )
+        time.sleep(1)
 
+    client.containers.run(
+        image_cfg.get_image(),
+        commands,
+        volumes=volumes_binds,
+        user=get_current_user_identity(),
+        auto_remove=auto_remove,
+    )

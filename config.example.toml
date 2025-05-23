@@ -22,6 +22,10 @@ use_proxy = false
 db_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
 storage_path = "./storage"
 
+[docker]
+username = ''
+password = ''
+
 [celery]
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/0"

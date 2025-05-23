@@ -58,6 +58,13 @@ class CeleryConfig(BaseModel):
     BACKEND: str = 'redis://localhost:6379/0'
 
 
+class DockerConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    USERNAME: str = ''
+    PASSWORD: str = ''
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         toml_file='config.toml', alias_generator=lambda field_name: field_name.lower()
@@ -70,7 +77,8 @@ class Settings(BaseSettings):
     logger: LogConfig = LogConfig()
     network: NetworkConfig = NetworkConfig()
     persistent: PersistenceConfig = PersistenceConfig()
-    celery:CeleryConfig = CeleryConfig()
+    docker: DockerConfig = DockerConfig()
+    celery: CeleryConfig = CeleryConfig()
 
     @classmethod
     def settings_customise_sources(
