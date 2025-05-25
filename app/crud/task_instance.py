@@ -27,6 +27,13 @@ def update(session: Session, uid: str, task_update: TaskUpdate) -> TaskInstance:
     return db_task
 
 
+def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[TaskInstance]:
+    statement: Select = (
+        select(TaskInstance).where(TaskInstance.owner_id == user_id).limit(limit).offset(offset)
+    )
+    return session.exec(statement).all()
+
+
 def get(session: Session, uid: str) -> TaskInstance:
     statement: Select = select(TaskInstance).where(TaskInstance.uid == uid)
     return session.exec(statement).one()

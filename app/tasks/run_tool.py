@@ -4,13 +4,14 @@ from pathlib import Path
 from typing import Optional, Any
 
 from celery import Task
+from docker.types import Mount
 from loguru import logger
 
 from app.models.workflow import TaskUpdate
 from app.tasks.base.base_task import BaseBioTask, get_tool_output, get_tool_data, update_task
 from app.models.react_flow import TaskInput
 from app.models.tools import ParamType
-from app.utils.docker import run_container
+from app.utils.container import run_docker
 from worker import celery_app
 
 
@@ -121,27 +122,29 @@ def docker_task(
     if tool_config.use_temp_dir:
         with tempfile.TemporaryDirectory(prefix=f'task_{tool_config.name}_') as temp_dir:
             # 创建临时输出目录的挂载
-            volume_binds = []
+            volume_binds: list[Mount] = []
             for container_path, host_path in mount_paths.items():
                 if any(
                     output_file.mount_path == container_path
                     for output_file in tool_config.output_files
                     if output_file.mount_path != '/data/raw'
                 ):
-                    volume_binds.append(f'{Path(temp_dir)}:{container_path}:rw')
+                    volume_binds.append(
+                        Mount(type='bind', source=Path(temp_dir), target=container_path)
+                    )
                 else:
-                    volume_binds.append(f'{host_path}:{container_path}:rw')
+                    volume_binds.append(Mount(type='bind', source=host_path, target=container_path))
 
             data = TaskUpdate(
-                commands=f'docker run --rm {" ".join([f"-v {bind}" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
+                commands=f'docker run --rm {" ".join([f"-v {bind['source']}:{bind['target']}:rw" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
             )
             update_task(self.request.id, data)
 
             # 执行Docker命令
-            run_container(
+            run_docker(
                 tool_config.docker_config.image,
                 commands=['/bin/bash', '-c', tool_command],
-                volumes_binds=volume_binds,
+                mounts=volume_binds,
                 **tool_config.docker_config.docker_settings,
             )
 
@@ -156,7 +159,8 @@ def docker_task(
                     logger.warning(f'临时输出文件不存在: {temp_path}')
     else:
         volume_binds = [
-            f'{host_path}:{container_path}:rw' for container_path, host_path in mount_paths.items()
+            Mount(type='bind', source=host_path, target=container_path)
+            for container_path, host_path in mount_paths.items()
         ]
 
         data = TaskUpdate(
@@ -165,10 +169,10 @@ def docker_task(
         update_task(self.request.id, data)
 
         # 直接使用最终输出目录
-        run_container(
+        run_docker(
             tool_config.docker_config.image,
             commands=['/bin/bash', '-c', tool_command],
-            volumes_binds=volume_binds,
+            mounts=volume_binds,
             **tool_config.docker_config.docker_settings,
         )
 

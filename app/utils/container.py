@@ -1,6 +1,7 @@
 import os
 import time
 
+from docker.types import Mount
 from loguru import logger
 
 from app.core.config import get_settings
@@ -18,13 +19,13 @@ def get_current_user_identity() -> str:
     return f'{uid}:{gid}'
 
 
-async def run_container_async(image: str, commands: list[str], volumes_binds: list[str]) -> None:
+async def run_docker_async(image: str, commands: list[str], mounts: list[Mount]) -> None:
     """docker异步运行封装
 
     Args:
         image: 镜像
         commands: 指令列表
-        volumes_binds: 宿主目录映射列表
+        mounts: 宿主目录映射列表
     """
     import aiodocker
 
@@ -34,7 +35,9 @@ async def run_container_async(image: str, commands: list[str], volumes_binds: li
         container_config = {
             'Image': image,
             'Cmd': commands,
-            'HostConfig': {'Binds': volumes_binds},
+            'HostConfig': {
+                'Binds': [f'{mount["source"]}:{mount["target"]}:rw' for mount in mounts]
+            },
             'User': get_current_user_identity(),
         }
         container = await docker.containers.run(config=container_config)
@@ -52,8 +55,8 @@ async def run_container_async(image: str, commands: list[str], volumes_binds: li
             await container.delete(force=True)
 
 
-def run_container(
-    image_cfg: ImageConfig, commands: list[str], volumes_binds: list[str], auto_remove: bool = True
+def run_docker(
+    image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], auto_remove: bool = True
 ):
     import docker
     from docker.errors import ImageNotFound
@@ -76,7 +79,40 @@ def run_container(
     client.containers.run(
         image_cfg.get_image(),
         commands,
-        volumes=volumes_binds,
+        mounts=mounts,
         user=get_current_user_identity(),
         auto_remove=auto_remove,
     )
+
+
+def run_podman(
+    image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], auto_remove: bool = True
+) -> str:
+    from podman import PodmanClient
+    from podman.errors import ImageNotFound
+
+    if len(image_cfg.repository.split('/')) == 2:
+        image_cfg.repository = f'docker.io/{image_cfg.repository}'
+
+    with PodmanClient() as client:
+        if client.ping():
+            try:
+                client.images.get(image_cfg.get_image())
+            except ImageNotFound:
+                logger.error(f'image {image_cfg.get_image()} not found, pull from docker hub.')
+                client.images.pull(
+                    image_cfg.repository,
+                    image_cfg.tag,
+                    auth_config={
+                        'username': get_settings().docker.USERNAME,
+                        'password': get_settings().docker.PASSWORD,
+                    },
+                    progress_bar=True,
+                )
+
+            result = client.containers.run(
+                image_cfg.get_image(), commands, stderr=True, auto_remove=auto_remove, mounts=mounts
+            )
+            return result.decode('utf-8')
+
+    return ''
