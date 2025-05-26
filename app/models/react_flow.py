@@ -20,6 +20,8 @@ class NodeBase(BaseModel):
 
 class Node(NodeBase):
     position: Position
+    dragHandle: str
+    zIndex: int
 
 
 class EdgeBase(BaseModel):
@@ -35,8 +37,8 @@ class Edge(EdgeBase):
 
 
 class WorkflowDefinition(BaseModel):
-    nodes: list[Node]
-    edges: list[Edge]
+    nodes: list[Node] = Field(default_factory=list)
+    edges: list[Edge] = Field(default_factory=list)
 
 
 class TaskInput(BaseModel):

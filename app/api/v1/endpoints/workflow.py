@@ -1,15 +1,17 @@
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import FileResponse
+from starlette import status
 from uuid_extensions import uuid7
 
 import app.crud.workflow as wf_crud
 from app.core.session import SessionDep
+from app.models.react_flow import WorkflowDefinition
 from app.models.user import User
 from app.core.config import get_settings
-from app.models.workflow import Workflow
+from app.models.workflow import Workflow, WorkflowCreateProp
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -41,15 +43,40 @@ def get_workflow(
 
 @router.post('')
 def save_workflow(
-    workflow: Workflow,
+    workflow_prop: WorkflowCreateProp,
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
-) -> Workflow:
-    uid = uuid7(as_type='str')
-    workflow.uid = uid
-    workflow.owner_id = current_user.id
+) -> str:
+    if wf_crud.workflow_name_exists(session, workflow_prop.name):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='name already exists!')
 
-    return wf_crud.insert(session, workflow)
+    # TODO: 合法性检查
+
+    uid = uuid7(as_type='str')
+    workflow = Workflow(
+        uid=uid,
+        name=workflow_prop.name,
+        owner_id=current_user.id,
+        wf_type=workflow_prop.wf_type,
+        workflow=workflow_prop.workflow,
+        public=workflow_prop.public,
+    )
+
+    wf_crud.insert(session, workflow)
+    return uid
+
+
+@router.patch('/{uid}')
+def update_workflow(
+    uid: str,
+    workflow: WorkflowDefinition,
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    # TODO: 合法性检查
+
+    wf_crud.update(session, uid, workflow)
+    return uid
 
 
 @router.get('/{name}/export')

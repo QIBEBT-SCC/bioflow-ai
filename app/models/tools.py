@@ -20,7 +20,8 @@ class ToolType(IntEnum):
 
 class ParamType(IntEnum):
     INPUT = 0
-    OUTPUT = 1
+    INPUT_POSITION = 1
+    OUTPUT = 2
 
 
 class ParamDefine(BaseModel):
@@ -28,31 +29,43 @@ class ParamDefine(BaseModel):
 
     Attributes:
         name: 参数名称
-        command: 参数命令格式，如 "-i {value}"
+        command: 参数命令格式，如 "-i {name}"
         param_type: 是输入相关参数还是输出相关参数
         is_file: 输入是文件还是文件夹
+        index: 位置参数的顺位（仅在INPUT_POSITION类型的参数中生效）
         required: 是否必选
-        default: 默认值
+        mount_path: 在docker中的映射目录
         description: 参数描述
     """
 
     name: str
-    description: str
     command: str
     param_type: ParamType
     is_file: bool
+    index: Optional[int] = None
     required: bool = True
     mount_path: Optional[str] = None
-    default: Optional[str] = None
     description: Optional[str] = None
 
 
 class OutputFile(BaseModel):
+    """输出文件定义
+
+    Attributes:
+        name: 文件参数名称
+        file_path: 文件的路径模板
+        is_report: 是否作为report文件
+        is_log: 是否是日志文件
+        mount_path: 文件在容器中的映射路径
+        description: 文件的描述
+    """
+
     name: str
     file_path: str
     is_report: bool = False
     is_log: bool = False
     mount_path: Optional[str] = None
+    description: Optional[str] = None
 
 
 class ImageConfig(SQLModel):
@@ -104,8 +117,8 @@ class ToolData(SQLModel, table=True):
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
 
     command_template: str
-    required_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
-    optional_params: str
+    dynamic_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
+    static_params: str
     output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 
     help_command: str
@@ -126,8 +139,8 @@ class DockerToolCreate(BaseModel):
     tool_tag: list[ToolTag]
 
     command_template: str
-    required_params: list[ParamDefine]
-    optional_params: str
+    dynamic_params: list[ParamDefine]
+    static_params: str
     output_files: list[OutputFile]
 
     help_command: str
@@ -150,8 +163,8 @@ class DockerToolCreate(BaseModel):
             tool_type=ToolType.DOCKER,
             command_template=self.command_template,
             homepage=self.homepage,
-            required_params=self.required_params,
-            optional_params=self.optional_params,
+            dynamic_params=self.dynamic_params,
+            static_params=self.static_params,
             output_files=self.output_files,
             help_command=self.help_command,
             mkdir_output=self.mkdir_output,
@@ -197,8 +210,8 @@ class ToolPublic(BaseModel):
     group_id: Optional[int]
 
     command_template: str
-    required_params: list[ParamDefine]
-    optional_params: str
+    dynamic_params: list[ParamDefine]
+    static_params: str
     output_files: list[OutputFile]
 
     help_command: str
@@ -226,9 +239,24 @@ class ToolPublic(BaseModel):
                 log = output_file.file_path
                 break
 
+        position_params: list[ParamDefine] = sorted(
+            [
+                param
+                for param in tool.dynamic_params
+                if param.param_type == ParamType.INPUT_POSITION
+            ],
+            key=lambda x: x.index,
+        )
+        dynamic_params = [
+            param.command
+            for param in tool.dynamic_params
+            if param.param_type != ParamType.INPUT_POSITION
+        ]
+
         kwargs['complete_command'] = tool.command_template.format(
-            required_params=' '.join([param.command for param in tool.required_params]),
-            optional_params=tool.optional_params,
+            position_params=' '.join([param.command for param in position_params]),
+            dynamic_params=' '.join(dynamic_params),
+            static_params=tool.static_params,
             log=log,
         )
         kwargs['tags'] = tool.tags
@@ -251,7 +279,7 @@ class ToolArgPublic(BaseModel):
     input_handles: list[Handle] = PField(default_factory=list)
     output_handles: list[Handle] = PField(default_factory=list)
 
-    optional_params: str
+    static_params: str
 
     @classmethod
     def from_orm(cls, tool: ToolData, update: Optional[dict[str, Any]] = None):
@@ -259,12 +287,12 @@ class ToolArgPublic(BaseModel):
 
         kwargs['input_handles'] = [
             Handle(name=param.name, description=param.description)
-            for param in tool.required_params
-            if param.param_type == ParamType.INPUT
+            for param in tool.dynamic_params
+            if param.param_type != ParamType.OUTPUT
         ]
 
         kwargs['output_handles'] = [
-            Handle(name=file.name, description='')
+            Handle(name=file.name, description=file.description)
             for file in tool.output_files
             if not (file.is_log or file.is_report)
         ]
@@ -275,15 +303,15 @@ class ToolArgPublic(BaseModel):
 
 
 class ToolTaskInfo(BaseModel):
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    uid: UUID7
     name: str
 
     command_template: str
-    required_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
-    optional_params: str
-    output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
+    dynamic_params: list[ParamDefine]
+    static_params: str
+    output_files: list[OutputFile]
 
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig] = Field(sa_column=Column(PydanticJson(DockerConfig)))
+    docker_config: Optional[DockerConfig]

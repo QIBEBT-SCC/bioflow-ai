@@ -2,7 +2,7 @@ from datetime import datetime, UTC
 from enum import IntEnum
 from typing import Optional
 
-from pydantic import UUID7
+from pydantic import UUID7, BaseModel
 from sqlalchemy import Column, UUID, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import SQLModel, Field, Relationship
@@ -28,16 +28,32 @@ class Status(IntEnum):
     SUCCESS = 3
 
 
+class WorkflowType(IntEnum):
+    SUBMODULE = 0
+    TEMPLATE = 1
+
+
 class Workflow(SQLModel, table=True):
     __tablename__ = 'workflows'
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     name: str
     owner_id: int = Field(foreign_key='users.id')
+    wf_type: WorkflowType
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
     public: bool = False
 
     owner: Optional['User'] = Relationship()
+
+
+class WorkflowCreateProp(BaseModel):
+    name: str
+    wf_type: WorkflowType
+    workflow: WorkflowDefinition
+    public: bool
+
+class WorkflowUpdate(BaseModel):
+    workflow: WorkflowDefinition
 
 
 class RunInstance(SQLModel, table=True):
