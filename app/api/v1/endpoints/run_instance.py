@@ -9,7 +9,7 @@ from app.models.react_flow import WorkflowDefinition
 from app.models.user import User
 from app.models.workflow import RunInstance, Status, RunUpdate
 from app.utils.security import get_current_active_user
-from app.utils.workflow import build_task_list, send_task
+from app.utils.workflow import build_task_list, send_task, update_node_id
 
 router = APIRouter()
 
@@ -23,6 +23,9 @@ def run_workflow(
 ) -> RunInstance:
     # 检查合法
     # TODO
+
+    # 更新节点uid
+    workflow = update_node_id(workflow)
 
     # 创建运行实例
     run_uid = uuid7(as_type='str')

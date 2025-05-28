@@ -15,6 +15,7 @@ from app.models.tools import (
     ToolArgPublic,
     ToolTaskInfo,
 )
+from app.utils.input_format import build_command_template
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -80,7 +81,14 @@ def get_tools_by_name(
 @router.get('/{tool_uid}')
 def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
     tool_data = tool_crud.get(session, tool_uid)
-    return ToolPublic.from_orm(tool_data)
+    tool_public = ToolPublic.from_orm(tool_data)
+    tool_public.complete_command = build_command_template(
+        command_template=tool_data.command_template,
+        dynamic_params=tool_data.dynamic_params,
+        static_params=tool_data.static_params,
+        output_files=tool_data.output_files,
+    )
+    return tool_public
 
 
 @router.get('/{tool_uid}/args')

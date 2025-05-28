@@ -215,13 +215,13 @@ class ToolPublic(BaseModel):
     output_files: list[OutputFile]
 
     help_command: str
-    complete_command: str
+    complete_command: str = ''
 
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_repo: str
-    docker_tag: str
+    docker_repo: Optional[str] = None
+    docker_tag: Optional[str] = None
 
     tags: list['ToolTag']
 
@@ -233,32 +233,6 @@ class ToolPublic(BaseModel):
             kwargs['docker_repo'] = tool.docker_config.image.repository
             kwargs['docker_tag'] = tool.docker_config.image.tag
 
-        log = ''
-        for output_file in tool.output_files:
-            if output_file.is_log:
-                log = output_file.file_path
-                break
-
-        position_params: list[ParamDefine] = sorted(
-            [
-                param
-                for param in tool.dynamic_params
-                if param.param_type == ParamType.INPUT_POSITION
-            ],
-            key=lambda x: x.index,
-        )
-        dynamic_params = [
-            param.command
-            for param in tool.dynamic_params
-            if param.param_type != ParamType.INPUT_POSITION
-        ]
-
-        kwargs['complete_command'] = tool.command_template.format(
-            position_params=' '.join([param.command for param in position_params]),
-            dynamic_params=' '.join(dynamic_params),
-            static_params=tool.static_params,
-            log=log,
-        )
         kwargs['tags'] = tool.tags
 
         if update:

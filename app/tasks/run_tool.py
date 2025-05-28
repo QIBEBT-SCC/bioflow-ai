@@ -12,6 +12,7 @@ from app.tasks.base.base_task import BaseBioTask, get_tool_output, get_tool_data
 from app.models.react_flow import TaskInput
 from app.models.tools import ParamType
 from app.utils.container import run_docker
+from app.utils.input_format import PartialFormatter, build_command_template
 from worker import celery_app
 
 
@@ -47,11 +48,9 @@ def docker_task(
     if tool_config.mkdir_output:
         host_output_path.mkdir(parents=True, exist_ok=True)
 
-    input_cmds = []
-    output_cmds = []
+    param_inputs = {}  # 用于构建参数的输入文件
     mount_paths = {}  # 存储挂载路径映射
     expected_outputs = {}  # 预期输出文件路径
-    param_outputs = {}  # 用于构建参数的输出文件
     container_output_dir = '/data/output'
 
     # 处理样本名
@@ -69,15 +68,12 @@ def docker_task(
             output_file.file_path.format(output_dir=host_output_path, name=sample_name)
         )
         expected_outputs[output_file.name] = host_file_path.absolute()
-        param_outputs[output_file.name] = output_file.file_path.format(
-            output_dir=container_output_dir, name=sample_name
-        )
 
     if all(path.exists() for path in expected_outputs.values()):
         return expected_outputs
 
-    # 处理必需参数
-    for param in tool_config.required_params:
+    # 处理动态参数
+    for param in tool_config.dynamic_params:
         # 处理输入参数
         if param.param_type == ParamType.INPUT:
             if param.name in inputs:
@@ -89,33 +85,26 @@ def docker_task(
                 host_dir = input_file.parent if param.is_file else input_file
                 container_dir = param.mount_path
                 if container_dir and container_dir not in mount_paths:
-                    mount_paths[container_dir] = host_dir
+                    mount_paths[container_dir] = host_dir.absolute()
 
                 # 构建命令
                 container_file_path = f'{container_dir}/{input_file.name}'
-                input_cmd = param.command.format(**{param.name: container_file_path})
-                input_cmds.append(input_cmd)
+                param_inputs[param.name] = container_file_path
             elif param.default and param.required:
-                input_cmd = param.command.format(**{param.name: param.default})
-                input_cmds.append(input_cmd)
+                param_inputs[param.name] = param.default
             elif param.required:
                 raise ValueError(f'缺少必需参数: {param.name}')
 
-        # 处理输出参数
-        elif param.param_type == ParamType.OUTPUT:
-            # 构建命令
-            if param.name in param_outputs:
-                output_cmd = param.command.format(**{param.name: param_outputs[param.name]})
-            else:
-                output_cmd = param.command.format(output_dir=container_output_dir, name=sample_name)
-
-            output_cmds.append(output_cmd)
-
     # 构建完整命令
-    tool_command = tool_config.command_template.format(
-        required_params=' '.join(input_cmds + output_cmds),
-        optional_params=params,
-        log=param_outputs['log'] if 'log' in param_outputs else '',
+    final_template = build_command_template(
+        command_template=tool_config.command_template,
+        dynamic_params=tool_config.dynamic_params,
+        static_params=params,
+        output_files=tool_config.output_files,
+    )
+    formatter = PartialFormatter()
+    tool_command = formatter.format(
+        final_template, output_dir=container_output_dir, name=sample_name, **param_inputs
     )
 
     # 执行Docker命令
@@ -130,13 +119,19 @@ def docker_task(
                     if output_file.mount_path != '/data/raw'
                 ):
                     volume_binds.append(
-                        Mount(type='bind', source=Path(temp_dir), target=container_path)
+                        Mount(
+                            type='bind',
+                            source=str(Path(temp_dir).absolute()),
+                            target=container_path,
+                        )
                     )
                 else:
-                    volume_binds.append(Mount(type='bind', source=host_path, target=container_path))
+                    volume_binds.append(
+                        Mount(type='bind', source=str(host_path), target=container_path)
+                    )
 
             data = TaskUpdate(
-                commands=f'docker run --rm {" ".join([f"-v {bind['source']}:{bind['target']}:rw" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
+                commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
             )
             update_task(self.request.id, data)
 
@@ -159,12 +154,12 @@ def docker_task(
                     logger.warning(f'临时输出文件不存在: {temp_path}')
     else:
         volume_binds = [
-            Mount(type='bind', source=host_path, target=container_path)
+            Mount(type='bind', source=str(host_path), target=container_path)
             for container_path, host_path in mount_paths.items()
         ]
 
         data = TaskUpdate(
-            commands=f'docker run --rm {" ".join([f"-v {bind}" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
+            commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
         )
         update_task(self.request.id, data)
 

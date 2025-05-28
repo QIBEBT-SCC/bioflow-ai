@@ -4,6 +4,7 @@ from pathlib import Path
 
 from celery import chain
 from sqlmodel import Session
+from uuid_extensions import uuid7
 
 import app.crud.task_instance as task_crud
 import app.crud.tool as tool_crud
@@ -13,6 +14,26 @@ from app.models.workflow import TaskInstance, Status
 from app.tasks.run_tool import docker_task
 from app.tasks.load_file import load_file_task
 from app.models.react_flow import WorkflowDefinition, TaskNode, TaskInput
+
+
+def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
+    for node in workflow.nodes:
+        old_id = node.id
+        new_id = uuid7(as_type='str')
+        for edge in workflow.edges:
+            if edge.source == old_id:
+                edge.source = new_id
+                edge.sourceHandle = edge.sourceHandle.replace(old_id, new_id)
+                edge.id = edge.id.replace(old_id, new_id)
+
+            elif edge.target == old_id:
+                edge.target = new_id
+                edge.targetHandle = edge.targetHandle.replace(old_id, new_id)
+                edge.id = edge.id.replace(old_id, new_id)
+
+        node.id = new_id
+
+    return workflow
 
 
 def build_task_list(workflow: WorkflowDefinition) -> list[TaskNode]:
