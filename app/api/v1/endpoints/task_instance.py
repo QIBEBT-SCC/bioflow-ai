@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -19,6 +20,13 @@ def get_all_tasks(
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[TaskInstance]:
     return task_crud.get_all(session, limit, offset, current_user.id)
+
+
+@router.get('/recent/{hour}')
+def get_by_time(
+    hour: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
+) -> list[TaskInstance]:
+    return task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
 
 
 @router.patch('/{uid}', response_model=TaskInstance)
