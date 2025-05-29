@@ -19,7 +19,7 @@ class BaseBioTask(celery.Task):
         update_task(task_id, data)
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
-        data = TaskUpdate(status=Status.ERROR)
+        data = TaskUpdate(status=Status.ERROR, end_time=datetime.now())
         update_task(task_id, data)
 
 

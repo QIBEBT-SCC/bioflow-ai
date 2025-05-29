@@ -22,6 +22,13 @@ def get_all_tasks(
     return task_crud.get_all(session, limit, offset, current_user.id)
 
 
+@router.get('/count')
+def get_task_count(
+    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
+) -> int:
+    return task_crud.get_count(session, current_user.id)
+
+
 @router.get('/recent/{hour}')
 def get_by_time(
     hour: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
