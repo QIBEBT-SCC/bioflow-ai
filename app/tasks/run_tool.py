@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 from pathlib import Path
@@ -7,8 +8,15 @@ from celery import Task
 from docker.types import Mount
 from loguru import logger
 
+from app.core.redis_client import monitor_redis_client
 from app.models.workflow import TaskUpdate
-from app.tasks.base.base_task import BaseBioTask, get_tool_output, get_tool_data, update_task
+from app.tasks.base.base_task import (
+    BaseBioTask,
+    get_tool_output,
+    get_tool_data,
+    update_task,
+    update_monitor_log,
+)
 from app.models.react_flow import TaskInput
 from app.models.tools import ParamType
 from app.utils.container import run_docker
@@ -136,12 +144,19 @@ def docker_task(
             update_task(self.request.id, data)
 
             # 执行Docker命令
-            run_docker(
+            log_count = 0
+            for stats in run_docker(
                 tool_config.docker_config.image,
                 commands=['/bin/bash', '-c', tool_command],
                 mounts=volume_binds,
                 **tool_config.docker_config.docker_settings,
-            )
+            ):
+                monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
+                monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
+                log_count += 1
+
+                if log_count % 100 == 0:
+                    update_monitor_log(self.request.id)
 
             # 复制结果到最终输出目录
             for output_name, output_path in expected_outputs.items():
@@ -163,13 +178,20 @@ def docker_task(
         )
         update_task(self.request.id, data)
 
-        # 直接使用最终输出目录
-        run_docker(
+        # 运行docker命令
+        log_count = 0
+        for stats in run_docker(
             tool_config.docker_config.image,
             commands=['/bin/bash', '-c', tool_command],
             mounts=volume_binds,
             **tool_config.docker_config.docker_settings,
-        )
+        ):
+            monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
+            monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
+            log_count += 1
+
+            if log_count % 100 == 0:
+                update_monitor_log(self.request.id)
 
     # 验证输出文件是否生成
     missing_outputs = [str(path) for name, path in expected_outputs.items() if not path.exists()]

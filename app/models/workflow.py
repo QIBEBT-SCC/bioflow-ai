@@ -52,6 +52,7 @@ class WorkflowCreateProp(BaseModel):
     workflow: WorkflowDefinition
     public: bool
 
+
 class WorkflowUpdate(BaseModel):
     workflow: WorkflowDefinition
 
@@ -94,6 +95,10 @@ class TaskInstance(SQLModel, table=True):
     result: Optional[dict] = Field(sa_type=JSONB)
     status: Status
 
+    system: Optional[str]
+    hostname: Optional[str]
+    owner: Optional['User'] = Relationship()
+
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
@@ -104,5 +109,30 @@ class TaskUpdate(SQLModel):
     result: Optional[dict] = None
     status: Optional[Status] = None
 
+    system: Optional[str] = None
+    hostname: Optional[str] = None
+
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+
+
+class TaskMonitor(SQLModel, table=True):
+    __tablename__ = 'task_monitor_logs'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('task_instances.uid')))
+    cpu_usage: float
+    mem_usage: float
+    mem_used: float
+    io_in: float
+    io_out: float
+    time: datetime
+
+
+class MonitorPublic(BaseModel):
+    cpu_usage: float
+    mem_usage: float
+    mem_used: float
+    io_in: float
+    io_out: float
+    time: datetime

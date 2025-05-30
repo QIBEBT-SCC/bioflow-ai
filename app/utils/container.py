@@ -55,9 +55,7 @@ async def run_docker_async(image: str, commands: list[str], mounts: list[Mount])
             await container.delete(force=True)
 
 
-def run_docker(
-    image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], auto_remove: bool = True
-):
+def run_docker(image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], **kwargs):
     import docker
     from docker.errors import ImageNotFound
 
@@ -76,13 +74,25 @@ def run_docker(
         )
         time.sleep(1)
 
-    client.containers.run(
+    container = client.containers.run(
         image_cfg.get_image(),
         commands,
         mounts=mounts,
         user=get_current_user_identity(),
-        auto_remove=auto_remove,
+        auto_remove=False,
+        detach=True,
     )
+
+    try:
+        while True:
+            container.reload()
+            if container.status == 'exited':
+                break
+            stats = container.stats(stream=False)
+            yield stats
+            time.sleep(1)
+    finally:
+        container.remove(force=True)
 
 
 def run_podman(
@@ -116,3 +126,66 @@ def run_podman(
             return result.decode('utf-8')
 
     return ''
+
+
+def calculate_container_stats(stats):
+    """
+    Calculate container usage statistics from runtime stats.
+
+    Args:
+        stats (dict): Container runtime stats dictionary
+
+    Returns:
+        dict: Dictionary containing calculated metrics
+    """
+
+    try:
+        # Calculate CPU usage
+        try:
+            cpu_usage = (
+                stats['cpu_stats']['cpu_usage']['total_usage']
+                - stats['precpu_stats']['cpu_usage']['total_usage']
+            )
+            system_cpu_usage = (
+                stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
+            )
+            cpu_percent = (cpu_usage / system_cpu_usage) * 100.0 if system_cpu_usage > 0 else 0.0
+        except TypeError:
+            cpu_percent = 0.0
+
+        # Calculate memory usage
+        try:
+            mem_usage = stats['memory_stats']['usage']
+            mem_limit = stats['memory_stats']['limit']
+            mem_percent = (mem_usage / mem_limit) * 100.0 if mem_limit > 0 else 0.0
+            mem_used_mb = mem_usage / (1024 * 1024)  # Convert to MB
+        except TypeError:
+            mem_percent = 0.0
+            mem_used_mb = 0.0
+
+        # Calculate IO
+        try:
+            io_in = 0
+            io_out = 0
+            for io_stat in stats['blkio_stats']['io_service_bytes_recursive']:
+                if io_stat['op'] == 'read':
+                    io_in += io_stat['value']
+                elif io_stat['op'] == 'write':
+                    io_out += io_stat['value']
+        except TypeError:
+            io_in = 0
+            io_out = 0
+
+        # Get timestamp
+        timestamp = stats['read']
+
+        return {
+            'cpu_usage': cpu_percent,
+            'mem_usage': mem_percent,
+            'mem_used': mem_used_mb,
+            'io_in': io_in / (1024 * 1024),
+            'io_out': io_out / (1024 * 1024),
+            'time': timestamp,
+        }
+    except KeyError:
+        return None
