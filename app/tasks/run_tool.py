@@ -16,6 +16,7 @@ from app.tasks.base.base_task import (
     get_tool_data,
     update_task,
     update_monitor_log,
+    ToolOutput,
 )
 from app.models.react_flow import TaskInput
 from app.models.tools import ParamType
@@ -34,7 +35,7 @@ def docker_task(
     output_dir: str,
     params: str = '',
     sample_name: Optional[str] = None,
-) -> dict[str, str]:
+) -> ToolOutput:
     """通用Docker工具执行任务
 
     Args:
@@ -58,7 +59,7 @@ def docker_task(
 
     param_inputs = {}  # 用于构建参数的输入文件
     mount_paths = {}  # 存储挂载路径映射
-    expected_outputs = {}  # 预期输出文件路径
+    expected_output = ToolOutput()  # 预期输出文件路径
     container_output_dir = '/data/output'
 
     # 处理样本名
@@ -75,10 +76,15 @@ def docker_task(
         host_file_path = Path(
             output_file.file_path.format(output_dir=host_output_path, name=sample_name)
         )
-        expected_outputs[output_file.name] = host_file_path.absolute()
+        if output_file.is_log:
+            expected_output.log = host_file_path.absolute()
+        elif output_file.is_report:
+            expected_output.reports[output_file.name] = host_file_path.absolute()
+        else:
+            expected_output.result[output_file.name] = host_file_path.absolute()
 
-    if all(path.exists() for path in expected_outputs.values()):
-        return expected_outputs
+    if expected_output.all_exist():
+        return expected_output
 
     # 处理动态参数
     for param in tool_config.dynamic_params:
@@ -159,7 +165,7 @@ def docker_task(
                     update_monitor_log(self.request.id)
 
             # 复制结果到最终输出目录
-            for output_name, output_path in expected_outputs.items():
+            for output_name, output_path in expected_output.all_files().items():
                 relative_path = output_path.relative_to(host_output_path.absolute())
                 temp_path = Path(temp_dir) / relative_path
 
@@ -194,9 +200,11 @@ def docker_task(
                 update_monitor_log(self.request.id)
 
     # 验证输出文件是否生成
-    missing_outputs = [str(path) for name, path in expected_outputs.items() if not path.exists()]
+    missing_outputs = [
+        str(path) for name, path in expected_output.all_files().items() if not path.exists()
+    ]
     if missing_outputs:
         logger.warning(f'部分输出文件未生成: {missing_outputs}')
 
     # 返回结果
-    return expected_outputs
+    return expected_output

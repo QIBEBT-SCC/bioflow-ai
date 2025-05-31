@@ -1,15 +1,16 @@
 from datetime import datetime, UTC
 from enum import IntEnum
+from pathlib import Path
 from typing import Optional
 
 from pydantic import UUID7, BaseModel
 from sqlalchemy import Column, UUID, ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.decorator.special_field import PydanticJson
 from app.models.react_flow import WorkflowDefinition
-from app.models.user import User
+from app.models.tools import ToolData
+from app.models.user import User, UserPublic
 
 
 # TABLE project_raw
@@ -82,6 +83,21 @@ class RunUpdate(SQLModel):
     end_time: Optional[datetime] = None
 
 
+class ToolOutput(BaseModel):
+    result: dict[str, Path] = Field(default_factory=dict)
+    log: Optional[Path] = None
+    reports: dict[str, Path] = Field(default_factory=dict)
+
+    def all_files(self) -> dict[str, Path]:
+        files = (self.result | self.reports).copy()
+        if self.log:
+            files['log'] = self.log
+        return files
+
+    def all_exist(self):
+        return all(file.exists() for file in self.all_files().values())
+
+
 class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
@@ -89,24 +105,55 @@ class TaskInstance(SQLModel, table=True):
     instance_uid: UUID7 = Field(
         sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid'))
     )
+    tool_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid')))
     owner_id: int = Field(foreign_key='users.id')
     name: str
     commands: Optional[str] = Field(default=None)
-    result: Optional[dict] = Field(sa_type=JSONB)
+    tool_output: Optional[ToolOutput] = Field(sa_column=Column(PydanticJson(ToolOutput)))
     status: Status
 
     system: Optional[str]
     hostname: Optional[str]
-    owner: Optional['User'] = Relationship()
 
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
 
+    tool: Optional['ToolData'] = Relationship()
+    owner: Optional['User'] = Relationship()
+
+
+class SimpleTaskPublic(BaseModel):
+    uid: UUID7
+    name: str
+    owner: UserPublic
+    status: Status
+
+    create_time: Optional[datetime]
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
+
+
+class TaskPublic(BaseModel):
+    uid: UUID7
+    instance_uid: UUID7
+    name: str
+    owner: UserPublic
+    commands: Optional[str]
+    tool_output: Optional[ToolOutput]
+    status: Status
+
+    system: Optional[str]
+    hostname: Optional[str]
+
+    create_time: Optional[datetime]
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
+
 
 class TaskUpdate(SQLModel):
     commands: Optional[str] = None
-    result: Optional[dict] = None
+    tool_output: Optional[ToolOutput] = None
     status: Optional[Status] = None
 
     system: Optional[str] = None

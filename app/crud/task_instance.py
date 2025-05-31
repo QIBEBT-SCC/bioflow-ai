@@ -2,6 +2,7 @@ from datetime import datetime, UTC, timedelta
 
 from loguru import logger
 from sqlalchemy import Select, func
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select, or_, and_, col
 
 from app.models.workflow import TaskInstance, TaskUpdate
@@ -67,6 +68,7 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> list[Ta
             ),
         )
         .where(TaskInstance.name != 'read_file')
+        .options(joinedload(TaskInstance.owner))  # type: ignore
     )
     return session.exec(statement).all()
 
@@ -80,5 +82,7 @@ def get_count(session: Session, user_id: int) -> int:
 
 
 def get(session: Session, uid: str) -> TaskInstance:
-    statement: Select = select(TaskInstance).where(TaskInstance.uid == uid)
+    statement: Select = (
+        select(TaskInstance).where(TaskInstance.uid == uid).options(joinedload(TaskInstance.owner))  # type: ignore
+    )
     return session.exec(statement).one()

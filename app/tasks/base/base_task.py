@@ -8,7 +8,7 @@ import requests
 
 from app.core.config import get_settings
 from app.models.tools import ToolTaskInfo
-from app.models.workflow import TaskUpdate, Status
+from app.models.workflow import TaskUpdate, Status, ToolOutput
 
 
 class BaseBioTask(celery.Task):
@@ -21,7 +21,7 @@ class BaseBioTask(celery.Task):
         update_task(task_id, data)
 
     def on_success(self, retval, task_id, args, kwargs):
-        data = TaskUpdate(result=retval, status=Status.SUCCESS, end_time=datetime.now())
+        data = TaskUpdate(tool_output=retval, status=Status.SUCCESS, end_time=datetime.now())
         update_task(task_id, data)
         update_monitor_log(task_id)
 
@@ -63,4 +63,5 @@ def get_tool_output(uid: str, k: str) -> str:
     response = requests.get(url, headers=headers)
     assert response.status_code == 200
 
-    return response.json()[k]
+    task_output = ToolOutput.model_validate(response.json())
+    return str(task_output.all_files()[k])
