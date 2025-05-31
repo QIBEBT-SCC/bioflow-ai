@@ -9,7 +9,7 @@ from docker.types import Mount
 from loguru import logger
 
 from app.core.redis_client import monitor_redis_client
-from app.models.workflow import TaskUpdate
+from app.schemas.task_instance import TaskUpdate
 from app.tasks.base.base_task import (
     BaseBioTask,
     get_tool_output,
@@ -18,7 +18,7 @@ from app.tasks.base.base_task import (
     update_monitor_log,
     ToolOutput,
 )
-from app.models.react_flow import TaskInput
+from app.schemas.react_flow import TaskInput
 from app.models.tools import ParamType
 from app.utils.container import run_docker
 from app.utils.input_format import PartialFormatter, build_command_template

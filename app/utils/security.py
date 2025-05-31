@@ -13,7 +13,7 @@ from starlette import status
 from app.crud import user as user_crud
 from app.core.session import SessionDep
 from app.models.user import User
-from app.models.auth import TokenData
+from app.schemas.auth import TokenData
 from app.core.config import get_settings
 
 

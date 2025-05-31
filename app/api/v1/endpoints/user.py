@@ -3,7 +3,8 @@ from pydantic import BaseModel, EmailStr, SecretStr
 
 from app.crud import user as user_crud
 from app.core.session import SessionDep
-from app.models.user import User, UserRole, UserPublic
+from app.models.user import User, UserRole
+from app.schemas.user import UserPublic
 from app.utils.security import get_password_hash
 
 router = APIRouter()

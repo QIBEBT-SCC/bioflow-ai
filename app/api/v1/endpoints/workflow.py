@@ -8,10 +8,11 @@ from uuid_extensions import uuid7
 
 import app.crud.workflow as wf_crud
 from app.core.session import SessionDep
-from app.models.react_flow import WorkflowDefinition
+from app.schemas.react_flow import WorkflowDefinition
+from app.schemas.workflow import WorkflowCreateProp
 from app.models.user import User
 from app.core.config import get_settings
-from app.models.workflow import Workflow, WorkflowCreateProp
+from app.models.workflow import Workflow
 from app.utils.security import get_current_active_user
 
 router = APIRouter()

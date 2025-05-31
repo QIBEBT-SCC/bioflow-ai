@@ -3,7 +3,8 @@ from typing import Optional
 from sqlalchemy import Select
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import selectinload
-from app.models.tools import ToolData, SimpleToolPublic
+from app.models.tools import ToolData
+from app.schemas.tools import SimpleToolPublic
 
 
 def insert(session: Session, tool: ToolData):

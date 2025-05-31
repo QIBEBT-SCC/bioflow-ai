@@ -1,7 +1,6 @@
 from datetime import datetime, UTC
-from typing import Optional, Any, Dict
+from typing import Optional
 
-from pydantic import BaseModel, field_serializer
 from sqlalchemy import func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import SQLModel, Field, Relationship, select
@@ -47,13 +46,6 @@ class ProjectTag(SQLModel, table=True):
         )
 
 
-class TagWithCount(BaseModel):
-    id: int
-    name: str
-    color: str
-    project_count: int
-
-
 class Project(SQLModel, table=True):
     __tablename__ = 'projects'
 
@@ -67,47 +59,3 @@ class Project(SQLModel, table=True):
 
     tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
     owner: Optional['User'] = Relationship()
-
-
-class ProjectPublic(SQLModel):
-    id: int
-    owner_name: str
-    name: str
-    description: str
-    starred: bool
-    create_time: datetime
-    update_time: datetime
-    tags: list[ProjectTag]
-
-    @classmethod
-    def from_orm(cls, project: Project, update: Optional[Dict[str, Any]] = None):
-        kwargs = project.model_dump()
-        kwargs['owner_name'] = project.owner.username if project.owner else ''
-        kwargs['tags'] = project.tags
-        if update:
-            kwargs.update(update)
-        return cls.model_validate(kwargs)
-
-    @field_serializer('create_time', 'update_time')
-    def serialize_datetime(self, value: datetime, _info):
-        return value.strftime('%Y-%m-%d %H:%M') if value else ''
-
-
-class ProjectCreateProp(BaseModel):
-    name: str
-    description: str = ''
-    public: bool = True
-    tag_ids: list[int] = []
-
-
-class TagProp(BaseModel):
-    name: str
-    color: str
-
-
-class ProjectUpdate(SQLModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    starred: Optional[bool] = None
-    update_time: Optional[datetime] = None
-    tags: Optional[list[ProjectTag]] = None

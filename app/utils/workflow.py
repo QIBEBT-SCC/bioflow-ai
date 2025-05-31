@@ -13,7 +13,7 @@ from app.models.user import User
 from app.models.workflow import TaskInstance, Status
 from app.tasks.run_tool import docker_task
 from app.tasks.load_file import load_file_task
-from app.models.react_flow import WorkflowDefinition, TaskNode, TaskInput
+from app.schemas.react_flow import WorkflowDefinition, TaskNode, TaskInput
 
 
 def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:

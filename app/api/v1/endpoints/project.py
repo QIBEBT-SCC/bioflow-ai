@@ -7,12 +7,9 @@ from app.crud import project as project_crud
 from app.core.session import SessionDep
 from app.models.project import (
     Project,
-    ProjectPublic,
-    ProjectCreateProp,
-    TagProp,
     ProjectTag,
-    TagWithCount,
 )
+from app.schemas.project import ProjectPublic, TagWithCount, ProjectCreateProp, TagProp
 from app.models.user import User
 from app.utils.security import get_current_active_user
 

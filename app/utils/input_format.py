@@ -2,7 +2,7 @@ import os
 import string
 from pathlib import Path
 
-from app.models.tools import ParamDefine, OutputFile, ParamType
+from app.models.tools import ParamType, ParamDefine, OutputFile
 
 
 class PartialFormatter(string.Formatter):

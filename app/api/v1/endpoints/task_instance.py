@@ -10,15 +10,8 @@ import app.crud.task_monitor as monitor_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.user import User
-from app.models.workflow import (
-    TaskInstance,
-    TaskUpdate,
-    TaskMonitor,
-    MonitorPublic,
-    TaskPublic,
-    SimpleTaskPublic,
-    ToolOutput,
-)
+from app.models.workflow import TaskInstance, ToolOutput, TaskMonitor
+from app.schemas.task_instance import SimpleTaskPublic, TaskPublic, TaskUpdate, MonitorPublic
 from app.utils.container import calculate_container_stats
 from app.utils.security import get_current_active_user
 
@@ -36,9 +29,7 @@ def get_all_tasks(
 
 
 @router.get('/count')
-def get_task_count(
-    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
-) -> int:
+def get_task_count(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]) -> int:
     return task_crud.get_count(session, current_user.id)
 
 
@@ -94,8 +85,8 @@ def get_monitor_log(uid: str, session: SessionDep) -> list[MonitorPublic]:
 def get_task_log(
     uid: str,
     session: SessionDep,
-    start_line: int = Query(0, ge=0, description="Start line number (0-based)"),
-    limit: int = Query(100, ge=1, le=1000, description="Number of lines to return")
+    start_line: int = Query(0, ge=0, description='Start line number (0-based)'),
+    limit: int = Query(100, ge=1, le=1000, description='Number of lines to return'),
 ) -> dict:
     """
     Get the log content for a specific task with pagination support.
@@ -103,21 +94,17 @@ def get_task_log(
     # Verify task exists
     task = task_crud.get(session, uid)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
+        raise HTTPException(status_code=404, detail='Task not found')
+
     # Read log file
-    log_path = Path("test.log")  # This will be replaced with actual log path
+    log_path = Path('test.log')  # This will be replaced with actual log path
     try:
         with open(log_path, 'r', encoding='utf-8') as f:
             # Skip to start_line
             for _ in range(start_line):
                 if not f.readline():
-                    return {
-                        "content": [],
-                        "total_lines": start_line,
-                        "has_more": False
-                    }
-            
+                    return {'content': [], 'total_lines': start_line, 'has_more': False}
+
             # Read requested number of lines
             lines = []
             for _ in range(limit):
@@ -125,26 +112,26 @@ def get_task_log(
                 if not line:
                     break
                 lines.append(line.rstrip('\n'))
-            
+
             # Check if there are more lines
             has_more = bool(f.readline())
-            
+
             # Count total lines if needed
             if start_line == 0:
                 with open(log_path, 'r', encoding='utf-8') as f:
                     total_lines = sum(1 for _ in f)
             else:
                 total_lines = start_line + len(lines)
-            
+
             return {
-                "content": lines,
-                "total_lines": total_lines,
-                "has_more": has_more,
-                "start_line": start_line,
-                "end_line": start_line + len(lines) - 1
+                'content': lines,
+                'total_lines': total_lines,
+                'has_more': has_more,
+                'start_line': start_line,
+                'end_line': start_line + len(lines) - 1,
             }
-            
+
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Log file not found")
+        raise HTTPException(status_code=404, detail='Log file not found')
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading log file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f'Error reading log file: {str(e)}')

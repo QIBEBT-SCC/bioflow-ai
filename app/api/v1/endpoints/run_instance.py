@@ -5,9 +5,10 @@ from uuid_extensions import uuid7
 
 import app.crud.run_instance as run_crud
 from app.core.session import SessionDep
-from app.models.react_flow import WorkflowDefinition
+from app.schemas.react_flow import WorkflowDefinition
 from app.models.user import User
-from app.models.workflow import RunInstance, Status, RunUpdate
+from app.models.workflow import RunInstance, Status
+from app.schemas.run_instance import RunUpdate
 from app.utils.security import get_current_active_user
 from app.utils.workflow import build_task_list, send_task, update_node_id
 

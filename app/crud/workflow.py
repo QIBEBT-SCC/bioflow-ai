@@ -1,7 +1,7 @@
 from sqlalchemy import Select, func
 from sqlmodel import Session, select, or_
 
-from app.models.react_flow import WorkflowDefinition
+from app.schemas.react_flow import WorkflowDefinition
 from app.models.workflow import Workflow
 
 

@@ -8,9 +8,9 @@ from sqlalchemy import Column, UUID, ForeignKey
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.decorator.special_field import PydanticJson
-from app.models.react_flow import WorkflowDefinition
+from app.schemas.react_flow import WorkflowDefinition
 from app.models.tools import ToolData
-from app.models.user import User, UserPublic
+from app.models.user import User
 
 
 # TABLE project_raw
@@ -47,17 +47,6 @@ class Workflow(SQLModel, table=True):
     owner: Optional['User'] = Relationship()
 
 
-class WorkflowCreateProp(BaseModel):
-    name: str
-    wf_type: WorkflowType
-    workflow: WorkflowDefinition
-    public: bool
-
-
-class WorkflowUpdate(BaseModel):
-    workflow: WorkflowDefinition
-
-
 class RunInstance(SQLModel, table=True):
     __tablename__ = 'run_instances'
 
@@ -73,14 +62,6 @@ class RunInstance(SQLModel, table=True):
     end_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
-
-
-class RunUpdate(SQLModel):
-    workflow: Optional[WorkflowDefinition] = None
-    status: Optional[Status] = None
-
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
 
 
 class ToolOutput(BaseModel):
@@ -102,9 +83,7 @@ class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
-    instance_uid: UUID7 = Field(
-        sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid'))
-    )
+    instance_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
     tool_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid')))
     owner_id: int = Field(foreign_key='users.id')
     name: str
@@ -123,60 +102,11 @@ class TaskInstance(SQLModel, table=True):
     owner: Optional['User'] = Relationship()
 
 
-class SimpleTaskPublic(BaseModel):
-    uid: UUID7
-    name: str
-    owner: UserPublic
-    status: Status
-
-    create_time: Optional[datetime]
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
-
-
-class TaskPublic(BaseModel):
-    uid: UUID7
-    instance_uid: UUID7
-    name: str
-    owner: UserPublic
-    commands: Optional[str]
-    tool_output: Optional[ToolOutput]
-    status: Status
-
-    system: Optional[str]
-    hostname: Optional[str]
-
-    create_time: Optional[datetime]
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
-
-
-class TaskUpdate(SQLModel):
-    commands: Optional[str] = None
-    tool_output: Optional[ToolOutput] = None
-    status: Optional[Status] = None
-
-    system: Optional[str] = None
-    hostname: Optional[str] = None
-
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-
-
 class TaskMonitor(SQLModel, table=True):
     __tablename__ = 'task_monitor_logs'
 
     id: Optional[int] = Field(default=None, primary_key=True)
     task_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('task_instances.uid')))
-    cpu_usage: float
-    mem_usage: float
-    mem_used: float
-    io_in: float
-    io_out: float
-    time: datetime
-
-
-class MonitorPublic(BaseModel):
     cpu_usage: float
     mem_usage: float
     mem_used: float

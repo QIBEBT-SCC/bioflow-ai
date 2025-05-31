@@ -7,8 +7,9 @@ import celery
 import requests
 
 from app.core.config import get_settings
-from app.models.tools import ToolTaskInfo
-from app.models.workflow import TaskUpdate, Status, ToolOutput
+from app.schemas.tools import ToolTaskInfo
+from app.models.workflow import Status, ToolOutput
+from app.schemas.task_instance import TaskUpdate
 
 
 class BaseBioTask(celery.Task):

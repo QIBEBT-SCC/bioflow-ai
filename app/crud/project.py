@@ -1,11 +1,11 @@
 from typing import Optional
 
-from fastapi import HTTPException
 from sqlalchemy import Select
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select, or_, col
 
-from app.models.project import Project, ProjectUpdate, ProjectStar, ProjectPublic
+from app.models.project import Project, ProjectStar
+from app.schemas.project import ProjectPublic, ProjectUpdate
 
 
 def insert(session: Session, project: Project) -> Project:

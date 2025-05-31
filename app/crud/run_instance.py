@@ -1,7 +1,8 @@
 from sqlalchemy import Select
 from sqlmodel import Session, select
 
-from app.models.workflow import RunInstance, RunUpdate
+from app.models.workflow import RunInstance
+from app.schemas.run_instance import RunUpdate
 
 
 def insert(session: Session, run: RunInstance) -> RunInstance:

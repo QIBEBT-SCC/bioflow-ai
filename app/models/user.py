@@ -19,15 +19,3 @@ class User(SQLModel, table=True):
     role: UserRole = Field(default=UserRole.VISITOR)
     hashed_password: str
     is_active: bool = Field(default=True)
-
-
-class UserPublic(SQLModel):
-    username: str
-    email: str
-    role: UserRole
-
-
-class UserUpdate(SQLModel):
-    username: Optional[str] = None
-    role: Optional[UserRole] = None
-    is_active: Optional[bool] = None

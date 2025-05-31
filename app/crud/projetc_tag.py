@@ -3,7 +3,8 @@ from typing import Sequence
 from sqlalchemy import Select
 from sqlmodel import Session, select, col
 
-from app.models.project import ProjectTag, TagWithCount
+from app.models.project import ProjectTag
+from app.schemas.project import TagWithCount
 
 
 def insert(session: Session, tag: ProjectTag) -> ProjectTag:

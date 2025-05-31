@@ -5,7 +5,8 @@ from sqlalchemy import Select, func
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select, or_, and_, col
 
-from app.models.workflow import TaskInstance, TaskUpdate
+from app.models.workflow import TaskInstance
+from app.schemas.task_instance import TaskUpdate
 
 
 def insert(session: Session, task: TaskInstance) -> TaskInstance:

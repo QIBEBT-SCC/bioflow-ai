@@ -7,14 +7,10 @@ import app.crud.tool_group as group_crud
 import app.crud.tool as tool_crud
 from app.core.session import SessionDep
 from app.models.tools import (
-    DockerToolCreate,
     ToolTag,
-    SimpleToolPublic,
     ToolGroup,
-    ToolPublic,
-    ToolArgPublic,
-    ToolTaskInfo,
 )
+from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolArgPublic, ToolTaskInfo
 from app.utils.input_format import build_command_template
 
 router = APIRouter()
