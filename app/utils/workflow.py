@@ -80,6 +80,7 @@ def send_task(
             task_instance = TaskInstance(
                 uid=task_node.id,
                 instance_uid=run_uid,
+                tool_uid=task_node.tool_uid,
                 owner_id=owner.id,
                 name=tool_data.name,
                 status=Status.WAITING,
