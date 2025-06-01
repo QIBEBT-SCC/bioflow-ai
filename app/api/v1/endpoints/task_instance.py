@@ -82,56 +82,14 @@ def get_monitor_log(uid: str, session: SessionDep) -> list[MonitorPublic]:
 
 
 @router.get('/{uid}/log')
-def get_task_log(
-    uid: str,
-    session: SessionDep,
-    start_line: int = Query(0, ge=0, description='Start line number (0-based)'),
-    limit: int = Query(100, ge=1, le=1000, description='Number of lines to return'),
-) -> dict:
-    """
-    Get the log content for a specific task with pagination support.
-    """
-    # Verify task exists
+def get_task_log(uid: str, session: SessionDep) -> dict:
     task = task_crud.get(session, uid)
-    if not task:
-        raise HTTPException(status_code=404, detail='Task not found')
 
-    # Read log file
-    log_path = Path('test.log')  # This will be replaced with actual log path
-    try:
+    log_path = task.tool_output.log  # This will be replaced with actual log path
+    if log_path and Path(log_path).exists():
         with open(log_path, 'r', encoding='utf-8') as f:
-            # Skip to start_line
-            for _ in range(start_line):
-                if not f.readline():
-                    return {'content': [], 'total_lines': start_line, 'has_more': False}
+            lines = f.read()
 
-            # Read requested number of lines
-            lines = []
-            for _ in range(limit):
-                line = f.readline()
-                if not line:
-                    break
-                lines.append(line.rstrip('\n'))
-
-            # Check if there are more lines
-            has_more = bool(f.readline())
-
-            # Count total lines if needed
-            if start_line == 0:
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    total_lines = sum(1 for _ in f)
-            else:
-                total_lines = start_line + len(lines)
-
-            return {
-                'content': lines,
-                'total_lines': total_lines,
-                'has_more': has_more,
-                'start_line': start_line,
-                'end_line': start_line + len(lines) - 1,
-            }
-
-    except FileNotFoundError:
+            return {'content': lines}
+    else:
         raise HTTPException(status_code=404, detail='Log file not found')
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error reading log file: {str(e)}')
