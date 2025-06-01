@@ -6,6 +6,23 @@ from uuid_extensions import uuid7
 from app.models.tools import ToolTag, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ImageConfig, DockerConfig
 
 
+class AIGenTool(BaseModel):
+    """工具封装定义"""
+
+    name: str = Field(description='工具名称')
+    description: str = Field(description='工具功能的简要描述')
+
+    command_template: str = Field(
+        description='完整的工具指令模板字符串，可以包含dynamic_params、static_params、position_params、log这几个变量'
+    )
+    dynamic_params: list[ParamDefine] = Field(description='需要涉及到文件名等要素的变量，包括参数指定的和位置指定的')
+    static_params: str = Field(description='与外部文件无关的变量')
+    output_files: list[OutputFile] = Field('软件的期望输出文件')
+
+    mkdir_output: bool = Field(description='是否创建输出目录', default=True)
+    use_temp_dir: bool = Field(description='是否使用临时目录', default=False)
+
+
 class DockerToolCreate(BaseModel):
     """创建Docker工具的请求模型"""
 
