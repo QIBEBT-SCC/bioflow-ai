@@ -13,7 +13,6 @@ from starlette import status
 from app.crud import user as user_crud
 from app.core.session import SessionDep
 from app.models.user import User
-from app.schemas.auth import TokenData
 from app.core.config import get_settings
 
 
@@ -52,33 +51,25 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({'exp': expire})
-    encoded_jwt = jwt.encode(
-        to_encode, get_settings().security.SECRET_KEY, algorithm=get_settings().security.ALGORITHM
-    )
+    encoded_jwt = jwt.encode(to_encode, get_settings().security.SECRET_KEY, algorithm=get_settings().security.ALGORITHM)
     return encoded_jwt
 
 
-async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep
-) -> User:
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail='Could not validate credentials',
         headers={'WWW-Authenticate': 'Bearer'},
     )
     try:
-        payload = jwt.decode(
-            token,
-            get_settings().security.SECRET_KEY,
-            algorithms=[get_settings().security.ALGORITHM],
-        )
+        payload = jwt.decode(token, get_settings().security.SECRET_KEY, algorithms=[get_settings().security.ALGORITHM])
         email: str = payload.get('sub')
         if email is None:
             raise credentials_exception
-        token_data = TokenData(email=email)
+
     except InvalidTokenError as e:
         raise credentials_exception from e
-    user = user_crud.get(session, token_data.email)
+    user = user_crud.get(session, email)
     if user is None:
         raise credentials_exception
     return user
