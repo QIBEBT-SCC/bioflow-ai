@@ -35,6 +35,8 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[Tas
     statement: Select = (
         select(TaskInstance)
         .where(TaskInstance.owner_id == user_id)
+        .where(TaskInstance.name != 'read_file')
+        .options(joinedload(TaskInstance.owner), joinedload(TaskInstance.run_instance))  # type: ignore
         .order_by(col(TaskInstance.uid).desc())
         .limit(limit)
         .offset(offset)
@@ -56,9 +58,7 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> list[Ta
                     TaskInstance.start_time <= now,
                 ),
                 and_(
-                    TaskInstance.end_time is not None,
-                    TaskInstance.end_time >= since_time,
-                    TaskInstance.end_time <= now,
+                    TaskInstance.end_time is not None, TaskInstance.end_time >= since_time, TaskInstance.end_time <= now
                 ),
                 and_(
                     TaskInstance.start_time is not None,
@@ -75,15 +75,15 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> list[Ta
 
 
 def get_count(session: Session, user_id: int) -> int:
-    statement: Select = (
-        select(func.count()).select_from(TaskInstance).where(col(TaskInstance.owner_id) == user_id)
-    )
+    statement: Select = select(func.count()).select_from(TaskInstance).where(col(TaskInstance.owner_id) == user_id)
 
     return session.exec(statement).one()
 
 
 def get(session: Session, uid: str) -> TaskInstance:
     statement: Select = (
-        select(TaskInstance).where(TaskInstance.uid == uid).options(joinedload(TaskInstance.owner))  # type: ignore
+        select(TaskInstance)
+        .where(TaskInstance.uid == uid)
+        .options(joinedload(TaskInstance.owner), joinedload(TaskInstance.run_instance), joinedload(TaskInstance.tool))  # type: ignore
     )
     return session.exec(statement).one()

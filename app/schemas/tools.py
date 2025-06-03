@@ -180,3 +180,11 @@ class ToolTaskInfo(BaseModel):
     use_temp_dir: bool
 
     docker_config: Optional[DockerConfig]
+
+
+class ToolInfo4Task(BaseModel):
+    uid: UUID7
+    name: str
+    description: str
+
+    output_files: list[OutputFile]

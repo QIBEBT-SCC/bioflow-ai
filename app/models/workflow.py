@@ -63,7 +63,7 @@ class RunInstance(SQLModel, table=True):
     end_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
-    tasks: list['TaskInstance'] = Relationship()
+    tasks: list['TaskInstance'] = Relationship(back_populates='run_instance')
 
 
 class ToolOutput(BaseModel):
@@ -102,6 +102,7 @@ class TaskInstance(SQLModel, table=True):
 
     tool: Optional['ToolData'] = Relationship()
     owner: Optional['User'] = Relationship()
+    run_instance: Optional['RunInstance'] = Relationship(back_populates='tasks')
 
 
 class TaskMonitor(SQLModel, table=True):

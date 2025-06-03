@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
+from pydantic import BaseModel, UUID7
 from sqlmodel import SQLModel
 
 from app.models.workflow import Status
@@ -13,3 +14,8 @@ class RunUpdate(SQLModel):
 
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+
+
+class RunInfo4Task(BaseModel):
+    uid: UUID7
+    name: str

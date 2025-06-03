@@ -5,6 +5,8 @@ from pydantic import BaseModel, UUID7
 from sqlmodel import SQLModel
 
 from app.models.workflow import Status, ToolOutput
+from app.schemas.run_instance import RunInfo4Task
+from app.schemas.tools import ToolInfo4Task
 from app.schemas.user import UserPublic
 
 
@@ -12,6 +14,8 @@ class SimpleTaskPublic(BaseModel):
     uid: UUID7
     name: str
     owner: UserPublic
+    run_instance: RunInfo4Task
+
     status: Status
 
     create_time: Optional[datetime]
@@ -24,6 +28,8 @@ class TaskPublic(BaseModel):
     instance_uid: UUID7
     name: str
     owner: UserPublic
+    run_instance: RunInfo4Task
+    tool: ToolInfo4Task
     commands: Optional[str]
     tool_output: Optional[ToolOutput]
     status: Status
