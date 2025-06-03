@@ -1,8 +1,10 @@
+import json
 import os
 import string
 from pathlib import Path
 
 from app.models.tools import ParamType, ParamDefine, OutputFile
+from app.schemas.react_flow import TaskNode
 
 
 class PartialFormatter(string.Formatter):
@@ -14,10 +16,7 @@ class PartialFormatter(string.Formatter):
 
 
 def build_command_template(
-    command_template: str,
-    dynamic_params: list[ParamDefine],
-    static_params: str,
-    output_files: list[OutputFile],
+    command_template: str, dynamic_params: list[ParamDefine], static_params: str, output_files: list[OutputFile]
 ) -> str:
     """构建到最后一级的指令模板字符串
 
@@ -31,12 +30,9 @@ def build_command_template(
 
     """
     position_params: list[ParamDefine] = sorted(
-        [param for param in dynamic_params if param.param_type == ParamType.INPUT_POSITION],
-        key=lambda x: x.index,
+        [param for param in dynamic_params if param.param_type == ParamType.INPUT_POSITION], key=lambda x: x.index
     )
-    dynamic_params = [
-        param.command for param in dynamic_params if param.param_type != ParamType.INPUT_POSITION
-    ]
+    dynamic_params = [param.command for param in dynamic_params if param.param_type != ParamType.INPUT_POSITION]
 
     formatter = PartialFormatter()
     command_template = formatter.format(
@@ -46,16 +42,13 @@ def build_command_template(
         static_params=static_params,
     )
     final_template = formatter.format(
-        command_template,
-        **{output_file.name: output_file.file_path for output_file in output_files},
+        command_template, **{output_file.name: output_file.file_path for output_file in output_files}
     )
 
     return final_template
 
 
-def get_path(
-    r1: str | Path, r2: str | Path, *, output_dir: str | Path
-) -> tuple[Path, Path, Path, str]:
+def get_path(r1: str | Path, r2: str | Path, *, output_dir: str | Path) -> tuple[Path, Path, Path, str]:
     """将输入的双端文件转换为pathlib格式
 
     Args:
@@ -72,3 +65,24 @@ def get_path(
     output_path.mkdir(parents=True, exist_ok=True)
 
     return r1_file, r2_file, output_path, sample_name
+
+
+def get_sample_name_by_seq_input(r1: str, r2: str):
+    r1_file = Path(r1)
+    r2_file = Path(r2)
+    sample_name = os.path.commonprefix([r1_file.name, r2_file.name]).strip('_R').strip('_r').strip('_')
+
+    return sample_name
+
+
+def get_sample_name(first_layer: list[TaskNode]) -> str:
+    files = []
+    for node in first_layer:
+        if node.type == 'sequenceInputNode':
+            args = json.loads(node.args)
+            return get_sample_name_by_seq_input(**args)
+        elif node.type == 'fileInput':
+            files.append(node.args)
+
+    # TODO 基于LLM的复杂处理
+    return 'unknown'

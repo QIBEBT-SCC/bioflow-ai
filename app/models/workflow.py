@@ -51,6 +51,7 @@ class RunInstance(SQLModel, table=True):
     __tablename__ = 'run_instances'
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    name: str
     project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
     owner_id: int = Field(foreign_key='users.id')
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
@@ -62,6 +63,7 @@ class RunInstance(SQLModel, table=True):
     end_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
+    tasks: list['TaskInstance'] = Relationship()
 
 
 class ToolOutput(BaseModel):
