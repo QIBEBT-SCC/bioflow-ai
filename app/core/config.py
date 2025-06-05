@@ -5,19 +5,14 @@ from typing import Type, Literal
 import tomli_w
 
 from loguru import logger
-from pydantic import BaseModel, ConfigDict
-from pydantic_settings import (
-    BaseSettings,
-    SettingsConfigDict,
-    PydanticBaseSettingsSource,
-    TomlConfigSettingsSource,
-)
+from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource, TomlConfigSettingsSource
 
 
 class SecurityConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    SECRET_KEY: str = secrets.token_urlsafe(32)
+    SECRET_KEY: SecretStr = secrets.token_urlsafe(32)
     ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
@@ -53,6 +48,12 @@ class PersistenceConfig(BaseModel):
     STORAGE_PATH: str = './storage'
 
 
+class LLMConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    DEEPSEEK_API: SecretStr = ''
+
+
 class CeleryConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
@@ -64,13 +65,11 @@ class DockerConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     USERNAME: str = ''
-    PASSWORD: str = ''
+    PASSWORD: SecretStr = ''
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        toml_file='config.toml', alias_generator=lambda field_name: field_name.lower()
-    )
+    model_config = SettingsConfigDict(toml_file='config.toml', alias_generator=lambda field_name: field_name.lower())
 
     PROJECT_NAME: str = 'BioFlow AI'
     VERSION: str = '0.0.1'
@@ -81,6 +80,7 @@ class Settings(BaseSettings):
     persistent: PersistenceConfig = PersistenceConfig()
     docker: DockerConfig = DockerConfig()
     celery: CeleryConfig = CeleryConfig()
+    llm: LLMConfig = LLMConfig()
 
     @classmethod
     def settings_customise_sources(
@@ -98,11 +98,7 @@ class Settings(BaseSettings):
         config_dict = self.model_dump(by_alias=True)
 
         for key, value in config_dict.items():
-            if (
-                isinstance(value, dict)
-                and hasattr(self, key)
-                and isinstance(getattr(self, key), BaseModel)
-            ):
+            if isinstance(value, dict) and hasattr(self, key) and isinstance(getattr(self, key), BaseModel):
                 config_dict[key] = getattr(self, key).model_dump(by_alias=True)
 
         with open(file_path, 'wb') as f:
