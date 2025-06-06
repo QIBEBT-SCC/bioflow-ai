@@ -16,7 +16,7 @@ class RunUpdate(BaseModel):
     end_time: Optional[datetime] = None
 
 
-class TaskStat(BaseModel):
+class Stat(BaseModel):
     total: int
     waiting: int
     running: int
@@ -30,7 +30,7 @@ class RunPublic(BaseModel):
     owner: UserPublic
 
     status: Status
-    task_stats: TaskStat
+    task_stats: Stat
 
     create_time: datetime
     start_time: datetime
