@@ -58,9 +58,9 @@ class RunPublic(BaseModel):
     status: Status
     task_stats: Optional[Stat] = None
 
-    create_time: datetime
-    start_time: datetime
-    end_time: datetime
+    create_time: Optional[datetime]
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
 
 
 class AutoRunPublic(RunPublic):

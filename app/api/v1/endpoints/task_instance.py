@@ -1,10 +1,9 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Annotated
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from loguru import logger
 
 import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
@@ -13,7 +12,7 @@ from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.user import User
 from app.models.workflow import TaskInstance, ToolOutput, TaskMonitor, Status
-from app.schemas.run_instance import Stat
+from app.schemas.run_instance import Stat, RunUpdate
 from app.schemas.task_instance import SimpleTaskPublic, TaskPublic, TaskUpdate, MonitorPublic
 from app.utils.container import calculate_container_stats
 from app.utils.security import get_current_active_user
@@ -54,10 +53,35 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
         match task_update.status:
             case Status.RUNNING:
                 run_cache_data.add_running()
+                if run_cache_data.running == 1:
+                    run_crud.update(
+                        session,
+                        run_uid,
+                        RunUpdate(
+                            status=Status.RUNNING,
+                            start_time=task_update.start_time if task_update.start_time else datetime.now(),
+                        ),
+                    )
             case Status.SUCCESS:
                 run_cache_data.add_success()
+                if run_cache_data.success == run_cache_data.total:
+                    run_crud.update(
+                        session,
+                        run_uid,
+                        RunUpdate(
+                            status=Status.SUCCESS,
+                            end_time=task_update.end_time if task_update.end_time else datetime.now(),
+                        ),
+                    )
             case Status.ERROR:
                 run_cache_data.add_error()
+                run_crud.update(
+                    session,
+                    run_uid,
+                    RunUpdate(
+                        status=Status.ERROR, end_time=task_update.end_time if task_update.end_time else datetime.now()
+                    ),
+                )
     else:
         run_cache_data = run_crud.get_run_task_stats(session, run_uid)
 

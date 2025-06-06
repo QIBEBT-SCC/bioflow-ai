@@ -59,8 +59,8 @@ class RunInstance(SQLModel, table=True):
     status: Status
 
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
-    start_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
-    end_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    start_time: Optional[datetime] = Field(default=None)
+    end_time: Optional[datetime] = Field(default=None)
 
     owner: Optional['User'] = Relationship()
     tasks: list['TaskInstance'] = Relationship(back_populates='run_instance')
