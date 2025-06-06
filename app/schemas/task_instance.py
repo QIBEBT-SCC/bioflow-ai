@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, UUID7
-from sqlmodel import SQLModel
 
 from app.models.workflow import Status, ToolOutput
 from app.schemas.run_instance import RunInfo4Task
@@ -42,7 +41,7 @@ class TaskPublic(BaseModel):
     end_time: Optional[datetime]
 
 
-class TaskUpdate(SQLModel):
+class TaskUpdate(BaseModel):
     commands: Optional[str] = None
     tool_output: Optional[ToolOutput] = None
     status: Optional[Status] = None
