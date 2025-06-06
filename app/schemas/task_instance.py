@@ -4,9 +4,13 @@ from typing import Optional
 from pydantic import BaseModel, UUID7
 
 from app.models.workflow import Status, ToolOutput
-from app.schemas.run_instance import RunInfo4Task
 from app.schemas.tools import ToolInfo4Task
 from app.schemas.user import UserPublic
+
+
+class RunInfo4Task(BaseModel):
+    uid: UUID7
+    name: str
 
 
 class SimpleTaskPublic(BaseModel):

@@ -6,7 +6,7 @@ import app.crud.run_instance as run_crud
 from app.core.session import SessionDep
 from app.models.user import User
 from app.models.workflow import RunInstance
-from app.schemas.run_instance import RunUpdate, RunPublic, Stat
+from app.schemas.run_instance import RunUpdate, RunPublic, Stat, AutoRunPublic
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -15,6 +15,16 @@ router = APIRouter()
 @router.patch('/{uid}', response_model=RunInstance)
 def update_workflow(uid: str, run_update: RunUpdate, session: SessionDep):
     return run_crud.update(session, uid, run_update)
+
+
+@router.get('', response_model=list[AutoRunPublic])
+def get_all_runs(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
+) -> list[AutoRunPublic]:
+    return run_crud.get_all_runs(session, limit, offset, current_user.id)
 
 
 @router.get('/count')
@@ -27,11 +37,8 @@ def get_run_stats(session: SessionDep, current_user: Annotated[User, Depends(get
     return run_crud.get_run_status(session, current_user.id)
 
 
-@router.get('', response_model=list[RunPublic])
-def get_all_runs(
-    session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    offset: int = 0,
-    limit: Annotated[int, Query(le=20)] = 20,
-) -> list[RunPublic]:
-    return run_crud.get_all_runs(session, limit, offset, current_user.id)
+@router.get('/{uid}', response_model=AutoRunPublic)
+def get_run(
+    uid: str, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
+) -> AutoRunPublic:
+    return run_crud.get(session, uid)

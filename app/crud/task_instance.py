@@ -1,9 +1,9 @@
 from datetime import datetime, UTC, timedelta
 
 from loguru import logger
-from sqlalchemy import Select, func
+from sqlalchemy import Select
 from sqlalchemy.orm import joinedload
-from sqlmodel import Session, select, or_, and_, col
+from sqlmodel import Session, func, select, or_, and_, col
 
 from app.models.workflow import TaskInstance
 from app.schemas.task_instance import TaskUpdate

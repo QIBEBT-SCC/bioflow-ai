@@ -4,13 +4,16 @@ from typing import Annotated
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, HTTPException
+from loguru import logger
 
+import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.user import User
-from app.models.workflow import TaskInstance, ToolOutput, TaskMonitor
+from app.models.workflow import TaskInstance, ToolOutput, TaskMonitor, Status
+from app.schemas.run_instance import Stat
 from app.schemas.task_instance import SimpleTaskPublic, TaskPublic, TaskUpdate, MonitorPublic
 from app.utils.container import calculate_container_stats
 from app.utils.security import get_current_active_user
@@ -41,8 +44,26 @@ def get_by_time(
 
 
 @router.patch('/{uid}', response_model=TaskInstance)
-def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
-    return task_crud.update(session, uid, task_update)
+async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
+    updated_task = task_crud.update(session, uid, task_update)
+
+    run_uid = updated_task.instance_uid
+    run_cache = monitor_redis_client.get(f'run-stats-{run_uid}')
+    if run_cache:
+        run_cache_data = Stat.model_validate_json(run_cache.decode('utf-8'))
+        match task_update.status:
+            case Status.RUNNING:
+                run_cache_data.add_running()
+            case Status.SUCCESS:
+                run_cache_data.add_success()
+            case Status.ERROR:
+                run_cache_data.add_error()
+    else:
+        run_cache_data = run_crud.get_run_task_stats(session, run_uid)
+
+    monitor_redis_client.set(f'run-stats-{run_uid}', run_cache_data.model_dump_json(), ex=86400)
+
+    return updated_task
 
 
 @router.get('/{uid}', response_model=TaskPublic)
