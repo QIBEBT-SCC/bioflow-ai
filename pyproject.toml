@@ -39,3 +39,8 @@ line-length = 120
 quote-style = "single"
 docstring-code-format = true
 skip-magic-trailing-comma = true
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.3",
+]
