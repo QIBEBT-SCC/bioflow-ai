@@ -1,24 +1,54 @@
 from datetime import datetime, UTC
+from enum import IntEnum
 from typing import Optional
 
-from sqlalchemy import Column, BigInteger
+from pydantic import UUID7
+from sqlalchemy import Column, UUID, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.user import User
 
 
-class SequencingData(SQLModel, table=True):
-    __tablename__ = 'sequencing_datas'
+class SampleFileType(IntEnum):
+    SEQUENCING_R1 = 0
+    SEQUENCING_R2 = 1
+    SPECTRUM = 2
+    IMAGE = 3
 
-    uid: str = Field(default=None, primary_key=True)
+
+class Sample(SQLModel, table=True):
+    __tablename__ = 'samples'
+
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     owner_id: int = Field(foreign_key='users.id')
     project_id: int = Field(foreign_key='projects.id')
     sample_name: str
-    storage_path: str
-    file_size: int = Field(sa_column=Column(BigInteger()))
-    md5_checksum: str
     meta_data: dict = Field(sa_column=Column(JSONB), default_factory=dict)
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
+
+
+class SampleFiles(SQLModel, table=True):
+    __tablename__ = 'sample_files'
+
+    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    sample_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('samples.uid')))
+    data_type: SampleFileType
+    file_path: str
+    file_format: str
+    file_size: int
+    md5_checksum: str
+    uploaded_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class BioDb(SQLModel, table=True):
+    __tablename__ = 'bio_dbs'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+    description: Optional[str] = Field(default=None)
+    path: str
+    size: str
+    last_update: Optional[str] = Field(default=None)

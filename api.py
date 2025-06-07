@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import workflow, tool, auth, project, user, run_instance, task_instance
+from app.api.v1.endpoints import workflow, tool, auth, project, user, run_instance, task_instance, resource
 from app.core.session import create_db_and_tables
 from app.core.config import get_settings
 from app.utils.logger import init_logging
@@ -24,11 +24,7 @@ app = FastAPI(title=get_settings().PROJECT_NAME, version=get_settings().VERSION,
 origins = ['http://localhost', 'http://127.0.0.1']
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=['*'], allow_headers=['*']
 )
 
 app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
@@ -41,15 +37,12 @@ app.include_router(task_instance.router, prefix='/api/v1/tasks', tags=['tasks'])
 app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'])
 app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'])
 app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'])
+app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
 
 
 def main() -> None:
     config = uvicorn.Config(
-        'api:app',
-        host=get_settings().network.HOST,
-        port=get_settings().network.PORT,
-        access_log=True,
-        workers=1,
+        'api:app', host=get_settings().network.HOST, port=get_settings().network.PORT, access_log=True, workers=1
     )
     server = uvicorn.Server(config)
     init_logging()
