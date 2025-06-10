@@ -69,7 +69,7 @@ class ToolGroup(SQLModel, table=True):
 class ToolTagLink(SQLModel, table=True):
     __tablename__ = 'tool_tag_link'
 
-    tool_id: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid')))
+    tool_id: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid'), primary_key=True))
     tag_id: int = Field(foreign_key='tool_tags.id', primary_key=True)
 
 
