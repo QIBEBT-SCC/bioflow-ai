@@ -19,6 +19,24 @@ def get_current_user_identity() -> str:
     return f'{uid}:{gid}'
 
 
+def check_image(client, image_cfg: ImageConfig):
+    from docker.errors import ImageNotFound
+
+    try:
+        client.images.get(image_cfg.get_image())
+    except ImageNotFound:
+        logger.error(f'image {image_cfg.get_image()} not found, pull from docker hub.')
+        client.images.pull(
+            image_cfg.repository,
+            image_cfg.tag,
+            auth_config={
+                'username': get_settings().docker.USERNAME,
+                'password': get_settings().docker.PASSWORD.get_secret_value(),
+            },
+        )
+        time.sleep(1)
+
+
 async def run_docker_async(image: str, commands: list[str], mounts: list[Mount]) -> None:
     """docker异步运行封装
 
@@ -35,9 +53,7 @@ async def run_docker_async(image: str, commands: list[str], mounts: list[Mount])
         container_config = {
             'Image': image,
             'Cmd': commands,
-            'HostConfig': {
-                'Binds': [f'{mount["source"]}:{mount["target"]}:rw' for mount in mounts]
-            },
+            'HostConfig': {'Binds': [f'{mount["source"]}:{mount["target"]}:rw' for mount in mounts]},
             'User': get_current_user_identity(),
         }
         container = await docker.containers.run(config=container_config)
@@ -57,30 +73,12 @@ async def run_docker_async(image: str, commands: list[str], mounts: list[Mount])
 
 def run_docker(image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], **kwargs):
     import docker
-    from docker.errors import ImageNotFound
 
     client = docker.from_env()
-    try:
-        client.images.get(image_cfg.get_image())
-    except ImageNotFound:
-        logger.error(f'image {image_cfg.get_image()} not found, pull from docker hub.')
-        client.images.pull(
-            image_cfg.repository,
-            image_cfg.tag,
-            auth_config={
-                'username': get_settings().docker.USERNAME,
-                'password': get_settings().docker.PASSWORD,
-            },
-        )
-        time.sleep(1)
+    check_image(client, image_cfg)
 
     container = client.containers.run(
-        image_cfg.get_image(),
-        commands,
-        mounts=mounts,
-        user=get_current_user_identity(),
-        auto_remove=False,
-        detach=True,
+        image_cfg.get_image(), commands, mounts=mounts, user=get_current_user_identity(), auto_remove=False, detach=True
     )
 
     try:
@@ -95,9 +93,7 @@ def run_docker(image_cfg: ImageConfig, commands: list[str], mounts: list[Mount],
         container.remove(force=True)
 
 
-def run_podman(
-    image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], auto_remove: bool = True
-) -> str:
+def run_podman(image_cfg: ImageConfig, commands: list[str], mounts: list[Mount], auto_remove: bool = True) -> str:
     from podman import PodmanClient
     from podman.errors import ImageNotFound
 
@@ -115,7 +111,7 @@ def run_podman(
                     image_cfg.tag,
                     auth_config={
                         'username': get_settings().docker.USERNAME,
-                        'password': get_settings().docker.PASSWORD,
+                        'password': get_settings().docker.PASSWORD.get_secret_value(),
                     },
                     progress_bar=True,
                 )
@@ -126,6 +122,50 @@ def run_podman(
             return result.decode('utf-8')
 
     return ''
+
+
+def get_help_doc(image_cfg: ImageConfig, help_command: str) -> str:
+    import docker
+
+    client = docker.from_env()
+    check_image(client, image_cfg)
+
+    result = client.containers.run(
+        image_cfg.get_image(),
+        help_command,
+        stderr=True,
+        entrypoint=['/bin/bash', '-c'],
+        user=get_current_user_identity(),
+        auto_remove=True,
+    )
+
+    return result.decode('utf-8')
+
+
+async def get_help_doc_async(image_cfg: ImageConfig, help_command: str) -> str:
+    import aiodocker
+
+    async with aiodocker.Docker() as docker:
+        container_config = {
+            'Image': image_cfg.get_image(),
+            'Cmd': ['/bin/bash', '-c', help_command],
+            'User': get_current_user_identity(),
+        }
+        container = await docker.containers.run(
+            config=container_config,
+            auth={
+                'username': get_settings().docker.USERNAME,
+                'password': get_settings().docker.PASSWORD.get_secret_value(),
+            },
+        )
+
+        await container.start()
+        result = ''
+        async for chunk in container.log(stdout=True, stderr=True, follow=True):
+            result += chunk
+        await container.delete(force=True)
+
+    return result
 
 
 def calculate_container_stats(stats):
@@ -143,12 +183,9 @@ def calculate_container_stats(stats):
         # Calculate CPU usage
         try:
             cpu_usage = (
-                stats['cpu_stats']['cpu_usage']['total_usage']
-                - stats['precpu_stats']['cpu_usage']['total_usage']
+                stats['cpu_stats']['cpu_usage']['total_usage'] - stats['precpu_stats']['cpu_usage']['total_usage']
             )
-            system_cpu_usage = (
-                stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
-            )
+            system_cpu_usage = stats['cpu_stats']['system_cpu_usage'] - stats['precpu_stats']['system_cpu_usage']
             cpu_percent = (cpu_usage / system_cpu_usage) * 100.0 if system_cpu_usage > 0 else 0.0
         except TypeError:
             cpu_percent = 0.0
@@ -169,9 +206,9 @@ def calculate_container_stats(stats):
             io_out = 0
             for io_stat in stats['blkio_stats']['io_service_bytes_recursive']:
                 if io_stat['op'] == 'read':
-                    io_in += io_stat['value']
+                    io_in = io_stat['value']
                 elif io_stat['op'] == 'write':
-                    io_out += io_stat['value']
+                    io_out = io_stat['value']
         except TypeError:
             io_in = 0
             io_out = 0

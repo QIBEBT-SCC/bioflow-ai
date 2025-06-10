@@ -18,6 +18,7 @@ def insert(session: Session, tool: ToolData):
 def get_all(session: Session, limit: int, offset: int) -> list[SimpleToolPublic]:
     statement: Select = (
         select(ToolData)
+        .order_by(col(ToolData.name))
         .options(selectinload(ToolData.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
@@ -31,9 +32,7 @@ def get_all(session: Session, limit: int, offset: int) -> list[SimpleToolPublic]
     return result
 
 
-def get_all_by_group(
-    session: Session, parent_id: Optional[int], limit: int, offset: int
-) -> list[SimpleToolPublic]:
+def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, offset: int) -> list[SimpleToolPublic]:
     statement: Select = (
         select(ToolData)
         .where(ToolData.group_id == parent_id)
@@ -50,9 +49,7 @@ def get_all_by_group(
     return result
 
 
-def get_by_name_fuzzy(
-    session: Session, name: str, limit: int, offset: int
-) -> list[SimpleToolPublic]:
+def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> list[SimpleToolPublic]:
     statement: Select = (
         select(ToolData)
         .where(col(ToolData.name).ilike(f'%{name}%'))

@@ -99,6 +99,7 @@ class ToolData(SQLModel, table=True):
     output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 
     help_command: str
+    help_doc: Optional[str]
 
     mkdir_output: bool
     use_temp_dir: bool

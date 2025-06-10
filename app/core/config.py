@@ -52,6 +52,7 @@ class LLMConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     DEEPSEEK_API: SecretStr = ''
+    AI_HUB_MIX_KEY:SecretStr = ''
 
 
 class CeleryConfig(BaseModel):

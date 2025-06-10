@@ -6,6 +6,15 @@ from uuid_extensions import uuid7
 from app.models.tools import ToolTag, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ImageConfig, DockerConfig
 
 
+class AIGenProp(BaseModel):
+    name: str
+    description: str
+    help_command: str
+
+    repository: str
+    tag: str = 'latest'
+
+
 class AIGenTool(BaseModel):
     """工具封装定义"""
 
