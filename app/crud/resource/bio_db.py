@@ -19,6 +19,12 @@ def insert(session: Session, bio_db: BioDb) -> BioDb:
     return bio_db
 
 
+def delete(session: Session, db_id: int):
+    bio_db = get(session, db_id)
+    session.delete(bio_db)
+    session.commit()
+
+
 def get_counts(session: Session):
     statement: Select = select(func.count()).select_from(BioDb)
 

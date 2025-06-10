@@ -16,7 +16,7 @@ db_router = APIRouter()
 
 
 @db_router.post('', response_model=BioDb)
-def new_bio_db(
+async def new_bio_db(
     bio_db_prop: BioDbCreate, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
 ) -> BioDb:
     if not Path(bio_db_prop.path).exists():
@@ -33,8 +33,13 @@ def new_bio_db(
     return db_crud.insert(session, bio_db)
 
 
+@db_router.delete('/{db_id}')
+async def delete_db(db_id: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
+    return db_crud.delete(session, db_id)
+
+
 @db_router.get('', response_model=list[BioDbSimple])
-def get_db_list(
+async def get_db_list(
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
     offset: int = 0,
@@ -44,10 +49,12 @@ def get_db_list(
 
 
 @db_router.get('/count')
-def get_db_count(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]) -> int:
+async def get_db_count(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]) -> int:
     return db_crud.get_counts(session)
 
 
 @db_router.get('/{db_id}', response_model=BioDb)
-def get_db(db_id: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]) -> int:
+async def get_db(
+    db_id: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
+) -> int:
     return db_crud.get(session, db_id)
