@@ -74,7 +74,7 @@ def docker_task(
 
         # 计算实际输出文件路径
         host_file_path = Path(
-            output_file.file_path.format(output_dir=host_output_path, name=sample_name)
+            output_file.file_path.format(output_dir=host_output_path, sample_name=sample_name)
         )
         if output_file.is_log:
             expected_output.log = host_file_path.absolute()
@@ -118,7 +118,7 @@ def docker_task(
     )
     formatter = PartialFormatter()
     tool_command = formatter.format(
-        final_template, output_dir=container_output_dir, name=sample_name, **param_inputs
+        final_template, output_dir=container_output_dir, sample_name=sample_name, **param_inputs
     )
 
     # 执行Docker命令

@@ -12,7 +12,9 @@ output_files字段需要根据你的知识以及用户提供的软件help文档�
 - command_template是整个完整指令的模板字符串，**只能**包含dynamic_params、static_params、position_params这三个变量（以及额外的log输出变量log），position_params可选（有的软件可能没有）
 - dynamic_params字段实际上包含了position_params，指的是参数中需要包含文件名、路径等动态变量的参数。其每一个元素中：
     - param_type共有三个值0、1、2，分别代表INPUT、INPUT_POSITION和OUTPUT
-    - command字段定义每一个dynamic_param的实际命令组成，对于输入类型的命令而言，其变量如果指向特定文件，直接采用name字段的值即可；如果是其他情况，可以使用output_dir和sample_name这两个变量直接定义
+    - command字段定义每一个dynamic_param的实际命令组成
+        - 对于输入类型的命令而言，其变量如果指向特定文件，直接采用name字段的值即可；如果是其他情况，可以使用output_dir和sample_name这两个变量直接定义
+        - 对于输出类型的命令，如果该文件在output_files定义了，则直接使用output_files的name字段即可；如果是其他情况，可以使用output_dir和sample_name这两个变量直接定义
     - 输出参数不需要定义mount_path字段，输出文件的定义会在上述的output_files字段中做
 - static_params是与文件名等无关的必要（或常规一般会加）的参数，如线程和内存设置、输出类型定义、处理类型定义等
 </command_description>
