@@ -8,6 +8,7 @@ from uuid_extensions import uuid7
 
 import app.crud.task_instance as task_crud
 import app.crud.tool as tool_crud
+import app.crud.resource.bio_db as db_crud
 from app.core.config import get_settings
 from app.models.user import User
 from app.models.workflow import TaskInstance, Status
@@ -136,13 +137,17 @@ def send_task(
                 task_crud.insert(session, task_instance)
 
                 sub_tasks.append(load_sequence_task.s(json_str=task_node.args).set(task_id=task_node.id))
-            elif task_node.type == 'fileInput':
+            elif task_node.type in ['fileInput', 'dbInputNode']:
                 task_instance = TaskInstance(
                     uid=task_node.id, instance_uid=run_uid, owner_id=owner.id, name='read_file', status=Status.WAITING
                 )
                 task_crud.insert(session, task_instance)
 
-                sub_tasks.append(load_file_task.s(file_path=task_node.args).set(task_id=task_node.id))
+                if task_node.args.startswith('db:'):
+                    db_path = db_crud.get_by_name(session, task_node.args[3:]).path
+                    sub_tasks.append(load_file_task.s(file_path=db_path).set(task_id=task_node.id))
+                else:
+                    sub_tasks.append(load_file_task.s(file_path=task_node.args).set(task_id=task_node.id))
         tasks.append(group(*sub_tasks))
 
     workflow = chain(*tasks)

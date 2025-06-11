@@ -43,6 +43,18 @@ def get_by_name(session: Session, name: str) -> Optional[BioDb]:
     return session.exec(statement).one_or_none()
 
 
+def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> list[BioDb]:
+    statement: Select = (
+        select(BioDb)
+        .where(col(BioDb.name).ilike(f'%{name}%'))
+        .order_by(col(BioDb.name).desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    return session.exec(statement).all()
+
+
 def get(session: Session, db_id: int):
     statement: Select = select(BioDb).where(BioDb.id == db_id)
     return session.exec(statement).one()

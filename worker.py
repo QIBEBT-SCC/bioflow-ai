@@ -7,7 +7,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
-    worker_concurrency=2,
+    worker_concurrency=4,
     task_serializer='pickle',
     result_serializer='pickle',
     accept_content=['pickle'],

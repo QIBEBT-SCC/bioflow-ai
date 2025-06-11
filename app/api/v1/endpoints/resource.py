@@ -53,6 +53,17 @@ async def get_db_count(session: SessionDep, current_user: Annotated[User, Depend
     return db_crud.get_counts(session)
 
 
+@db_router.get('/search')
+def get_dbs_by_name(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    name: str,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
+) -> list[BioDb]:
+    return db_crud.get_by_name_fuzzy(session, name, limit, offset)
+
+
 @db_router.get('/{db_id}', response_model=BioDb)
 async def get_db(
     db_id: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
