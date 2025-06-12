@@ -24,3 +24,11 @@ def gemini_25_flash() -> ChatOpenAI:
     )
 
     return llm
+
+
+def gpt_41_mini() -> ChatOpenAI:
+    llm = ChatOpenAI(
+        model='gpt-4.1-mini', base_url='https://aihubmix.com/v1', api_key=get_settings().llm.AI_HUB_MIX_KEY
+    )
+
+    return llm
