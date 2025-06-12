@@ -38,6 +38,9 @@ class NetworkConfig(BaseModel):
     PROXY_PORT: int = 7890
     USE_PROXY: bool = False
 
+    def get_proxy_url(self) -> str:
+        return f'{self.PROXY_TYPE}://{self.PROXY_HOST}:{self.PROXY_PORT}'
+
 
 class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
@@ -52,7 +55,7 @@ class LLMConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     DEEPSEEK_API: SecretStr = ''
-    AI_HUB_MIX_KEY:SecretStr = ''
+    AI_HUB_MIX_KEY: SecretStr = ''
 
 
 class CeleryConfig(BaseModel):
