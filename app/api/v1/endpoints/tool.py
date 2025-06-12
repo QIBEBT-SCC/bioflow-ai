@@ -14,7 +14,6 @@ from app.models.tools import ToolTag, ToolGroup, ImageConfig
 from app.models.user import User
 from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolArgPublic, ToolTaskInfo, AIGenProp
 from app.utils.container import get_help_doc_async
-from app.utils.input_format import build_command_template
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -37,7 +36,7 @@ async def get_group_list(session: SessionDep, parent_id: Optional[int] = None) -
     return group_crud.get_all_recursive(session, parent_id)
 
 
-@group_router.get('/tools')
+@group_router.get('/tools', response_model=list[SimpleToolPublic])
 async def get_group_tools(
     session: SessionDep, parent_id: Optional[int] = None, limit: Annotated[int, Query(le=20)] = 20, offset: int = 0
 ) -> list[SimpleToolPublic]:
@@ -61,14 +60,14 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
     return new_tool
 
 
-@router.get('')
+@router.get('', response_model=list[SimpleToolPublic])
 async def get_tool_list(
     session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
 ) -> list[SimpleToolPublic]:
     return tool_crud.get_all(session, limit, offset)
 
 
-@router.get('/search')
+@router.get('/search', response_model=list[SimpleToolPublic])
 def get_tools_by_name(
     session: SessionDep, name: str, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
 ) -> list[SimpleToolPublic]:
@@ -95,23 +94,14 @@ async def gen_tool_config(
     return StreamingResponse(generator(), media_type='text/event-stream')
 
 
-@router.get('/{tool_uid}')
+@router.get('/{tool_uid}', response_model=ToolPublic)
 async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
-    tool_data = tool_crud.get(session, tool_uid)
-    tool_public = ToolPublic.from_orm(tool_data)
-    tool_public.complete_command = build_command_template(
-        command_template=tool_data.command_template,
-        dynamic_params=tool_data.dynamic_params,
-        static_params=tool_data.static_params,
-        output_files=tool_data.output_files,
-    )
-    return tool_public
+    return tool_crud.get(session, tool_uid)
 
 
-@router.get('/{tool_uid}/args')
+@router.get('/{tool_uid}/args', response_model=ToolArgPublic)
 async def get_tool_args(session: SessionDep, tool_uid: str) -> ToolArgPublic:
-    tool_data = tool_crud.get(session, tool_uid)
-    return ToolArgPublic.from_orm(tool_data)
+    return tool_crud.get(session, tool_uid)
 
 
 @router.get('/{tool_uid}/task_info', response_model=ToolTaskInfo)

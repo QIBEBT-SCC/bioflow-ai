@@ -4,7 +4,6 @@ from sqlalchemy import Select
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import selectinload
 from app.models.tools import ToolData
-from app.schemas.tools import SimpleToolPublic
 
 
 def insert(session: Session, tool: ToolData):
@@ -15,7 +14,7 @@ def insert(session: Session, tool: ToolData):
     return tool
 
 
-def get_all(session: Session, limit: int, offset: int) -> list[SimpleToolPublic]:
+def get_all(session: Session, limit: int, offset: int):
     statement: Select = (
         select(ToolData)
         .order_by(col(ToolData.name))
@@ -23,16 +22,11 @@ def get_all(session: Session, limit: int, offset: int) -> list[SimpleToolPublic]
         .offset(offset)
         .limit(limit)
     )
-    tools = session.exec(statement).all()
 
-    result = []
-    for tool in tools:
-        tool_public = SimpleToolPublic.from_orm(tool)
-        result.append(tool_public)
-    return result
+    return session.exec(statement).all()
 
 
-def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, offset: int) -> list[SimpleToolPublic]:
+def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, offset: int):
     statement: Select = (
         select(ToolData)
         .where(ToolData.group_id == parent_id)
@@ -40,16 +34,11 @@ def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, off
         .offset(offset)
         .limit(limit)
     )
-    tools = session.exec(statement).all()
 
-    result = []
-    for tool in tools:
-        tool_public = SimpleToolPublic.from_orm(tool)
-        result.append(tool_public)
-    return result
+    return session.exec(statement).all()
 
 
-def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> list[SimpleToolPublic]:
+def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     statement: Select = (
         select(ToolData)
         .where(col(ToolData.name).ilike(f'%{name}%'))
@@ -57,15 +46,10 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> l
         .offset(offset)
         .limit(limit)
     )
-    tools = session.exec(statement).all()
 
-    result = []
-    for tool in tools:
-        tool_public = SimpleToolPublic.from_orm(tool)
-        result.append(tool_public)
-    return result
+    return session.exec(statement).all()
 
 
-def get(session: Session, tool_uid: str) -> ToolData:
+def get(session: Session, tool_uid: str):
     statement: Select = select(ToolData).where(ToolData.uid == tool_uid)
     return session.exec(statement).one()
