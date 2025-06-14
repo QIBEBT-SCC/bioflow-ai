@@ -1,16 +1,23 @@
-from typing import Optional
+from typing import Optional, Annotated
 
 import docker
 from langchain_core.callbacks import CallbackManagerForToolRun
-from langchain_core.tools import BaseTool, ArgsSchema, ToolException
+from langchain_core.tools import BaseTool, ArgsSchema, ToolException, InjectedToolArg
 from pydantic import BaseModel, Field
 
 from app.models.tools import ImageConfig
 from app.utils.container import check_image, get_current_user_identity
 
 
+class DockerToolState(BaseModel):
+    docker_repo: str
+    docker_tag: str
+    registry_host: str = 'docker.io'
+
+
 class RunDockerInput(BaseModel):
     command: str = Field(description='the command you need to run')
+    state: Annotated[DockerToolState, InjectedToolArg] = Field(..., description='docker config')
 
 
 class RunDocker(BaseTool):
@@ -19,19 +26,17 @@ class RunDocker(BaseTool):
     args_schema: Optional[ArgsSchema] = RunDockerInput
     return_direct: bool = False
 
-    docker_repo: str
-    docker_tag: str
-    registry_host: Optional[str] = 'docker.io'
-
-    def _run(self, command: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self, command: str, state: DockerToolState, run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         """Use the tool."""
         client = docker.from_env()
         check_image(
-            client, ImageConfig(repository=self.docker_repo, tag=self.docker_tag), registry_host=self.registry_host
+            client, ImageConfig(repository=state.docker_repo, tag=state.docker_tag), registry_host=state.registry_host
         )
 
         container = client.containers.run(
-            f'{self.docker_repo}:{self.docker_tag}',
+            f'{state.docker_repo}:{state.docker_tag}',
             f'"{command}"',
             entrypoint=['/bin/bash', '-c'],
             user=get_current_user_identity(),
