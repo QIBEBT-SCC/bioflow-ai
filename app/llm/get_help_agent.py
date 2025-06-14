@@ -116,8 +116,15 @@ class SmartHelpDocumentAgent:
         try:
             # rich.print({**tool_call['args'], 'state':{**state}})
             command_output = self.docker_tool.invoke({**tool_call['args'], 'state': {**state}})
+            if len(state.get('documents', [])) == 0:
+                return {
+                    'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)],
+                    'documents': [HelpDocument(title=tool_call['args']['command'], content=command_output)],
+                }
             return {
-                'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)],
+                'messages': [
+                    ToolMessage('Successful get the subcommand help doc, add to documents', tool_call_id=tool_call_id)
+                ],
                 'documents': [HelpDocument(title=tool_call['args']['command'], content=command_output)],
             }
         except ToolException as e:
@@ -169,6 +176,6 @@ class SmartHelpDocumentAgent:
         compiled_graph = graph.compile()
         if visualize:
             compiled_graph.get_graph(xray=True).draw_mermaid_png(
-                output_file_path='agent.png', draw_method=MermaidDrawMethod.API, curve_style=CurveStyle.BASIS
+                output_file_path='help_doc_agent.png', draw_method=MermaidDrawMethod.API, curve_style=CurveStyle.BASIS
             )
         return compiled_graph
