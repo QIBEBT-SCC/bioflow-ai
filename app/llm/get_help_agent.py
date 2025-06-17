@@ -48,8 +48,9 @@ Please choose the most appropriate command based on the tool name and progressiv
 
 ERROR_SYS_PROMPT = """You are an expert specializing in the analysis of bioinformatics tools. The user wants to obtain the help documentation for a specific tool.
 
-现在，我们要尝试获取一个工具的子命令的帮助文档，你的任务是根据系统返回的结果判断返回的内容是否是我们想要的子命令的帮助信息。
-你会得到工具的主帮助信息，此次执行的指令，以及该指令的返回值。
+Now, we will attempt to retrieve the help documentation for a subcommand of a tool. 
+Your task is to determine based on the system's returned result whether the content matches the expected subcommand help information. 
+You will receive the tool's main help message, the command executed this time, and the return value of the subcommand.
 """
 
 ERROR_USER_PROMPT = """<main_doc>
@@ -74,9 +75,9 @@ class HelpDocument(BaseModel):
 
 
 class ErrorStructure(BaseModel):
-    """这里得到的输出是否是期望的子命令的帮助文档？"""
+    """Is the output obtained here the expected help document for the subcommand?"""
 
-    is_doc: bool = Field(description='返回的文本是否是子命令的帮助文档')
+    is_doc: bool = Field(description='Is the returned text a help document for a subcommand?')
 
 
 class HelpDocumentState(MessagesState):
