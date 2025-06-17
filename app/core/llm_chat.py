@@ -16,6 +16,15 @@ def deepseek_v3() -> ChatDeepSeek:
     return chat
 
 
+def doubao_seed_16() -> ChatOpenAI:
+    llm = ChatOpenAI(
+        model='doubao-seed-1-6-250615',
+        base_url='https://ark.cn-beijing.volces.com/api/v3',
+        api_key=get_settings().llm.VOLCENGINE_API,
+    )
+    return llm
+
+
 def gemini_25_flash() -> ChatOpenAI:
     """gemini 2.5 flash.
 
