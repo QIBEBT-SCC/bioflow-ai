@@ -9,7 +9,7 @@ from langgraph.graph import MessagesState, StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
-from app.core.llm_chat import gpt_41_mini, gemini_25_flash
+from app.core.llm_chat import gpt_41_mini, deepseek_v3
 from app.llm.tools.container import RunDocker
 
 
@@ -100,7 +100,7 @@ class SmartHelpDocumentAgent:
     """智能帮助文档获取智能体"""
 
     def __init__(self):
-        self.llm = gpt_41_mini()
+        self.llm = deepseek_v3()
         self.structure_llm = gpt_41_mini()
         self.docker_tool = RunDocker()
 
