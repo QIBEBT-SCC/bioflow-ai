@@ -17,6 +17,11 @@ def deepseek_v3() -> ChatDeepSeek:
 
 
 def gemini_25_flash() -> ChatOpenAI:
+    """gemini 2.5 flash.
+
+    目前尚不支持并行工具调用
+    """
+
     llm = ChatOpenAI(
         model='gemini-2.5-flash-preview-05-20',
         base_url='https://aihubmix.com/v1',
