@@ -1,18 +1,17 @@
-from pathlib import Path
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Query, HTTPException, Form
 from starlette import status
+from starlette.responses import StreamingResponse
 from uuid_extensions import uuid7
 
 import app.crud.workflow as wf_crud
 import app.crud.run_instance as run_crud
+from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.workflow import WorkflowCreateProp
 from app.models.user import User
-from app.core.config import get_settings
 from app.models.workflow import Workflow, RunInstance, Status
 from app.utils.input_format import get_sample_name
 from app.utils.security import get_current_active_user
@@ -22,7 +21,7 @@ router = APIRouter()
 
 
 @router.get('')
-def get_workflows(
+async def get_workflows(
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
     offset: int = 0,
@@ -32,12 +31,12 @@ def get_workflows(
 
 
 @router.get('/count')
-def get_workflows_count(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
+async def get_workflows_count(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
     return wf_crud.get_count(session, current_user.id)
 
 
 @router.post('/run', description='从editor新建工作流运行实例')
-def run_workflow(
+async def run_workflow(
     workflow: WorkflowDefinition,
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -68,12 +67,14 @@ def run_workflow(
 
 
 @router.get('/{uid}')
-def get_workflow(uid: str, session: SessionDep, user: Annotated[User, Depends(get_current_active_user)]) -> Workflow:
+async def get_workflow(
+    uid: str, session: SessionDep, user: Annotated[User, Depends(get_current_active_user)]
+) -> Workflow:
     return wf_crud.get(session, uid)
 
 
 @router.post('')
-def save_workflow(
+async def save_workflow(
     workflow_prop: WorkflowCreateProp,
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -98,7 +99,7 @@ def save_workflow(
 
 
 @router.patch('/{uid}')
-def update_workflow(
+async def update_workflow(
     uid: str,
     workflow: WorkflowDefinition,
     session: SessionDep,
@@ -110,8 +111,11 @@ def update_workflow(
     return uid
 
 
-@router.get('/{name}/export')
-def export_workflow(name: str, user: Annotated[User, Depends(get_current_active_user)]):
-    wf_store_path = Path(get_settings().persistent.STORAGE_PATH) / user.username / 'workflow'
-    file_path = wf_store_path / f'{name}.json'
-    return FileResponse(path=file_path, filename=f'{name}.json', media_type='application/json')
+@router.post('/reproduction')
+async def reproduction_by_paper(
+    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)], paper_content: str = Form()
+):
+    async def generator():
+        yield SSEMessage(event=EventType.LOADING, data='reading paper content...').to_sse()
+
+    return StreamingResponse(generator(), media_type='text/event-stream')
