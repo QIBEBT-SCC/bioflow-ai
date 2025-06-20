@@ -10,8 +10,8 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
 from app.core.llm_chat import gpt_41_mini
-from app.llm.tools.container import RunDocker
-
+from app.llm.tools.container import RunContainer
+from app.models.tools import ImageConfig
 
 GLOBAL_SYSTEM_PROMPT = """You are an expert specializing in the analysis of bioinformatics tools. The user wants to obtain the help documentation for a specific tool.
 
@@ -35,6 +35,7 @@ Your task is to:
 If the tool returns information that is not valid software help documentation, it means your command was incorrect and should be revised.
 
 * If you receive an error like `command not found`, it indicates the tool name is incorrect. Try a new, correct tool name based on your knowledge.
+    * If you can't find the name of the tool in your knowledge, try to remember if you have to add a suffix such as `.py`, `.sh`, etc.
 * If you receive an error like `unrecognized arguments`, it means the parameters are incorrect. In this case:
   * First, try to determine the correct command for displaying the help documentation based on the returned message.
   * If that fails, try the following options in order:
@@ -83,9 +84,7 @@ class ErrorStructure(BaseModel):
 class HelpDocumentState(MessagesState):
     """智能体状态管理"""
 
-    docker_repo: str
-    docker_tag: str
-    registry_host: str
+    image_config: ImageConfig
 
     documents: Annotated[list[HelpDocument], operator.add]
     final_document: str
@@ -103,7 +102,7 @@ class SmartHelpDocumentAgent:
     def __init__(self):
         self.llm = gpt_41_mini()
         self.structure_llm = gpt_41_mini()
-        self.docker_tool = RunDocker()
+        self.docker_tool = RunContainer()
 
         # 绑定工具到LLM
         self.llm_with_tools = self.llm.bind_tools([self.docker_tool], tool_choice='auto', parallel_tool_calls=True)
@@ -141,16 +140,7 @@ class SmartHelpDocumentAgent:
         tool_call_id = tool_call['id']
 
         try:
-            command_output = self.docker_tool.invoke(
-                {
-                    **tool_call['args'],
-                    'state': {
-                        'docker_repo': state.get('docker_repo'),
-                        'docker_tag': state.get('docker_tag'),
-                        'registry_host': state.get('registry_host', 'docker.io'),
-                    },
-                }
-            )
+            command_output = self.docker_tool.invoke({**tool_call['args'], 'image_config': state.get('image_config')})
             if len(state.get('documents', [])) == 0:
                 return {
                     'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)],
@@ -198,14 +188,7 @@ class SmartHelpDocumentAgent:
         for tool_call in last_messages.tool_calls:
             try:
                 command_output = self.docker_tool.invoke(
-                    {
-                        **tool_call['args'],
-                        'state': {
-                            'docker_repo': state.get('docker_repo'),
-                            'docker_tag': state.get('docker_tag'),
-                            'registry_host': state.get('registry_host', 'docker.io'),
-                        },
-                    }
+                    {**tool_call['args'], 'image_config': state.get('image_config')}
                 )
 
                 new_documents.append(HelpDocument(title=tool_call['args']['command'], content=command_output))
