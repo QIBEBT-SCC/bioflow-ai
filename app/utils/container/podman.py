@@ -84,7 +84,6 @@ def run_podman(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
                 detach=True,
                 **kwargs,
             )
-            logger.debug(container.top())
             status_code = container.wait()
             log = b''.join(container.logs())
             return status_code, log.decode('utf-8').rstrip()
