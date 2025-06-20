@@ -1,4 +1,5 @@
 from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from app.core.config import get_settings
@@ -25,16 +26,16 @@ def doubao_seed_16() -> ChatOpenAI:
     return llm
 
 
-def gemini_25_flash() -> ChatOpenAI:
-    """gemini 2.5 flash.
+def gemini_25_flash() -> ChatGoogleGenerativeAI:
+    """gemini 2.5 flash."""
 
-    目前尚不支持并行工具调用
-    """
-
-    llm = ChatOpenAI(
+    llm = ChatGoogleGenerativeAI(
         model='gemini-2.5-flash-preview-05-20',
-        base_url='https://aihubmix.com/v1',
-        api_key=get_settings().llm.AI_HUB_MIX_KEY,
+        client_options={
+            'api_endpoint': 'https://aihubmix.com/gemini',
+            'api_key': get_settings().llm.AI_HUB_MIX_KEY.get_secret_value(),
+        },
+        transport='rest',
     )
 
     return llm
