@@ -212,7 +212,7 @@ def formate_container_stats(
             'mem_used': mem_used_mb,
             'io_in': io_in / (1024 * 1024),
             'io_out': io_out / (1024 * 1024),
-            'time': timestamp,
+            'time': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f') + '000Z',
         }
 
     except (KeyError, ValueError, TypeError) as e:
