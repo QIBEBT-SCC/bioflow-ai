@@ -1,7 +1,7 @@
 from enum import IntEnum
 from typing import Optional, Any
 
-from pydantic import UUID7, BaseModel, Field as PField
+from pydantic import UUID7, BaseModel, Field as PField, ValidationError
 from sqlalchemy import Column, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -46,11 +46,39 @@ class OutputFile(BaseModel):
 
 
 class ImageConfig(SQLModel):
+    registry: str = 'docker.io'
+    namespace: str = 'library'
     repository: str
     tag: str = 'latest'
 
     def get_image(self) -> str:
-        return f'{self.repository}:{self.tag}'
+        return f'{self.registry}/{self.namespace}/{self.repository}:{self.tag}'
+
+    @staticmethod
+    def from_str(image_str: str):
+        try:
+            image_group = image_str.split(':')
+            assert len(image_group) <= 2
+
+            if len(image_group) == 1:
+                tag = 'latest'
+            else:
+                tag = image_group[1]
+
+            url_group = image_group[0].split('/')
+            match len(url_group):
+                case 3:
+                    return ImageConfig(registry=url_group[0], namespace=url_group[1], repository=url_group[2], tag=tag)
+                case 2:
+                    return ImageConfig(namespace=url_group[0], repository=url_group[1], tag=tag)
+                case 1:
+                    return ImageConfig(repository=url_group[0], tag=tag)
+                case _:
+                    raise AssertionError
+        except AssertionError:
+            raise ValidationError(
+                'Incorrect image format. It MUST be like `[registry]/[namespace]/<repository>:[tag]`'
+            )
 
 
 class DockerConfig(SQLModel):
