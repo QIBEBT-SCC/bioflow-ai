@@ -20,7 +20,7 @@ from app.tasks.base.base_task import (
 )
 from app.schemas.react_flow import TaskInput
 from app.models.tools import ParamType
-from app.utils.container import run_docker
+from app.utils.container.podman import run_podman_background
 from app.utils.input_format import PartialFormatter, build_command_template
 from worker import celery_app
 
@@ -73,9 +73,7 @@ def docker_task(
             mount_paths[container_output_dir] = host_output_path.absolute()
 
         # 计算实际输出文件路径
-        host_file_path = Path(
-            output_file.file_path.format(output_dir=host_output_path, sample_name=sample_name)
-        )
+        host_file_path = Path(output_file.file_path.format(output_dir=host_output_path, sample_name=sample_name))
         if output_file.is_log:
             expected_output.log = host_file_path.absolute()
         elif output_file.is_report:
@@ -133,16 +131,10 @@ def docker_task(
                     if output_file.mount_path != '/data/raw'
                 ):
                     volume_binds.append(
-                        Mount(
-                            type='bind',
-                            source=str(Path(temp_dir).absolute()),
-                            target=container_path,
-                        )
+                        Mount(type='bind', source=str(Path(temp_dir).absolute()), target=container_path)
                     )
                 else:
-                    volume_binds.append(
-                        Mount(type='bind', source=str(host_path), target=container_path)
-                    )
+                    volume_binds.append(Mount(type='bind', source=str(host_path), target=container_path))
 
             data = TaskUpdate(
                 commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
@@ -151,9 +143,9 @@ def docker_task(
 
             # 执行Docker命令
             log_count = 0
-            for stats in run_docker(
+            for stats in run_podman_background(
                 tool_config.docker_config.image,
-                commands=['/bin/bash', '-c', tool_command],
+                command=tool_command,
                 mounts=volume_binds,
                 **tool_config.docker_config.docker_settings,
             ):
@@ -186,9 +178,9 @@ def docker_task(
 
         # 运行docker命令
         log_count = 0
-        for stats in run_docker(
+        for stats in run_podman_background(
             tool_config.docker_config.image,
-            commands=['/bin/bash', '-c', tool_command],
+            command=tool_command,
             mounts=volume_binds,
             **tool_config.docker_config.docker_settings,
         ):
@@ -200,9 +192,7 @@ def docker_task(
                 update_monitor_log(self.request.id)
 
     # 验证输出文件是否生成
-    missing_outputs = [
-        str(path) for name, path in expected_output.all_files().items() if not path.exists()
-    ]
+    missing_outputs = [str(path) for name, path in expected_output.all_files().items() if not path.exists()]
     if missing_outputs:
         logger.warning(f'部分输出文件未生成: {missing_outputs}')
 

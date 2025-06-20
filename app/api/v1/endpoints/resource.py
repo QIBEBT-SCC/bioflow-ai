@@ -9,7 +9,7 @@ from app.core.session import SessionDep
 from app.models.resource import BioDb
 from app.models.user import User
 from app.schemas.resource import BioDbCreate, BioDbSimple
-from app.utils.file import get_folder_size_du
+from app.utils.system import get_folder_size_du
 from app.utils.security import get_current_active_user
 
 db_router = APIRouter()
