@@ -1,4 +1,11 @@
+import os
 import subprocess
+from functools import lru_cache
+
+
+@lru_cache
+def get_cpu_cores() -> int:
+    return os.cpu_count()
 
 
 def format_size(size_bytes: int) -> str:
