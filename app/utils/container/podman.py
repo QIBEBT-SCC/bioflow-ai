@@ -28,7 +28,7 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig):
         logger.error(f'image {image_cfg.get_image()} not found, pull from {image_cfg.registry}.')
         if image_cfg.registry == 'docker.io':
             client.images.pull(
-                image_cfg.repository,
+                f'{image_cfg.registry}/{image_cfg.namespace}/{image_cfg.repository}',
                 image_cfg.tag,
                 auth_config={
                     'username': get_settings().docker.USERNAME,
@@ -37,7 +37,9 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig):
                 progress_bar=True,
             )
         else:
-            client.images.pull(image_cfg.repository, image_cfg.tag, progress_bar=True)
+            client.images.pull(
+                f'{image_cfg.registry}/{image_cfg.namespace}/{image_cfg.repository}', image_cfg.tag, progress_bar=True
+            )
 
 
 def run_podman(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwargs) -> tuple[int, str]:
@@ -93,7 +95,7 @@ def run_podman(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
 
 def run_podman_background(
     image_cfg: ImageConfig, command: str, mounts: list[Mount], interval: float = 1.0, **kwargs
-) -> Generator[dict[str, float], None, None]:
+) -> Generator[dict[str, Any], None, None]:
     """后台运行podman容器，并实时返回容器资源占用信息。
 
     在容器内运行长耗时任务，定期采样并返回容器的资源使用情况，
@@ -153,7 +155,7 @@ def run_podman_background(
 
 def formate_container_stats(
     stats: dict[str, Any], start_time: datetime.datetime.timestamp, pid: int
-) -> Optional[dict[str, float]]:
+) -> Optional[dict[str, Any]]:
     """提取容器日志中的监控内容
 
     从 Podman stats 输出中提取关键的监控指标，包括CPU利用率、内存利用率、
@@ -181,7 +183,6 @@ def formate_container_stats(
         if 'Stats' not in stats or not stats['Stats']:
             raise KeyError("Stats data is empty or missing 'Stats' key")
 
-        # 获取第一个容器的统计信息
         container_stats: dict[str, Any] = stats['Stats'][0]
 
         # CPU 相关指标
