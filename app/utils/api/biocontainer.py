@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 import aiohttp
+import requests
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -16,9 +17,10 @@ class BioContainerToolVersion(BaseModel):
 
 class BioContainerTool(BaseModel):
     id: str
+    description: str
+    pulls: int
     license: str
     tool_url: str
-    versions: list[BioContainerToolVersion]
 
 
 class BioContainerImage(BaseModel):
@@ -32,8 +34,23 @@ class BioContainerVersion(BioContainerToolVersion):
     images: list[BioContainerImage]
 
 
-async def search_tool(tool_name: str) -> BioContainerTool:
-    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools?toolname={tool_name}&limit=20&sort_field=id&sort_order=asc'
+def search_bio_container(tool_name: str) -> list[BioContainerTool]:
+    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools?toolname={tool_name}&limit=20&sort_field=pulls&sort_order=desc'
+    headers = {'Accept': 'application/json'}
+
+    proxies = None
+    if get_settings().network.USE_PROXY:
+        proxies = {'http': get_settings().network.get_proxy_url(), 'https': get_settings().network.get_proxy_url()}
+
+    response = requests.get(url, headers=headers, proxies=proxies)
+    assert response.status_code == 200
+    response_data = response.json()
+
+    return [BioContainerTool.model_validate(r) for r in response_data]
+
+
+async def asearch_bio_container(tool_name: str) -> list[BioContainerTool]:
+    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools?toolname={tool_name}&limit=20&sort_field=pulls&sort_order=desc'
     headers = {'Accept': 'application/json'}
 
     connector = None
@@ -50,11 +67,29 @@ async def search_tool(tool_name: str) -> BioContainerTool:
             assert response.status == 200
             response_data = await response.json()
 
-            return BioContainerTool.model_validate(response_data[0])
+            return [BioContainerTool.model_validate(r) for r in response_data]
 
 
-async def get_version_info(tool_name: str, version: str):
-    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools/{tool_name}/versions/{version}'
+def get_bio_container_image(tool_name: str) -> Optional[str]:
+    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools/{tool_name}/versions'
+    headers = {'Accept': 'application/json'}
+
+    proxies = None
+    if get_settings().network.USE_PROXY:
+        proxies = {'http': get_settings().network.get_proxy_url(), 'https': get_settings().network.get_proxy_url()}
+
+    response = requests.get(url, headers=headers, proxies=proxies)
+    assert response.status_code == 200
+    last_version = BioContainerVersion.model_validate(response.json()[-1])
+    for image in last_version.images:
+        if image.image_type == 'Docker':
+            return image.image_name
+
+    return None
+
+
+async def aget_bio_container_image(tool_name: str) -> Optional[str]:
+    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools/{tool_name}/versions'
     headers = {'Accept': 'application/json'}
 
     connector = None
@@ -70,5 +105,9 @@ async def get_version_info(tool_name: str, version: str):
         async with session.get(**request_kwargs) as response:
             assert response.status == 200
             response_data = await response.json()
+            last_version = BioContainerVersion.model_validate(response_data[-1])
+            for image in last_version.images:
+                if image.image_type == 'Docker':
+                    return image.image_name
 
-            return BioContainerVersion.model_validate(response_data)
+            return None
