@@ -76,9 +76,7 @@ class ImageConfig(SQLModel):
                 case _:
                     raise AssertionError
         except AssertionError:
-            raise ValidationError(
-                'Incorrect image format. It MUST be like `[registry]/[namespace]/<repository>:[tag]`'
-            )
+            raise ValidationError('Incorrect image format. It MUST be like `[registry]/[namespace]/<repository>:[tag]`')
 
 
 class DockerConfig(SQLModel):
@@ -111,6 +109,17 @@ class ToolTag(SQLModel, table=True):
     tools: list['ToolData'] = Relationship(back_populates='tags', link_model=ToolTagLink)
 
 
+class ToolHelpDoc(SQLModel, table=True):
+    __tablename__ = 'tool_doc'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    help_command: str
+    content: str
+    parent_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
+    
+    tools: list['ToolData'] = Relationship(back_populates='help_doc')
+
+
 class ToolData(SQLModel, table=True):
     __tablename__ = 'tools'
 
@@ -127,7 +136,7 @@ class ToolData(SQLModel, table=True):
     output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 
     help_command: str
-    help_doc: Optional[str]
+    help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
 
     mkdir_output: bool
     use_temp_dir: bool
@@ -135,3 +144,4 @@ class ToolData(SQLModel, table=True):
     docker_config: Optional[DockerConfig] = Field(sa_column=Column(PydanticJson(DockerConfig)))
 
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
+    help_doc: Optional['ToolHelpDoc'] = Relationship(back_populates='tools')

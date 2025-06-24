@@ -7,7 +7,7 @@ from sqlmodel import Session
 from uuid_extensions import uuid7
 
 import app.crud.task_instance as task_crud
-import app.crud.tool as tool_crud
+import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
 from app.core.config import get_settings
 from app.models.user import User
