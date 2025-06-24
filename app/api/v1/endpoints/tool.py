@@ -13,7 +13,7 @@ from app.llm.llm_function import generate_tool_config
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
 from app.models.user import User
 from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolArgPublic, ToolTaskInfo, AIGenProp
-from app.utils.container import get_help_doc_async
+from app.utils.container.podman import run_podman
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -80,7 +80,7 @@ async def gen_tool_config(
 ):
     async def generator():
         yield SSEMessage(event=EventType.LOADING, data='reading tool help doc...').to_sse()
-        help_doc = await get_help_doc_async(ImageConfig(repository=prop.repository, tag=prop.tag), prop.help_command)
+        code, help_doc = run_podman(ImageConfig(repository=prop.repository, tag=prop.tag), prop.help_command, [])
         if help_doc:
             yield SSEMessage(event=EventType.GENERATING, data='generating tool config...').to_sse()
             logger.debug(f'generating tool config for {prop.repository}:{prop.tag}')
