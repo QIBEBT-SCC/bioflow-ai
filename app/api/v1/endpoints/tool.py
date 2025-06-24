@@ -4,9 +4,9 @@ from fastapi import APIRouter, Query, Form, Depends
 from loguru import logger
 from starlette.responses import StreamingResponse
 
-import app.crud.tool_tag as tag_crud
-import app.crud.tool_group as group_crud
-import app.crud.tool as tool_crud
+import app.crud.tools.tool_tag as tag_crud
+import app.crud.tools.tool_group as group_crud
+import app.crud.tools.tool as tool_crud
 from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
 from app.llm.llm_function import generate_tool_config
