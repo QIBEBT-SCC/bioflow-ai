@@ -217,3 +217,51 @@ def formate_container_stats(
     except (KeyError, ValueError, TypeError) as e:
         logger.error(f'Failed to format container stats: {e}')
         return None
+
+
+def create_container(image_cfg: ImageConfig, mounts: list[Mount], **kwargs) -> str:
+    """创建容器并返回其ID
+
+    Args:
+        image_cfg: 所使用的镜像
+        mounts: 外部文件夹挂载
+        **kwargs:
+
+    Returns:
+        容器的ID
+    """
+    with PodmanClient() as client:
+        assert client.ping()
+        _check_image(client, image_cfg)
+        container = client.containers.create(
+            image_cfg.get_image(),
+            command='sleep infinity',  # 保证容器常驻
+            mounts=mounts,
+            entrypoint=['/bin/bash', '-c'],
+            remove=False,
+            detach=True,
+            **kwargs,
+        )
+        container.start()
+
+        return container.id
+
+
+def run_podman_by_id(container_id: str, command: str) -> tuple[int, str]:
+    with PodmanClient() as client:
+        assert client.ping()
+
+        container = client.containers.get(container_id)
+        code, result = container.exec_run(command, tty=True, stream=False)
+        if isinstance(result, bytes):
+            result = result.decode()
+
+        return code, result.strip()
+
+
+def remove_container(container_id: str):
+    with PodmanClient() as client:
+        assert client.ping()
+
+        container = client.containers.get(container_id)
+        container.remove(force=True)
