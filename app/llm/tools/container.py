@@ -5,7 +5,7 @@ from langchain_core.tools import BaseTool, ArgsSchema, ToolException, InjectedTo
 from pydantic import BaseModel, Field
 
 from app.models.tools import ImageConfig
-from app.utils.container.podman import run_podman
+from app.utils.container.podman import run_podman, run_podman_by_id
 
 
 class RunDockerInput(BaseModel):
@@ -29,3 +29,22 @@ class RunContainer(BaseTool):
             raise ToolException(result)
 
         return result
+
+
+class RunCommandInContainerInput(BaseModel):
+    command: str = Field(description='the command you need to run')
+    container_id: Annotated[str, InjectedToolArg] = Field(..., description='container management')
+
+
+class RunCommandInContainer(BaseTool):
+    name: str = 'run_command_in_container'
+    description: str = 'run command, and return it`s output result'
+    args_schema: Optional[ArgsSchema] = RunCommandInContainerInput
+    return_direct: bool = False
+
+    def _run(self, command: str, container_id: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        code, out = run_podman_by_id(container_id, command)
+
+        if code != 0:
+            raise ToolException(out)
+        return out
