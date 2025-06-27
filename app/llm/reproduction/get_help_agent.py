@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage, SystemMessage, ToolCall, ToolMess
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import MermaidDrawMethod, CurveStyle
 from langchain_core.tools import ToolException
-from langgraph.graph import MessagesState, StateGraph, START, END
+from langgraph.graph import MessagesState, StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
@@ -87,16 +87,15 @@ class HelpDocumentState(MessagesState):
     image_config: ImageConfig
 
     documents: Annotated[list[HelpDocument], operator.add]
-    final_document: str
     tool_name: str
 
 
-class HelpDocumentOutput(MessagesState):
-    final_document: str
+class HelpDocumentOutput(BaseModel):
+    documents: list[HelpDocument]
     tool_name: str
 
 
-class SmartHelpDocumentAgent:
+class HelpDocumentAgent:
     """智能帮助文档获取智能体"""
 
     def __init__(self):
@@ -107,7 +106,7 @@ class SmartHelpDocumentAgent:
         # 绑定工具到LLM
         self.llm_with_tools = self.llm.bind_tools([self.docker_tool], tool_choice='auto', parallel_tool_calls=True)
 
-    def call_llm(self, state: HelpDocumentState) -> dict:
+    def call_llm_node(self, state: HelpDocumentState):
         """LLM节点：决定是否调用工具"""
         messages = state.get('messages', [])
 
@@ -120,7 +119,9 @@ class SmartHelpDocumentAgent:
         return {'messages': [response]}
 
     @staticmethod
-    def should_continue(state: HelpDocumentState) -> Literal['run_command', 'run_command_parallel', 'format_document']:
+    def should_continue(
+        state: HelpDocumentState,
+    ) -> Literal['run_command_node', 'parallel_run_node', 'analyse_document_node']:
         """判断是否继续调用工具、收集文档或格式化文档"""
         messages = state.get('messages', [])
         last_message = messages[-1]
@@ -128,13 +129,13 @@ class SmartHelpDocumentAgent:
         # 如果最后一条消息有工具调用，继续执行工具
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
             if len(last_message.tool_calls) > 1:
-                return 'run_command_parallel'
-            return 'run_command'
+                return 'parallel_run_node'
+            return 'run_command_node'
 
-        # 否则格式化文档
-        return 'format_document'
+        # 否则分析文档结果
+        return 'analyse_document_node'
 
-    def run_command(self, state: HelpDocumentState):
+    def run_command_node(self, state: HelpDocumentState):
         messages = state.get('messages', [])
         tool_call: ToolCall = messages[-1].tool_calls[0]
         tool_call_id = tool_call['id']
@@ -180,7 +181,7 @@ class SmartHelpDocumentAgent:
 
             return {'messages': [ToolMessage(str(e), tool_call_id=tool_call_id)]}
 
-    def run_command_parallel(self, state: HelpDocumentState):
+    def parallel_run_node(self, state: HelpDocumentState):
         last_messages = state.get('messages', [])[-1]
         tool_messages = []
         new_documents = []
@@ -204,7 +205,7 @@ class SmartHelpDocumentAgent:
         return {'messages': tool_messages, 'documents': new_documents}
 
     @staticmethod
-    def format_document(state: HelpDocumentState) -> dict:
+    def analyse_document_node(state: HelpDocumentState):
         """格式化最终文档"""
         documents = state.get('documents', [])
 
@@ -214,39 +215,26 @@ class SmartHelpDocumentAgent:
                 'final_document': '',
             }
 
-        # 使用收集到的文档自动拼接
         tool_name = documents[0].title.split(' ')[0]
-        document_parts = [f'# {tool_name} 帮助文档']
-
-        # 添加每个文档
-        for doc in documents:
-            document_parts.append(f'\n## {doc.title}\n')
-            document_parts.append('```')
-            document_parts.append(doc.content)
-            document_parts.append('```')
-
-        final_document = '\n'.join(document_parts)
-
         return {
             'messages': [AIMessage(content=f'已生成完整的帮助文档，包含 {len(documents)} 个部分。')],
-            'final_document': final_document,
+            'documents': documents,
             'tool_name': tool_name,
         }
 
-    def build_graph(self, visualize: bool = False) -> CompiledStateGraph:
-        """构建LangGraph工作流"""
+    def build(self, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(HelpDocumentState, output=HelpDocumentOutput)
 
-        graph.add_node('call_llm', self.call_llm)
-        graph.add_node('run_command', self.run_command)
-        graph.add_node('run_command_parallel', self.run_command_parallel)
-        graph.add_node('format_document', self.format_document)
+        graph.add_node('call_llm_node', self.call_llm_node)
+        graph.add_node('run_command_node', self.run_command_node)
+        graph.add_node('parallel_run_node', self.parallel_run_node)
+        graph.add_node('analyse_document_node', self.analyse_document_node)
 
-        graph.add_edge(START, 'call_llm')
-        graph.add_conditional_edges('call_llm', self.should_continue)
-        graph.add_edge('run_command', 'call_llm')
-        graph.add_edge('run_command_parallel', 'format_document')
-        graph.add_edge('format_document', END)
+        graph.set_entry_point('call_llm_node')
+        graph.add_conditional_edges('call_llm_node', self.should_continue)
+        graph.add_edge('run_command_node', 'call_llm_node')
+        graph.add_edge('parallel_run_node', 'analyse_document_node')
+        graph.add_edge('analyse_document_node', END)
 
         compiled_graph = graph.compile()
         if visualize:
