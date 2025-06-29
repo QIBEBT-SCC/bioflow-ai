@@ -1,5 +1,5 @@
 import operator
-from typing import Literal, Annotated
+from typing import Literal, Annotated, Optional
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolCall, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -9,7 +9,7 @@ from langgraph.graph import MessagesState, StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
-from app.core.llm_chat import gpt_41_mini
+from app.core.llm_chat import gpt_41_mini, gpt_41_nano
 from app.llm.tools.container import RunContainer
 from app.models.tools import ImageConfig
 
@@ -71,7 +71,8 @@ and the return is:
 
 
 class HelpDocument(BaseModel):
-    title: str
+    command: str
+    description: Optional[str] = None
     content: str
 
 
@@ -79,6 +80,9 @@ class ErrorStructure(BaseModel):
     """Is the output obtained here the expected help document for the subcommand?"""
 
     is_doc: bool = Field(description='Is the returned text a help document for a subcommand?')
+    description: str = Field(
+        description='Based on your knowledge and the content of the help documentation, summarize exactly what this sub-tool does in one or two sentences. Keep empty if not a valid help document'
+    )
 
 
 class HelpDocumentState(MessagesState):
@@ -91,6 +95,7 @@ class HelpDocumentState(MessagesState):
 
 
 class HelpDocumentOutput(BaseModel):
+    message: AIMessage
     documents: list[HelpDocument]
     tool_name: str
 
@@ -101,85 +106,89 @@ class HelpDocumentAgent:
     def __init__(self):
         self.llm = gpt_41_mini()
         self.structure_llm = gpt_41_mini()
-        self.docker_tool = RunContainer()
+        self.simple_llm = gpt_41_nano()
 
-        # 绑定工具到LLM
-        self.llm_with_tools = self.llm.bind_tools([self.docker_tool], tool_choice='auto', parallel_tool_calls=True)
+        self.container_tool = RunContainer()
 
     def call_llm_node(self, state: HelpDocumentState):
-        """LLM节点：决定是否调用工具"""
-        messages = state.get('messages', [])
-
         prompt = ChatPromptTemplate.from_messages(
             [SystemMessage(content=GLOBAL_SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
         )
-        chain = prompt | self.llm_with_tools
-        response = chain.invoke({'history': messages})
+        llm_with_tools = self.llm.bind_tools([self.container_tool], tool_choice='auto', parallel_tool_calls=True)
+        chain = prompt | llm_with_tools
+        response = chain.invoke({'history': state['messages']})
 
         return {'messages': [response]}
 
     @staticmethod
     def should_continue(
         state: HelpDocumentState,
-    ) -> Literal['run_command_node', 'parallel_run_node', 'analyse_document_node']:
-        """判断是否继续调用工具、收集文档或格式化文档"""
-        messages = state.get('messages', [])
-        last_message = messages[-1]
+    ) -> Literal['run_command_node', 'run_subcommand_node', 'parallel_run_node', 'analyse_document_node']:
+        last_message = state['messages'][-1]
 
-        # 如果最后一条消息有工具调用，继续执行工具
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            if len(state.get('documents', [])) == 0:
+                return 'run_command_node'
+
             if len(last_message.tool_calls) > 1:
                 return 'parallel_run_node'
-            return 'run_command_node'
 
-        # 否则分析文档结果
+            return 'run_subcommand_node'
+
         return 'analyse_document_node'
 
     def run_command_node(self, state: HelpDocumentState):
-        messages = state.get('messages', [])
-        tool_call: ToolCall = messages[-1].tool_calls[0]
+        last_message = state['messages'][-1]
+        tool_call: ToolCall = last_message.tool_calls[0]
         tool_call_id = tool_call['id']
 
         try:
-            command_output = self.docker_tool.invoke({**tool_call['args'], 'image_config': state.get('image_config')})
-            if len(state.get('documents', [])) == 0:
-                return {
-                    'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)],
-                    'documents': [HelpDocument(title=tool_call['args']['command'], content=command_output)],
-                }
+            command_output = self.container_tool.invoke({**tool_call['args'], 'image_config': state['image_config']})
             return {
-                'messages': [
-                    ToolMessage('Successful get the subcommand help doc, add to documents', tool_call_id=tool_call_id)
-                ],
-                'documents': [HelpDocument(title=tool_call['args']['command'], content=command_output)],
+                'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)],
+                'documents': [HelpDocument(command=tool_call['args']['command'], content=command_output)],
             }
         except ToolException as e:
-            # 第一个子命令
-            if state.get('documents'):
-                prompt = ChatPromptTemplate.from_messages(
-                    [SystemMessage(content=ERROR_SYS_PROMPT), ('human', ERROR_USER_PROMPT)]
-                )
-                chain = prompt | self.structure_llm.with_structured_output(ErrorStructure)
-                response: ErrorStructure = chain.invoke(
-                    {
-                        'main_doc': state.get('documents')[0].content,
-                        'command': tool_call['args'],
-                        'sub_command_return': str(e),
-                    }
-                )
-
-                if response.is_doc:
-                    return {
-                        'messages': [
-                            ToolMessage(
-                                'Successful get the subcommand help doc, add to documents. Now you can call the tool for the remaining subcommands in parallel.',
-                                tool_call_id=tool_call_id,
-                            )
-                        ],
-                        'documents': [HelpDocument(title=tool_call['args']['command'], content=str(e))],
-                    }
-
             return {'messages': [ToolMessage(str(e), tool_call_id=tool_call_id)]}
+
+    def run_subcommand_node(self, state: HelpDocumentState):
+        last_message = state['messages'][-1]
+        tool_call: ToolCall = last_message.tool_calls[0]
+        tool_call_id = tool_call['id']
+
+        try:
+            command_output = self.container_tool.invoke({**tool_call['args'], 'image_config': state['image_config']})
+        except ToolException as e:
+            command_output = str(e)
+
+        prompt = ChatPromptTemplate.from_messages(
+            [SystemMessage(content=ERROR_SYS_PROMPT), ('human', ERROR_USER_PROMPT)]
+        )
+        chain = prompt | self.structure_llm.with_structured_output(ErrorStructure)
+        response: ErrorStructure = chain.invoke(
+            {
+                'main_doc': state.get('documents')[0].content,
+                'command': tool_call['args'],
+                'sub_command_return': command_output,
+            }
+        )
+
+        if response.is_doc:
+            return {
+                'messages': [
+                    ToolMessage(
+                        'Successful get the subcommand help doc, add to documents. Now you can call the tool for the remaining subcommands in parallel.',
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+                'documents': [
+                    HelpDocument(
+                        command=tool_call['args']['command'], content=command_output, description=response.description
+                    )
+                ],
+            }
+
+        return {'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)]}
 
     def parallel_run_node(self, state: HelpDocumentState):
         last_messages = state.get('messages', [])[-1]
@@ -188,14 +197,28 @@ class HelpDocumentAgent:
 
         for tool_call in last_messages.tool_calls:
             try:
-                command_output = self.docker_tool.invoke(
+                command_output = self.container_tool.invoke(
                     {**tool_call['args'], 'image_config': state.get('image_config')}
                 )
-
-                new_documents.append(HelpDocument(title=tool_call['args']['command'], content=command_output))
             except ToolException as e:
-                new_documents.append(HelpDocument(title=tool_call['args']['command'], content=str(e)))
-            finally:
+                command_output = str(e)
+
+            prompt = ChatPromptTemplate.from_messages([('human', ERROR_USER_PROMPT)])
+            chain = prompt | self.structure_llm.with_structured_output(ErrorStructure)
+            response: ErrorStructure = chain.invoke(
+                {
+                    'main_doc': state.get('documents')[0].content,
+                    'command': tool_call['args'],
+                    'sub_command_return': command_output,
+                }
+            )
+
+            if response.is_doc:
+                new_documents.append(
+                    HelpDocument(
+                        command=tool_call['args']['command'], content=command_output, description=response.description
+                    )
+                )
                 tool_messages.append(
                     ToolMessage(
                         'Successful get the subcommand help doc, add to documents', tool_call_id=tool_call['id']
@@ -210,15 +233,11 @@ class HelpDocumentAgent:
         documents = state.get('documents', [])
 
         if not documents:
-            return {
-                'messages': [AIMessage(content='我无法获取到有效的帮助文档，请检查相关的信息是否正确。')],
-                'final_document': '',
-            }
+            return {'message': AIMessage(content='我无法获取到有效的帮助文档，请检查相关的信息是否正确。')}
 
-        tool_name = documents[0].title.split(' ')[0]
+        tool_name = documents[0].command.split(' ')[0]
         return {
-            'messages': [AIMessage(content=f'已生成完整的帮助文档，包含 {len(documents)} 个部分。')],
-            'documents': documents,
+            'message': AIMessage(content=f'已生成完整的帮助文档，包含 {len(documents)} 个部分。'),
             'tool_name': tool_name,
         }
 
@@ -227,12 +246,14 @@ class HelpDocumentAgent:
 
         graph.add_node('call_llm_node', self.call_llm_node)
         graph.add_node('run_command_node', self.run_command_node)
+        graph.add_node('run_subcommand_node', self.run_subcommand_node)
         graph.add_node('parallel_run_node', self.parallel_run_node)
         graph.add_node('analyse_document_node', self.analyse_document_node)
 
         graph.set_entry_point('call_llm_node')
         graph.add_conditional_edges('call_llm_node', self.should_continue)
         graph.add_edge('run_command_node', 'call_llm_node')
+        graph.add_edge('run_subcommand_node', 'call_llm_node')
         graph.add_edge('parallel_run_node', 'analyse_document_node')
         graph.add_edge('analyse_document_node', END)
 
