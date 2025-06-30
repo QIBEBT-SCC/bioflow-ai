@@ -10,6 +10,7 @@ from app.utils.container.podman import run_podman, run_podman_by_id
 
 class RunDockerInput(BaseModel):
     command: str = Field(description='the command you need to run')
+    command_description: Optional[str] = Field(description='The description of this sub-command, base on the content of main doc and your knowledge. Empty if not running a sub-command.')
     image_config: Annotated[ImageConfig, InjectedToolArg] = Field(..., description='docker image config')
 
 
@@ -20,7 +21,11 @@ class RunContainer(BaseTool):
     return_direct: bool = False
 
     def _run(
-        self, command: str, image_config: ImageConfig, run_manager: Optional[CallbackManagerForToolRun] = None
+        self,
+        command: str,
+        command_description: str,
+        image_config: ImageConfig,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Use the tool."""
         code, result = run_podman(image_config, command, [])

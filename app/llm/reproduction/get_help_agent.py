@@ -9,7 +9,7 @@ from langgraph.graph import MessagesState, StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
-from app.core.llm_chat import gpt_41_mini, gpt_41_nano
+from app.core.llm_chat import gpt_41_mini
 from app.llm.tools.container import RunContainer
 from app.models.tools import ImageConfig
 
@@ -23,6 +23,7 @@ Your task is to:
 4. If subcommands exist, retrieve detailed help information for each of them as follows:  
    * For the **first** subcommand, invoke the tool separately and continue trying until you get a valid result.  
    * Once the first subcommand succeeds, proceed to invoke the tool **multiple times in parallel** to retrieve help information for the **remaining subcommands**.  
+   * In particular, subcommands such as `help` and `version`, which are not used in the actual analysis, **do not** need to be analyzed.
 5. When you believe enough help information has been collected, say **"I have finished collecting all the help information"** to indicate the end of the collection phase.  
 </goal>
 
@@ -80,9 +81,6 @@ class ErrorStructure(BaseModel):
     """Is the output obtained here the expected help document for the subcommand?"""
 
     is_doc: bool = Field(description='Is the returned text a help document for a subcommand?')
-    description: str = Field(
-        description='Based on your knowledge and the content of the help documentation, summarize exactly what this sub-tool does in one or two sentences. Keep empty if not a valid help document'
-    )
 
 
 class HelpDocumentState(MessagesState):
@@ -106,7 +104,6 @@ class HelpDocumentAgent:
     def __init__(self):
         self.llm = gpt_41_mini()
         self.structure_llm = gpt_41_mini()
-        self.simple_llm = gpt_41_nano()
 
         self.container_tool = RunContainer()
 
@@ -183,7 +180,9 @@ class HelpDocumentAgent:
                 ],
                 'documents': [
                     HelpDocument(
-                        command=tool_call['args']['command'], content=command_output, description=response.description
+                        command=tool_call['args']['command'],
+                        content=command_output,
+                        description=tool_call['args']['command_description'],
                     )
                 ],
             }
@@ -203,27 +202,16 @@ class HelpDocumentAgent:
             except ToolException as e:
                 command_output = str(e)
 
-            prompt = ChatPromptTemplate.from_messages([('human', ERROR_USER_PROMPT)])
-            chain = prompt | self.structure_llm.with_structured_output(ErrorStructure)
-            response: ErrorStructure = chain.invoke(
-                {
-                    'main_doc': state.get('documents')[0].content,
-                    'command': tool_call['args'],
-                    'sub_command_return': command_output,
-                }
+            new_documents.append(
+                HelpDocument(
+                    command=tool_call['args']['command'],
+                    content=command_output,
+                    description=tool_call['args']['command_description'],
+                )
             )
-
-            if response.is_doc:
-                new_documents.append(
-                    HelpDocument(
-                        command=tool_call['args']['command'], content=command_output, description=response.description
-                    )
-                )
-                tool_messages.append(
-                    ToolMessage(
-                        'Successful get the subcommand help doc, add to documents', tool_call_id=tool_call['id']
-                    )
-                )
+            tool_messages.append(
+                ToolMessage('Successful get the subcommand help doc, add to documents', tool_call_id=tool_call['id'])
+            )
 
         return {'messages': tool_messages, 'documents': new_documents}
 
