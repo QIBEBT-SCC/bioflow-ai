@@ -3,6 +3,7 @@ from typing import Optional
 
 import aiohttp
 import requests
+import rich
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -17,10 +18,10 @@ class BioContainerToolVersion(BaseModel):
 
 class BioContainerTool(BaseModel):
     id: str
-    description: str
+    description: Optional[str] = None
     pulls: int
-    license: str
-    tool_url: str
+    license: Optional[str] = None
+    tool_url: Optional[str] = None
 
 
 class BioContainerImage(BaseModel):
