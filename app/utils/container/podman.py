@@ -219,12 +219,13 @@ def formate_container_stats(
         return None
 
 
-def create_container(image_cfg: ImageConfig, mounts: list[Mount], **kwargs) -> str:
+def create_container(image_cfg: ImageConfig, mounts: list[Mount], debug: bool = False, **kwargs) -> str:
     """创建容器并返回其ID
 
     Args:
         image_cfg: 所使用的镜像
         mounts: 外部文件夹挂载
+        debug: 是否显示调试信息
         **kwargs:
 
     Returns:
@@ -243,11 +244,23 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount], **kwargs) -> s
             **kwargs,
         )
         container.start()
+        if debug:
+            logger.debug(f'create container {container.name}')
 
         return container.id
 
 
 def run_podman_by_id(container_id: str, command: str) -> tuple[int, str]:
+    """在特定容器中运行命令并返回结果
+
+    Args:
+        container_id: 目标容器ID
+        command: 要运行的指令
+
+    Returns:
+        - int: 运行的状态码
+        - str: 日志输出结果
+    """
     with PodmanClient() as client:
         assert client.ping()
 
@@ -260,6 +273,11 @@ def run_podman_by_id(container_id: str, command: str) -> tuple[int, str]:
 
 
 def remove_container(container_id: str):
+    """停止并移除容器
+
+    Args:
+        container_id: 要移除的容器ID
+    """
     with PodmanClient() as client:
         assert client.ping()
 
