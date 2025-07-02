@@ -30,7 +30,7 @@ def gemini_25_flash() -> ChatGoogleGenerativeAI:
     """gemini 2.5 flash."""
 
     llm = ChatGoogleGenerativeAI(
-        model='gemini-2.5-flash-preview-05-20',
+        model='gemini-2.5-flash',
         client_options={
             'api_endpoint': 'https://aihubmix.com/gemini',
             'api_key': get_settings().llm.AI_HUB_MIX_KEY.get_secret_value(),
@@ -44,6 +44,14 @@ def gemini_25_flash() -> ChatGoogleGenerativeAI:
 def gpt_41_mini() -> ChatOpenAI:
     llm = ChatOpenAI(
         model='gpt-4.1-mini', base_url='https://aihubmix.com/v1', api_key=get_settings().llm.AI_HUB_MIX_KEY
+    )
+
+    return llm
+
+
+def gpt_41_nano() -> ChatOpenAI:
+    llm = ChatOpenAI(
+        model='gpt-4.1-nano', base_url='https://aihubmix.com/v1', api_key=get_settings().llm.AI_HUB_MIX_KEY
     )
 
     return llm
