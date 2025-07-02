@@ -31,3 +31,17 @@ def get_all(session: Session) -> list[ToolTag]:
 def get_all_by_id(session: Session, ids: list[int]) -> list[ToolTag]:
     statement: Select = select(ToolTag).where(col(ToolTag.id).in_(ids))
     return session.exec(statement).all()
+
+
+def get_by_name(session: Session, name: str):
+    statement: Select = select(ToolTag).where(ToolTag.name == name)
+    return session.exec(statement).one_or_none()
+
+
+def ai_gen_tag(session: Session) -> ToolTag:
+    tag = get_by_name(session, 'AI Gen')
+    if tag:
+        return tag
+
+    new_tag = insert(session, ToolTag(name='AI Gen'))
+    return new_tag
