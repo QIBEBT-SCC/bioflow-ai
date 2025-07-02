@@ -114,9 +114,11 @@ class ToolHelpDoc(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     help_command: str
+    description: Optional[str]
     content: str
+    image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
     parent_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
-    
+
     tools: list['ToolData'] = Relationship(back_populates='help_doc')
 
 
@@ -135,7 +137,6 @@ class ToolData(SQLModel, table=True):
     static_params: str
     output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 
-    help_command: str
     help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
 
     mkdir_output: bool
