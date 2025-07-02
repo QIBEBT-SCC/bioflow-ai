@@ -49,6 +49,9 @@ class PersistenceConfig(BaseModel):
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
     STORAGE_PATH: str = './storage'
+    TEST_DATA_PATH: str = './testdata'
+    MAX_THREAD: int = 8
+    MAX_MEM: str = '4G'
 
 
 class LLMConfig(BaseModel):
