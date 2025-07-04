@@ -31,6 +31,7 @@ Your task is to:
 <tool_calling>
 * The tool is already running in a Docker container. You only need to provide the bare command-line instructions — do **not** include prefixes like `docker run`.
 * If the tool has subcommands, follow the above procedure to retrieve help documentation.
+* The `command_description` field should describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
 </tool_calling>
 
 <error_handling>
