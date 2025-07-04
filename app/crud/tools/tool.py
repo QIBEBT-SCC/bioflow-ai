@@ -14,6 +14,13 @@ def insert(session: Session, tool: ToolData):
     return tool
 
 
+def delete(session: Session, tool_uid: str):
+    tool = get(session, tool_uid)
+    if tool:
+        session.delete(tool)
+        session.commit()
+
+
 def get_all(session: Session, limit: int, offset: int):
     statement: Select = (
         select(ToolData)
