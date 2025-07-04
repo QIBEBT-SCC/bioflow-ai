@@ -58,7 +58,7 @@ async def acheck_repository_tags(namespace: str, repo_name: str) -> int:
 
 
 def get_repository_tags(namespace: str, repo_name: str) -> list[str]:
-    url = f'https://hub.docker.com/v2/namespaces/{namespace}/repositories/{repo_name}/tags?page=1&page_size=5'
+    url = f'https://hub.docker.com/v2/namespaces/{namespace}/repositories/{repo_name}/tags?page=1&page_size=10'
 
     user_token = get_access_token(get_settings().docker.USERNAME, get_settings().docker.PASSWORD.get_secret_value())
     headers = {'Accept': 'application/json', 'Authorization': f'Bearer {user_token}'}
@@ -71,7 +71,8 @@ def get_repository_tags(namespace: str, repo_name: str) -> list[str]:
     assert response.status_code == 200
     response_data = response.json()
 
-    return [image['name'] for image in response_data['results']]
+    tags = [image['name'] for image in response_data['results']]
+    return sorted(tags, reverse=True)
 
 
 async def aget_repository_tags(namespace: str, repo_name: str) -> list[str]:
@@ -94,4 +95,5 @@ async def aget_repository_tags(namespace: str, repo_name: str) -> list[str]:
             assert response.status == 200
             response_data = await response.json()
 
-            return [image['name'] for image in response_data['results']]
+            tags = [image['name'] for image in response_data['results']]
+            return sorted(tags, reverse=True)
