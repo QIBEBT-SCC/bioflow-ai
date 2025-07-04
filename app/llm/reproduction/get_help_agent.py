@@ -171,10 +171,19 @@ class HelpDocumentAgent:
         try:
             # 如果输出正常结束，肯定是一个有效指令，直接进下一步
             command_output = self.container_tool.invoke({**tool_call['args'], 'image_config': state['image_config']})
+
+            if state['documents']:
+                # 子文档
+                tool_msg = ToolMessage(
+                    content='Successful get the subcommand help doc, add to documents. Now you can call the tool for the remaining subcommands in parallel.',
+                    tool_call_id=tool_call_id,
+                )
+            else:
+                tool_msg = ToolMessage(command_output, tool_call_id=tool_call_id)
             return Command(
                 goto='call_llm_node',
                 update={
-                    'messages': [ToolMessage(command_output, tool_call_id=tool_call_id)],
+                    'messages': [tool_msg],
                     'documents': [HelpDocument(command=tool_call['args']['command'], content=command_output)],
                 },
             )
@@ -201,14 +210,21 @@ class HelpDocumentAgent:
             )
 
             if response.is_doc:
+                state['messages'].pop(-1)
                 return {
+                    'messages': [
+                        ToolMessage(
+                            content='Successful get the subcommand help doc, add to documents. Now you can call the tool for the remaining subcommands in parallel.',
+                            tool_call_id=ai_message.tool_calls[0]['id'],
+                        )
+                    ],
                     'documents': [
                         HelpDocument(
                             command=command,
                             content=tool_message.content,
                             description=ai_message.tool_calls[0]['args']['command_description'],
                         )
-                    ]
+                    ],
                 }
         else:
             # 否则是本体帮助文档
