@@ -70,8 +70,15 @@ class SearchImage(BaseTool):
         if check_repository_tags('aye1032', tool_name.lower()) == 200:
             tags = get_repository_tags('aye1032', tool_name.lower())
             if (tag := tags.pop(0)) == 'latest':
-                tag = tag[0]
+                tag = tags[0]
             return ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
+
+        # 从staphb仓库中搜索
+        if check_repository_tags('staphb', tool_name.lower()) == 200:
+            tags = get_repository_tags('staphb', tool_name.lower())
+            if (tag := tags.pop(0)) == 'latest':
+                tag = tags[0]
+            return ImageConfig(namespace='staphb', repository=tool_name.lower(), tag=tag)
 
         # 从 BioContainer 中搜索
         else:
