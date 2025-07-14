@@ -23,9 +23,9 @@ class AIGenTool(BaseModel):
     description: str = Field(description='工具功能的简要描述')
 
     command_template: str = Field(
-        description='完整的工具指令模板字符串，可以包含dynamic_params、static_params、position_params、log这几个变量'
+        description='完整的工具指令模板字符串，可以包含file_params、static_params、position_params、log这几个变量'
     )
-    dynamic_params: list[ParamDefine] = Field(description='需要涉及到文件名等要素的变量，包括参数指定的和位置指定的')
+    file_params: list[ParamDefine] = Field(description='需要涉及到文件名等要素的变量，包括参数指定的和位置指定的')
     static_params: str = Field(description='与外部文件无关的变量')
     output_files: list[OutputFile] = Field('软件的期望输出文件')
 
@@ -44,7 +44,7 @@ class DockerToolCreate(BaseModel):
 
     help_doc_id: int
     command_template: str
-    dynamic_params: list[ParamDefine]
+    file_params: list[ParamDefine]
     static_params: str
     output_files: list[OutputFile]
 
@@ -62,7 +62,7 @@ class DockerToolCreate(BaseModel):
             group_id=self.group_id,
             help_doc_id=self.help_doc_id,
             command_template=self.command_template,
-            dynamic_params=self.dynamic_params,
+            file_params=self.file_params,
             static_params=self.static_params,
             output_files=self.output_files,
             mkdir_output=self.mkdir_output,
@@ -91,7 +91,7 @@ class ToolPublic(BaseModel):
     group_id: Optional[int]
 
     command_template: str
-    dynamic_params: list[ParamDefine]
+    file_params: list[ParamDefine]
     static_params: str
     output_files: list[OutputFile]
 
@@ -108,7 +108,7 @@ class ToolPublic(BaseModel):
     def build_command(self):
         self.complete_command = build_command_template(
             command_template=self.command_template,
-            dynamic_params=self.dynamic_params,
+            file_params=self.file_params,
             static_params=self.static_params,
             output_files=self.output_files,
         )
@@ -125,7 +125,7 @@ class ToolArgPublic(BaseModel):
     name: str
     description: str
 
-    dynamic_params: list[ParamDefine] = Field(exclude=True)
+    file_params: list[ParamDefine] = Field(exclude=True)
     output_files: list[OutputFile] = Field(exclude=True)
 
     input_handles: list[Handle] = Field(default_factory=list)
@@ -137,7 +137,7 @@ class ToolArgPublic(BaseModel):
     def build_handles(self):
         self.input_handles = [
             Handle(name=param.name, description=param.description)
-            for param in self.dynamic_params
+            for param in self.file_params
             if param.param_type != ParamType.OUTPUT
         ]
 
@@ -154,7 +154,7 @@ class ToolTaskInfo(BaseModel):
     name: str
 
     command_template: str
-    dynamic_params: list[ParamDefine]
+    file_params: list[ParamDefine]
     static_params: str
     output_files: list[OutputFile]
 
