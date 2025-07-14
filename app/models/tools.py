@@ -22,27 +22,38 @@ class ParamType(IntEnum):
 
 
 class ParamDefine(BaseModel):
-    """命令行参数定义"""
+    """Command line argument definition"""
 
-    name: str = PField(description='参数的名称，用于在模板字符串中作为格式化关键词，只允许小写字母和下划线')
-    command: str = PField(description='具体的参数定义，使用name字段的值构建的模板字符串。如 "-i {name}"')
-    param_type: ParamType = PField(description='参数的类型，0代表INPUT、1代表INPUT_POSITION、2代表OUTPUT')
-    is_file: bool = PField(description='参数涉及的是文件还是文件夹')
-    index: Optional[int] = PField(description='位置参数的顺位（仅在INPUT_POSITION类型的参数中生效）', default=None)
-    required: bool = PField(description='是否是程序运行的必须参数', default=True)
-    mount_path: Optional[str] = PField(description='在docker中的映射目录', default=None)
-    description: Optional[str] = PField(description='参数描述', default=None)
+    name: str = PField(
+        description='Parameter name used as a formatting keyword in template strings, only lowercase letters and underscores are allowed'
+    )
+    command: str = PField(
+        description='Specific parameter definition, template string constructed using the value of the name field. For example, "-i {name}"'
+    )
+    param_type: int = PField(
+        description='Parameter type, 0 represents INPUT, 1 represents INPUT_POSITION, 2 represents OUTPUT'
+    )
+    is_file: bool = PField(description='Does the parameter involve a file or a folder?')
+    index: Optional[int] = PField(
+        description='Position order of positional parameters (only takes effect for parameters of INPUT_POSITION type)',
+        default=None,
+    )
+    required: bool = PField(description='Is it a mandatory parameter for the program to run?', default=True)
+    mount_path: Optional[str] = PField(description='Mapped directories in container', default=None)
+    description: Optional[str] = PField(description='Parameter Description', default=None)
 
 
 class OutputFile(BaseModel):
-    """输出文件定义"""
+    """Output file definition"""
 
-    name: str = PField(description='文件参数名称，只允许小写字母和下划线')
-    file_path: str = PField(description='文件的路径模板，只允许包含output_dir和sample_name这两个变量名')
-    is_report: bool = PField(description='是否作为report文件', default=False)
-    is_log: bool = PField(description='是否是日志文件', default=False)
-    mount_path: Optional[str] = PField(description='文件在容器中的映射路径', default=None)
-    description: Optional[str] = PField(description='文件的描述', default=None)
+    name: str = PField(description='Only lowercase letters and underscores are allowed')
+    file_path: str = PField(
+        description='File path template, only allowed to contain output_dir and sample_name these two variable names'
+    )
+    is_report: bool = PField(description='Is it as a report file?', default=False)
+    is_log: bool = PField(description='Is it a log file?', default=False)
+    mount_path: Optional[str] = PField(description='File mapping path in container', default=None)
+    description: Optional[str] = PField(description='File description', default=None)
 
 
 class ImageConfig(BaseModel):
@@ -147,7 +158,7 @@ class ToolData(SQLModel, table=True):
 
     help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
     command_template: str
-    dynamic_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
+    file_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
     static_params: str
     output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 

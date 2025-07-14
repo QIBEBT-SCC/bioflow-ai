@@ -16,13 +16,13 @@ class PartialFormatter(string.Formatter):
 
 
 def build_command_template(
-    command_template: str, dynamic_params: list[ParamDefine], static_params: str, output_files: list[OutputFile]
+    command_template: str, file_params: list[ParamDefine], static_params: str, output_files: list[OutputFile]
 ) -> str:
     """构建到最后一级的指令模板字符串
 
     Args:
         command_template:
-        dynamic_params:
+        file_params:
         static_params:
         output_files:
 
@@ -30,15 +30,15 @@ def build_command_template(
 
     """
     position_params: list[ParamDefine] = sorted(
-        [param for param in dynamic_params if param.param_type == ParamType.INPUT_POSITION], key=lambda x: x.index
+        [param for param in file_params if param.param_type == ParamType.INPUT_POSITION], key=lambda x: x.index
     )
-    dynamic_params = [param.command for param in dynamic_params if param.param_type != ParamType.INPUT_POSITION]
+    file_params = [param.command for param in file_params if param.param_type != ParamType.INPUT_POSITION]
 
     formatter = PartialFormatter()
     command_template = formatter.format(
         command_template,
         position_params=' '.join([param.command for param in position_params]),
-        dynamic_params=' '.join(dynamic_params),
+        file_params=' '.join(file_params),
         static_params=static_params,
     )
     final_template = formatter.format(

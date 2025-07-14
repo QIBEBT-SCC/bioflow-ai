@@ -85,7 +85,7 @@ def docker_task(
         return expected_output
 
     # 处理动态参数
-    for param in tool_config.dynamic_params:
+    for param in tool_config.file_params:
         # 处理输入参数
         if param.param_type == ParamType.INPUT:
             if param.name in inputs:
@@ -102,15 +102,13 @@ def docker_task(
                 # 构建命令
                 container_file_path = f'{container_dir}/{input_file.name}'
                 param_inputs[param.name] = container_file_path
-            elif param.default and param.required:
-                param_inputs[param.name] = param.default
             elif param.required:
                 raise ValueError(f'缺少必需参数: {param.name}')
 
     # 构建完整命令
     final_template = build_command_template(
         command_template=tool_config.command_template,
-        dynamic_params=tool_config.dynamic_params,
+        file_params=tool_config.file_params,
         static_params=params,
         output_files=tool_config.output_files,
     )
@@ -137,18 +135,13 @@ def docker_task(
                     volume_binds.append(Mount(type='bind', source=str(host_path), target=container_path))
 
             data = TaskUpdate(
-                commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {tool_config.docker_config.image.get_image()} /bin/bash -c "{tool_command}"'
+                commands=f'podman run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {tool_config.image.image.get_image()} /bin/bash -c "{tool_command}"'
             )
             update_task(self.request.id, data)
 
             # 执行Docker命令
             log_count = 0
-            for stats in run_podman_background(
-                tool_config.docker_config.image,
-                command=tool_command,
-                mounts=volume_binds,
-                **tool_config.docker_config.docker_settings,
-            ):
+            for stats in run_podman_background(tool_config.image.image, command=tool_command, mounts=volume_binds):
                 monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
                 monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
                 log_count += 1
@@ -178,12 +171,7 @@ def docker_task(
 
         # 运行docker命令
         log_count = 0
-        for stats in run_podman_background(
-            tool_config.docker_config.image,
-            command=tool_command,
-            mounts=volume_binds,
-            **tool_config.docker_config.docker_settings,
-        ):
+        for stats in run_podman_background(tool_config.image.image, command=tool_command, mounts=volume_binds):
             monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
             monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
             log_count += 1
