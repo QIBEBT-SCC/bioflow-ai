@@ -59,6 +59,7 @@ class LLMConfig(BaseModel):
 
     DEEPSEEK_API: SecretStr = ''
     VOLCENGINE_API: SecretStr = ''
+    AI_STUDIO_KEY: SecretStr = ''
     AI_HUB_MIX_KEY: SecretStr = ''
 
 

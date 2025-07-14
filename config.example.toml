@@ -39,4 +39,5 @@ backend = "redis://localhost:6379/0"
 [llm]
 deepseek_api = ""
 volcengine_api = ""
+ai_studio_key = ""
 ai_hub_mix_key = ""
