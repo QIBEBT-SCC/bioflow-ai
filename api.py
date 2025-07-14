@@ -10,6 +10,8 @@ from app.core.session import create_db_and_tables
 from app.core.config import get_settings
 from app.utils.logger import init_logging
 
+init_logging()
+
 
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):
@@ -45,7 +47,6 @@ def main() -> None:
         'api:app', host=get_settings().network.HOST, port=get_settings().network.PORT, access_log=True, workers=1
     )
     server = uvicorn.Server(config)
-    init_logging()
 
     try:
         server.run()
