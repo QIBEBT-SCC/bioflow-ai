@@ -34,3 +34,8 @@ def get_all_recursive(session: Session, parent_id: Optional[int] = None) -> list
     # 4. 基于id查询实际对象
     statement: Select = select(ToolGroup).where(col(ToolGroup.id).in_(group_ids))
     return session.exec(statement).all()
+
+
+def get_by_name(session: Session, name: str) -> Optional[ToolGroup]:
+    query: Select = select(ToolGroup).where(ToolGroup.name == name)
+    return session.exec(query).one_or_none()
