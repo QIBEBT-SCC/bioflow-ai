@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Optional, Any
+from typing import Optional
 
 from pydantic import UUID7, BaseModel, Field as PField, ValidationError
 from sqlalchemy import Column, ForeignKey
@@ -45,7 +45,7 @@ class OutputFile(BaseModel):
     description: Optional[str] = PField(description='文件的描述', default=None)
 
 
-class ImageConfig(SQLModel):
+class ImageConfig(BaseModel):
     registry: str = 'docker.io'
     namespace: str = 'library'
     repository: str
@@ -79,17 +79,15 @@ class ImageConfig(SQLModel):
             raise ValidationError('Incorrect image format. It MUST be like `[registry]/[namespace]/<repository>:[tag]`')
 
 
-class DockerConfig(SQLModel):
-    image: ImageConfig
-    docker_settings: dict[str, Any]
-
-
 class ToolGroup(SQLModel, table=True):
     __tablename__ = 'tool_groups'
 
-    id: int = Field(primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     parent_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
+    tag_id: Optional[int] = Field(default=None, foreign_key='tool_tags.id')
+
+    tag: Optional['ToolTag'] = Relationship()
 
 
 class ToolTagLink(SQLModel, table=True):
@@ -109,6 +107,20 @@ class ToolTag(SQLModel, table=True):
     tools: list['ToolData'] = Relationship(back_populates='tags', link_model=ToolTagLink)
 
 
+class ToolImage(SQLModel, table=True):
+    __tablename__ = 'images'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    version: str
+    description: str
+    homepage: str
+    paper_link: str
+    image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
+
+    tools: list['ToolData'] = Relationship(back_populates='image')
+
+
 class ToolHelpDoc(SQLModel, table=True):
     __tablename__ = 'tool_doc'
 
@@ -116,7 +128,7 @@ class ToolHelpDoc(SQLModel, table=True):
     help_command: str
     description: Optional[str]
     content: str
-    image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
+
     parent_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
 
     tools: list['ToolData'] = Relationship(back_populates='help_doc')
@@ -127,22 +139,20 @@ class ToolData(SQLModel, table=True):
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     name: str
+    image_id: Optional[int] = Field(default=None, foreign_key='images.id')
     description: str
-    homepage: str
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
+    tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
 
+    help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
     command_template: str
     dynamic_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
     static_params: str
     output_files: list[OutputFile] = Field(sa_column=Column(PydanticJson(list[OutputFile])))
 
-    help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
-
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig] = Field(sa_column=Column(PydanticJson(DockerConfig)))
-
-    tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
     help_doc: Optional['ToolHelpDoc'] = Relationship(back_populates='tools')
+    image: Optional['ToolImage'] = Relationship(back_populates='tools')

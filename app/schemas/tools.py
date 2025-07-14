@@ -1,9 +1,9 @@
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, UUID7, Field, model_validator
 from uuid_extensions import uuid7
 
-from app.models.tools import ToolTag, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ImageConfig, DockerConfig
+from app.models.tools import ToolTag, ToolImage, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ToolHelpDoc
 from app.utils.input_format import build_command_template
 
 
@@ -37,43 +37,37 @@ class DockerToolCreate(BaseModel):
     """创建Docker工具的请求模型"""
 
     name: str
+    image_id: int
     description: str
-    tool_tag: list[ToolTag]
+    group_id: int
+    tags: list[ToolTag]
 
+    help_doc_id: int
     command_template: str
     dynamic_params: list[ParamDefine]
     static_params: str
     output_files: list[OutputFile]
 
-    help_command: str
-    homepage: str
-
     mkdir_output: bool = True
     use_temp_dir: bool = False
-
-    repository: str
-    tag: str = 'latest'
-    docker_config: dict[str, Any] = {}
 
     def to_tool_data(self) -> ToolData:
         tool_id = uuid7(as_type='str')
         return ToolData(
             uid=str(tool_id),
             name=self.name,
+            image_id=self.image_id,
             description=self.description,
-            tags=self.tool_tag,
             tool_type=ToolType.DOCKER,
+            group_id=self.group_id,
+            help_doc_id=self.help_doc_id,
             command_template=self.command_template,
-            homepage=self.homepage,
             dynamic_params=self.dynamic_params,
             static_params=self.static_params,
             output_files=self.output_files,
-            help_command=self.help_command,
             mkdir_output=self.mkdir_output,
             use_temp_dir=self.use_temp_dir,
-            docker_config=DockerConfig(
-                image=ImageConfig(repository=self.repository, tag=self.tag), docker_settings=self.docker_config
-            ),
+            tags=self.tags,
         )
 
 
@@ -84,7 +78,7 @@ class SimpleToolPublic(BaseModel):
     tool_type: ToolType
     group_id: Optional[int]
 
-    docker_config: Optional[DockerConfig]
+    image: Optional[ToolImage]
 
     tags: list[ToolTag]
 
@@ -93,7 +87,6 @@ class ToolPublic(BaseModel):
     uid: UUID7
     name: str
     description: str
-    homepage: str
     tool_type: ToolType
     group_id: Optional[int]
 
@@ -102,15 +95,14 @@ class ToolPublic(BaseModel):
     static_params: str
     output_files: list[OutputFile]
 
-    help_command: str
     complete_command: Optional[str] = None
 
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig]
-
     tags: list['ToolTag']
+    help_doc: ToolHelpDoc
+    image: ToolImage
 
     @model_validator(mode='after')
     def build_command(self):
@@ -169,7 +161,7 @@ class ToolTaskInfo(BaseModel):
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig]
+    image: Optional[ToolImage]
 
 
 class ToolInfo4Task(BaseModel):
