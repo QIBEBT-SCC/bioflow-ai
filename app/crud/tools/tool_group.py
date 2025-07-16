@@ -14,9 +14,14 @@ def insert(session: Session, group: ToolGroup) -> ToolGroup:
     return group
 
 
-def get_all_recursive(session: Session, parent_id: Optional[int] = None) -> list[ToolGroup]:
+def get_all(session: Session, limit: int, offset: int):
+    query: Select = select(ToolGroup).limit(limit).offset(offset)
+    return session.exec(query).all()
+
+
+def get_all_recursive(session: Session, parent_id: Optional[int] = None):
     if parent_id is None:
-        base = select(ToolGroup)
+        base: Select = select(ToolGroup)
         return session.exec(base).all()
 
     # 1. 基础 CTE，查找指定父节点的直接子节点
@@ -32,8 +37,8 @@ def get_all_recursive(session: Session, parent_id: Optional[int] = None) -> list
     group_ids = session.exec(stmt).all()
 
     # 4. 基于id查询实际对象
-    statement: Select = select(ToolGroup).where(col(ToolGroup.id).in_(group_ids))
-    return session.exec(statement).all()
+    query: Select = select(ToolGroup).where(col(ToolGroup.id).in_(group_ids))
+    return session.exec(query).all()
 
 
 def get_by_name(session: Session, name: str) -> Optional[ToolGroup]:
