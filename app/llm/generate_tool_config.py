@@ -6,6 +6,7 @@ from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import create_react_agent
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from langgraph.types import Command
+from pydantic import BaseModel
 
 from app.core.llm_chat import gemini_25_flash
 from app.models.tools import ParamDefine, OutputFile
@@ -33,7 +34,7 @@ To achieve this goal, you can break down the task into the following steps:
     - Set the `use_temp_dir` value: If in the previous **Output Organization** step you decided to keep only some output files, set this value to true.  
     - Set the `mkdir_output` value: Based on your knowledge (or if the user provided relevant information), determine whether this tool needs a manually created output folder. When your knowledge is insufficient, one approach you can consider is to check if the tool's parameters include options like override or force; these usually indicate that the tool will create the output folder itself (if these parameters are used to force override the output path).
 
-Each decomposed task has a corresponding tool. When you complete the design, invoke the corresponding tool, passing your design results to the next task, until all tasks are completed.
+Each decomposed task has a corresponding tool. When you complete the design, invoke the corresponding tool, passing your design results to the next task, until all tasks are completed. In this process, each tool is called **at most once**.
 </ThoughtProcess>
 
 <OutputFiles>
@@ -68,6 +69,84 @@ For each "file_param", the following fields must be included:
     - Subcommand: Format as "ToolName(subcommand)", e.g., "samtools(index)".
     - Specialized use related to input/output files or key parameters: Format as "ToolName(key_identifier)". For example, if the tool outputs DAA files, it would be "diamond(daa)"; if it processes single-cell data, it would be "SPAdes(sc)".
 </Naming>
+
+<Example>
+For example, below is the definition of the assembly tool SPAdes for assembling single cells:
+{
+  "output_files": [
+    {
+      "name": "contigs",
+      "file_path": "{output_dir}/contigs.fasta",
+      "is_report": false,
+      "is_log": false,
+      "mount_path": "/data/output",
+      "description": "resulting contigs"
+    },
+    {
+      "name": "scaffolds",
+      "file_path": "{output_dir}/scaffolds.fasta",
+      "is_report": false,
+      "is_log": false,
+      "mount_path": "/data/output",
+      "description": "resulting scaffolds (recommended for use as resulting sequences)"
+    },
+    {
+      "name": "assembly_graph",
+      "file_path": "{output_dir}/assembly_graph_with_scaffolds.gfa",
+      "is_report": false,
+      "is_log": false,
+      "mount_path": "/data/output",
+      "description": "Assembly graph file with scaffolds in GFA format"
+    },
+    {
+      "name": "log",
+      "file_path": "{output_dir}/spades.log",
+      "is_report": false,
+      "is_log": true,
+      "mount_path": "/data/output",
+      "description": "log"
+    }
+  ],
+  "file_params": [
+    {
+      "name": "r1",
+      "command": "-1 {r1}",
+      "param_type": 0,
+      "is_file": true,
+      "index": null,
+      "required": true,
+      "mount_path": "/data/raw",
+      "description": "file with forward paired-end reads"
+    },
+    {
+      "name": "r2",
+      "command": "-2 {r2}",
+      "param_type": 0,
+      "is_file": true,
+      "index": null,
+      "required": true,
+      "mount_path": "/data/raw",
+      "description": "file with reverse paired-end reads"
+    },
+    {
+      "name": "output",
+      "command": "-o {output_dir}",
+      "param_type": 2,
+      "is_file": true,
+      "index": null,
+      "required": true,
+      "mount_path": "",
+      "description": "directory to store all the resulting files (required)"
+    }
+  ],
+  "static_params": "--sc --careful -t 128 -m 64",
+  "command_template": "spades.py {dynamic_params} {static_params}",
+  "name": "SPAdes(sc)",
+  "description": "Single-cell genome assembly using SPAdes",
+  "mkdir_output": true,
+  "use_temp_dir": true
+}
+</Example>
 """
 
 
@@ -86,6 +165,17 @@ class GenerateState(AgentState):
     use_temp_dir: bool
 
 
+class GenerateOutput(BaseModel):
+    name: str
+    description: str
+    command_template: str
+    output_files: list[OutputFile]
+    file_params: list[ParamDefine]
+    static_params: str
+    mkdir_output: bool
+    use_temp_dir: bool
+
+
 @tool
 def design_example_command(command: str, tool_call_id: Annotated[str, InjectedToolCallId]):
     """Pass the command you generated to the subsequent task
@@ -97,7 +187,7 @@ def design_example_command(command: str, tool_call_id: Annotated[str, InjectedTo
         update={
             'messages': [
                 ToolMessage(
-                    f'To meet the requirements, a feasible command design is as follows: \n```{command}\n```\n. Based on this, start the subsequent encapsulation setup.',
+                    'To meet the requirements, a feasible command designed. Now, start executing the **Output Organization** task by calling tool `set_output_files`',
                     tool_call_id=tool_call_id,
                 )
             ]
@@ -116,7 +206,12 @@ def set_output_files(output_files: list[OutputFile], tool_call_id: Annotated[str
     return Command(
         update={
             'output_files': output_files,
-            'messages': [ToolMessage('The output files of the tool have been encapsulated', tool_call_id=tool_call_id)],
+            'messages': [
+                ToolMessage(
+                    'The output files of the tool have been encapsulated. You can continue to start the work **Command Splitting** and **Template Definition** by calling tool `set_params`',
+                    tool_call_id=tool_call_id,
+                )
+            ],
         }
     )
 
@@ -128,19 +223,24 @@ def set_params(
     command_template: str,
     tool_call_id: Annotated[str, InjectedToolCallId],
 ):
-    """
+    """Decompose and reorganize the command parameters of the tool
 
     Args:
-        file_params:
-        static_params:
-        command_template:
+        file_params: Parameters related to external file input and tool file output
+        static_params: Other parameters
+        command_template: Template string of the command
     """
     return Command(
         update={
             'file_params': file_params,
             'static_params': static_params,
             'command_template': command_template,
-            'messages': [ToolMessage('The output files of the tool have been encapsulated', tool_call_id=tool_call_id)],
+            'messages': [
+                ToolMessage(
+                    'The params of the tool have been encapsulated. Based on the above work, complete **Information Generation** by calling tool `set_tool_info`',
+                    tool_call_id=tool_call_id,
+                )
+            ],
         }
     )
 
@@ -167,7 +267,7 @@ def set_tool_info(
             'description': description,
             'mkdir_output': mkdir_output,
             'use_temp_dir': use_temp_dir,
-            'messages': [ToolMessage('Done', tool_call_id=tool_call_id)],
+            'messages': [ToolMessage('All tasks have been completed.', tool_call_id=tool_call_id)],
         }
     )
 
