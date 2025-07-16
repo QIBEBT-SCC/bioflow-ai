@@ -1,1 +1,50 @@
-[{"id": 1, "name": "Default"}, {"id": 2, "name": "AI Checked"}, {"id": 3, "name": "AI Unchecked"}, {"id": 4, "name": "QC"}, {"id": 5, "name": "Alignment"}, {"id": 6, "name": "Assembly"}, {"id": 7, "name": "Taxonomy"}, {"id": 8, "name": "Annotation"}, {"id": 9, "name": "Quantification"}, {"id": 10, "name": "Differentials"}, {"id": 11, "name": "Enrichment"}, {"id": 12, "name": "Visualization"}]
+[
+  {
+    "id": 1,
+    "name": "Default"
+  },
+  {
+    "id": 2,
+    "name": "AI Checked"
+  },
+  {
+    "id": 3,
+    "name": "AI Unchecked"
+  },
+  {
+    "id": 4,
+    "name": "QC"
+  },
+  {
+    "id": 5,
+    "name": "Alignment"
+  },
+  {
+    "id": 6,
+    "name": "Assembly"
+  },
+  {
+    "id": 7,
+    "name": "Taxonomy"
+  },
+  {
+    "id": 8,
+    "name": "Annotation"
+  },
+  {
+    "id": 9,
+    "name": "Quantification"
+  },
+  {
+    "id": 10,
+    "name": "Differentials"
+  },
+  {
+    "id": 11,
+    "name": "Enrichment"
+  },
+  {
+    "id": 12,
+    "name": "Visualization"
+  }
+]
