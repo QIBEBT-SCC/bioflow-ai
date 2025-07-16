@@ -285,13 +285,13 @@ class HelpDocumentAgent:
         }
 
     def build(self, visualize: bool = False) -> CompiledStateGraph:
-        graph = StateGraph(HelpDocumentState, output=HelpDocumentOutput)
+        graph = StateGraph(HelpDocumentState, output_schema=HelpDocumentOutput)  # type: ignore
 
-        graph.add_node('call_llm_node', self.call_llm_node)
-        graph.add_node('run_command_node', self.run_command_node)
-        graph.add_node('analyse_output_node', self.analyse_output_node)
-        graph.add_node('parallel_run_node', self.parallel_run_node)
-        graph.add_node('analyse_document_node', self.analyse_document_node)
+        graph.add_node('call_llm_node', self.call_llm_node)  # type: ignore
+        graph.add_node('run_command_node', self.run_command_node)  # type: ignore
+        graph.add_node('analyse_output_node', self.analyse_output_node)  # type: ignore
+        graph.add_node('parallel_run_node', self.parallel_run_node)  # type: ignore
+        graph.add_node('analyse_document_node', self.analyse_document_node)  # type: ignore
 
         graph.set_entry_point('call_llm_node')
         graph.add_conditional_edges('call_llm_node', self.should_continue)
