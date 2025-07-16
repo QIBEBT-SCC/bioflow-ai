@@ -27,18 +27,6 @@ def get_all(session: Session, limit: int, offset: int):
     return session.exec(query).all()
 
 
-def get_by_name_fuzzy(session: Session, command: str, limit: int, offset: int):
-    query: Select = (
-        select(ToolHelpDoc)
-        .where(col(ToolHelpDoc.help_command).ilike(f'%{command}%'))
-        .where(col(ToolHelpDoc.parent_id).is_(None))
-        .offset(offset)
-        .limit(limit)
-    )
-
-    return session.exec(query).all()
-
-
 def get_sub_docs(session: Session, parent_id: int):
     query: Select = select(ToolHelpDoc).where(ToolHelpDoc.parent_id == parent_id)
 
