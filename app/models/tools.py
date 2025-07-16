@@ -130,6 +130,7 @@ class ToolImage(SQLModel, table=True):
     image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
 
     tools: list['ToolData'] = Relationship(back_populates='image')
+    # docs: list['ToolHelpDoc'] = Relationship(back_populates='image')
 
 
 class ToolHelpDoc(SQLModel, table=True):
@@ -140,8 +141,10 @@ class ToolHelpDoc(SQLModel, table=True):
     description: Optional[str]
     content: str
 
+    # image_id: Optional[int] = Field(default=None, foreign_key='image.id')
     parent_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
 
+    # image: Optional['ToolImage'] = Relationship(back_populates='docs')
     tools: list['ToolData'] = Relationship(back_populates='help_doc')
 
 

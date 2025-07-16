@@ -22,8 +22,13 @@ def insert_all(session: Session, docs: list[ToolHelpDoc]):
     return docs
 
 
+def get_all(session: Session, limit: int, offset: int):
+    query: Select = select(ToolHelpDoc).limit(limit).offset(offset)
+    return session.exec(query).all()
+
+
 def get_by_name_fuzzy(session: Session, command: str, limit: int, offset: int):
-    statement: Select = (
+    query: Select = (
         select(ToolHelpDoc)
         .where(col(ToolHelpDoc.help_command).ilike(f'%{command}%'))
         .where(col(ToolHelpDoc.parent_id).is_(None))
@@ -31,16 +36,16 @@ def get_by_name_fuzzy(session: Session, command: str, limit: int, offset: int):
         .limit(limit)
     )
 
-    return session.exec(statement).all()
+    return session.exec(query).all()
 
 
 def get_sub_docs(session: Session, parent_id: int):
-    statement: Select = select(ToolHelpDoc).where(ToolHelpDoc.parent_id == parent_id)
+    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.parent_id == parent_id)
 
-    return session.exec(statement).all()
+    return session.exec(query).all()
 
 
 def get(session: Session, doc_id: int):
-    statement: Select = select(ToolHelpDoc).where(ToolHelpDoc.id == doc_id)
+    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.id == doc_id)
 
-    return session.exec(statement).one()
+    return session.exec(query).one()
