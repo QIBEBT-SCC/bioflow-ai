@@ -39,6 +39,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${DOCKER_VOLUME_DIRECTORY:-./database}/postgres:/var/lib/postgresql/data:rw
+      - ./presets/sql:/docker-entrypoint-initdb.d
     networks:
       - postgres-net
     restart: unless-stopped
