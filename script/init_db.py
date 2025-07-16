@@ -40,8 +40,14 @@ def init_db():
         # init tool
         with open('../presets/tools.json', 'r') as f:
             tools_data = json.loads(f.read())
-            tools = [ToolData.model_validate(tool) for tool in tools_data]
-        tool_crud.insert_all(session, tools)
+        tools = []
+        with session.no_autoflush:
+            for tool_data in tools_data:
+                tool = ToolData.model_validate(tool_data)
+                tag_ids = [tag['id'] for tag in tool_data['tags']]
+                tool.tags = tag_crud.get_all_by_id(session, tag_ids)
+                tools.append(tool)
+            tool_crud.insert_all(session, tools)
 
 
 if __name__ == '__main__':
