@@ -14,6 +14,16 @@ def insert(session: Session, image: ToolImage) -> ToolImage:
     return image
 
 
+def insert_all(session: Session, images: list[ToolImage]):
+    session.add_all(images)
+    session.commit()
+
+    for image in images:
+        session.refresh(image)
+
+    return images
+
+
 def get_all(session: Session, limit: int, offset: int):
     query: Select = select(ToolImage).limit(limit).offset(offset)
     return session.exec(query).all()

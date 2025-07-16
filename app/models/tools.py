@@ -130,21 +130,21 @@ class ToolImage(SQLModel, table=True):
     image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
 
     tools: list['ToolData'] = Relationship(back_populates='image')
-    # docs: list['ToolHelpDoc'] = Relationship(back_populates='image')
+    docs: list['ToolHelpDoc'] = Relationship(back_populates='image')
 
 
 class ToolHelpDoc(SQLModel, table=True):
-    __tablename__ = 'tool_doc'
+    __tablename__ = 'tool_docs'
 
     id: Optional[int] = Field(default=None, primary_key=True)
     help_command: str
     description: Optional[str]
     content: str
 
-    # image_id: Optional[int] = Field(default=None, foreign_key='image.id')
-    parent_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
+    image_id: Optional[int] = Field(default=None, foreign_key='images.id')
+    parent_id: Optional[int] = Field(default=None, foreign_key='tool_docs.id')
 
-    # image: Optional['ToolImage'] = Relationship(back_populates='docs')
+    image: Optional['ToolImage'] = Relationship(back_populates='docs')
     tools: list['ToolData'] = Relationship(back_populates='help_doc')
 
 
@@ -159,7 +159,7 @@ class ToolData(SQLModel, table=True):
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
 
-    help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_doc.id')
+    help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_docs.id')
     command_template: str
     file_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
     static_params: str

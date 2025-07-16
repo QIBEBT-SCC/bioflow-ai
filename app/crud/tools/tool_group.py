@@ -14,6 +14,16 @@ def insert(session: Session, group: ToolGroup) -> ToolGroup:
     return group
 
 
+def insert_all(session: Session, groups: list[ToolGroup]):
+    session.add_all(groups)
+    session.commit()
+
+    for group in groups:
+        session.refresh(group)
+
+    return groups
+
+
 def get_all(session: Session, limit: int, offset: int):
     query: Select = select(ToolGroup).limit(limit).offset(offset)
     return session.exec(query).all()
