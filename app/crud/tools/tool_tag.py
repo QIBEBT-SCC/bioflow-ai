@@ -12,7 +12,7 @@ def insert(session: Session, tag: ToolTag) -> ToolTag:
     return tag
 
 
-def insert_list(session: Session, tags: list[ToolTag]) -> list[ToolTag]:
+def insert_all(session: Session, tags: list[ToolTag]):
     session.add_all(tags)
     session.commit()
 
@@ -22,20 +22,20 @@ def insert_list(session: Session, tags: list[ToolTag]) -> list[ToolTag]:
     return tags
 
 
-def get_all(session: Session) -> list[ToolTag]:
-    statement = select(ToolTag)
+def get_all(session: Session):
+    query = select(ToolTag)
 
-    return session.exec(statement).all()
+    return session.exec(query).all()
 
 
-def get_all_by_id(session: Session, ids: list[int]) -> list[ToolTag]:
-    statement: Select = select(ToolTag).where(col(ToolTag.id).in_(ids))
-    return session.exec(statement).all()
+def get_all_by_id(session: Session, ids: list[int]):
+    query: Select = select(ToolTag).where(col(ToolTag.id).in_(ids))
+    return session.exec(query).all()
 
 
 def get_by_name(session: Session, name: str):
-    statement: Select = select(ToolTag).where(ToolTag.name == name)
-    return session.exec(statement).one_or_none()
+    query: Select = select(ToolTag).where(ToolTag.name == name)
+    return session.exec(query).one_or_none()
 
 
 def ai_gen_tag(session: Session) -> ToolTag:
