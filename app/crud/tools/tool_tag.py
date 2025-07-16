@@ -23,7 +23,7 @@ def insert_all(session: Session, tags: list[ToolTag]):
 
 
 def get_all(session: Session):
-    query = select(ToolTag)
+    query = select(ToolTag).order_by(col(ToolTag.id))
 
     return session.exec(query).all()
 

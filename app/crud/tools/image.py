@@ -1,7 +1,7 @@
 from typing import Optional
 
 from sqlalchemy import Select
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 
 from app.models.tools import ToolImage
 
@@ -25,7 +25,7 @@ def insert_all(session: Session, images: list[ToolImage]):
 
 
 def get_all(session: Session, limit: int, offset: int):
-    query: Select = select(ToolImage).limit(limit).offset(offset)
+    query: Select = select(ToolImage).order_by(col(ToolImage.name)).limit(limit).offset(offset)
     return session.exec(query).all()
 
 

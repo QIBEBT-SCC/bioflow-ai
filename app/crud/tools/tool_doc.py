@@ -23,7 +23,7 @@ def insert_all(session: Session, docs: list[ToolHelpDoc]):
 
 
 def get_all(session: Session, limit: int, offset: int):
-    query: Select = select(ToolHelpDoc).limit(limit).offset(offset)
+    query: Select = select(ToolHelpDoc).order_by(col(ToolHelpDoc.id)).limit(limit).offset(offset)
     return session.exec(query).all()
 
 

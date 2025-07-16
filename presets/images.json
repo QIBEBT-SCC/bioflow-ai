@@ -1,1 +1,86 @@
-[{"version": "1.0.1", "homepage": "https://github.com/OpenGene/fastp", "image": {"registry": "quay.io", "namespace": "biocontainers", "repository": "fastp", "tag": "1.0.1--heae3180_0"}, "id": 1, "name": "fastp", "description": "A tool designed to provide fast all-in-one preprocessing for fastq files", "paper_link": "https://doi.org/10.1093/bioinformatics/bty560"}, {"version": "4.2.0", "homepage": "https://github.com/ablab/spades", "image": {"registry": "quay.io", "namespace": "biocontainers", "repository": "spades", "tag": "4.2.0--h8d6e82b_1"}, "id": 2, "name": "spades", "description": "Spades (st. petersburg genome assembler) is intended for both standard isolates and single-cell mda bacteria assemblies.", "paper_link": "https://currentprotocols.onlinelibrary.wiley.com/doi/abs/10.1002/cpbi.102"}, {"version": "1.11.3", "homepage": "https://github.com/oschwengers/bakta", "image": {"registry": "quay.io", "namespace": "biocontainers", "repository": "bakta", "tag": "1.11.3--pyhdfd78af_0"}, "id": 3, "name": "bakta", "description": "Rapid & standardized annotation of bacterial genomes & plasmids.", "paper_link": "https://doi.org/10.1099/mgen.0.000685"}, {"version": "2.1.13", "homepage": "https://github.com/eggnogdb/eggnog-mapper", "image": {"registry": "quay.io", "namespace": "biocontainers", "repository": "eggnog-mapper", "tag": "2.1.13--pyhdfd78af_0"}, "id": 4, "name": "eggnog-mapper", "description": "Fast genome-wide functional annotation through orthology assignment.", "paper_link": "https://doi.org/10.1093/molbev/msab293"}, {"version": "5.75-106.0", "homepage": "https://github.com/ebi-pf-team/interproscan", "image": {"registry": "docker.io", "namespace": "aye1032", "repository": "interproscan", "tag": "5.75-106.0"}, "id": 5, "name": "interproscan", "description": "Users who have novel nucleotide or protein sequences that they wish to functionally characterise can use the software package InterProScan to run the scanning algorithms from the InterPro database in an integrated way.", "paper_link": "https://doi.org/10.1093/bioinformatics/btu031"}, {"version": "2.4.1", "homepage": "https://github.com/Ecogenomics/GTDBTk", "image": {"registry": "docker.io", "namespace": "ecogenomic", "repository": "gtdbtk", "tag": "2.4.1"}, "id": 6, "name": "gtdbtk", "description": "GTDB-Tk is a software toolkit for assigning objective taxonomic classifications to bacterial and archaeal genomes based on the Genome Database Taxonomy (GTDB).", "paper_link": "https://academic.oup.com/bioinformatics/advance-article-abstract/doi/10.1093/bioinformatics/btac672/6758240"}]
+[
+  {
+    "version": "1.11.3",
+    "homepage": "https://github.com/oschwengers/bakta",
+    "image": {
+      "registry": "quay.io",
+      "namespace": "biocontainers",
+      "repository": "bakta",
+      "tag": "1.11.3--pyhdfd78af_0"
+    },
+    "id": 3,
+    "name": "bakta",
+    "description": "Rapid & standardized annotation of bacterial genomes & plasmids.",
+    "paper_link": "https://doi.org/10.1099/mgen.0.000685"
+  },
+  {
+    "version": "2.1.13",
+    "homepage": "https://github.com/eggnogdb/eggnog-mapper",
+    "image": {
+      "registry": "quay.io",
+      "namespace": "biocontainers",
+      "repository": "eggnog-mapper",
+      "tag": "2.1.13--pyhdfd78af_0"
+    },
+    "id": 4,
+    "name": "eggnog-mapper",
+    "description": "Fast genome-wide functional annotation through orthology assignment.",
+    "paper_link": "https://doi.org/10.1093/molbev/msab293"
+  },
+  {
+    "version": "1.0.1",
+    "homepage": "https://github.com/OpenGene/fastp",
+    "image": {
+      "registry": "quay.io",
+      "namespace": "biocontainers",
+      "repository": "fastp",
+      "tag": "1.0.1--heae3180_0"
+    },
+    "id": 1,
+    "name": "fastp",
+    "description": "A tool designed to provide fast all-in-one preprocessing for fastq files",
+    "paper_link": "https://doi.org/10.1093/bioinformatics/bty560"
+  },
+  {
+    "version": "2.4.1",
+    "homepage": "https://github.com/Ecogenomics/GTDBTk",
+    "image": {
+      "registry": "docker.io",
+      "namespace": "ecogenomic",
+      "repository": "gtdbtk",
+      "tag": "2.4.1"
+    },
+    "id": 6,
+    "name": "gtdbtk",
+    "description": "GTDB-Tk is a software toolkit for assigning objective taxonomic classifications to bacterial and archaeal genomes based on the Genome Database Taxonomy (GTDB).",
+    "paper_link": "https://academic.oup.com/bioinformatics/advance-article-abstract/doi/10.1093/bioinformatics/btac672/6758240"
+  },
+  {
+    "version": "5.75-106.0",
+    "homepage": "https://github.com/ebi-pf-team/interproscan",
+    "image": {
+      "registry": "docker.io",
+      "namespace": "aye1032",
+      "repository": "interproscan",
+      "tag": "5.75-106.0"
+    },
+    "id": 5,
+    "name": "interproscan",
+    "description": "Users who have novel nucleotide or protein sequences that they wish to functionally characterise can use the software package InterProScan to run the scanning algorithms from the InterPro database in an integrated way.",
+    "paper_link": "https://doi.org/10.1093/bioinformatics/btu031"
+  },
+  {
+    "version": "4.2.0",
+    "homepage": "https://github.com/ablab/spades",
+    "image": {
+      "registry": "quay.io",
+      "namespace": "biocontainers",
+      "repository": "spades",
+      "tag": "4.2.0--h8d6e82b_1"
+    },
+    "id": 2,
+    "name": "spades",
+    "description": "Spades (st. petersburg genome assembler) is intended for both standard isolates and single-cell mda bacteria assemblies.",
+    "paper_link": "https://currentprotocols.onlinelibrary.wiley.com/doi/abs/10.1002/cpbi.102"
+  }
+]
