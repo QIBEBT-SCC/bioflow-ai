@@ -18,10 +18,10 @@ class RunUpdate(BaseModel):
 
 class Stat(BaseModel):
     total: int
-    waiting: int
-    running: int
-    success: int
-    error: int
+    waiting: Optional[int] = 0
+    running: Optional[int] = 0
+    success: Optional[int] = 0
+    error: Optional[int] = 0
 
     def add_running(self):
         assert self.waiting > 0
