@@ -23,6 +23,7 @@ def insert_all(session: Session, images: list[ToolImage]):
 
     return images
 
+
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     query: Select = (
         select(ToolImage)
@@ -34,8 +35,9 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
 
     return session.exec(query).all()
 
+
 def get_all(session: Session, limit: int, offset: int):
-    query: Select = select(ToolImage).order_by(col(ToolImage.name)).limit(limit).offset(offset)
+    query: Select = select(ToolImage).order_by(col(ToolImage.id)).limit(limit).offset(offset)
     return session.exec(query).all()
 
 

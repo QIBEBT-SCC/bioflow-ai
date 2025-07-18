@@ -13,7 +13,7 @@ from app.core.session import SessionDep
 from app.llm.generate_tool_config import generate_agent, GenerateOutput
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
 from app.models.user import User
-from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolArgPublic, ToolTaskInfo, AIGenProp
+from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolNodePublic, ToolTaskInfo, AIGenProp
 from app.utils.container.podman import run_podman
 from app.utils.security import get_current_active_user
 
@@ -98,16 +98,16 @@ async def gen_tool_config(
     return StreamingResponse(generator(), media_type='text/event-stream')
 
 
-@router.get('/{tool_uid}', response_model=ToolPublic)
-async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
-    return tool_crud.get(session, tool_uid)
+@router.get('/{tool_id}', response_model=ToolPublic)
+async def get_tool_detail(session: SessionDep, tool_id: int) -> ToolPublic:
+    return tool_crud.get(session, tool_id)
 
 
-@router.get('/{tool_uid}/args', response_model=ToolArgPublic)
-async def get_tool_args(session: SessionDep, tool_uid: str) -> ToolArgPublic:
-    return tool_crud.get(session, tool_uid)
+@router.get('/{tool_id}/args', response_model=ToolNodePublic)
+async def get_tool_args(session: SessionDep, tool_id: int) -> ToolNodePublic:
+    return tool_crud.get(session, tool_id)
 
 
-@router.get('/{tool_uid}/task_info', response_model=ToolTaskInfo)
-async def get_tool4task(session: SessionDep, tool_uid: str):
-    return tool_crud.get(session, tool_uid)
+@router.get('/{tool_id}/task_info', response_model=ToolTaskInfo)
+async def get_tool4task(session: SessionDep, tool_id: int):
+    return tool_crud.get(session, tool_id)

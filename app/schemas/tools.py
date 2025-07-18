@@ -16,23 +16,6 @@ class AIGenProp(BaseModel):
     tag: str = 'latest'
 
 
-class AIGenTool(BaseModel):
-    """工具封装定义"""
-
-    name: str = Field(description='工具名称')
-    description: str = Field(description='工具功能的简要描述')
-
-    command_template: str = Field(
-        description='完整的工具指令模板字符串，可以包含file_params、static_params、position_params、log这几个变量'
-    )
-    file_params: list[ParamDefine] = Field(description='需要涉及到文件名等要素的变量，包括参数指定的和位置指定的')
-    static_params: str = Field(description='与外部文件无关的变量')
-    output_files: list[OutputFile] = Field('软件的期望输出文件')
-
-    mkdir_output: bool = Field(description='是否创建输出目录', default=True)
-    use_temp_dir: bool = Field(description='是否使用临时目录', default=False)
-
-
 class DockerToolCreate(BaseModel):
     """创建Docker工具的请求模型"""
 
@@ -72,7 +55,7 @@ class DockerToolCreate(BaseModel):
 
 
 class SimpleToolPublic(BaseModel):
-    uid: UUID7
+    id: int
     name: str
     description: str
     tool_type: ToolType
@@ -84,7 +67,7 @@ class SimpleToolPublic(BaseModel):
 
 
 class ToolPublic(BaseModel):
-    uid: UUID7
+    id: int
     name: str
     description: str
     tool_type: ToolType
@@ -120,11 +103,12 @@ class Handle(BaseModel):
     description: str
 
 
-class ToolArgPublic(BaseModel):
-    uid: UUID7
+class ToolNodePublic(BaseModel):
+    id: int
     name: str
     description: str
 
+    command_template: str = Field(exclude=True)
     file_params: list[ParamDefine] = Field(exclude=True)
     output_files: list[OutputFile] = Field(exclude=True)
 
@@ -132,6 +116,7 @@ class ToolArgPublic(BaseModel):
     output_handles: list[Handle] = Field(default_factory=list)
 
     static_params: str
+    complete_command: Optional[str] = None
 
     @model_validator(mode='after')
     def build_handles(self):
@@ -146,11 +131,18 @@ class ToolArgPublic(BaseModel):
             for file in self.output_files
             if not (file.is_log or file.is_report)
         ]
+
+        self.complete_command = build_command_template(
+            command_template=self.command_template,
+            file_params=self.file_params,
+            static_params=self.static_params,
+            output_files=self.output_files,
+        )
         return self
 
 
 class ToolTaskInfo(BaseModel):
-    uid: UUID7
+    id: int
     name: str
 
     command_template: str
@@ -165,7 +157,7 @@ class ToolTaskInfo(BaseModel):
 
 
 class ToolInfo4Task(BaseModel):
-    uid: UUID7
+    id: int
     name: str
     description: str
 

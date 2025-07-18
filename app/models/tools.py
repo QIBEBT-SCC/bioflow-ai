@@ -1,9 +1,8 @@
 from enum import IntEnum
 from typing import Optional
 
-from pydantic import UUID7, BaseModel, Field as PField, ValidationError
-from sqlalchemy import Column, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from pydantic import BaseModel, Field as PField, ValidationError
+from sqlalchemy import Column
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import SQLModel, Field, Relationship
 
@@ -104,7 +103,7 @@ class ToolGroup(SQLModel, table=True):
 class ToolTagLink(SQLModel, table=True):
     __tablename__ = 'tool_tag_link'
 
-    tool_id: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid'), primary_key=True))
+    tool_id: int = Field(foreign_key='tools.id', primary_key=True)
     tag_id: int = Field(foreign_key='tool_tags.id', primary_key=True)
 
 
@@ -151,7 +150,7 @@ class ToolHelpDoc(SQLModel, table=True):
 class ToolData(SQLModel, table=True):
     __tablename__ = 'tools'
 
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     image_id: Optional[int] = Field(default=None, foreign_key='images.id')
     description: str
