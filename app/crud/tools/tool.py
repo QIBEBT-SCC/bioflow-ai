@@ -24,8 +24,8 @@ def insert_all(session: Session, tools: list[ToolData]):
     return tools
 
 
-def delete(session: Session, tool_uid: str):
-    tool = get(session, tool_uid)
+def delete(session: Session, tool_id: int):
+    tool = get(session, tool_id)
     if tool:
         session.delete(tool)
         session.commit()
@@ -34,7 +34,7 @@ def delete(session: Session, tool_uid: str):
 def get_all(session: Session, limit: int, offset: int):
     query: Select = (
         select(ToolData)
-        .order_by(col(ToolData.name))
+        .order_by(col(ToolData.id))
         .options(selectinload(ToolData.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
@@ -55,6 +55,11 @@ def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, off
     return session.exec(query).all()
 
 
+def get_all_by_uid(session: Session, ids: list[int]):
+    query: Select = select(ToolData).where(col(ToolData.id).in_(ids))
+    return session.exec(query).all()
+
+
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     query: Select = (
         select(ToolData)
@@ -68,6 +73,6 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     return session.exec(query).all()
 
 
-def get(session: Session, tool_uid: str):
-    query: Select = select(ToolData).where(ToolData.uid == tool_uid)
+def get(session: Session, tool_id: int):
+    query: Select = select(ToolData).where(ToolData.id == tool_id)
     return session.exec(query).one()

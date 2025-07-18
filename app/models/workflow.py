@@ -13,15 +13,6 @@ from app.models.tools import ToolData
 from app.models.user import User
 
 
-# TABLE project_raw
-
-# TABLE run_instance
-# uid, owner, project_uid, templet(str), status, time..
-
-# TABLE task
-# uid, instance_uid, owner, task_type(name), web_node_id,other_args, status, local_path, result, time...
-
-
 class Status(IntEnum):
     WAITING = 0
     RUNNING = 1
@@ -86,7 +77,7 @@ class TaskInstance(SQLModel, table=True):
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     instance_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
-    tool_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid')))
+    tool_id: int = Field(foreign_key='tools.uid')
     owner_id: int = Field(foreign_key='users.id')
     name: str
     commands: Optional[str] = Field(default=None)

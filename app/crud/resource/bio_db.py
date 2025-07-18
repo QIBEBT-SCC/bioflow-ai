@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import Select, func
-from sqlmodel import Session, select, col
+from sqlmodel import Session, select, col, or_
 from starlette.status import HTTP_409_CONFLICT
 
 from app.models.resource import BioDb
@@ -46,8 +46,11 @@ def get_by_name(session: Session, name: str) -> Optional[BioDb]:
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     query: Select = (
         select(BioDb)
-        .where(func.similarity(BioDb.name, name) > 0.1)
-        .order_by(func.similarity(BioDb.name, name).desc(), col(BioDb.name).desc())
+        .where(or_(func.similarity(BioDb.name, name) > 0.1, func.similarity(BioDb.description, name) > 0.1))
+        .order_by(
+            func.greatest(func.similarity(BioDb.name, name), func.similarity(BioDb.description, name)),
+            col(BioDb.name).desc(),
+        )
         .offset(offset)
         .limit(limit)
     )

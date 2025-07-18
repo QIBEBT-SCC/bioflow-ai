@@ -127,15 +127,6 @@ CREATE TABLE IF NOT EXISTS tool_tags
     UNIQUE (name)
 );
 
-CREATE TABLE IF NOT EXISTS tool_tag_link
-(
-    tool_id uuid    NOT NULL,
-    tag_id  INTEGER NOT NULL,
-    PRIMARY KEY (tool_id, tag_id),
-    FOREIGN KEY (tool_id) REFERENCES tools,
-    FOREIGN KEY (tag_id) REFERENCES tool_tags
-);
-
 CREATE TABLE IF NOT EXISTS tool_groups
 (
     id        SERIAL,
@@ -150,7 +141,7 @@ CREATE TABLE IF NOT EXISTS tool_groups
 CREATE TYPE tooltype AS ENUM ('DOCKER', 'COMMAND_LINE');
 CREATE TABLE IF NOT EXISTS tools
 (
-    uid              uuid     NOT NULL,
+    id               INTEGER  NOT NULL,
     name             VARCHAR  NOT NULL,
     image_id         INTEGER,
     description      VARCHAR  NOT NULL,
@@ -163,10 +154,19 @@ CREATE TABLE IF NOT EXISTS tools
     output_files     jsonb,
     mkdir_output     BOOLEAN  NOT NULL,
     use_temp_dir     BOOLEAN  NOT NULL,
-    PRIMARY KEY (uid),
+    PRIMARY KEY (id),
     FOREIGN KEY (image_id) REFERENCES images,
     FOREIGN KEY (group_id) REFERENCES tool_groups,
     FOREIGN KEY (help_doc_id) REFERENCES tool_docs
+);
+
+CREATE TABLE IF NOT EXISTS tool_tag_link
+(
+    tool_id INTEGER NOT NULL,
+    tag_id  INTEGER NOT NULL,
+    PRIMARY KEY (tool_id, tag_id),
+    FOREIGN KEY (tool_id) REFERENCES tools,
+    FOREIGN KEY (tag_id) REFERENCES tool_tags
 );
 
 -- 工作流相关
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS task_instances
 (
     uid          uuid    NOT NULL,
     instance_uid uuid,
-    tool_uid     uuid,
+    tool_id      INTEGER,
     owner_id     INTEGER NOT NULL,
     name         VARCHAR NOT NULL,
     commands     VARCHAR,
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS task_instances
     end_time     TIMESTAMP,
     PRIMARY KEY (uid),
     FOREIGN KEY (instance_uid) REFERENCES run_instances,
-    FOREIGN KEY (tool_uid) REFERENCES tools,
+    FOREIGN KEY (tool_id) REFERENCES tools,
     FOREIGN KEY (owner_id) REFERENCES users
 );
 

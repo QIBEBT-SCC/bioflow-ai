@@ -32,8 +32,8 @@ class BaseBioTask(celery.Task):
         update_monitor_log(task_id)
 
 
-def get_tool_data(uid: str) -> ToolTaskInfo:
-    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tools/{uid}/task_info'
+def get_tool_data(tool_id: int) -> ToolTaskInfo:
+    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tools/{tool_id}/task_info'
     headers = {'Content-Type': 'application/json'}
 
     response = requests.get(url, headers=headers)
