@@ -20,7 +20,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/data:/data:re
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/data:/data:rw
       - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/logs:/logs:rw
     networks:
       - redis-net
