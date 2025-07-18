@@ -77,7 +77,7 @@ class TaskInstance(SQLModel, table=True):
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     instance_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
-    tool_id: int = Field(foreign_key='tools.uid')
+    tool_id: int = Field(foreign_key='tools.id')
     owner_id: int = Field(foreign_key='users.id')
     name: str
     commands: Optional[str] = Field(default=None)

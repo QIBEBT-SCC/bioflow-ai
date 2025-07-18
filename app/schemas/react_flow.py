@@ -8,7 +8,7 @@ class Position(BaseModel):
 
 
 class Data(BaseModel):
-    tool_uid: Optional[str] = None
+    tool_id: Optional[str] = None
     args: str
 
 
@@ -49,6 +49,6 @@ class TaskInput(BaseModel):
 class TaskNode(BaseModel):
     id: str
     type: str
-    tool_uid: Optional[str] = None
+    tool_id: Optional[str] = None
     args: str
     kwarg: dict[str, TaskInput] = Field(default_factory=dict)
