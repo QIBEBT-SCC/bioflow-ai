@@ -27,7 +27,7 @@ services:
     restart: always
 
   postgres-db:
-    image: postgres
+    image: docker.io/pgvector/pgvector:pg17
     shm_size: 2gb
     environment:
       TZ: Asia/Shanghai
