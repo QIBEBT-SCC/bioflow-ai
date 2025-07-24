@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS tool_groups
 CREATE TYPE tooltype AS ENUM ('DOCKER', 'COMMAND_LINE');
 CREATE TABLE IF NOT EXISTS tools
 (
-    id               INTEGER  NOT NULL,
+    id               SERIAL,
     name             VARCHAR  NOT NULL,
     image_id         INTEGER,
     description      VARCHAR  NOT NULL,
