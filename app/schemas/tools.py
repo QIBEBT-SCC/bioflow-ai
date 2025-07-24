@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, UUID7, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from uuid_extensions import uuid7
 
 from app.models.tools import ToolTag, ToolImage, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ToolHelpDoc
