@@ -9,7 +9,7 @@ from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.decorator.special_field import PydanticJson
 from app.schemas.react_flow import WorkflowDefinition
-from app.models.tools import ToolData
+from app.models.tools import ToolDefine
 from app.models.user import User
 
 
@@ -91,7 +91,7 @@ class TaskInstance(SQLModel, table=True):
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
 
-    tool: Optional['ToolData'] = Relationship()
+    tool: Optional['ToolDefine'] = Relationship()
     owner: Optional['User'] = Relationship()
     run_instance: Optional['RunInstance'] = Relationship(back_populates='tasks')
 

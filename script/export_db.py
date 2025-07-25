@@ -8,7 +8,7 @@ import app.crud.tools.image as image_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine
-from app.models.tools import ToolImage, ToolHelpDoc, ToolData, ToolTag, ToolGroup
+from app.models.tools import ToolImage, ToolHelpDoc, ToolDefine, ToolTag, ToolGroup
 
 
 def export_tags():
@@ -81,7 +81,7 @@ def export_docs():
 
 def export_tools():
     with Session(engine) as session:
-        tools: list[ToolData] = tool_crud.get_all(session, 80, 0)
+        tools: list[ToolDefine] = tool_crud.get_all(session, 80, 0)
 
         json_data = []
         for tool in tools:
@@ -94,9 +94,9 @@ def export_tools():
                 'group_id': tool.group_id,
                 'help_doc_id': tool.help_doc_id,
                 'command_template': tool.command_template,
-                'file_params': [param.model_dump() for param in tool.file_params],
+                'dynamic_params': [param.model_dump() for param in tool.dynamic_params],
                 'static_params': tool.static_params,
-                'output_files': [output.model_dump() for output in tool.output_files],
+                'file_mounts': [output.model_dump() for output in tool.file_mounts],
                 'mkdir_output': tool.mkdir_output,
                 'use_temp_dir': tool.use_temp_dir,
                 'tags': [tag.model_dump() for tag in tool.tags],

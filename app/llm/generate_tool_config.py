@@ -9,7 +9,7 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from app.core.llm_chat import gemini_25_flash
-from app.models.tools import ParamDefine, OutputFile
+from app.models.tools import ParamDefine, FileMount
 
 
 SYSTEM_PROMPT = """We are designing a node-based bioinformatics analysis platform, to achieve this goal, it is necessary to encapsulate the analysis tools as nodes for invocation.  
@@ -158,7 +158,7 @@ class GenerateState(AgentState):
     name: str
     description: str
     command_template: str
-    output_files: Annotated[list[OutputFile], operator.add]
+    output_files: Annotated[list[FileMount], operator.add]
     file_params: Annotated[list[ParamDefine], operator.add]
     static_params: str
     mkdir_output: bool
@@ -169,7 +169,7 @@ class GenerateOutput(BaseModel):
     name: str
     description: str
     command_template: str
-    output_files: list[OutputFile]
+    output_files: list[FileMount]
     file_params: list[ParamDefine]
     static_params: str
     mkdir_output: bool
@@ -196,7 +196,7 @@ def design_example_command(command: str, tool_call_id: Annotated[str, InjectedTo
 
 
 @tool
-def set_output_files(output_files: list[OutputFile], tool_call_id: Annotated[str, InjectedToolCallId]):
+def set_output_files(output_files: list[FileMount], tool_call_id: Annotated[str, InjectedToolCallId]):
     """Set the expected output file for this tool node
 
     Args:

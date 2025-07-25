@@ -24,7 +24,7 @@ from app.core.llm_chat import gpt_41_mini, gemini_25_flash
 from app.core.session import engine
 from app.llm.reproduction.check_tool_agent import CheckToolAgent
 from app.models.resource import BioDb
-from app.models.tools import ToolData
+from app.models.tools import ToolDefine
 from app.models.workflow import WorkflowType, Workflow
 from app.schemas.react_flow import WorkflowDefinition, Node, Position, NodeData, Edge
 from app.schemas.tools import ToolNodePublic, Handle
@@ -250,7 +250,7 @@ class ReproductionAgent:
             query: Tool name, used to search for corresponding tool nodes
         """
         with Session(engine) as session:
-            exist_tools: list[ToolData] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
+            exist_tools: list[ToolDefine] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
         if len(exist_tools) == 0:
             return 'No results found'
 
