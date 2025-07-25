@@ -9,7 +9,7 @@ import app.crud.tools.image as image_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine
-from app.models.tools import ToolTag, ToolGroup, ToolImage, ToolHelpDoc, ToolData
+from app.models.tools import ToolTag, ToolGroup, ToolImage, ToolHelpDoc, ToolDefine
 
 
 def init_db():
@@ -44,7 +44,7 @@ def init_db():
         tools = []
         with session.no_autoflush:
             for tool_data in tools_data:
-                tool = ToolData.model_validate(tool_data)
+                tool = ToolDefine.model_validate(tool_data)
                 tag_ids = [tag['id'] for tag in tool_data['tags']]
                 tool.tags = tag_crud.get_all_by_id(session, tag_ids)
                 tools.append(tool)

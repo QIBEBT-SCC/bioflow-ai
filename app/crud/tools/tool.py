@@ -3,10 +3,10 @@ from typing import Optional
 from sqlalchemy import Select, func
 from sqlmodel import Session, select, col
 from sqlalchemy.orm import selectinload
-from app.models.tools import ToolData
+from app.models.tools import ToolDefine
 
 
-def insert(session: Session, tool: ToolData):
+def insert(session: Session, tool: ToolDefine):
     session.add(tool)
     session.commit()
     session.refresh(tool)
@@ -14,7 +14,7 @@ def insert(session: Session, tool: ToolData):
     return tool
 
 
-def insert_all(session: Session, tools: list[ToolData]):
+def insert_all(session: Session, tools: list[ToolDefine]):
     session.add_all(tools)
     session.commit()
 
@@ -33,9 +33,9 @@ def delete(session: Session, tool_id: int):
 
 def get_all(session: Session, limit: int, offset: int):
     query: Select = (
-        select(ToolData)
-        .order_by(col(ToolData.id))
-        .options(selectinload(ToolData.tags))  # type: ignore
+        select(ToolDefine)
+        .order_by(col(ToolDefine.id))
+        .options(selectinload(ToolDefine.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
     )
@@ -45,9 +45,9 @@ def get_all(session: Session, limit: int, offset: int):
 
 def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, offset: int):
     query: Select = (
-        select(ToolData)
-        .where(ToolData.group_id == parent_id)
-        .options(selectinload(ToolData.tags))  # type: ignore
+        select(ToolDefine)
+        .where(ToolDefine.group_id == parent_id)
+        .options(selectinload(ToolDefine.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
     )
@@ -56,16 +56,16 @@ def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, off
 
 
 def get_all_by_uid(session: Session, ids: list[int]):
-    query: Select = select(ToolData).where(col(ToolData.id).in_(ids))
+    query: Select = select(ToolDefine).where(col(ToolDefine.id).in_(ids))
     return session.exec(query).all()
 
 
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     query: Select = (
-        select(ToolData)
-        .where(func.similarity(ToolData.name, name) > 0.1)
-        .order_by(func.similarity(ToolData.name, name).desc())
-        .options(selectinload(ToolData.tags))  # type: ignore
+        select(ToolDefine)
+        .where(func.similarity(ToolDefine.name, name) > 0.1)
+        .order_by(func.similarity(ToolDefine.name, name).desc())
+        .options(selectinload(ToolDefine.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
     )
@@ -74,5 +74,5 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
 
 
 def get(session: Session, tool_id: int):
-    query: Select = select(ToolData).where(ToolData.id == tool_id)
+    query: Select = select(ToolDefine).where(ToolDefine.id == tool_id)
     return session.exec(query).one()

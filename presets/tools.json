@@ -7,110 +7,121 @@
     "tool_type": 0,
     "group_id": 1,
     "help_doc_id": 1,
-    "command_template": "fastp {file_params} {static_params} &> {log}",
-    "file_params": [
+    "command_template": "fastp {dynamic_params} {static_params} &> {log}",
+    "dynamic_params": [
       {
-        "name": "r1_raw",
+        "description": "read1 input file",
         "command": "--in1 {r1_raw}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "read1 input file"
+        "required": true
       },
       {
-        "name": "r2_raw",
+        "description": "read1 input file",
         "command": "--in2 {r2_raw}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "read1 input file"
+        "required": true
       },
       {
-        "name": "r1_clean",
+        "description": "read1 output file",
         "command": "--out1 {r1_clean}",
-        "param_type": 2,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "",
-        "description": "read1 output file"
+        "required": true
       },
       {
-        "name": "r2_clean",
+        "description": "read2 output file",
         "command": "--out2 {r2_clean}",
-        "param_type": 2,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "",
-        "description": "read2 output file"
+        "required": true
       },
       {
-        "name": "json_report",
+        "description": "the json format report file",
         "command": "--json {json_report}",
-        "param_type": 2,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "",
-        "description": "the json format report file"
+        "required": true
       },
       {
-        "name": "html_report",
+        "description": "the html format report file",
         "command": "--html {html_report}",
-        "param_type": 2,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "",
-        "description": "the html format report file"
+        "required": true
       }
     ],
     "static_params": "--thread 8",
-    "output_files": [
+    "file_mounts": [
       {
-        "name": "r1_clean",
-        "file_path": "{output_dir}/{sample_name}_clean_r1.fq.gz",
+        "name": "r1_raw",
+        "description": "Read1 input file.",
+        "file_path": "{r1_raw}",
+        "file_type": "INPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Cleaned, paired forward reads."
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "r2_raw",
+        "description": "Read1 input file.",
+        "file_path": "{r2_raw}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "r1_clean",
+        "description": "Cleaned, paired forward reads.",
+        "file_path": "{output_dir}/{sample_name}_clean_r1.fq.gz",
+        "file_type": "OUTPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/output"
       },
       {
         "name": "r2_clean",
+        "description": "Cleaned, paired reverse reads.",
         "file_path": "{output_dir}/{sample_name}_clean_r2.fq.gz",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Cleaned, paired reverse reads."
+        "mount_path": "/data/output"
       },
       {
         "name": "json_report",
+        "description": "The QC report in json format",
         "file_path": "{output_dir}/{sample_name}_report.json",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "The QC report in json format"
+        "mount_path": "/data/output"
       },
       {
         "name": "html_report",
+        "description": "The visual QC report in html format",
         "file_path": "{output_dir}/{sample_name}_report.html",
+        "file_type": "OUTPUT",
         "is_report": true,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "The visual QC report in html format"
+        "mount_path": "/data/output"
       },
       {
         "name": "log",
+        "description": "Log of the tool\u2019s operation",
         "file_path": "{output_dir}/fastp.log",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": true,
-        "mount_path": "/data/output",
-        "description": "Log of the tool\u2019s operation"
+        "mount_path": "/data/output"
       }
     ],
     "mkdir_output": true,
@@ -134,72 +145,88 @@
     "tool_type": 0,
     "group_id": 3,
     "help_doc_id": 2,
-    "command_template": "spades.py {file_params} {static_params}",
-    "file_params": [
+    "command_template": "spades.py {dynamic_params} {static_params}",
+    "dynamic_params": [
       {
-        "name": "r1",
+        "description": "file with forward paired-end reads",
         "command": "-1 {r1}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "file with forward paired-end reads"
+        "required": true
       },
       {
-        "name": "r2",
+        "description": "file with reverse paired-end reads",
         "command": "-2 {r2}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "file with reverse paired-end reads"
+        "required": true
       },
       {
-        "name": "output",
+        "description": "directory to store all the resulting files (required)",
         "command": "-o {output_dir}",
-        "param_type": 2,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "directory to store all the resulting files (required)"
+        "required": true
       }
     ],
     "static_params": "--sc --careful -t 8 -m 16",
-    "output_files": [
+    "file_mounts": [
       {
-        "name": "contigs",
-        "file_path": "{output_dir}/contigs.fasta",
+        "name": "r1",
+        "description": "file with forward paired-end reads",
+        "file_path": "{r1}",
+        "file_type": "INPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "resulting contigs"
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "r2",
+        "description": "file with reverse paired-end reads",
+        "file_path": "{r2}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "contigs",
+        "description": "resulting contigs",
+        "file_path": "{output_dir}/contigs.fasta",
+        "file_type": "OUTPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/output"
       },
       {
         "name": "scaffolds",
+        "description": "resulting scaffolds (recommended for use as resulting sequences)",
         "file_path": "{output_dir}/scaffolds.fasta",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "resulting scaffolds (recommended for use as resulting sequences)"
+        "mount_path": "/data/output"
       },
       {
         "name": "assembly_graph",
+        "description": "Assembly graph file with scaffolds in GFA format",
         "file_path": "{output_dir}/assembly_graph_with_scaffolds.gfa",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Assembly graph file with scaffolds in GFA format"
+        "mount_path": "/data/output"
       },
       {
         "name": "log",
+        "description": "log",
         "file_path": "{output_dir}/spades.log",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": true,
-        "mount_path": "/data/output",
-        "description": "log"
+        "mount_path": "/data/output"
       }
     ],
     "mkdir_output": true,
@@ -223,114 +250,132 @@
     "tool_type": 0,
     "group_id": 5,
     "help_doc_id": 3,
-    "command_template": "bakta {file_params} {static_params} {position_params} &> {output_dir}/bakta.log",
-    "file_params": [
+    "command_template": "bakta {dynamic_params} {static_params} {position_params} &> {output_dir}/bakta.log",
+    "dynamic_params": [
       {
-        "name": "genome_fasta",
+        "description": "Genome sequences in (zipped) fasta format",
         "command": "{genome_fasta}",
-        "param_type": 1,
         "is_file": true,
+        "is_position": true,
         "index": 0,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "Genome sequences in (zipped) fasta format"
+        "required": true
       },
       {
-        "name": "db",
+        "description": "Database path",
         "command": "--db {db}",
-        "param_type": 0,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/db",
-        "description": "Database path"
+        "required": true
       },
       {
-        "name": "output",
+        "description": "Output directory",
         "command": "--output {output_dir}",
-        "param_type": 2,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "Output directory"
+        "required": true
       },
       {
-        "name": "prefix",
-        "command": "--output {output_dir}",
-        "param_type": 2,
+        "description": "Output directory",
+        "command": "--prefix {sample_name}",
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "Output directory"
+        "required": true
       }
     ],
     "static_params": "--threads 8 --force",
-    "output_files": [
+    "file_mounts": [
       {
-        "name": "annotations_tsv",
-        "file_path": "{output_dir}/{sample_name}.tsv",
+        "name": "db",
+        "description": "Database path",
+        "file_path": "{db}",
+        "file_type": "INPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Annotations as simple human readable TSV"
+        "mount_path": "/data/db"
+      },
+      {
+        "name": "genome_fasta",
+        "description": "Genome sequences in (zipped) fasta format",
+        "file_path": "{genome_fasta}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "annotations_tsv",
+        "description": "Annotations as simple human readable TSV",
+        "file_path": "{output_dir}/{sample_name}.tsv",
+        "file_type": "OUTPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/output"
       },
       {
         "name": "annotations_gff3",
+        "description": "Annotations & sequences in GFF3 format",
         "file_path": "{output_dir}/{sample_name}.gff3",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Annotations & sequences in GFF3 format"
+        "mount_path": "/data/output"
       },
       {
         "name": "annotations_genbank",
+        "description": "Annotations & sequences in (multi) GenBank format",
         "file_path": "{output_dir}/{sample_name}.gbff",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Annotations & sequences in (multi) GenBank format"
+        "mount_path": "/data/output"
       },
       {
         "name": "contig_sequences",
+        "description": "Replicon/contig DNA sequences as FASTA",
         "file_path": "{output_dir}/{sample_name}.fna",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Replicon/contig DNA sequences as FASTA"
+        "mount_path": "/data/output"
       },
       {
         "name": "protein_sequences",
+        "description": "CDS/sORF amino acid sequences as FASTA",
         "file_path": "{output_dir}/{sample_name}.faa",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "CDS/sORF amino acid sequences as FASTA"
+        "mount_path": "/data/output"
       },
       {
         "name": "summary_report",
+        "description": "Summary as TXT",
         "file_path": "{output_dir}/{sample_name}.txt",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Summary as TXT"
+        "mount_path": "/data/output"
       },
       {
         "name": "circular_plot_png",
+        "description": "Circular genome annotation plot as PNG",
         "file_path": "{output_dir}/{sample_name}.png",
+        "file_type": "OUTPUT",
         "is_report": true,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "Circular genome annotation plot as PNG"
+        "mount_path": "/data/output"
       },
       {
         "name": "log",
+        "description": "Tool execution log",
         "file_path": "{output_dir}/bakta.log",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": true,
-        "mount_path": "/data/output",
-        "description": "Tool execution log"
+        "mount_path": "/data/output"
       }
     ],
     "mkdir_output": false,
@@ -354,82 +399,96 @@
     "tool_type": 0,
     "group_id": 4,
     "help_doc_id": 4,
-    "command_template": "emapper.py {file_params} {static_params} &> {output_dir}/{sample_name}.log",
-    "file_params": [
+    "command_template": "emapper.py {dynamic_params} {static_params} &> {output_dir}/{sample_name}.log",
+    "dynamic_params": [
       {
-        "name": "input_fasta",
+        "description": "input fasta file containing query CDS amino acid sequences",
         "command": "-i {input_fasta}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "input fasta file containing query CDS amino acid sequences"
+        "required": true
       },
       {
-        "name": "data",
+        "description": "eggNog data",
         "command": "--data_dir {data}",
-        "param_type": 0,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/db",
-        "description": "eggNog data"
+        "required": true
       },
       {
-        "name": "output_dir",
+        "description": "output directory for all the result files",
         "command": "--output_dir {output_dir}",
-        "param_type": 2,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "output directory for all the result files"
+        "required": true
       },
       {
-        "name": "output_prefix",
+        "description": "base name for output files",
         "command": "--output {sample_name}",
-        "param_type": 2,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "base name for output files"
+        "required": true
       }
     ],
     "static_params": "--itype proteins --cpu 64 --override",
-    "output_files": [
+    "file_mounts": [
       {
-        "name": "annotations",
-        "file_path": "{output_dir}/{sample_name}.emapper.annotations",
+        "name": "input_fasta",
+        "description": "input fasta file containing query CDS amino acid sequences",
+        "file_path": "{input_fasta}",
+        "file_type": "INPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "functional annotations output file"
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "data",
+        "description": "eggNog data",
+        "file_path": "{data}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/db"
+      },
+      {
+        "name": "annotations",
+        "description": "functional annotations output file",
+        "file_path": "{output_dir}/{sample_name}.emapper.annotations",
+        "file_type": "OUTPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/output"
       },
       {
         "name": "hits",
+        "description": "hits file of eggnog-mapper",
         "file_path": "{output_dir}/{sample_name}.emapper.hits",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "hits file of eggnog-mapper"
+        "mount_path": "/data/output"
       },
       {
         "name": "seed_orthologs",
+        "description": "seed orthologs used for annotation",
         "file_path": "{output_dir}/{sample_name}.emapper.seed_orthologs",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "seed orthologs used for annotation"
+        "mount_path": "/data/output"
       },
       {
         "name": "log",
+        "description": "log of the eggnog-mapper run",
         "file_path": "{output_dir}/{sample_name}.log",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": true,
-        "mount_path": "/data/output",
-        "description": "log of the eggnog-mapper run"
+        "mount_path": "/data/output"
       }
     ],
     "mkdir_output": true,
@@ -453,72 +512,88 @@
     "tool_type": 0,
     "group_id": 4,
     "help_doc_id": 5,
-    "command_template": "interproscan.sh {file_params} {static_params} &> {log}",
-    "file_params": [
+    "command_template": "interproscan.sh {dynamic_params} {static_params} &> {log}",
+    "dynamic_params": [
       {
-        "name": "input_fasta",
+        "description": "Path to fasta file that should be loaded on Master startup.",
         "command": "-i {input_fasta}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "Path to fasta file that should be loaded on Master startup."
+        "required": true
       },
       {
-        "name": "interpro_data",
+        "description": "InterProScan extra data",
         "command": "",
-        "param_type": 0,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/opt/interproscan/data",
-        "description": "InterProScan extra data"
+        "required": true
       },
       {
-        "name": "output_base",
+        "description": "InterProScan output file basename",
         "command": "-b {output_dir}/{sample_name}",
-        "param_type": 2,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "InterProScan output file basename"
+        "required": true
       }
     ],
     "static_params": "-f TSV,XML,GFF3 -goterms -iprlookup -cpu 8",
-    "output_files": [
+    "file_mounts": [
       {
-        "name": "tsv_output",
-        "file_path": "{output_dir}/{file_name}.tsv",
+        "name": "input_fasta",
+        "description": "Path to fasta file that should be loaded on Master startup",
+        "file_path": "{input_fasta}",
+        "file_type": "INPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "InterProScan results in TSV format"
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "interpro_data",
+        "description": "InterProScan extra data",
+        "file_path": "{interpro_data}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/opt/interproscan/data"
+      },
+      {
+        "name": "tsv_output",
+        "description": "InterProScan results in TSV format",
+        "file_path": "{output_dir}/{file_name}.tsv",
+        "file_type": "OUTPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/output"
       },
       {
         "name": "xml_output",
+        "description": "InterProScan results in XML format",
         "file_path": "{output_dir}/{file_name}.xml",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "InterProScan results in XML format"
+        "mount_path": "/data/output"
       },
       {
         "name": "gff3_output",
+        "description": "InterProScan results in GFF3 format",
         "file_path": "{output_dir}/{file_name}.gff3",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "InterProScan results in GFF3 format"
+        "mount_path": "/data/output"
       },
       {
         "name": "log",
+        "description": "InterProScan execution log",
         "file_path": "{output_dir}/interproscan.log",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": true,
-        "mount_path": "/data/output",
-        "description": "InterProScan execution log"
+        "mount_path": "/data/output"
       }
     ],
     "mkdir_output": true,
@@ -542,74 +617,88 @@
     "tool_type": 0,
     "group_id": 9,
     "help_doc_id": 7,
-    "command_template": "gtdbtk classify_wf {file_params} {static_params}",
-    "file_params": [
+    "command_template": "gtdbtk classify_wf {dynamic_params} {static_params}",
+    "dynamic_params": [
       {
-        "name": "genome_dir",
+        "description": "directory containing genome files in FASTA format",
         "command": "--genome_dir {genome_dir}",
-        "param_type": 0,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/raw",
-        "description": "directory containing genome files in FASTA format"
+        "required": true
       },
       {
-        "name": "mash_db",
+        "description": "path to save/read (if exists) the Mash reference sketch database (.msh)",
         "command": "--mash_db {mash_db}",
-        "param_type": 0,
         "is_file": true,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": "/data/db",
-        "description": "path to save/read (if exists) the Mash reference sketch database (.msh)"
+        "required": true
       },
       {
-        "name": "gtdb_data",
-        "command": "",
-        "param_type": 0,
-        "is_file": false,
-        "index": null,
-        "required": true,
-        "mount_path": "/data/db",
-        "description": "path to GTDB release data"
-      },
-      {
-        "name": "output_dir",
+        "description": "directory to output files",
         "command": "--out_dir {output_dir}",
-        "param_type": 2,
         "is_file": false,
+        "is_position": false,
         "index": null,
-        "required": true,
-        "mount_path": null,
-        "description": "directory to output files"
+        "required": true
       }
     ],
     "static_params": "-x fasta --cpus 8 --pplacer_cpus 8 --force",
-    "output_files": [
+    "file_mounts": [
       {
-        "name": "classification_summary_bac",
-        "file_path": "{output_dir}/classify/gtdbtk.bac120.summary.tsv",
+        "name": "genome_dir",
+        "description": "directory containing genome files in FASTA format",
+        "file_path": "{genome_dir}",
+        "file_type": "INPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "GTDB-Tk bacterial classification summary"
+        "mount_path": "/data/raw"
+      },
+      {
+        "name": "mash_db",
+        "description": "path to save/read (if exists) the Mash reference sketch database (.msh)",
+        "file_path": "{mash_db}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/refdata"
+      },
+      {
+        "name": "gtdb_data",
+        "description": "path to GTDB release data",
+        "file_path": "{gtdb_data}",
+        "file_type": "INPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/refdata"
+      },
+      {
+        "name": "classification_summary_bac",
+        "description": "GTDB-Tk bacterial classification summary",
+        "file_path": "{output_dir}/classify/gtdbtk.bac120.summary.tsv",
+        "file_type": "OUTPUT",
+        "is_report": false,
+        "is_log": false,
+        "mount_path": "/data/output"
       },
       {
         "name": "classification_summary_ar",
+        "description": "GTDB-Tk archaeal classification summary",
         "file_path": "{output_dir}/gtdbtk.ar53.summary.tsv",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": false,
-        "mount_path": "/data/output",
-        "description": "GTDB-Tk archaeal classification summary"
+        "mount_path": "/data/output"
       },
       {
         "name": "log",
+        "description": "GTDB-Tk log file",
         "file_path": "{output_dir}/gtdbtk.log",
+        "file_type": "OUTPUT",
         "is_report": false,
         "is_log": true,
-        "mount_path": "/data/output",
-        "description": "GTDB-Tk log file"
+        "mount_path": "/data/output"
       }
     ],
     "mkdir_output": true,

@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 from uuid_extensions import uuid7
 
-from app.models.tools import ToolTag, ToolImage, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ToolHelpDoc
+from app.models.tools import ToolTag, ToolImage, ToolDefine, ToolType, ParamDefine, FileMount, ToolHelpDoc
 from app.utils.input_format import build_command_template
 
 
@@ -27,16 +27,16 @@ class DockerToolCreate(BaseModel):
 
     help_doc_id: int
     command_template: str
-    file_params: list[ParamDefine]
+    dynamic_params: list[ParamDefine]
     static_params: str
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]
 
     mkdir_output: bool = True
     use_temp_dir: bool = False
 
-    def to_tool_data(self) -> ToolData:
+    def to_tool_data(self) -> ToolDefine:
         tool_id = uuid7(as_type='str')
-        return ToolData(
+        return ToolDefine(
             uid=str(tool_id),
             name=self.name,
             image_id=self.image_id,
@@ -45,9 +45,9 @@ class DockerToolCreate(BaseModel):
             group_id=self.group_id,
             help_doc_id=self.help_doc_id,
             command_template=self.command_template,
-            file_params=self.file_params,
+            dynamic_params=self.dynamic_params,
             static_params=self.static_params,
-            output_files=self.output_files,
+            file_mounts=self.file_mounts,
             mkdir_output=self.mkdir_output,
             use_temp_dir=self.use_temp_dir,
             tags=self.tags,
@@ -74,9 +74,9 @@ class ToolPublic(BaseModel):
     group_id: Optional[int]
 
     command_template: str
-    file_params: list[ParamDefine]
+    dynamic_params: list[ParamDefine]
     static_params: str
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]
 
     complete_command: Optional[str] = None
 
@@ -91,9 +91,9 @@ class ToolPublic(BaseModel):
     def build_command(self):
         self.complete_command = build_command_template(
             command_template=self.command_template,
-            file_params=self.file_params,
+            dynamic_params=self.dynamic_params,
             static_params=self.static_params,
-            output_files=self.output_files,
+            file_mounts=self.file_mounts,
         )
         return self
 
@@ -109,8 +109,8 @@ class ToolNodePublic(BaseModel):
     description: str
 
     command_template: str = Field(exclude=True)
-    file_params: list[ParamDefine] = Field(exclude=True)
-    output_files: list[OutputFile] = Field(exclude=True)
+    dynamic_params: list[ParamDefine] = Field(exclude=True)
+    file_mounts: list[FileMount] = Field(exclude=True)
 
     input_handles: list[Handle] = Field(default_factory=list)
     output_handles: list[Handle] = Field(default_factory=list)
@@ -121,22 +121,22 @@ class ToolNodePublic(BaseModel):
     @model_validator(mode='after')
     def build_handles(self):
         self.input_handles = [
-            Handle(name=param.name, description=param.description)
-            for param in self.file_params
-            if param.param_type != ParamType.OUTPUT
+            Handle(name=file.name, description=file.description)
+            for file in self.file_mounts
+            if file.file_type == 'INPUT'
         ]
 
         self.output_handles = [
             Handle(name=file.name, description=file.description)
-            for file in self.output_files
-            if not (file.is_log or file.is_report)
+            for file in self.file_mounts
+            if file.file_type == 'OUTPUT' and not (file.is_log or file.is_report)
         ]
 
         self.complete_command = build_command_template(
             command_template=self.command_template,
-            file_params=self.file_params,
+            dynamic_params=self.dynamic_params,
             static_params=self.static_params,
-            output_files=self.output_files,
+            file_mounts=self.file_mounts,
         )
         return self
 
@@ -146,9 +146,9 @@ class ToolTaskInfo(BaseModel):
     name: str
 
     command_template: str
-    file_params: list[ParamDefine]
+    dynamic_params: list[ParamDefine]
     static_params: str
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]
 
     mkdir_output: bool
     use_temp_dir: bool
@@ -161,4 +161,4 @@ class ToolInfo4Task(BaseModel):
     name: str
     description: str
 
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]

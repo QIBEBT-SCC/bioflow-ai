@@ -67,7 +67,7 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
     # 构建TaskNode
     node_map: dict[str, TaskNode] = {}
     for node in workflow.nodes:
-        node_map[node.id] = TaskNode(id=node.id, type=node.type, tool_uid=node.data.tool_uid, args=node.data.args)
+        node_map[node.id] = TaskNode(id=node.id, type=node.type, tool_id=node.data.tool_id, args=node.data.args)
     for edge in workflow.edges:
         node_map[edge.target].kwarg[edge.targetHandle.split('-in-')[-1]] = TaskInput(
             source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1]
@@ -108,12 +108,12 @@ def send_task(
         sub_tasks = []
         for task_node in sub_group:
             if task_node.type == 'tool':
-                tool_data = tool_crud.get(session, task_node.tool_uid)
+                tool_data = tool_crud.get(session, task_node.tool_id)
 
                 task_instance = TaskInstance(
                     uid=task_node.id,
                     instance_uid=run_uid,
-                    tool_uid=task_node.tool_uid,
+                    tool_id=task_node.tool_id,
                     owner_id=owner.id,
                     name=tool_data.name,
                     status=Status.WAITING,
@@ -122,7 +122,7 @@ def send_task(
 
                 sub_tasks.append(
                     docker_task.s(
-                        tool_uid=task_node.tool_uid,
+                        tool_id=task_node.tool_id,
                         inputs=task_node.kwarg,
                         output_dir=f'{get_settings().persistent.STORAGE_PATH}/{owner.username}/{output_base}/{task_index}_{tool_data.name}',
                         params=task_node.args,
