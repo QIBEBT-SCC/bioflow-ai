@@ -21,7 +21,6 @@ class ParamDefine(BaseModel):
     command: str = PField(
         description='Specific parameter definition, template strings prioritize the `name` field of corresponding entries in **file_mounts**. Specifically, the variables `output_dir` and `sample_name` can be used directly.'
     )
-    is_file: bool = PField(description='Does the parameter involve a file or a folder?')
     is_position: bool = PField(description='Is this parameter a positional parameter?')
     index: Optional[int] = PField(
         description='Position order of positional parameters (only takes effect in positional parameter)', default=None
