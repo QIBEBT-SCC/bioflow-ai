@@ -180,3 +180,11 @@ def generate_tool_config(msg: str):
 
     response = chain.invoke({'question': msg})
     return response
+
+async def agenerate_tool_config(msg:str):
+    prompt = ChatPromptTemplate(messages=[SystemMessage(content=SYSTEM_PROMPT), ('human', '{question}')])
+    llm = gemini_25_flash()
+    chain = prompt | llm.with_structured_output(ToolConfigSchema, method='json_mode')
+
+    response = await chain.ainvoke({'question': msg})
+    return response
