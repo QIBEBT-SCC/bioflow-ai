@@ -1,7 +1,8 @@
+import json
 import operator
 from typing import Annotated, Literal, TypedDict, Optional
 
-from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import MermaidDrawMethod, CurveStyle
 from langchain_core.tools import tool, InjectedToolCallId
@@ -10,6 +11,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.constants import START, END
 from langgraph.graph import MessagesState
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from langgraph.prebuilt import ToolNode, InjectedState
 from langgraph.types import Command, interrupt
@@ -95,7 +97,9 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息分析工程师，正在使用一
         - 一个坐标只能放一个节点
         - 每次改动以1为单位，如（上一个工具B在[1, 0]，下一个工具C基于B的输出，放在[2, 0]; 工具D也基于B的输出，但是[2, 0]已经有节点了，则放在[2, 1]）
     - 节点的输入边：此节点的所有必须连接的input_handle对应的边列表。每一条边主要就是看来自哪个节点的哪个output_handle，输入到这个节点的哪个input_handle
+- `create_tool_node`: 当使用`search_tool`没有找到可用的工具节点时，调用此工具新建工具节点
 - `ask_human`: 当遇到所有无法解决的问题（一般是搜不到资源）时，调用这个工具，它会向人类请示并返回人类的反馈信息
+- `save_workflow`: Once the workflow is built, call this tool to save the workflow.
 </ToolCalling>
 
 当所有节点添加完毕后，不再调用工具，返回 'FINISH' 代表任务结束
@@ -159,7 +163,16 @@ class ReproductionAgent:
 
         self.check_tool_agent = CheckToolAgent().build()
 
-        self.call_tool_node = ToolNode([self.search_tool, self.search_db, self.add_node_by_id, self.ask_human])
+        self.call_tool_node = ToolNode(
+            [
+                self.search_tool,
+                self.search_db,
+                self.add_node_by_id,
+                self.create_tool_node,
+                self.ask_human,
+                self.save_workflow,
+            ]
+        )
 
     def extract_tools_node(self, state: AgentState):
         """从原始文章中提取出所使用的工具"""
@@ -206,7 +219,6 @@ class ReproductionAgent:
         )
         answer = interrupt(question)
         if isinstance(answer, bool) and answer:
-            state['messages'] = []
             init_node = BuildNode(
                 id='A',
                 type='reads',
@@ -224,6 +236,7 @@ class ReproductionAgent:
                 update={
                     'exist_nodes': [init_node],
                     'messages': [
+                        RemoveMessage(id=REMOVE_ALL_MESSAGES),
                         ('human', GET_TOOL_USER.format(paper_content=state['paper_content'])),
                         (
                             'ai',
@@ -306,6 +319,17 @@ class ReproductionAgent:
 
     @staticmethod
     @tool
+    def create_tool_node(request: str):
+        """Create new tool node
+
+        Args:
+            request: Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the tool's input is, and what the expected output is)"
+        """
+        answer = interrupt(request)
+        return answer
+
+    @staticmethod
+    @tool
     def add_node_by_id(
         node_type: Literal['tool', 'db'],
         pos_x: int,
@@ -365,7 +389,7 @@ class ReproductionAgent:
                         content=f'add new {node_type} node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id
                     )
                 ],
-            }
+            },
         )
 
     @staticmethod
@@ -379,14 +403,31 @@ class ReproductionAgent:
         answer = interrupt(question)
         return f'Human feedback is: "{answer}"'
 
+    @staticmethod
+    @tool
+    def save_workflow(name: str):
+        """Save the completed workflow into the database
+
+        Args:
+            name: Workflow name, not too long
+        """
+        return
+
     def build_workflow_node(self, state: AgentState):
         """根据返回的结构构建工作流"""
-        # TODO 假设这里已经是全部工具了
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=BUILD_FLOW_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
         llm = self.tool_llm.bind_tools(
-            [self.search_tool, self.search_db, self.add_node_by_id, self.ask_human], tool_choice='auto'
+            [
+                self.search_tool,
+                self.search_db,
+                self.create_tool_node,
+                self.add_node_by_id,
+                self.ask_human,
+                self.save_workflow,
+            ],
+            tool_choice='any',
         )
         chain = prompt | llm
 
@@ -394,15 +435,45 @@ class ReproductionAgent:
         return {'messages': [response]}
 
     @staticmethod
-    def should_continue_build(state: AgentState) -> Literal['call_tool_node', 'save_build_node']:
+    def should_continue_build(state: AgentState) -> Literal['call_tool_node', 'save_workflow_node']:
         last_message = state['messages'][-1]
-        if last_message.tool_calls:
-            return 'call_tool_node'
+        assert last_message.tool_calls
+        tool_call = last_message.tool_calls[0]
 
-        return 'save_build_node'
+        if tool_call['name'] == 'save_workflow':
+            return 'save_workflow_node'
+        return 'call_tool_node'
 
     @staticmethod
-    def save_build_node(state: AgentState):
+    def should_compress(state: AgentState)->Literal['compress_message_node','build_workflow_node']:
+        ai_message = state['messages'][-2]
+        assert ai_message.tool_calls
+        tool_call = ai_message.tool_calls[0]
+
+        if tool_call['name'] == 'add_node_by_id':
+            return 'compress_message_node'
+        return 'build_workflow_node'
+
+    @staticmethod
+    def compress_message_node(state: AgentState):
+        """压缩对话上下文"""
+        wf_data = {
+            'nodes': [n.model_dump() for n in state['exist_nodes']],
+            'edges': [e.model_dump() for e in state['exist_edges']],
+        }
+        wf_str = json.dumps(wf_data, indent=2, sort_keys=False)
+        return {
+            'messages': [
+                *[RemoveMessage(id=m.id) for m in state['messages'][2:-2]],
+                (
+                    'human',
+                    f'Prefect, now the following are some of the workflows that have been completed:\n<workflow>\n{wf_str}\n</workflow>\n\nPlease continue to call the tools to work.',
+                ),
+            ]
+        }
+
+    @staticmethod
+    def save_workflow_node(state: AgentState):
         nodes = []
         for n in state['exist_nodes']:
             if n.type == 'tool':
@@ -440,11 +511,12 @@ class ReproductionAgent:
 
         workflow_define = WorkflowDefinition(nodes=nodes, edges=edges)
 
+        wf_name = state['messages'][-1].tool_calls[0]['args']['name']
         with Session(engine) as session:
             uid = uuid7(as_type='str')
             workflow = Workflow(
                 uid=uid,
-                name='ai_gen_wf',
+                name=f'{wf_name}(AI)',
                 owner_id=1,
                 wf_type=WorkflowType.TEMPLATE,
                 workflow=workflow_define,
@@ -461,13 +533,15 @@ class ReproductionAgent:
         graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
         graph.add_node('build_workflow_node', self.build_workflow_node)
         graph.add_node('call_tool_node', self.call_tool_node)
-        graph.add_node('save_build_node', self.save_build_node)
+        graph.add_node('compress_message_node', self.compress_message_node)
+        graph.add_node('save_workflow_node', self.save_workflow_node)
 
         graph.add_edge(START, 'extract_tools_node')
         graph.add_edge('extract_tools_node', 'analyse_extract_result_node')
         graph.add_conditional_edges('build_workflow_node', self.should_continue_build)
-        graph.add_edge('call_tool_node', 'build_workflow_node')
-        graph.add_edge('save_build_node', END)
+        graph.add_conditional_edges('call_tool_node', self.should_compress)
+        graph.add_edge('compress_message_node', 'build_workflow_node')
+        graph.add_edge('save_workflow_node', END)
 
         compiled_graph = graph.compile(checkpointer=memory)
         return compiled_graph
@@ -478,13 +552,15 @@ class ReproductionAgent:
         graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
         graph.add_node('build_workflow_node', self.build_workflow_node)
         graph.add_node('call_tool_node', self.call_tool_node)
-        graph.add_node('save_build_node', self.save_build_node)
+        graph.add_node('compress_message_node', self.compress_message_node)
+        graph.add_node('save_workflow_node', self.save_workflow_node)
 
         graph.add_edge(START, 'extract_tools_node')
         graph.add_edge('extract_tools_node', 'analyse_extract_result_node')
         graph.add_conditional_edges('build_workflow_node', self.should_continue_build)
-        graph.add_edge('call_tool_node', 'build_workflow_node')
-        graph.add_edge('save_build_node', END)
+        graph.add_conditional_edges('call_tool_node', self.should_compress)
+        graph.add_edge('compress_message_node', 'build_workflow_node')
+        graph.add_edge('save_workflow_node', END)
 
         compiled_graph = graph.compile()
         compiled_graph.get_graph(xray=1).draw_mermaid_png(
