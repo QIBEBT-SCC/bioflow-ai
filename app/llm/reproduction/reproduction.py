@@ -23,9 +23,11 @@ import app.crud.resource.bio_db as db_crud
 import app.crud.workflow as wf_crud
 from app.core.llm_chat import gpt_41_mini, gemini_25_flash
 from app.core.session import engine
+from app.llm.formatters import node_formatter
 from app.llm.reproduction.check_tool_agent import CheckToolAgent
+from app.llm.tools.database import SearchTool, SearchBioDB, search_tool, search_biodb
+from app.llm.tools.human import AskHuman, ask_human
 from app.models.resource import BioDb
-from app.models.tools import ToolDefine
 from app.models.workflow import WorkflowType, Workflow
 from app.schemas.react_flow import WorkflowDefinition, Node, Position, NodeData, Edge
 from app.schemas.tools import ToolNodePublic, Handle
@@ -90,7 +92,7 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息分析工程师，正在使用一
 <ToolCalling>
 为了帮助你更好的搜索节点和构筑工作流，我们定义了以下工具：
 - `search_tool`: 用于搜索工具节点，使用工具名称进行搜索
-- `search_db`: 用于搜索数据库节点，一般使用调用此数据库的工具名称搜索，如果找不到，可以再试试直接使用工具库本身的名称搜索
+- `search_biodb`: 用于搜索数据库节点，一般使用调用此数据库的工具名称搜索，如果找不到，可以再试试直接使用工具库本身的名称搜索
 - `add_node_by_id`: 用于向工具流中添加工具和数据库节点，你需要从搜索结果中选择一个合适的对象，将他的id传给此工具。除此之外，你还主要需要思考以下两点
     - 节点的位置：以初始的read节点开始，剩下的节点向x轴正方向铺开，同一个层次的工具可以放在同一个x坐标的不同y坐标上。总之，遵顼以下两点：
         - 一个坐标只能放一个节点
@@ -110,18 +112,6 @@ class ToolsOutput(BaseModel):
 
     tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
     workflow_structure: str = Field(description="Workflow's Mermaid flowchart code. The flowchart's layout is LR")
-
-
-def generate_char_index(n: int) -> str:
-    """将一个正整数转换为（A, B, ..., Z, AA, AB, ...）形式的索引"""
-    assert n >= 1, '输入必须是一个大于等于1的正整数'
-
-    result = []
-    while n > 0:
-        remainder = (n - 1) % 26
-        result.append(chr(65 + remainder))
-        n = (n - 1) // 26
-    return ''.join(reversed(result))
 
 
 class BuildNode(BaseModel):
@@ -162,17 +152,12 @@ class ReproductionAgent:
         self.struct_llm: ChatOpenAI = gpt_41_mini()
         self.tool_llm: ChatGoogleGenerativeAI = gemini_25_flash()
 
+        # agents
         self.check_tool_agent = CheckToolAgent().build()
 
+        # tools
         self.call_tool_node = ToolNode(
-            [
-                self.search_tool,
-                self.search_db,
-                self.add_node_by_id,
-                self.create_tool_node,
-                self.ask_human,
-                self.save_workflow,
-            ]
+            [search_tool, search_biodb, add_node_by_id, create_tool_node, ask_human, save_workflow]
         )
 
     def extract_tools_node(self, state: ReproductionState):
@@ -257,165 +242,6 @@ class ReproductionAgent:
             goto='extract_tools_node', update={'messages': [AIMessage(content=question), HumanMessage(content=answer)]}
         )
 
-    @staticmethod
-    @tool
-    def search_tool(query: str):
-        """Search for the corresponding tool node
-
-        Args:
-            query: Tool name, used to search for corresponding tool nodes
-        """
-        with Session(engine) as session:
-            exist_tools: list[ToolDefine] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
-        if len(exist_tools) == 0:
-            return 'No results found'
-
-        tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
-        tool_blocks = [
-            (
-                f'  <tool>\n'
-                f'    <name>{t.name}</name>\n'
-                f'    <description>{t.description}</description>\n'
-                f'    <input_handles>\n'
-                f'{handle_formatter(t.input_handles)}\n'
-                f'    </input_handles>\n'
-                f'    <output_handles>\n'
-                f'{handle_formatter(t.output_handles)}\n'
-                f'    </output_handles>\n'
-                f'    <data>\n'
-                f'      <tool_id>{t.id}</tool_id>\n'
-                f'      <args>{t.static_params}<args>\n'
-                f'    </data>\n'
-                f'    <command>{t.complete_command}</command>'
-                f'  </tool>'
-            )
-            for t in tool_nodes
-        ]
-        return f'Based on the keywords, the following tool nodes are available (To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n<tools>\n{"\n\n".join(tool_blocks)}\n</tools>'
-
-    @staticmethod
-    @tool
-    def search_db(query: str):
-        """Search for the biological databases used by the tool using its name
-
-        Args:
-            query: Tool Name for Search
-        """
-        with Session(engine) as session:
-            exist_dbs: list[BioDb] = db_crud.get_by_name_fuzzy(session, query, 10, offset=0)
-
-        if len(exist_dbs) == 0:
-            return 'No results found'
-
-        db_blocks = [
-            (
-                f'<db>\n'
-                f'  <id>{db.id}</id>\n'
-                f'  <name>{db.name}</name>\n'
-                f'  <description>{db.description}</description>\n'
-                f'</db>'
-            )
-            for db in exist_dbs
-        ]
-
-        return f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}'
-
-    @staticmethod
-    @tool
-    def create_tool_node(request: str):
-        """Create new tool node
-
-        Args:
-            request: Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the tool's input is, and what the expected output is)"
-        """
-        answer = interrupt(request)
-        return answer
-
-    @staticmethod
-    @tool
-    def add_node_by_id(
-        node_type: Literal['tool', 'db'],
-        pos_x: int,
-        pos_y: int,
-        selected_id: int,
-        input_edges: list[BuildEdge],
-        state: Annotated[ReproductionState, InjectedState],
-        tool_call_id: Annotated[str, InjectedToolCallId],
-    ):
-        """Add nodes to the workflow by template ID, applicable to nodes of type **tool** and **db**
-
-        Args:
-            node_type: Type of Node
-            pos_x: The x-coordinate of the node's layout on the panel, only positive integer
-            pos_y: The y-coordinate of the node's layout on the panel
-            selected_id: The ID of the corresponding node source (i.e., tool ID or database ID)
-            input_edges: Input edge connection list for this node
-        """
-        node_count = len(state.exist_nodes)
-        node_id = generate_char_index(node_count + 1)
-        if node_type == 'tool':
-            with Session(engine) as session:
-                db_tool = tool_crud.get(session, selected_id)
-                db_node = ToolNodePublic.model_validate(db_tool.model_dump())
-                new_node = BuildNode(
-                    id=node_id,
-                    type='tool',
-                    input_handles=db_node.input_handles,
-                    output_handles=db_node.output_handles,
-                    data=NodeData(tool_id=selected_id, args=db_node.static_params),
-                    command=db_node.complete_command,
-                    x=pos_x,
-                    y=pos_y,
-                )
-        else:
-            with Session(engine) as session:
-                db_db: BioDb = db_crud.get(session, selected_id)
-                new_node = BuildNode(
-                    id=node_id,
-                    type='db',
-                    input_handles=[],
-                    output_handles=[Handle(name='file_path', description='db file path')],
-                    data=NodeData(args=f'db:{db_db.name}'),
-                    x=pos_x,
-                    y=pos_y,
-                )
-
-        for edge in input_edges:
-            edge.target_node = node_id
-
-        return Command(
-            update={
-                'exist_nodes': [new_node],
-                'exist_edges': input_edges,
-                'messages': [
-                    ToolMessage(
-                        content=f'add new {node_type} node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id
-                    )
-                ],
-            }
-        )
-
-    @staticmethod
-    @tool
-    def ask_human(question: str):
-        """Consult humans for advice
-
-        Args:
-            question: To understand the specific content of human questions
-        """
-        answer = interrupt(question)
-        return f'Human feedback is: "{answer}"'
-
-    @staticmethod
-    @tool
-    def save_workflow(name: str):
-        """Save the completed workflow into the database
-
-        Args:
-            name: Workflow name, brief description of this workflow's tasks
-        """
-        return
-
     def build_workflow_node(self, state: ReproductionState):
         """根据返回的结构构建工作流"""
         prompt = ChatPromptTemplate(
@@ -423,12 +249,12 @@ class ReproductionAgent:
         )
         llm = self.tool_llm.bind_tools(
             [
-                self.search_tool,
-                self.search_db,
-                self.create_tool_node,
-                self.add_node_by_id,
-                self.ask_human,
-                self.save_workflow,
+                search_tool,
+                search_biodb,
+                create_tool_node,
+                add_node_by_id,
+                ask_human,
+                save_workflow,
             ],
             tool_choice='any',
         )
@@ -574,48 +400,96 @@ class ReproductionAgent:
         )
 
 
-def handle_formatter(handles: list[Handle], space: int = 6) -> str:
-    return '\n'.join(
-        [
-            f'{" " * space}<handle>\n'
-            f'{" " * space}  <name>{h.name}</name>\n'
-            f'{" " * space}  <description>{h.description}</description>\n'
-            f'{" " * space}</handle>'
-            for h in handles
-        ]
-    )
+@tool
+def create_tool_node(request: str):
+    """Create new tool node
+
+    Args:
+        request: Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the tool's input is, and what the expected output is)"
+    """
+    answer = interrupt(request)
+    return answer
 
 
-def node_formatter(node: BuildNode) -> str:
-    if node.type == 'tool':
-        node_data = (
-            f'  <data>\n'
-            f'    <tool_id>{node.data.tool_id}</tool_id>\n'
-            f'    <args>{node.data.args}</args>\n'
-            f'  </data>\n'
-            f'  <command>{node.command}</command>\n'
-        )
+@tool
+def add_node_by_id(
+    node_type: Literal['tool', 'db'],
+    pos_x: int,
+    pos_y: int,
+    selected_id: int,
+    input_edges: list[BuildEdge],
+    state: Annotated[ReproductionState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Add nodes to the workflow by template ID, applicable to nodes of type **tool** and **db**
+
+    Args:
+        node_type: Type of Node
+        pos_x: The x-coordinate of the node's layout on the panel, only positive integer
+        pos_y: The y-coordinate of the node's layout on the panel
+        selected_id: The ID of the corresponding node source (i.e., tool ID or database ID)
+        input_edges: Input edge connection list for this node
+    """
+    node_count = len(state.exist_nodes)
+    node_id = generate_char_index(node_count + 1)
+    if node_type == 'tool':
+        with Session(engine) as session:
+            db_tool = tool_crud.get(session, selected_id)
+            db_node = ToolNodePublic.model_validate(db_tool.model_dump())
+            new_node = BuildNode(
+                id=node_id,
+                type='tool',
+                input_handles=db_node.input_handles,
+                output_handles=db_node.output_handles,
+                data=NodeData(tool_id=selected_id, args=db_node.static_params),
+                command=db_node.complete_command,
+                x=pos_x,
+                y=pos_y,
+            )
     else:
-        node_data = f'  <data>\n    <args>{node.data.args}</args>\n  </data>\n'
+        with Session(engine) as session:
+            db_db: BioDb = db_crud.get(session, selected_id)
+            new_node = BuildNode(
+                id=node_id,
+                type='db',
+                input_handles=[],
+                output_handles=[Handle(name='file_path', description='db file path')],
+                data=NodeData(args=f'db:{db_db.name}'),
+                x=pos_x,
+                y=pos_y,
+            )
 
-    input_handles = (
-        f'  <input_handles>\n{handle_formatter(node.input_handles, 4)}\n  </input_handles>\n'
-        if node.input_handles
-        else ''
-    )
-    output_handles = (
-        f'  <output_handles>\n{handle_formatter(node.output_handles, 4)}\n  </output_handles>\n'
-        if node.output_handles
-        else ''
+    for edge in input_edges:
+        edge.target_node = node_id
+
+    return Command(
+        update={
+            'exist_nodes': [new_node],
+            'exist_edges': input_edges,
+            'messages': [
+                ToolMessage(content=f'add new {node_type} node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id)
+            ],
+        }
     )
 
-    return (
-        f'<node>\n'
-        f'  <id>{node.id}</id>\n'
-        f'  <type>{node.type}</type>\n'
-        f'  <pos>(x:{node.x}, y:{node.y})</pos>\n'
-        f'{input_handles}'
-        f'{output_handles}'
-        f'{node_data}'
-        f'</node>'
-    )
+
+@tool
+def save_workflow(name: str):
+    """Save the completed workflow into the database
+
+    Args:
+        name: Workflow name, brief description of this workflow's tasks
+    """
+    return
+
+
+def generate_char_index(n: int) -> str:
+    """将一个正整数转换为（A, B, ..., Z, AA, AB, ...）形式的索引"""
+    assert n >= 1, '输入必须是一个大于等于1的正整数'
+
+    result = []
+    while n > 0:
+        remainder = (n - 1) % 26
+        result.append(chr(65 + remainder))
+        n = (n - 1) // 26
+    return ''.join(reversed(result))
