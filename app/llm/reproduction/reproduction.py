@@ -1,8 +1,8 @@
 import json
 import operator
-from typing import Annotated, Literal, TypedDict, Optional
+from typing import Annotated, Literal, TypedDict, Optional, Sequence
 
-from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage, RemoveMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage, RemoveMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import MermaidDrawMethod, CurveStyle
 from langchain_core.tools import tool, InjectedToolCallId
@@ -10,8 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.constants import START, END
-from langgraph.graph import MessagesState
-from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from langgraph.prebuilt import ToolNode, InjectedState
 from langgraph.types import Command, interrupt
@@ -146,14 +145,16 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
-class AgentState(MessagesState):
-    paper_content: str
-    paper_tools: ToolsOutput
-    checked_tools: Annotated[list[int], operator.add]
-    exist_nodes: Annotated[list[BuildNode], operator.add]
-    exist_edges: Annotated[list[BuildEdge], operator.add]
+class ReproductionState(BaseModel):
+    messages: Annotated[Sequence[BaseMessage], add_messages] = Field(default_factory=list)
 
-    price: Annotated[float, operator.add]
+    paper_content: str
+    paper_tools: Optional[ToolsOutput] = None
+    checked_tools: Annotated[list[int], operator.add] = Field(default_factory=list)
+    exist_nodes: Annotated[list[BuildNode], operator.add] = Field(default_factory=list)
+    exist_edges: Annotated[list[BuildEdge], operator.add] = Field(default_factory=list)
+
+    price: Annotated[float, operator.add] = 0.0
 
 
 class ReproductionAgent:
@@ -174,7 +175,7 @@ class ReproductionAgent:
             ]
         )
 
-    def extract_tools_node(self, state: AgentState):
+    def extract_tools_node(self, state: ReproductionState):
         """从原始文章中提取出所使用的工具"""
 
         class StructureOutput(TypedDict):
@@ -182,29 +183,31 @@ class ReproductionAgent:
             parsed: Optional[ToolsOutput]
             parsing_error: Optional[BaseException]
 
-        if len(state['messages']) == 0:
+        if len(state.messages) == 0:
             human_question = (
-                ChatPromptTemplate(messages=[('human', GET_TOOL_USER)]).invoke(state.get('paper_content')).to_messages()
+                ChatPromptTemplate(messages=[('human', GET_TOOL_USER)]).invoke(state.paper_content).to_messages()
             )
-            state['messages'] = human_question
+            state.messages = human_question
 
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=GET_TOOL_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
         chain = prompt | self.struct_llm.with_structured_output(ToolsOutput, include_raw=True)
-        output: StructureOutput = chain.invoke({'history': state['messages']})
+        output: StructureOutput = chain.invoke({'history': state.messages})
 
         return {'paper_tools': output['parsed'], 'messages': [output['raw']]}
 
     @staticmethod
-    def analyse_extract_result_node(state: AgentState) -> Command[Literal['extract_tools_node', 'build_workflow_node']]:
+    def analyse_extract_result_node(
+        state: ReproductionState,
+    ) -> Command[Literal['extract_tools_node', 'build_workflow_node']]:
         """工具提取的结果处理
 
         如果没有找到工具，触发中断询问人类，并将结果返回到提取节点
         否则，将提取的工具和流程图返回给人类，询问意见。如果同意则进入下一步，否则将反馈信息返回并重新提取。
         """
 
-        if len(state['paper_tools'].tools) == 0:
+        if len(state.paper_tools.tools) == 0:
             question = 'I found 0 tools in the paper, please checkout the content you provide.'
             answer = interrupt(question)
             return Command(
@@ -213,9 +216,9 @@ class ReproductionAgent:
             )
 
         question = (
-            f'I found {len(state["paper_tools"].tools)} tools in the paper, '
+            f'I found {len(state.paper_tools.tools)} tools in the paper, '
             f'Their workflow is shown in the figure below. Do you think there is any problem?\n'
-            f'{state["paper_tools"].workflow_structure}'
+            f'{state.paper_tools.workflow_structure}'
         )
         answer = interrupt(question)
         if isinstance(answer, bool) and answer:
@@ -237,11 +240,11 @@ class ReproductionAgent:
                     'exist_nodes': [init_node],
                     'messages': [
                         RemoveMessage(id=REMOVE_ALL_MESSAGES),
-                        ('human', GET_TOOL_USER.format(paper_content=state['paper_content'])),
+                        ('human', GET_TOOL_USER.format(paper_content=state.paper_content)),
                         (
                             'ai',
-                            f'I found {len(state["paper_tools"].tools)} tools in the paper: [{",".join(state["paper_tools"].tools)}]. '
-                            f'Their general workflow is shown in the figure below:\n{state["paper_tools"].workflow_structure}',
+                            f'I found {len(state.paper_tools.tools)} tools in the paper: [{",".join(state.paper_tools.tools)}]. '
+                            f'Their general workflow is shown in the figure below:\n{state.paper_tools.workflow_structure}',
                         ),
                         (
                             'human',
@@ -336,7 +339,7 @@ class ReproductionAgent:
         pos_y: int,
         selected_id: int,
         input_edges: list[BuildEdge],
-        state: Annotated[AgentState, InjectedState],
+        state: Annotated[ReproductionState, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ):
         """Add nodes to the workflow by template ID, applicable to nodes of type **tool** and **db**
@@ -348,7 +351,7 @@ class ReproductionAgent:
             selected_id: The ID of the corresponding node source (i.e., tool ID or database ID)
             input_edges: Input edge connection list for this node
         """
-        node_count = len(state['exist_nodes'])
+        node_count = len(state.exist_nodes)
         node_id = generate_char_index(node_count + 1)
         if node_type == 'tool':
             with Session(engine) as session:
@@ -389,7 +392,7 @@ class ReproductionAgent:
                         content=f'add new {node_type} node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id
                     )
                 ],
-            },
+            }
         )
 
     @staticmethod
@@ -409,11 +412,11 @@ class ReproductionAgent:
         """Save the completed workflow into the database
 
         Args:
-            name: Workflow name, not too long
+            name: Workflow name, brief description of this workflow's tasks
         """
         return
 
-    def build_workflow_node(self, state: AgentState):
+    def build_workflow_node(self, state: ReproductionState):
         """根据返回的结构构建工作流"""
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=BUILD_FLOW_SYSTEM), MessagesPlaceholder(variable_name='history')]
@@ -431,12 +434,12 @@ class ReproductionAgent:
         )
         chain = prompt | llm
 
-        response = chain.invoke({'history': state['messages']})
+        response = chain.invoke({'history': state.messages})
         return {'messages': [response]}
 
     @staticmethod
-    def should_continue_build(state: AgentState) -> Literal['call_tool_node', 'save_workflow_node']:
-        last_message = state['messages'][-1]
+    def should_continue_build(state: ReproductionState) -> Literal['call_tool_node', 'save_workflow_node']:
+        last_message = state.messages[-1]
         assert last_message.tool_calls
         tool_call = last_message.tool_calls[0]
 
@@ -445,8 +448,8 @@ class ReproductionAgent:
         return 'call_tool_node'
 
     @staticmethod
-    def should_compress(state: AgentState)->Literal['compress_message_node','build_workflow_node']:
-        ai_message = state['messages'][-2]
+    def should_compress(state: ReproductionState) -> Literal['compress_message_node', 'build_workflow_node']:
+        ai_message = state.messages[-2]
         assert ai_message.tool_calls
         tool_call = ai_message.tool_calls[0]
 
@@ -455,16 +458,16 @@ class ReproductionAgent:
         return 'build_workflow_node'
 
     @staticmethod
-    def compress_message_node(state: AgentState):
+    def compress_message_node(state: ReproductionState):
         """压缩对话上下文"""
         wf_data = {
-            'nodes': [n.model_dump() for n in state['exist_nodes']],
-            'edges': [e.model_dump() for e in state['exist_edges']],
+            'nodes': [n.model_dump() for n in state.exist_nodes],
+            'edges': [e.model_dump() for e in state.exist_edges],
         }
         wf_str = json.dumps(wf_data, indent=2, sort_keys=False)
         return {
             'messages': [
-                *[RemoveMessage(id=m.id) for m in state['messages'][2:-2]],
+                *[RemoveMessage(id=m.id) for m in state.messages[2:-2]],
                 (
                     'human',
                     f'Prefect, now the following are some of the workflows that have been completed:\n<workflow>\n{wf_str}\n</workflow>\n\nPlease continue to call the tools to work.',
@@ -473,9 +476,9 @@ class ReproductionAgent:
         }
 
     @staticmethod
-    def save_workflow_node(state: AgentState):
+    def save_workflow_node(state: ReproductionState):
         nodes = []
-        for n in state['exist_nodes']:
+        for n in state.exist_nodes:
             if n.type == 'tool':
                 node_type = 'tool'
             elif n.type == 'db':
@@ -496,7 +499,7 @@ class ReproductionAgent:
             nodes.append(node)
 
         edges = []
-        for e in state['exist_edges']:
+        for e in state.exist_edges:
             source_handle = f'{e.source_node}-out-{e.source_handle}'
             target_handle = f'{e.target_node}-in-{e.target_handle}'
             edge = Edge(
@@ -511,7 +514,7 @@ class ReproductionAgent:
 
         workflow_define = WorkflowDefinition(nodes=nodes, edges=edges)
 
-        wf_name = state['messages'][-1].tool_calls[0]['args']['name']
+        wf_name = state.messages[-1].tool_calls[0]['args']['name']
         with Session(engine) as session:
             uid = uuid7(as_type='str')
             workflow = Workflow(
@@ -528,7 +531,7 @@ class ReproductionAgent:
         return
 
     def build(self, memory: BaseCheckpointSaver) -> CompiledStateGraph:
-        graph = StateGraph(AgentState)
+        graph = StateGraph(ReproductionState)
         graph.add_node('extract_tools_node', self.extract_tools_node)
         graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
         graph.add_node('build_workflow_node', self.build_workflow_node)
@@ -547,7 +550,7 @@ class ReproductionAgent:
         return compiled_graph
 
     def visualize(self):
-        graph = StateGraph(AgentState)
+        graph = StateGraph(ReproductionState)
         graph.add_node('extract_tools_node', self.extract_tools_node)
         graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
         graph.add_node('build_workflow_node', self.build_workflow_node)
