@@ -1,6 +1,7 @@
 from enum import IntEnum
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 
+from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel, Field as PField, ValidationError
 from sqlalchemy import Column
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -111,10 +112,10 @@ class ToolImage(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    version: str
-    description: str
-    homepage: str
-    paper_link: str
+    version: Optional[str]
+    description: Optional[str]
+    homepage: Optional[str]
+    paper_link: Optional[str]
     image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
 
     tools: list['ToolDefine'] = Relationship(back_populates='image')
@@ -143,6 +144,7 @@ class ToolDefine(SQLModel, table=True):
     name: str
     image_id: Optional[int] = Field(default=None, foreign_key='images.id')
     description: str
+    des_vector:Any =Field(sa_type=Vector(1024))
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
