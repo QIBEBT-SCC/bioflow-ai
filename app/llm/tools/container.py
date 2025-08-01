@@ -10,7 +10,9 @@ from app.utils.container.podman import run_podman, run_podman_by_id
 
 class RunDockerInput(BaseModel):
     command: str = Field(description='the command you need to run')
-    command_description: Optional[str] = Field(description='The description of this sub-command, base on the content of main doc and your knowledge. Empty if not running a sub-command.')
+    command_description: Optional[str] = Field(
+        description='The description of this sub-command, base on the content of main doc and your knowledge. Empty if not running a sub-command.'
+    )
     image_config: Annotated[ImageConfig, InjectedToolArg] = Field(..., description='docker image config')
 
 
