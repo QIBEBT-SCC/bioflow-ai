@@ -98,10 +98,10 @@ CREATE TABLE IF NOT EXISTS images
 (
     id          SERIAL,
     name        VARCHAR NOT NULL,
-    version     VARCHAR NOT NULL,
-    description VARCHAR NOT NULL,
-    homepage    VARCHAR NOT NULL,
-    paper_link  VARCHAR NOT NULL,
+    version     VARCHAR,
+    description VARCHAR,
+    homepage    VARCHAR,
+    paper_link  VARCHAR,
     image       jsonb,
     PRIMARY KEY (id)
 );
@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS tools
     name             VARCHAR  NOT NULL,
     image_id         INTEGER,
     description      VARCHAR  NOT NULL,
+    des_vector       vector(1024),
     tool_type        tooltype NOT NULL,
     group_id         INTEGER,
     help_doc_id      INTEGER,
