@@ -1,12 +1,11 @@
 from operator import itemgetter
-from typing import Optional, Annotated
+from typing import Optional
 
 from langchain_core.callbacks import CallbackManagerForToolRun
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain_core.tools import BaseTool, ArgsSchema, ToolException, InjectedToolArg, InjectedToolCallId
-from langgraph.types import Command
+from langchain_core.tools import BaseTool, ArgsSchema, ToolException
 from pydantic import BaseModel, Field
 
 from app.core.llm_chat import gpt_41_mini
@@ -56,7 +55,6 @@ class SelectResult(BaseModel):
 class SearchImageInput(BaseModel):
     tool_name: str = Field(description='Possible tool docker image names, usually lowercase letters')
     origin_text: str = Field(description='origin user require')
-    tool_call_id: Annotated[str, InjectedToolCallId] = Field(..., description='tool call id')
 
 
 class SearchImage(BaseTool):
@@ -69,25 +67,15 @@ class SearchImage(BaseTool):
         self,
         tool_name: str,
         origin_text: str,
-        tool_call_id: str,
         run_manager: Optional[CallbackManagerForToolRun] = None,
-    ):
+    ) ->str:
         # 从项目专有镜像库中搜索
         if check_repository_tags('aye1032', tool_name.lower()) == 200:
             tags = get_repository_tags('aye1032', tool_name.lower())
             if (tag := tags.pop(0)) == 'latest':
                 tag = tags[0]
-            return Command(
-                update={
-                    'image': ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag),
-                    'messages': [
-                        ToolMessage(
-                            content='An available image has been found, and the next step can be started.',
-                            tool_call_id=tool_call_id,
-                        )
-                    ],
-                }
-            )
+            image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
+            return f'Found pullable tool docker image: `{image.get_image()}`'
 
         # # 从staphb仓库中搜索
         # if check_repository_tags('staphb', tool_name.lower()) == 200:
@@ -116,17 +104,7 @@ class SearchImage(BaseTool):
 
             selected_image = bio_container_tools[select_result.correct_image_id].id
             latest_image = get_bio_container_image(selected_image)
-            return Command(
-                update={
-                    'image': ImageConfig.from_str(latest_image),
-                    'messages': [
-                        ToolMessage(
-                            content='An available image has been found, and the next step can be started.',
-                            tool_call_id=tool_call_id,
-                        )
-                    ],
-                }
-            )
+            return f'Found pullable tool docker image: `{latest_image}`'
 
     async def _arun(
         self,
@@ -134,24 +112,15 @@ class SearchImage(BaseTool):
         origin_text: str,
         tool_call_id: str,
         run_manager: Optional[CallbackManagerForToolRun] = None,
-    ):
+    )->str:
         # 从项目专有镜像库中搜索
         status_code = await acheck_repository_tags('aye1032', tool_name.lower())
         if status_code == 200:
             tags = await aget_repository_tags('aye1032', tool_name.lower())
             if (tag := tags.pop(0)) == 'latest':
                 tag = tag[0]
-            return Command(
-                update={
-                    'image': ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag),
-                    'messages': [
-                        ToolMessage(
-                            content='An available image has been found, and the next step can be started.',
-                            tool_call_id=tool_call_id,
-                        )
-                    ],
-                }
-            )
+            image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
+            return f'Found pullable tool docker image: `{image.get_image()}`'
 
         # 从 BioContainer 中搜索
         else:
@@ -173,17 +142,7 @@ class SearchImage(BaseTool):
 
             selected_image = bio_container_tools[select_result.correct_image_id].id
             latest_image = await aget_bio_container_image(selected_image)
-            return Command(
-                update={
-                    'image': ImageConfig.from_str(latest_image),
-                    'messages': [
-                        ToolMessage(
-                            content='An available image has been found, and the next step can be started.',
-                            tool_call_id=tool_call_id,
-                        )
-                    ],
-                }
-            )
+            return f'Found pullable tool docker image: `{latest_image}`'
 
     @staticmethod
     def image_formatter(tools: list[BioContainerTool]) -> str:
