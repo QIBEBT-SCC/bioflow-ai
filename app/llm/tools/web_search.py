@@ -37,3 +37,7 @@ class GoogleSearch(BaseTool):
 
         response = await llm.ainvoke(query, tools=[GenAITool(google_search={})])
         return response.content
+
+
+google_search = GoogleSearch()
+google_search_pro = GoogleSearch(use_pro=True)
