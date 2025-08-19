@@ -112,10 +112,10 @@ class ToolImage(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    version: Optional[str]
-    description: Optional[str]
-    homepage: Optional[str]
-    paper_link: Optional[str]
+    version: Optional[str] = Field(default=None)
+    description: Optional[str] = Field(default=None)
+    homepage: Optional[str] = Field(default=None)
+    paper_link: Optional[str] = Field(default=None)
     image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
 
     tools: list['ToolDefine'] = Relationship(back_populates='image')
@@ -127,7 +127,7 @@ class ToolHelpDoc(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     help_command: str
-    description: Optional[str]
+    description: Optional[str] = Field(default=None)
     content: str
 
     image_id: Optional[int] = Field(default=None, foreign_key='images.id')
@@ -144,7 +144,7 @@ class ToolDefine(SQLModel, table=True):
     name: str
     image_id: Optional[int] = Field(default=None, foreign_key='images.id')
     description: str
-    des_vector:Any =Field(sa_type=Vector(1024))
+    des_vector: Any = Field(sa_type=Vector(1024))
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
