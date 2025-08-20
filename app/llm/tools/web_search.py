@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 
 from google.ai.generativelanguage_v1beta import Tool as GenAITool
 from langchain_core.callbacks import CallbackManagerForToolRun
@@ -29,7 +29,7 @@ class GoogleSearch(BaseTool):
         response = llm.invoke(query, tools=[GenAITool(google_search={})])
         return response.content
 
-    async def _arun(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> Any:
+    async def _arun(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         if self.use_pro:
             llm = gemini_25_pro()
         else:
