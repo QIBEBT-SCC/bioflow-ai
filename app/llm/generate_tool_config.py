@@ -1,5 +1,6 @@
 from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableSerializable
 from pydantic import BaseModel, Field
 
 from app.core.llm_chat import gemini_25_flash
@@ -173,15 +174,20 @@ class ToolConfigSchema(BaseModel):
     use_temp_dir: bool = Field(description='Do you need to use a temporary folder?')
 
 
-def generate_tool_config(msg: str):
-    prompt = ChatPromptTemplate(messages=[SystemMessage(content=SYSTEM_PROMPT), ('human', '{question}')])
+def tool_generator() -> RunnableSerializable[dict, dict | ToolConfigSchema]:
+    """structure output chain
+
+    use by `chain.invoke({'question': msg})`
+    """
+    prompt = ChatPromptTemplate(
+        messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
+    )
     llm = gemini_25_flash()
     chain = prompt | llm.with_structured_output(ToolConfigSchema, method='json_mode')
+    return chain
 
-    response = chain.invoke({'question': msg})
-    return response
 
-async def agenerate_tool_config(msg:str):
+async def agenerate_tool_config(msg: str):
     prompt = ChatPromptTemplate(messages=[SystemMessage(content=SYSTEM_PROMPT), ('human', '{question}')])
     llm = gemini_25_flash()
     chain = prompt | llm.with_structured_output(ToolConfigSchema, method='json_mode')
