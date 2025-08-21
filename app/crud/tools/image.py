@@ -24,6 +24,13 @@ def insert_all(session: Session, images: list[ToolImage]):
     return images
 
 
+def delete(session: Session, image_id: int):
+    image = get(session, image_id)
+    if image:
+        session.delete(image)
+        session.commit()
+
+
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     query: Select = (
         select(ToolImage)

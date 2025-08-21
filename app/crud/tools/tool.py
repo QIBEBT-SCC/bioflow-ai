@@ -30,6 +30,12 @@ def delete(session: Session, tool_id: int):
         session.delete(tool)
         session.commit()
 
+def update(session:Session, tool: ToolDefine):
+    session.add(tool)
+    session.commit()
+    session.refresh(tool)
+
+    return tool
 
 def get_all(session: Session, limit: int, offset: int):
     query: Select = (
