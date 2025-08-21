@@ -22,18 +22,25 @@ def insert_all(session: Session, docs: list[ToolHelpDoc]):
     return docs
 
 
+def delete(session: Session, doc_id: int):
+    doc = get(session, doc_id)
+    if doc:
+        session.delete(doc)
+        session.commit()
+
+
 def get_all(session: Session, limit: int, offset: int):
     query: Select = select(ToolHelpDoc).order_by(col(ToolHelpDoc.id)).limit(limit).offset(offset)
     return session.exec(query).all()
 
 
-def get_sub_docs(session: Session, parent_id: int):
-    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.parent_id == parent_id)
+def get_image_docs(session: Session, image_id: int):
+    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.image_id == image_id)
 
     return session.exec(query).all()
 
 
-def get(session: Session, doc_id: int):
+def get(session: Session, doc_id: int) -> ToolHelpDoc:
     query: Select = select(ToolHelpDoc).where(ToolHelpDoc.id == doc_id)
 
     return session.exec(query).one()

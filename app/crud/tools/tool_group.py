@@ -24,6 +24,11 @@ def insert_all(session: Session, groups: list[ToolGroup]):
     return groups
 
 
+def get(session: Session, group_id: int) -> Optional[ToolGroup]:
+    query: Select = select(ToolGroup).where(ToolGroup.id == group_id)
+    return session.exec(query).one_or_none()
+
+
 def get_all(session: Session, limit: int, offset: int):
     query: Select = select(ToolGroup).order_by(col(ToolGroup.id)).limit(limit).offset(offset)
     return session.exec(query).all()
