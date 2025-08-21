@@ -219,7 +219,7 @@ def formate_container_stats(
         return None
 
 
-def create_container(image_cfg: ImageConfig, mounts: list[Mount], debug: bool = False, **kwargs) -> str:
+def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: bool = False, **kwargs) -> str:
     """创建容器并返回其ID
 
     Args:
