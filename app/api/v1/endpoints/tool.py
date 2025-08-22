@@ -1,7 +1,6 @@
 from typing import Sequence, Annotated, Optional
 
 from fastapi import APIRouter, Query, Form, Depends
-from langchain_core.messages import HumanMessage
 from loguru import logger
 from starlette.responses import StreamingResponse
 
@@ -10,7 +9,7 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool as tool_crud
 from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
-from app.llm.generate_tool_config import generate_agent, GenerateOutput
+from app.llm.generate_tool_config import ToolConfigSchema, agenerate_tool_config
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
 from app.models.user import User
 from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolNodePublic, ToolTaskInfo, AIGenProp
@@ -47,7 +46,7 @@ async def get_group_tools(
 @router.post('')
 async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
     tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tool_tag if tag.id == -1]
-    exist_ids = [tag.id for tag in tool_prop.tool_tag if tag.id != -1]
+    exist_ids: list[int] = [tag.id for tag in tool_prop.tool_tag if tag.id != -1]
     if tags_to_add:
         tags_to_add = tag_crud.insert_all(session, tags_to_add)
         exist_ids.extend([tag.id for tag in tags_to_add])
@@ -86,11 +85,9 @@ async def gen_tool_config(
             yield SSEMessage(event=EventType.GENERATING, data='generating tool config...').to_sse()
             logger.debug(f'generating tool config for {prop.repository}:{prop.tag}')
             msg = f'<Require>\n{prop.description}\n</Require>\n\n<Doc>\n{help_doc}\n</Doc>'
-            result = await generate_agent.ainvoke({'messages': [HumanMessage(content=msg)]})
-            result.pop('messages')
-            result_data = GenerateOutput.model_validate(result)
-            logger.debug(result_data)
-            yield SSEMessage(event=EventType.SUCCESS, data=result_data.model_dump()).to_sse()
+            result: ToolConfigSchema = await agenerate_tool_config(msg)
+            logger.debug(result)
+            yield SSEMessage(event=EventType.SUCCESS, data=result.model_dump()).to_sse()
         else:
             logger.error(f'help doc is empty for {prop.repository}:{prop.tag}')
             yield SSEMessage(event=EventType.ERROR, data='help doc is empty').to_sse()
