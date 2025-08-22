@@ -14,7 +14,6 @@ from app.models.user import User
 from app.models.workflow import TaskInstance, ToolOutput, TaskMonitor, Status
 from app.schemas.run_instance import Stat, RunUpdate
 from app.schemas.task_instance import SimpleTaskPublic, TaskPublic, TaskUpdate, MonitorPublic
-from app.utils.container import calculate_container_stats
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -112,11 +111,9 @@ def read_resource_monitor(uid: str, session: SessionDep):
     stats_list = [json.loads(log) for log in logs]
 
     monitors = []
-    for stat in stats_list:
-        stat_data = calculate_container_stats(stat)
-        if stat_data:
-            stat_data['task_uid'] = uid
-            monitors.append(TaskMonitor.model_validate(stat_data))
+    for stat_data in stats_list:
+        stat_data['task_uid'] = uid
+        monitors.append(TaskMonitor.model_validate(stat_data))
 
     monitor_crud.insert_list(session, monitors)
 

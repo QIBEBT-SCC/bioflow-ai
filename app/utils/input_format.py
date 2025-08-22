@@ -3,7 +3,7 @@ import os
 import string
 from pathlib import Path
 
-from app.models.tools import ParamType, ParamDefine, OutputFile
+from app.models.tools import ParamDefine, FileMount
 from app.schemas.react_flow import TaskNode
 
 
@@ -16,23 +16,14 @@ class PartialFormatter(string.Formatter):
 
 
 def build_command_template(
-    command_template: str, dynamic_params: list[ParamDefine], static_params: str, output_files: list[OutputFile]
+    command_template: str, dynamic_params: list[ParamDefine], static_params: str, file_mounts: list[FileMount]
 ) -> str:
-    """构建到最后一级的指令模板字符串
+    """构建到最后一级的指令模板字符串"""
 
-    Args:
-        command_template:
-        dynamic_params:
-        static_params:
-        output_files:
-
-    Returns:
-
-    """
     position_params: list[ParamDefine] = sorted(
-        [param for param in dynamic_params if param.param_type == ParamType.INPUT_POSITION], key=lambda x: x.index
+        [param for param in dynamic_params if param.is_position], key=lambda x: x.index
     )
-    dynamic_params = [param.command for param in dynamic_params if param.param_type != ParamType.INPUT_POSITION]
+    dynamic_params = [param.command for param in dynamic_params if not param.is_position]
 
     formatter = PartialFormatter()
     command_template = formatter.format(
@@ -41,9 +32,7 @@ def build_command_template(
         dynamic_params=' '.join(dynamic_params),
         static_params=static_params,
     )
-    final_template = formatter.format(
-        command_template, **{output_file.name: output_file.file_path for output_file in output_files}
-    )
+    final_template = formatter.format(command_template, **{file.name: file.file_path for file in file_mounts})
 
     return final_template
 

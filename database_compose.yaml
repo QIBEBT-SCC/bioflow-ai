@@ -20,14 +20,14 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/data:/data:re
+      - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/data:/data:rw
       - ${DOCKER_VOLUME_DIRECTORY:-./database}/redis/logs:/logs:rw
     networks:
       - redis-net
     restart: always
 
   postgres-db:
-    image: postgres
+    image: docker.io/pgvector/pgvector:pg17
     shm_size: 2gb
     environment:
       TZ: Asia/Shanghai
@@ -39,6 +39,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ${DOCKER_VOLUME_DIRECTORY:-./database}/postgres:/var/lib/postgresql/data:rw
+      - ./presets/sql:/docker-entrypoint-initdb.d
     networks:
       - postgres-net
     restart: unless-stopped

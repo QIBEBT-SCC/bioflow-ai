@@ -7,15 +7,15 @@ class Position(BaseModel):
     y: float
 
 
-class Data(BaseModel):
-    tool_uid: Optional[str] = None
+class NodeData(BaseModel):
+    tool_id: Optional[int] = None
     args: str
 
 
 class NodeBase(BaseModel):
     id: str
     type: str
-    data: Data
+    data: NodeData
 
 
 class Node(NodeBase):
@@ -49,6 +49,6 @@ class TaskInput(BaseModel):
 class TaskNode(BaseModel):
     id: str
     type: str
-    tool_uid: Optional[str] = None
+    tool_id: Optional[int] = None
     args: str
     kwarg: dict[str, TaskInput] = Field(default_factory=dict)

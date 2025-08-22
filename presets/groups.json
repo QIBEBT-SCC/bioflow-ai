@@ -1,0 +1,56 @@
+[
+  {
+    "id": 1,
+    "name": "QC",
+    "parent_id": null,
+    "tag_id": 4
+  },
+  {
+    "id": 2,
+    "name": "Alignment",
+    "parent_id": null,
+    "tag_id": 5
+  },
+  {
+    "id": 3,
+    "name": "Assembly",
+    "parent_id": null,
+    "tag_id": 6
+  },
+  {
+    "id": 4,
+    "name": "Taxonomy",
+    "parent_id": null,
+    "tag_id": 7
+  },
+  {
+    "id": 5,
+    "name": "Annotation",
+    "parent_id": null,
+    "tag_id": 8
+  },
+  {
+    "id": 6,
+    "name": "Quantification",
+    "parent_id": null,
+    "tag_id": 9
+  },
+  {
+    "id": 7,
+    "name": "Differentials",
+    "parent_id": null,
+    "tag_id": 10
+  },
+  {
+    "id": 8,
+    "name": "Enrichment",
+    "parent_id": null,
+    "tag_id": 11
+  },
+  {
+    "id": 9,
+    "name": "Visualization",
+    "parent_id": null,
+    "tag_id": 12
+  }
+]

@@ -10,6 +10,8 @@ from app.core.session import create_db_and_tables
 from app.core.config import get_settings
 from app.utils.logger import init_logging
 
+init_logging()
+
 
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):
@@ -37,7 +39,9 @@ app.include_router(task_instance.router, prefix='/api/v1/tasks', tags=['tasks'])
 app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'])
 app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'])
 app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'])
+app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'])
 app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
+app.include_router(resource.reference_router, prefix='/api/v1/references', tags=['resource'])
 
 
 def main() -> None:
@@ -45,7 +49,6 @@ def main() -> None:
         'api:app', host=get_settings().network.HOST, port=get_settings().network.PORT, access_log=True, workers=1
     )
     server = uvicorn.Server(config)
-    init_logging()
 
     try:
         server.run()

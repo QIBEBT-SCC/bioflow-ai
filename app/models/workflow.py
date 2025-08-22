@@ -9,17 +9,8 @@ from sqlmodel import SQLModel, Field, Relationship
 
 from app.models.decorator.special_field import PydanticJson
 from app.schemas.react_flow import WorkflowDefinition
-from app.models.tools import ToolData
+from app.models.tools import ToolDefine
 from app.models.user import User
-
-
-# TABLE project_raw
-
-# TABLE run_instance
-# uid, owner, project_uid, templet(str), status, time..
-
-# TABLE task
-# uid, instance_uid, owner, task_type(name), web_node_id,other_args, status, local_path, result, time...
 
 
 class Status(IntEnum):
@@ -86,7 +77,7 @@ class TaskInstance(SQLModel, table=True):
 
     uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
     instance_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
-    tool_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('tools.uid')))
+    tool_id: int = Field(foreign_key='tools.id')
     owner_id: int = Field(foreign_key='users.id')
     name: str
     commands: Optional[str] = Field(default=None)
@@ -100,7 +91,7 @@ class TaskInstance(SQLModel, table=True):
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
 
-    tool: Optional['ToolData'] = Relationship()
+    tool: Optional['ToolDefine'] = Relationship()
     owner: Optional['User'] = Relationship()
     run_instance: Optional['RunInstance'] = Relationship(back_populates='tasks')
 

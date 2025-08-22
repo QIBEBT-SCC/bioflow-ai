@@ -52,3 +52,19 @@ class BioDb(SQLModel, table=True):
     path: str
     size: str
     last_update: Optional[str] = Field(default=None)
+
+
+class ReferenceGenomes(SQLModel, table=True):
+    __tablename__ = 'reference_genomes'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+    ncbi_tax_id: int = Field(unique=True)
+    genome_sequences: str
+    annotation_features: str
+
+    bowtie2_index: Optional[str]
+    bwa_index: Optional[str]
+    hisat2_index: Optional[str]
+    minimap2_index: Optional[str]
+    star_index: Optional[str]

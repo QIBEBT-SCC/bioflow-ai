@@ -1,9 +1,9 @@
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, UUID7, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from uuid_extensions import uuid7
 
-from app.models.tools import ToolTag, ToolData, ToolType, ParamType, ParamDefine, OutputFile, ImageConfig, DockerConfig
+from app.models.tools import ToolTag, ToolImage, ToolDefine, ToolType, ParamDefine, FileMount, ToolHelpDoc
 from app.utils.input_format import build_command_template
 
 
@@ -16,101 +16,76 @@ class AIGenProp(BaseModel):
     tag: str = 'latest'
 
 
-class AIGenTool(BaseModel):
-    """工具封装定义"""
-
-    name: str = Field(description='工具名称')
-    description: str = Field(description='工具功能的简要描述')
-
-    command_template: str = Field(
-        description='完整的工具指令模板字符串，可以包含dynamic_params、static_params、position_params、log这几个变量'
-    )
-    dynamic_params: list[ParamDefine] = Field(description='需要涉及到文件名等要素的变量，包括参数指定的和位置指定的')
-    static_params: str = Field(description='与外部文件无关的变量')
-    output_files: list[OutputFile] = Field('软件的期望输出文件')
-
-    mkdir_output: bool = Field(description='是否创建输出目录', default=True)
-    use_temp_dir: bool = Field(description='是否使用临时目录', default=False)
-
-
 class DockerToolCreate(BaseModel):
     """创建Docker工具的请求模型"""
 
     name: str
+    image_id: int
     description: str
-    tool_tag: list[ToolTag]
+    group_id: int
+    tags: list[ToolTag]
 
+    help_doc_id: int
     command_template: str
     dynamic_params: list[ParamDefine]
     static_params: str
-    output_files: list[OutputFile]
-
-    help_command: str
-    homepage: str
+    file_mounts: list[FileMount]
 
     mkdir_output: bool = True
     use_temp_dir: bool = False
 
-    repository: str
-    tag: str = 'latest'
-    docker_config: dict[str, Any] = {}
-
-    def to_tool_data(self) -> ToolData:
+    def to_tool_data(self) -> ToolDefine:
         tool_id = uuid7(as_type='str')
-        return ToolData(
+        return ToolDefine(
             uid=str(tool_id),
             name=self.name,
+            image_id=self.image_id,
             description=self.description,
-            tags=self.tool_tag,
             tool_type=ToolType.DOCKER,
+            group_id=self.group_id,
+            help_doc_id=self.help_doc_id,
             command_template=self.command_template,
-            homepage=self.homepage,
             dynamic_params=self.dynamic_params,
             static_params=self.static_params,
-            output_files=self.output_files,
-            help_command=self.help_command,
+            file_mounts=self.file_mounts,
             mkdir_output=self.mkdir_output,
             use_temp_dir=self.use_temp_dir,
-            docker_config=DockerConfig(
-                image=ImageConfig(repository=self.repository, tag=self.tag), docker_settings=self.docker_config
-            ),
+            tags=self.tags,
         )
 
 
 class SimpleToolPublic(BaseModel):
-    uid: UUID7
+    id: int
     name: str
     description: str
     tool_type: ToolType
     group_id: Optional[int]
 
-    docker_config: Optional[DockerConfig]
+    image: Optional[ToolImage]
 
     tags: list[ToolTag]
 
 
 class ToolPublic(BaseModel):
-    uid: UUID7
+    id: int
     name: str
     description: str
-    homepage: str
     tool_type: ToolType
     group_id: Optional[int]
 
     command_template: str
     dynamic_params: list[ParamDefine]
     static_params: str
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]
 
-    help_command: str
     complete_command: Optional[str] = None
 
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig]
-
     tags: list['ToolTag']
+    help_doc: ToolHelpDoc
+    image: ToolImage
 
     @model_validator(mode='after')
     def build_command(self):
@@ -118,7 +93,7 @@ class ToolPublic(BaseModel):
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
             static_params=self.static_params,
-            output_files=self.output_files,
+            file_mounts=self.file_mounts,
         )
         return self
 
@@ -128,53 +103,62 @@ class Handle(BaseModel):
     description: str
 
 
-class ToolArgPublic(BaseModel):
-    uid: UUID7
+class ToolNodePublic(BaseModel):
+    id: int
     name: str
     description: str
 
+    command_template: str = Field(exclude=True)
     dynamic_params: list[ParamDefine] = Field(exclude=True)
-    output_files: list[OutputFile] = Field(exclude=True)
+    file_mounts: list[FileMount] = Field(exclude=True)
 
     input_handles: list[Handle] = Field(default_factory=list)
     output_handles: list[Handle] = Field(default_factory=list)
 
     static_params: str
+    complete_command: Optional[str] = None
 
     @model_validator(mode='after')
     def build_handles(self):
         self.input_handles = [
-            Handle(name=param.name, description=param.description)
-            for param in self.dynamic_params
-            if param.param_type != ParamType.OUTPUT
+            Handle(name=file.name, description=file.description)
+            for file in self.file_mounts
+            if file.file_type == 'INPUT'
         ]
 
         self.output_handles = [
             Handle(name=file.name, description=file.description)
-            for file in self.output_files
-            if not (file.is_log or file.is_report)
+            for file in self.file_mounts
+            if file.file_type == 'OUTPUT' and not (file.is_log or file.is_report)
         ]
+
+        self.complete_command = build_command_template(
+            command_template=self.command_template,
+            dynamic_params=self.dynamic_params,
+            static_params=self.static_params,
+            file_mounts=self.file_mounts,
+        )
         return self
 
 
 class ToolTaskInfo(BaseModel):
-    uid: UUID7
+    id: int
     name: str
 
     command_template: str
     dynamic_params: list[ParamDefine]
     static_params: str
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]
 
     mkdir_output: bool
     use_temp_dir: bool
 
-    docker_config: Optional[DockerConfig]
+    image: Optional[ToolImage]
 
 
 class ToolInfo4Task(BaseModel):
-    uid: UUID7
+    id: int
     name: str
     description: str
 
-    output_files: list[OutputFile]
+    file_mounts: list[FileMount]

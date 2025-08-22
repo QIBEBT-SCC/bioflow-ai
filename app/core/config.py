@@ -38,6 +38,9 @@ class NetworkConfig(BaseModel):
     PROXY_PORT: int = 7890
     USE_PROXY: bool = False
 
+    def get_proxy_url(self) -> str:
+        return f'{self.PROXY_TYPE}://{self.PROXY_HOST}:{self.PROXY_PORT}'
+
 
 class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
@@ -46,13 +49,21 @@ class PersistenceConfig(BaseModel):
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
     STORAGE_PATH: str = './storage'
+    TEST_DATA_PATH: str = './testdata'
+    MAX_THREAD: int = 8
+    MAX_MEM: str = '4G'
 
 
 class LLMConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    DEEPSEEK_API: SecretStr = ''
-    AI_HUB_MIX_KEY:SecretStr = ''
+    TRANSMIT: bool = False
+
+    DEEPSEEK_KEY: SecretStr = ''
+    VOLCENGINE_KEY: SecretStr = ''
+    AI_HUB_MIX_KEY: SecretStr = ''
+    AI_STUDIO_KEY: SecretStr = ''
+    OPENAI_KEY: SecretStr = ''
 
 
 class CeleryConfig(BaseModel):

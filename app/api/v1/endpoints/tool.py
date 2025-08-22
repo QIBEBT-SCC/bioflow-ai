@@ -4,16 +4,16 @@ from fastapi import APIRouter, Query, Form, Depends
 from loguru import logger
 from starlette.responses import StreamingResponse
 
-import app.crud.tool_tag as tag_crud
-import app.crud.tool_group as group_crud
-import app.crud.tool as tool_crud
+import app.crud.tools.tool_tag as tag_crud
+import app.crud.tools.tool_group as group_crud
+import app.crud.tools.tool as tool_crud
 from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
-from app.llm.llm_function import generate_tool_config
+from app.llm.generate_tool_config import ToolConfigSchema, agenerate_tool_config
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
 from app.models.user import User
-from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolArgPublic, ToolTaskInfo, AIGenProp
-from app.utils.container import get_help_doc_async
+from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolNodePublic, ToolTaskInfo, AIGenProp
+from app.utils.container.podman import run_podman
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -46,9 +46,9 @@ async def get_group_tools(
 @router.post('')
 async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
     tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tool_tag if tag.id == -1]
-    exist_ids = [tag.id for tag in tool_prop.tool_tag if tag.id != -1]
+    exist_ids: list[int] = [tag.id for tag in tool_prop.tool_tag if tag.id != -1]
     if tags_to_add:
-        tags_to_add = tag_crud.insert_list(session, tags_to_add)
+        tags_to_add = tag_crud.insert_all(session, tags_to_add)
         exist_ids.extend([tag.id for tag in tags_to_add])
 
     tags = tag_crud.get_all_by_id(session, exist_ids)
@@ -80,13 +80,14 @@ async def gen_tool_config(
 ):
     async def generator():
         yield SSEMessage(event=EventType.LOADING, data='reading tool help doc...').to_sse()
-        help_doc = await get_help_doc_async(ImageConfig(repository=prop.repository, tag=prop.tag), prop.help_command)
+        code, help_doc = run_podman(ImageConfig(repository=prop.repository, tag=prop.tag), prop.help_command, [])
         if help_doc:
             yield SSEMessage(event=EventType.GENERATING, data='generating tool config...').to_sse()
             logger.debug(f'generating tool config for {prop.repository}:{prop.tag}')
-            tool_config = await generate_tool_config(prop.name, help_doc, prop.description)
-            logger.debug(tool_config)
-            yield SSEMessage(event=EventType.SUCCESS, data=tool_config.model_dump()).to_sse()
+            msg = f'<Require>\n{prop.description}\n</Require>\n\n<Doc>\n{help_doc}\n</Doc>'
+            result: ToolConfigSchema = await agenerate_tool_config(msg)
+            logger.debug(result)
+            yield SSEMessage(event=EventType.SUCCESS, data=result.model_dump()).to_sse()
         else:
             logger.error(f'help doc is empty for {prop.repository}:{prop.tag}')
             yield SSEMessage(event=EventType.ERROR, data='help doc is empty').to_sse()
@@ -94,16 +95,16 @@ async def gen_tool_config(
     return StreamingResponse(generator(), media_type='text/event-stream')
 
 
-@router.get('/{tool_uid}', response_model=ToolPublic)
-async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
-    return tool_crud.get(session, tool_uid)
+@router.get('/{tool_id}', response_model=ToolPublic)
+async def get_tool_detail(session: SessionDep, tool_id: int) -> ToolPublic:
+    return tool_crud.get(session, tool_id)
 
 
-@router.get('/{tool_uid}/args', response_model=ToolArgPublic)
-async def get_tool_args(session: SessionDep, tool_uid: str) -> ToolArgPublic:
-    return tool_crud.get(session, tool_uid)
+@router.get('/{tool_id}/args', response_model=ToolNodePublic)
+async def get_tool_args(session: SessionDep, tool_id: int) -> ToolNodePublic:
+    return tool_crud.get(session, tool_id)
 
 
-@router.get('/{tool_uid}/task_info', response_model=ToolTaskInfo)
-async def get_tool4task(session: SessionDep, tool_uid: str):
-    return tool_crud.get(session, tool_uid)
+@router.get('/{tool_id}/task_info', response_model=ToolTaskInfo)
+async def get_tool4task(session: SessionDep, tool_id: int):
+    return tool_crud.get(session, tool_id)

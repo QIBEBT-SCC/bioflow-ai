@@ -1,5 +1,6 @@
 [security]
 algorithm = "HS256"
+secret_key = "Your key"
 access_token_expire_minutes = 1440
 
 [logger]
@@ -20,12 +21,25 @@ use_proxy = false
 
 [persistent]
 db_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
+monitor_cache = "redis://localhost:6379/1"
+api_cache = "redis://localhost:6379/2"
 storage_path = "./storage"
+test_data_path = "./testdata"
+max_thread = 8
+max_mem = "4G"
 
 [docker]
-username = ''
-password = ''
+username = ""
+password = ""
 
 [celery]
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/0"
+
+[llm]
+transmit = false
+deepseek_key = ""
+volcengine_key = ""
+ai_hub_mix_key = ""
+ai_studio_key = ""
+openai_key = ""
