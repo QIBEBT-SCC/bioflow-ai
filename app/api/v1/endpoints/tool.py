@@ -1,6 +1,6 @@
 from typing import Sequence, Annotated, Optional
 
-from fastapi import APIRouter, Query, Form, Depends
+from fastapi import APIRouter, Query, Form
 from loguru import logger
 from starlette.responses import StreamingResponse
 
@@ -11,10 +11,9 @@ from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
 from app.llm.generate_tool_config import ToolConfigSchema, agenerate_tool_config
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
-from app.models.user import User
 from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolNodePublic, ToolTaskInfo, AIGenProp
 from app.utils.container.podman import run_podman
-from app.utils.security import get_current_active_user
+from app.utils.security import UserDep
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -75,9 +74,7 @@ def get_tools_by_name(
 
 
 @router.post('/ai/config')
-async def gen_tool_config(
-    prop: Annotated[AIGenProp, Form()], current_user: Annotated[User, Depends(get_current_active_user)]
-):
+async def gen_tool_config(prop: Annotated[AIGenProp, Form()], current_user: UserDep):
     async def generator():
         yield SSEMessage(event=EventType.LOADING, data='reading tool help doc...').to_sse()
         code, help_doc = run_podman(ImageConfig(repository=prop.repository, tag=prop.tag), prop.help_command, [])
