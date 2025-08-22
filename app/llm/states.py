@@ -28,6 +28,7 @@ class GetDocState(AgentStatePydantic):
 class TestRunState(AgentStatePydantic):
     image: Optional[ImageConfig] = None
     container_id: Optional[str] = None
+    last_output: Optional[str] = None
 
 
 class SelectGroupState(AgentStatePydantic):
