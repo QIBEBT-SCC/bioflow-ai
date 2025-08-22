@@ -12,7 +12,7 @@ from starlette import status
 
 from app.crud import user as user_crud
 from app.core.session import SessionDep
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.core.config import get_settings
 
 
@@ -83,3 +83,20 @@ async def get_current_active_user(current_user: Annotated[User, Depends(get_curr
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail='Inactive user')
     return current_user
+
+
+def require_role(required_role):
+    async def role_checker(current_user: Annotated[User, Depends(get_current_active_user)]) -> User:
+        if current_user.role < required_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=f'Requires {required_role.name} or higher permission'
+            )
+        return current_user
+
+    return role_checker
+
+
+type UserDep = Annotated[User, Depends(get_current_active_user)]
+
+type MemberDep = Annotated[User, Depends(require_role(UserRole.MEMBER))]
+type AdminDep = Annotated[User, Depends(require_role(UserRole.ADMIN))]
