@@ -1,14 +1,14 @@
 from typing import Annotated
 
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import ToolException, tool, InjectedToolCallId
+from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models.tools import ImageConfig
-from app.utils.container.podman import run_podman, run_podman_by_id, create_container
+from app.utils.container.podman import run_podman, run_podman_by_id, create_container, remove_container
 
 
 @tool
@@ -73,7 +73,11 @@ def build_container(
 
 
 @tool
-def run_command_in_container(command: str, container_id: Annotated[str, InjectedState('container_id')]):
+def run_command_in_container(
+    command: str,
+    container_id: Annotated[str, InjectedState('container_id')],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
     """Run command, and return it`s output result
 
     Args:
@@ -81,6 +85,24 @@ def run_command_in_container(command: str, container_id: Annotated[str, Injected
     """
     code, out = run_podman_by_id(container_id, command)
 
-    if code != 0:
-        raise ToolException(out)
+    run_status = 'successfully' if code == 0 else 'failed'
+    if len(out.splitlines()) > 20:
+        return Command(
+            update={
+                'last_output': out,
+                'messages': [
+                    ToolMessage(
+                        content=f'Command ran {run_status}. A total of {len(out.splitlines())} lines of output have been cached. You can view the results of specified lines using the `view_output` tool.',
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+            }
+        )
     return out
+
+
+@tool
+def stop_and_rm_container(container_id: Annotated[str, InjectedState('container_id')]):
+    """Stop and remove container"""
+    remove_container(container_id)
+    return 'The container has been deleted'
