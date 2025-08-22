@@ -32,4 +32,4 @@ def get_session():
         yield session
 
 
-type SessionDep = Annotated[Session, Depends(get_session)]
+SessionDep: TypeAlias = Annotated[Session, Depends(get_session)]

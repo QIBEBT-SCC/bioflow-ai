@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 import bcrypt
 import jwt
@@ -96,7 +96,7 @@ def require_role(required_role):
     return role_checker
 
 
-type UserDep = Annotated[User, Depends(get_current_active_user)]
+UserDep: TypeAlias = Annotated[User, Depends(get_current_active_user)]
 
-type MemberDep = Annotated[User, Depends(require_role(UserRole.MEMBER))]
-type AdminDep = Annotated[User, Depends(require_role(UserRole.ADMIN))]
+MemberDep: TypeAlias = Annotated[User, Depends(require_role(UserRole.MEMBER))]
+AdminDep: TypeAlias = Annotated[User, Depends(require_role(UserRole.ADMIN))]
