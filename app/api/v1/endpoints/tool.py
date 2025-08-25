@@ -11,13 +11,22 @@ from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
 from app.llm.generate_tool_config import ToolConfigSchema, agenerate_tool_config
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
-from app.schemas.tools import DockerToolCreate, SimpleToolPublic, ToolPublic, ToolNodePublic, ToolTaskInfo, AIGenProp
+from app.schemas.tools import (
+    DockerToolCreate,
+    SimpleToolPublic,
+    ToolPublic,
+    ToolNodePublic,
+    ToolTaskInfo,
+    AIGenProp,
+    ToolGroupPublic,
+)
 from app.utils.container.podman import run_podman
-from app.utils.security import UserDep
+from app.utils.security import UserDep, AdminDep
 
 router = APIRouter()
 tag_router = APIRouter()
 group_router = APIRouter()
+image_router = APIRouter()
 
 
 @tag_router.get('')
@@ -26,13 +35,19 @@ async def get_exist_tags(session: SessionDep) -> Sequence[ToolTag]:
 
 
 @group_router.post('')
-async def add_group(session: SessionDep, group: ToolGroup) -> ToolGroup:
+async def add_group(session: SessionDep, group: ToolGroup, current_user: AdminDep) -> ToolGroup:
+    group_tag = ToolTag(name=group.name)
+    group_tag = tag_crud.insert(session, group_tag)
+    group.tag_id = group_tag.id
+
     return group_crud.insert(session, group)
 
 
-@group_router.get('')
-async def get_group_list(session: SessionDep, parent_id: Optional[int] = None) -> list[ToolGroup]:
-    return group_crud.get_all_recursive(session, parent_id)
+@group_router.get('', response_model=list[ToolGroupPublic])
+async def get_group_list(session: SessionDep) -> list[ToolGroupPublic]:
+    """获取工具分组列表，包含每个分组的工具数量"""
+    group_data = group_crud.get_all_with_tool_counts(session)
+    return [ToolGroupPublic(**group) for group in group_data]
 
 
 @group_router.get('/tools', response_model=list[SimpleToolPublic])
@@ -43,7 +58,7 @@ async def get_group_tools(
 
 
 @router.post('')
-async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
+async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, current_user: AdminDep):
     tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tool_tag if tag.id == -1]
     exist_ids: list[int] = [tag.id for tag in tool_prop.tool_tag if tag.id != -1]
     if tags_to_add:
@@ -57,6 +72,11 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep):
 
     new_tool = tool_crud.insert(session, tool_data)
     return new_tool
+
+
+@router.get('/count')
+async def get_tool_count(session: SessionDep) -> int:
+    return tool_crud.get_counts(session)
 
 
 @router.get('', response_model=list[SimpleToolPublic])

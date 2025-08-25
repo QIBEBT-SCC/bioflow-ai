@@ -37,6 +37,11 @@ def update(session:Session, tool: ToolDefine):
 
     return tool
 
+def get_counts(session: Session):
+    query: Select = select(func.count()).select_from(ToolDefine)
+
+    return session.exec(query).one()
+
 def get_all(session: Session, limit: int, offset: int):
     query: Select = (
         select(ToolDefine)

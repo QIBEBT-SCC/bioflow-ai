@@ -162,3 +162,12 @@ class ToolInfo4Task(BaseModel):
     description: str
 
     file_mounts: list[FileMount]
+
+
+class ToolGroupPublic(BaseModel):
+    """工具分组公开信息，包含工具数量"""
+    id: int
+    name: str
+    parent_id: Optional[int]
+    tag_id: Optional[int]
+    tool_count: int
