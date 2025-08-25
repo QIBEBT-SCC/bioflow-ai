@@ -56,7 +56,7 @@ async def get_dbs_by_name(
 
 
 @db_router.get('/{db_id}', response_model=BioDb)
-async def get_db(db_id: int, session: SessionDep, current_user: UserDep) -> int:
+async def get_db(db_id: int, session: SessionDep, current_user: UserDep) -> BioDb:
     return db_crud.get(session, db_id)
 
 
