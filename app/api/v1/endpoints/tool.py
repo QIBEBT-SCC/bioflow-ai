@@ -9,7 +9,7 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool as tool_crud
 from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
-from app.llm.generate_tool_config import ToolConfigSchema, agenerate_tool_config
+from llm import ToolConfigSchema, agenerate_tool_config
 from app.models.tools import ToolTag, ToolGroup, ImageConfig
 from app.schemas.tools import (
     DockerToolCreate,

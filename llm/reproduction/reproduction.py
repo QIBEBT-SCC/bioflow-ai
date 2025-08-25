@@ -22,11 +22,11 @@ import app.crud.resource.bio_db as db_crud
 import app.crud.workflow as wf_crud
 from app.core.llm_chat import gemini_25_flash, gpt_o4_mini
 from app.core.session import engine
-from app.llm.formatters import node_formatter
-from app.llm.reproduction.create_tool_agent import CreateToolAgent
-from app.llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ToolsOutput
-from app.llm.tools.database import search_tool, search_biodb
-from app.llm.tools.human import ask_human
+from llm.formatters import node_formatter
+from llm.reproduction.create_tool_agent import CreateToolAgent
+from llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ToolsOutput
+from llm.tools.database import search_tool, search_biodb
+from llm.tools.human import ask_human
 from app.models.resource import BioDb
 from app.models.workflow import WorkflowType, Workflow
 from app.schemas.react_flow import WorkflowDefinition, Node, Position, NodeData, Edge
