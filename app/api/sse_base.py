@@ -7,8 +7,9 @@ from pydantic import BaseModel
 
 class EventType(Enum):
     LOADING = 'loading'
-    ERROR = 'error'
     GENERATING = 'generating'
+    TOOL_CALL = 'tool_call'
+    ERROR = 'error'
     SUCCESS = 'success'
 
 

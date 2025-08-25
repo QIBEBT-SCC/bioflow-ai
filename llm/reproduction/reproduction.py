@@ -20,9 +20,9 @@ from uuid_extensions import uuid7
 import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
 import app.crud.workflow as wf_crud
-from app.core.llm_chat import gemini_25_flash, gpt_o4_mini
+from llm.models import gemini_25_flash, gpt_o4_mini
 from app.core.session import engine
-from llm.formatters import node_formatter
+from llm.utils.formatters import node_formatter
 from llm.reproduction.create_tool_agent import CreateToolAgent
 from llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ToolsOutput
 from llm.tools.database import search_tool, search_biodb

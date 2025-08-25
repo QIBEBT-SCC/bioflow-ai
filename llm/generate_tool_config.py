@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableSerializable
 from pydantic import BaseModel, Field
 
-from app.core.llm_chat import gemini_25_flash
+from llm.models import gemini_25_flash
 from app.models.tools import ParamDefine, FileMount
 
 SYSTEM_PROMPT = """We are designing a node-based bioinformatics analysis platform, to achieve this goal, it is necessary to encapsulate the analysis tools as nodes for invocation.  

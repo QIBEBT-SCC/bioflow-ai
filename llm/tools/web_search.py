@@ -5,7 +5,7 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool, ArgsSchema
 from pydantic import BaseModel, Field
 
-from app.core.llm_chat import gemini_25_pro, gemini_25_flash
+from llm.models import gemini_25_flash, gemini_25_pro
 
 
 class GoogleSearchInput(BaseModel):

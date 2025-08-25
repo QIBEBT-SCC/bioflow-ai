@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.tools import BaseTool, ArgsSchema, ToolException
 from pydantic import BaseModel, Field
 
-from app.core.llm_chat import gpt_41_mini
+from llm.models import gpt_41_mini
 from app.models.tools import ImageConfig
 from app.utils.api.biocontainer import (
     search_bio_container,

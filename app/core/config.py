@@ -46,6 +46,7 @@ class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
+    CHECKPOINT_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/llm_history'
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
     STORAGE_PATH: str = './storage'
@@ -54,16 +55,21 @@ class PersistenceConfig(BaseModel):
     MAX_MEM: str = '4G'
 
 
+class LLMApiConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    BASE_URL: str = ''
+    API_KEY: SecretStr = ''
+
+
 class LLMConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    TRANSMIT: bool = False
-
-    DEEPSEEK_KEY: SecretStr = ''
-    VOLCENGINE_KEY: SecretStr = ''
-    AI_HUB_MIX_KEY: SecretStr = ''
-    AI_STUDIO_KEY: SecretStr = ''
-    OPENAI_KEY: SecretStr = ''
+    GEMINI: LLMApiConfig = LLMApiConfig()
+    GPT: LLMApiConfig = LLMApiConfig()
+    CLAUDE: LLMApiConfig = LLMApiConfig()
+    DEEPSEEK: LLMApiConfig = LLMApiConfig()
+    VLLM: LLMApiConfig = LLMApiConfig()
 
 
 class CeleryConfig(BaseModel):
@@ -105,7 +111,7 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (TomlConfigSettingsSource(settings_cls),)
 
-    def save_to_file(self, file_path: str = 'config1.toml'):
+    def save_to_file(self, file_path: str):
         """将当前配置保存到TOML文件"""
         config_dict = self.model_dump(by_alias=True)
 
