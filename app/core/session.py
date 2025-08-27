@@ -1,6 +1,8 @@
 from typing import Annotated, TypeAlias
 
+import psycopg
 from fastapi import Depends
+from langchain_postgres import PostgresChatMessageHistory
 from loguru import logger
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy_utils import database_exists, create_database
@@ -17,6 +19,9 @@ engine = create_engine(get_settings().persistent.DB_URL)
 @logger.catch
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+
+    sync_connection = psycopg.connect(get_settings().persistent.CHECKPOINT_URL)
+    PostgresChatMessageHistory.create_tables(sync_connection, 'simple_history')
 
 
 def drop_table(table_name: str):

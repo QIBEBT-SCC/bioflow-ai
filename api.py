@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import workflow, tool, auth, project, user, run_instance, task_instance, resource
+from app.api.v1.endpoints import workflow, tool, auth, project, user, run_instance, task_instance, resource, chat
 from app.core.session import create_db_and_tables
 from app.core.config import get_settings
 from app.utils.logger import init_logging
@@ -42,6 +42,7 @@ app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'
 app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'])
 app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
 app.include_router(resource.reference_router, prefix='/api/v1/references', tags=['resource'])
+app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
 
 
 def main() -> None:
