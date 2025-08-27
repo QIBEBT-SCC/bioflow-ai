@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.schemas.chat import ContentType
+from app.schemas.file import ValidatedFileInfo
 
 
 def calculate_file_hash(file_path: str, algorithm: str = 'md5') -> Optional[str]:
@@ -70,36 +71,41 @@ class FileValidator:
     def __init__(self):
         self.settings = get_settings().persistent.api_storage
 
-    async def validate_upload_file(self, upload_file: UploadFile) -> Tuple[bool, str, ContentType]:
-        """Verify the security and validity of uploaded files
+    async def validate_upload_file(self, upload_file: UploadFile) -> Tuple[bool, str, Optional[ValidatedFileInfo]]:
+        """验证上传文件的安全性和有效性
 
         Args:
-            upload_file: FastAPI UploadFile object
+            upload_file: FastAPI UploadFile对象
 
         Returns:
-            Tuple[is_valid, error_message, content_type]
+            Tuple[is_valid, error_message, validated_file_info]
         """
         try:
             # 基础验证
             if not upload_file.filename:
-                return False, 'File name cannot be empty', ContentType.FILE
+                raise ValueError('File name cannot be empty')
+
+            filename = upload_file.filename
+            file_extension = Path(filename).suffix.lower()
 
             # 文件名安全检查
-            if not self._is_safe_filename(upload_file.filename):
-                return False, 'Filename contains illegal characters', ContentType.FILE
+            if not self._is_safe_filename(filename):
+                return False, 'Filename contains illegal characters', None
 
             # 扩展名检查
-            file_extension = Path(upload_file.filename).suffix.lower()
             if file_extension in self.DANGEROUS_EXTENSIONS:
-                return False, f'Uploading {file_extension} files is not allowed.', ContentType.FILE
+                return False, f'Uploading {file_extension} files is not allowed.', None
 
             # MIME类型验证
-            declared_mime = upload_file.content_type or mimetypes.guess_type(upload_file.filename)[0]
+            declared_mime = upload_file.content_type or mimetypes.guess_type(filename)[0]
+            if not declared_mime:
+                declared_mime = 'application/octet-stream'
+
             content_type = self._get_content_type(declared_mime)
 
             is_valid, mime_error = self._check_mime_type(declared_mime, content_type)
             if not is_valid:
-                return False, mime_error, content_type
+                return False, mime_error, None
 
             # 文件大小检查
             if upload_file.size is None:
@@ -111,7 +117,7 @@ class FileValidator:
 
             is_valid, size_error = self._check_file_size(file_size, content_type)
             if not is_valid:
-                return False, size_error, content_type
+                return False, size_error, None
 
             # 文件内容验证
             content_sample = await upload_file.read(1024)
@@ -119,14 +125,23 @@ class FileValidator:
 
             is_valid, content_error = self._verify_file_signature(content_sample, declared_mime)
             if not is_valid:
-                return False, content_error, content_type
+                return False, content_error, None
 
-            logger.info(f'File verification passed: {upload_file.filename} ({declared_mime}, {file_size} bytes)')
-            return True, '', content_type
+            # 创建验证文件信息对象
+            validated_info = ValidatedFileInfo(
+                filename=filename,
+                file_extension=file_extension,
+                mime_type=declared_mime,
+                file_size=file_size,
+                content_type=content_type,
+            )
+
+            logger.info(f'File verification passed: {filename} ({declared_mime}, {file_size} bytes)')
+            return True, '', validated_info
 
         except Exception as e:
             logger.error(f'File verification failed: {str(e)}')
-            return False, 'An error occurred during file validation', ContentType.FILE
+            return False, 'An error occurred during file validation', None
 
     @staticmethod
     def _is_safe_filename(filename: str) -> bool:
