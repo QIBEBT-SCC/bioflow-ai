@@ -29,6 +29,13 @@ test_data_path = "./testdata"
 max_thread = 8
 max_mem = "4G"
 
+[persistent.api_storage]
+upload_dir = "./storage/uploads"
+max_image_size = 10485760
+max_document_size = 52428800
+allowed_image_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/bmp", "image/webp", "image/tiff"]
+allowed_document_types = ["application/pdf", "text/plain", "text/markdown"]
+
 [docker]
 username = ""
 password = ""

@@ -42,6 +42,24 @@ class NetworkConfig(BaseModel):
         return f'{self.PROXY_TYPE}://{self.PROXY_HOST}:{self.PROXY_PORT}'
 
 
+class StorageConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    UPLOAD_DIR: str = './storage/uploads'
+    MAX_IMAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    MAX_DOCUMENT_SIZE: int = 50 * 1024 * 1024  # 50MB
+    ALLOWED_IMAGE_TYPES: list[str] = [
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/gif',
+        'image/bmp',
+        'image/webp',
+        'image/tiff',
+    ]
+    ALLOWED_DOCUMENT_TYPES: list[str] = ['application/pdf', 'text/plain', 'text/markdown']
+
+
 class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
@@ -53,6 +71,8 @@ class PersistenceConfig(BaseModel):
     TEST_DATA_PATH: str = './testdata'
     MAX_THREAD: int = 8
     MAX_MEM: str = '4G'
+
+    api_storage: StorageConfig = StorageConfig()
 
 
 class LLMApiConfig(BaseModel):
