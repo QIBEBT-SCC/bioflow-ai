@@ -1,9 +1,9 @@
 import asyncio
 from datetime import datetime, UTC
-from typing import AsyncGenerator, Optional, Annotated
+from typing import AsyncGenerator, Optional, Annotated, List
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query, Form
+from fastapi import APIRouter, HTTPException, Query, Form, UploadFile, File
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessageChunk, ToolMessage, filter_messages, BaseMessage, HumanMessage, AIMessage
 from langchain_postgres import PostgresChatMessageHistory
@@ -14,10 +14,14 @@ from uuid_extensions import uuid7
 from app.crud import chat as chat_crud
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatSessionUpdate, ChatSessionPublic
+from app.schemas.file import StoredFileInfo
 from app.api.sse_base import SSEMessage, EventType
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.utils.security import UserDep
+from app.utils.file.file_storage import file_storage
+from app.utils.file.file_validator import file_validator
+from app.utils.multimodal_builder import build_multimodal_message
 from llm.prebuild.chains import conclude_chain
 from llm.prebuild.simple_agent import simple_agent
 
@@ -40,18 +44,47 @@ async def get_chats_sessions(
     return chats
 
 
-@router.post('/completions', description='流式生成对话')
+@router.post('/completions', description='流式生成对话（支持多模态输入）')
 async def chat_completions(
-    message: Annotated[str, Form()], session_id: Annotated[str, Form()], session: SessionDep, current_user: UserDep
+    session: SessionDep,
+    current_user: UserDep,
+    message: Annotated[str, Form(description='用户消息')],
+    session_id: Annotated[str, Form(description='会话ID')],
+    files: List[UploadFile] = File(default=[], description='要处理的文件列表'),
 ):
-    if not message:
-        raise HTTPException(status_code=400, detail='消息不能为空')
+    """
+    流式生成多模态聊天响应
+    支持纯文本、图片、文档等多种输入类型
+    """
+    # 验证session_id
+    if not session_id:
+        raise HTTPException(status_code=400, detail='会话ID不能为空')
 
-    logger.info(f'用户 {current_user.username} 发起聊天请求')
+    # 处理上传的文件
+    stored_files = []
+
+    for upload_file in files:
+        try:
+            # 验证文件安全性
+            is_valid, error_msg, validated_info = await file_validator.validate_upload_file(upload_file)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=error_msg)
+
+            # 保存文件
+            stored_info = await file_storage.save_file(upload_file, current_user.id, validated_info)
+            stored_files.append(stored_info)
+
+            logger.info(f'用户 {current_user.username} 上传并处理文件: {upload_file.filename}')
+
+        except Exception as e:
+            logger.error(f'处理上传文件失败 {upload_file.filename}: {str(e)}')
+            raise HTTPException(status_code=400, detail=f'处理文件失败: {upload_file.filename}')
+
+    logger.info(f'用户 {current_user.username} 发起聊天请求，文件数量: {len(stored_files)}')
 
     # 流式响应
     return StreamingResponse(
-        generate_chat_stream(message, session_id, session),
+        generate_chat_stream(message, stored_files, session_id, session),
         media_type='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
@@ -90,8 +123,9 @@ async def get_history(session_id: str, current_user: UserDep):
         await conn.close()
 
 
-async def generate_chat_stream(message: str, session_id: Optional[str], session: Session) -> AsyncGenerator[str, None]:
-    """生成流式聊天响应"""
+async def generate_chat_stream(
+    text_message: str, stored_files: List[StoredFileInfo], session_id: Optional[str], session: Session
+) -> AsyncGenerator[str, None]:
     msg_db = get_settings().persistent.CHECKPOINT_URL
     conn = await psycopg.AsyncConnection.connect(msg_db)
     try:
@@ -108,6 +142,12 @@ async def generate_chat_stream(message: str, session_id: Optional[str], session:
 
             yield SSEMessage(event=EventType.GENERATING, data={'message': '模型加载完成，开始生成响应...'}).to_sse()
 
+            # 构建多模态消息内容
+            if stored_files:
+                human_message = await build_multimodal_message(text_message, stored_files)
+            else:
+                human_message = HumanMessage(content=text_message)
+
             # 流式生成响应
             temp_response = ''
             final_response = ''
@@ -115,7 +155,7 @@ async def generate_chat_stream(message: str, session_id: Optional[str], session:
             tool_call_id = ''
             is_tool_call = False
             async for stream_mode, chunk in agent.astream(
-                {'messages': [*messages, ('human', message)]}, stream_mode=['messages', 'custom']
+                {'messages': [*messages, human_message]}, stream_mode=['messages', 'custom']
             ):
                 match stream_mode:
                     case 'messages':
@@ -171,13 +211,15 @@ async def generate_chat_stream(message: str, session_id: Optional[str], session:
 
             chat_update = ChatSessionUpdate(uid=session_id, update_time=datetime.now(UTC))
             if len(messages) < 6:
+                # 仅保留文本消息
+                simple_message = text_message
                 conclude_response = await conclude_chain().ainvoke(
-                    {'history': [('human', message), ('ai', final_response)]}
+                    {'history': [('human', simple_message), ('ai', final_response)]}
                 )
                 chat_update.description = conclude_response.content
             chat_crud.update(session, chat_update)
 
-            await history.aadd_messages([HumanMessage(content=message), AIMessage(content=final_response)])
+            await history.aadd_messages([HumanMessage(content=text_message), AIMessage(content=final_response)])
 
         except Exception as e:
             logger.exception(f'生成聊天响应时发生错误: {str(e)}')
