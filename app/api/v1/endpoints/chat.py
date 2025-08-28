@@ -71,7 +71,7 @@ async def chat_completions(
                 raise HTTPException(status_code=400, detail=error_msg)
 
             # 保存文件
-            stored_info = await file_storage.save_file(upload_file, current_user.id, validated_info)
+            stored_info = await file_storage.save_file(upload_file, current_user.username, validated_info)
             stored_files.append(stored_info)
 
             logger.info(f'用户 {current_user.username} 上传并处理文件: {upload_file.filename}')
@@ -210,16 +210,20 @@ async def generate_chat_stream(
                         pass
 
             chat_update = ChatSessionUpdate(uid=session_id, update_time=datetime.now(UTC))
-            if len(messages) < 6:
-                # 仅保留文本消息
-                simple_message = text_message
-                conclude_response = await conclude_chain().ainvoke(
-                    {'history': [('human', simple_message), ('ai', final_response)]}
+
+            update_messages = []
+            if stored_files:
+                update_messages.append(
+                    HumanMessage(content=f'I upload files at: {",".join([f.file_path for f in stored_files])}')
                 )
+            update_messages.extend([HumanMessage(content=text_message), AIMessage(content=final_response)])
+
+            if len(messages) <= 4:
+                conclude_response = await conclude_chain().ainvoke({'history': [*messages, *update_messages]})
                 chat_update.description = conclude_response.content
             chat_crud.update(session, chat_update)
 
-            await history.aadd_messages([HumanMessage(content=text_message), AIMessage(content=final_response)])
+            await history.aadd_messages(update_messages)
 
         except Exception as e:
             logger.exception(f'生成聊天响应时发生错误: {str(e)}')

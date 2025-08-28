@@ -20,13 +20,13 @@ class FileStorageService:
         self.storage_base = Path(storage_base_path or self.settings.persistent.api_storage.UPLOAD_DIR)
 
     async def save_file(
-        self, upload_file: UploadFile, user_id: int, validated_info: ValidatedFileInfo
+        self, upload_file: UploadFile, user_name: str, validated_info: ValidatedFileInfo
     ) -> StoredFileInfo:
         """Save the verified file
 
         Args:
             upload_file: FastAPI UploadFile object
-            user_id: User ID
+            user_name: User name
             validated_info: Verified File Information
 
         Returns:
@@ -34,8 +34,8 @@ class FileStorageService:
         """
 
         file_id = str(uuid7())
-        date_path = datetime.now(UTC).strftime('%Y/%m/%d')
-        target_dir = self.storage_base / str(user_id) / date_path
+        date_path = datetime.now(UTC).strftime('%Y-%m-%d')
+        target_dir = self.storage_base / user_name / date_path
         target_dir.mkdir(parents=True, exist_ok=True)
 
         file_path = target_dir / f'{file_id}{validated_info.file_extension}'
