@@ -45,21 +45,26 @@ broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/0"
 
 [llm.gemini]
+provider = ""
 base_url = ""
 api_key = ""
 
 [llm.gpt]
+provider = ""
 base_url = ""
 api_key = ""
 
 [llm.claude]
+provider = ""
 base_url = ""
 api_key = ""
 
 [llm.deepseek]
+provider = ""
 base_url = ""
 api_key = ""
 
 [llm.vllm]
+provider = ""
 base_url = ""
 api_key = ""
