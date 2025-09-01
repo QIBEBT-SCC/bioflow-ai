@@ -83,6 +83,12 @@ class LLMApiConfig(BaseModel):
     API_KEY: SecretStr = ''
 
 
+class LLMToolConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    JINA_API: SecretStr = ''
+
+
 class LLMConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
@@ -91,6 +97,8 @@ class LLMConfig(BaseModel):
     CLAUDE: LLMApiConfig = LLMApiConfig()
     DEEPSEEK: LLMApiConfig = LLMApiConfig()
     VLLM: LLMApiConfig = LLMApiConfig()
+
+    tools: LLMToolConfig = LLMToolConfig()
 
 
 class CeleryConfig(BaseModel):

@@ -68,3 +68,6 @@ api_key = ""
 provider = ""
 base_url = ""
 api_key = ""
+
+[llm.tools]
+jina_api = ""
