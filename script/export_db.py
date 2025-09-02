@@ -27,7 +27,7 @@ def export_tags():
 
 def export_groups():
     with Session(engine) as session:
-        groups: list[ToolGroup] = group_crud.get_all(session, 80, 0)
+        groups: list[ToolGroup] = group_crud.get_all(session)
 
     json_data = []
     for group in groups:
@@ -110,6 +110,6 @@ def export_tools():
 if __name__ == '__main__':
     export_tags()
     export_groups()
-    export_images()
-    export_docs()
-    export_tools()
+    # export_images()
+    # export_docs()
+    # export_tools()

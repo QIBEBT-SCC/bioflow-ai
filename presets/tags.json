@@ -13,38 +13,74 @@
   },
   {
     "id": 4,
-    "name": "QC"
+    "name": "Data Handling & QC"
   },
   {
     "id": 5,
-    "name": "Alignment"
+    "name": "Core Sequence Analysis"
   },
   {
     "id": 6,
-    "name": "Assembly"
+    "name": "Downstream Interpretation"
   },
   {
     "id": 7,
-    "name": "Taxonomy"
+    "name": "Specialized Analyses"
   },
   {
     "id": 8,
-    "name": "Annotation"
+    "name": "Visualization"
   },
   {
     "id": 9,
-    "name": "Quantification"
+    "name": "Reporting"
   },
   {
     "id": 10,
-    "name": "Differentials"
+    "name": "Data Manipulation"
   },
   {
     "id": 11,
-    "name": "Enrichment"
+    "name": "Quality Control"
   },
   {
     "id": 12,
-    "name": "Visualization"
+    "name": "Alignment & Mapping"
+  },
+  {
+    "id": 13,
+    "name": "Assembly & Polishing"
+  },
+  {
+    "id": 14,
+    "name": "Variant Calling"
+  },
+  {
+    "id": 15,
+    "name": "Annotation "
+  },
+  {
+    "id": 16,
+    "name": "Quantification"
+  },
+  {
+    "id": 17,
+    "name": "Differential Expression"
+  },
+  {
+    "id": 18,
+    "name": "Functional Enrichment"
+  },
+  {
+    "id": 19,
+    "name": "Single-cell"
+  },
+  {
+    "id": 20,
+    "name": "Metagenomics"
+  },
+  {
+    "id": 21,
+    "name": "Phylogenetics"
   }
 ]
