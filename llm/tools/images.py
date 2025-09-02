@@ -63,12 +63,7 @@ class SearchImage(BaseTool):
     args_schema: Optional[ArgsSchema] = SearchImageInput
     return_direct: bool = False
 
-    def _run(
-        self,
-        tool_name: str,
-        origin_text: str,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) ->str:
+    def _run(self, tool_name: str, origin_text: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         # 从项目专有镜像库中搜索
         if check_repository_tags('aye1032', tool_name.lower()) == 200:
             tags = get_repository_tags('aye1032', tool_name.lower())
@@ -107,12 +102,8 @@ class SearchImage(BaseTool):
             return f'Found pullable tool docker image: `{latest_image}`'
 
     async def _arun(
-        self,
-        tool_name: str,
-        origin_text: str,
-        tool_call_id: str,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    )->str:
+        self, tool_name: str, origin_text: str, run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         # 从项目专有镜像库中搜索
         status_code = await acheck_repository_tags('aye1032', tool_name.lower())
         if status_code == 200:
