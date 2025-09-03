@@ -1,36 +1,33 @@
 from typing import Annotated, Literal, Optional
 
-from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, RemoveMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.graph import CurveStyle
-from langchain_core.tools import tool, InjectedToolCallId
+from langchain_core.tools import tool
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent, InjectedState
-from langgraph.types import Command
-
+from langgraph.types import interrupt
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
+import app.crud.tools.image as image_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine
-from app.crud.tools import image as image_crud
+from llm.reproduction.search_info_agent import SearchInfoAgent
+from llm.tools.deepwiki import load_deepwiki_tools
 from llm.utils.formatters import handle_formatter
 from llm.generate_tool_config import tool_generator, ToolConfigSchema
 from llm.models import qwen3_embedding, gemini_25_flash, gpt_41_mini
-from llm.states import (
-    CreateToolState,
-    CreateToolOutput,
-    SearchImageState,
-    GetDocState,
-    TestRunState,
-    SelectGroupState,
-)
-from llm.tools.container import run_command, build_container, run_command_in_container, stop_and_rm_container
+from llm.states import CreateToolState, CreateToolOutput, SearchImageState, GetDocState, SelectGroupState
+from llm.tools.container import run_command
 from llm.tools.database import (
     search_local_image,
     pull_and_save_image,
@@ -39,14 +36,14 @@ from llm.tools.database import (
     save_doc,
     view_groups,
     add_group,
-    search_biodb,
+    select_image,
+    select_doc,
+    select_group,
 )
 from llm.tools.human import ask_human
 from llm.tools.images import search_image
-from llm.tools.testdata import view_testdata
-from llm.tools.web_search import google_search
 from app.models.tools import ToolType, ToolDefine
-from app.schemas.tools import ToolNodePublic
+from app.schemas.tools import ToolNodePublic, ImageUpdate
 
 SELECT_IMAGE_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, analysis data, etc., into individual nodes. Now, what we need to do is encapsulate a new node.
@@ -86,59 +83,24 @@ When there is no corresponding help document in the database, you need to try ru
 </RunCommand>
 """
 
+GENERATE_COMMAND_SYS = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
+This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
+To achieve this, you first need to generate an actual command to be used as a reference for node construction.
+
+Your command construction needs to take into account the user's original requirements and be built according to the actual help documentation of the tool.
+"""
+
 GET_REPORT_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
 To achieve this, your task is to **obtain the output structure of the corresponding tool** as the basis for encapsulation.
 
 <ToolCalling>
-Actually, the input files required by the tool can be clearly seen from its help documentation. However, the node also needs to know the specific output files of the tool to construct output handles. To achieve this, you can use the following tools:
-- We have some predefined test data. If the required input file (type) for the tool exists in the test data, you can directly call the `test_run` tool to run the tool and see what the output looks like.
-- If the required data is not available in the test data, call the `google_search` tool to search online for information about the tool's output.
+To accurately understand the output and other relevant information produced by a tool's commands, we provide you with a series of tools. 
+They can read GitHub repositories and ask questions, returning the desired information. 
+Make full use of these tools to get all the information needed for your report.
 </ToolCalling>
-"""
-
-TEST_RUN_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
-To achieve this, your current task is to attempt to run actual commands within a container based on existing information, and **provide a tool execution report** based on the results, offering the necessary information for node encapsulation.
-
-
-<ThinkingProcess>
-To achieve your goal, you can follow these steps:
-1. First, according to the tool's documentation, determine if an additional database is required. If so, call the `search_biodb` tool to find the addresses of available databases.
-2. Call the `build_container` tool to create a container for testing. By default, the test data has been mounted into the container; you can add other mounts as needed.
-    - Since this is just a test run, the tool's output does not need to be mapped out; just mount the necessary external files.
-3. Call `run_command_in_container` to execute commands within the container and obtain the tool's output.
-    - It is recommended to use `ls -la` to view the output files generated by the tool.
-    - If the output is too long, the content will not be displayed directly. You can call the `view_output` tool to view part of the output.
-4. When the requirements have been run, call the `stop_and_rm_container` tool to delete the temporary container.
-5. Based on the feedback during the tool's operation, provide a report.
-
-If you encounter any unresolvable issues at any point, you can call the `ask_human` tool to ask for human assistance.
-</ThinkingProcess>
 
 <OutputFormat>
-Once you have completed all analyses and gathered all the required information, you must stop calling tools and produce a **Final Report**. This report must strictly adhere to the following text format, without any JSON, code blocks, or other extraneous explanatory text.
-
-```text
-**Tool Analysis Report**
-1.  **Does it require a database?**
-      * [Yes/No].
-
-2.  **Output File Composition Analysis:**
-      * /path/to/file_A: [Input for subsequent analysis/Report file/Temporary file/Unknown] - [Briefly describe the file's purpose.]
-      * /path/to/file_B: [Input for subsequent analysis/Report file/Temporary file/Unknown] - [Briefly describe the file's purpose.]
-      * ...
-
-3.  **Does it require manual creation of the output folder?**
-      * [Yes/No].
-
-4.  **Is a log file generated automatically?**
-      * [Yes/No].
-```
-</OutputFormat>
-"""
-
-REPORT_STRUCTURE = """<OutputFormat>
 Once you have completed all analyses and gathered all the required information, you must stop calling tools and produce a **Final Report**. This report must strictly adhere to the following text format, without any JSON, code blocks, or other extraneous explanatory text.
 
 ```text
@@ -179,11 +141,8 @@ To complete this task, you can follow these steps:
 
 class CreateToolAgent:
     def __init__(self):
-        self.struct_llm = gpt_41_mini()
-        self.think_llm = gemini_25_flash()
-
-        # tool
-        self.web_search_tool = google_search
+        self.struct_llm = gpt_41_mini(0.2)
+        self.think_llm = gemini_25_flash(0.2)
 
         # sub agents
         self.search_image_agent = create_react_agent(
@@ -198,19 +157,6 @@ class CreateToolAgent:
             prompt=GET_DOC_SYSTEM,
             state_schema=GetDocState,
         )
-        self.test_run_agent = create_react_agent(
-            model=self.think_llm,
-            tools=[
-                search_biodb,
-                build_container,
-                run_command_in_container,
-                view_output,
-                stop_and_rm_container,
-                ask_human,
-            ],
-            prompt=TEST_RUN_SYSTEM,
-            state_schema=TestRunState,
-        )
         self.select_group_agent = create_react_agent(
             model=self.think_llm,
             tools=[view_groups, add_group, select_group],
@@ -218,130 +164,164 @@ class CreateToolAgent:
             state_schema=SelectGroupState,
         )
 
-    def select_image_node(self, state: CreateToolState):
+    async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
+        if state.image_uid:
+            # 如果提供了镜像，检查是否有GitHub链接
+            writer = get_stream_writer()
+            writer({'info': 'Searching for github link...'})
+
+            with Session(engine) as session:
+                tool_image = image_crud.get(session, str(state.image_uid))
+                if not tool_image.homepage:
+                    web_search_agent = SearchInfoAgent().build()
+                    result = await web_search_agent.ainvoke(
+                        {'messages': [('human', f'Search github and paper link for tool "{tool_image.name}"')]}
+                    )
+                    image_update = ImageUpdate(
+                        uid=str(state.image_uid),
+                        homepage=result['final_response'].github_url,
+                        paper_link=result['final_response'].paper_url,
+                    )
+                    tool_image = image_crud.update(session, image_update)
+
+                return {'image': tool_image.image, 'github_url': tool_image.homepage}
+
+        writer = get_stream_writer()
+        writer({'info': 'Searching for docker image...'})
+
         search_input = SearchImageState(messages=state.messages)
-        response = self.search_image_agent.invoke(search_input)
+        response = await self.search_image_agent.ainvoke(search_input)
 
-        return {'image_id': response['image_id'], 'image': response['image']}
+        return {'image_uid': response['image_uid'], 'image': response['image'], 'github_url': response['github_url']}
 
-    def get_doc_node(self, state: CreateToolState):
+    async def get_doc_node(self, state: CreateToolState):
         """然后尝试获取指令对应的帮助文档"""
-        doc_input = GetDocState(messages=state.messages, image_id=state.image_id, image=state.image)
-        response = self.get_doc_agent.invoke(doc_input)
+        writer = get_stream_writer()
+        writer({'info': "Searching for tool's help document..."})
+
+        doc_input = GetDocState(messages=state.messages, image_uid=state.image_uid, image=state.image)
+        response = await self.get_doc_agent.ainvoke(doc_input)
 
         with Session(engine) as session:
-            doc = doc_crud.get(session, response['doc_id'])
+            doc = doc_crud.get(session, str(response['doc_uid']))
 
         return {
             'messages': [
                 ('ai', 'First I need the help documentation for this tool'),
                 ('human', f'The following is the help documentation: \n\n{doc.content}'),
             ],
-            'doc_id': response['doc_id'],
+            'doc_uid': response['doc_uid'],
             'doc': doc.content,
         }
 
-    def get_output_report_node(self, state: CreateToolState):
-        """接下来尝试获取工具的输出结果（因为文档通常不会说输出是什么）"""
-        prompt = ChatPromptTemplate(
-            messages=[
-                SystemMessage(content=GET_REPORT_SYSTEM),
-                MessagesPlaceholder(variable_name='history'),
-                ('ai', 'Now let me see what test data is available'),
-                ('human', '{test_date_desc}'),
-            ]
-        )
-        llm = self.think_llm.bind_tools([test_run, google_search], tool_choice='any')  # 这里只允许二选一调用
-        chain = prompt | llm
+    async def generate_command_node(self, state: CreateToolState):
+        """获取到帮助文档之后，就可以生成用于参考的命令"""
+        writer = get_stream_writer()
+        writer({'info': 'Generating example command...'})
 
-        response = chain.invoke({'history': state.messages, 'test_date_desc': view_testdata()})
-        return {'messages': [response]}
+        class CommandStructure(BaseModel):
+            command: str = Field(
+                description='Reference commands generated based on requirements and help documentation'
+            )
+
+        prompt = ChatPromptTemplate(
+            messages=[SystemMessage(content=GENERATE_COMMAND_SYS), MessagesPlaceholder(variable_name='history')]
+        )
+        chain = prompt | self.think_llm.with_structured_output(CommandStructure)
+        response = await chain.ainvoke({'history': state.messages})
+
+        return {
+            'messages': [
+                ('ai', 'Great, it would be even better if you could give me an actual command for reference.'),
+                ('human', response.command),
+            ],
+            'command': response.command,
+        }
 
     @staticmethod
-    def how_to_get_output(state: CreateToolState) -> Literal['test_run_node', 'web_search_node']:
-        last_message = state.messages[-1]
-        assert isinstance(last_message, AIMessage)
-        tool_call = last_message.tool_calls[0]
+    def how_to_get_output(state: CreateToolState) -> Literal['get_output_report_node', 'web_search_node']:
+        if state.github_url:
+            return 'get_output_report_node'
+        return 'web_search_node'
 
-        match tool_call['name']:
-            case 'test_run':
-                return 'test_run_node'
-            case 'google_search':
-                return 'web_search_node'
-            case _:
-                # 由于上面的工具调用定义，实际上不会到这里
-                raise
+    async def get_output_report_node(self, state: CreateToolState):
+        """尝试获取工具的输出结果（使用deepwiki）"""
+        writer = get_stream_writer()
+        writer({'info': 'Getting more information through deepwiki...'})
 
-    def test_run_node(self, state: CreateToolState):
-        """如果测试数据可用，则直接测试运行"""
-        test_run_input = TestRunState(
-            messages=[
-                *state.messages[:-1],
-                AIMessage(content='Now let me see what test data is available'),
-                HumanMessage(
-                    content=f'{view_testdata()}\n\nThey are mounted under the `/data/testdata` directory in the container.'
-                ),
-            ],
-            image=state.image,
+        deepwiki_tools = await load_deepwiki_tools()
+        agent = create_react_agent(self.think_llm, deepwiki_tools, prompt=GET_REPORT_SYSTEM)
+
+        response = await agent.ainvoke(
+            {
+                'messages': [
+                    HumanMessage(
+                        content=f'The tool command to be analyzed is: `{state.command}`, the github repo of tool is {state.github_url}'
+                    )
+                ]
+            }
         )
-        report = self.test_run_agent.invoke(test_run_input)
-
         return {
             'messages': [
-                RemoveMessage(id=state.messages[-1].id),
-                ('ai', 'Now I need to know the output structure of this tool'),
-                ('human', report['messages'][-1].content),
+                (
+                    'ai',
+                    'Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
+                ),
+                ('human', response['messages'][-1].content),
             ]
         }
 
-    def web_search_node(self, state: CreateToolState):
+    async def web_search_node(self, state: CreateToolState):
         """没有现成的测试数据，联网搜索"""
-        last_message = state.messages[-1]
-        assert isinstance(last_message, AIMessage)
-        tool_call = last_message.tool_calls[0]
+        writer = get_stream_writer()
+        writer({'info': 'Getting more information by web search...'})
 
-        report = self.web_search_tool.invoke({'query': f'{tool_call["args"]["query"]}\n\n{REPORT_STRUCTURE}'})
+        # TODO 先中断，后面再补
+        answer = interrupt(state.messages[-1].content)
+        return f'Human feedback is: "{answer}"'
 
-        return {
-            'messages': [
-                RemoveMessage(id=state.messages[-1].id),
-                ('ai', 'Now I need to know the output structure of this tool'),
-                ('human', report),
-            ]
-        }
-
-    def choose_group_node(self, state: CreateToolState):
+    async def choose_group_node(self, state: CreateToolState):
         """最后一步，为工具选择分组"""
+        writer = get_stream_writer()
+        writer({'info': 'Assigning groups to tools...'})
+
         group_choose_input = SelectGroupState(messages=state.messages)
-        response = self.select_group_agent.invoke(group_choose_input)
+        response = await self.select_group_agent.ainvoke(group_choose_input)
 
         # 不更新消息
         return {'group_id': response['group_id']}
 
-    def generate_tool_node(self, state: CreateToolState):
-        result: ToolConfigSchema = tool_generator().invoke({'history': state.messages})
+    async def generate_tool_node(self, state: CreateToolState, config: RunnableConfig):
+        """生成工具配置"""
+        writer = get_stream_writer()
+        writer({'info': 'Generating tool config...'})
+
+        result: ToolConfigSchema = await tool_generator().ainvoke({'history': state.messages})
 
         with Session(engine) as session:
             group = group_crud.get(session, state.group_id)
             assert group is not None
 
-            if state.checked:
+            if state.github_url:
                 tag = tag_crud.get_by_name(session, 'AI Checked')
             else:
                 tag = tag_crud.get_by_name(session, 'AI Unchecked')
 
             result_data = result.model_dump(exclude={'dynamic_params', 'file_mounts'})
             tool_data = ToolDefine(
-                image_id=state.image_id,
+                image_uid=state.image_uid,
                 tool_type=ToolType.DOCKER,
                 group_id=group.id,
                 tags=[group.tag, tag],
-                help_doc_id=state.doc_id,
+                help_doc_uid=state.doc_uid,
                 dynamic_params=result.dynamic_params,
                 file_mounts=result.file_mounts,
                 **result_data,
             )
+
+            if not config['configurable'].get('auto_save'):
+                return {'json_response': tool_data.model_dump()}
 
             # 添加描述的向量索引
             embedding_model = qwen3_embedding()
@@ -378,129 +358,39 @@ class CreateToolAgent:
             ]
         }
 
-    def build(self, memory: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
+    def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(CreateToolState, output_schema=CreateToolOutput)
 
         graph.add_node('select_image_node', self.select_image_node)
         graph.add_node('get_doc_node', self.get_doc_node)
+        graph.add_node('generate_command_node', self.generate_command_node)
         graph.add_node('get_output_report_node', self.get_output_report_node)
-        graph.add_node('test_run_node', self.test_run_node)
         graph.add_node('web_search_node', self.web_search_node)
         graph.add_node('choose_group_node', self.choose_group_node)
         graph.add_node('generate_tool_node', self.generate_tool_node)
 
         graph.set_entry_point('select_image_node')
         graph.add_edge('select_image_node', 'get_doc_node')
-        graph.add_edge('get_doc_node', 'get_output_report_node')
-        graph.add_conditional_edges('get_output_report_node', self.how_to_get_output)
-        graph.add_edge('test_run_node', 'choose_group_node')
+        graph.add_edge('get_doc_node', 'generate_command_node')
+        graph.add_conditional_edges('generate_command_node', self.how_to_get_output)
+        graph.add_edge('get_output_report_node', 'choose_group_node')
         graph.add_edge('web_search_node', 'choose_group_node')
         graph.add_edge('choose_group_node', 'generate_tool_node')
         graph.add_edge('generate_tool_node', END)
 
         if memory is not None:
-            return graph.compile(checkpointer=memory)
-        return graph.compile()
+            compiled_graph = graph.compile(checkpointer=memory)
+        else:
+            compiled_graph = graph.compile()
 
-    def visualize(self):
-        graph = StateGraph(CreateToolState)
+        if visualize:
+            mermaid_code = compiled_graph.get_graph().draw_mermaid(
+                curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
+            )
+            with open('images/create_tool_agent.md', 'w') as f:
+                f.write(f'```mermaid\n{mermaid_code}\n```')
 
-        graph.add_node('select_image_node', self.search_image_agent)
-        graph.add_node('get_doc_node', self.get_doc_agent)
-        graph.add_node('get_output_report_node', self.get_output_report_node)
-        graph.add_node('test_run_node', self.test_run_agent)
-        graph.add_node('web_search_node', self.web_search_node)
-        graph.add_node('choose_group_node', self.select_group_agent)
-        graph.add_node('generate_tool_node', self.generate_tool_node)
-
-        graph.set_entry_point('select_image_node')
-        graph.add_edge('select_image_node', 'get_doc_node')
-        graph.add_edge('get_doc_node', 'get_output_report_node')
-        graph.add_conditional_edges('get_output_report_node', self.how_to_get_output)
-        graph.add_edge('test_run_node', 'choose_group_node')
-        graph.add_edge('web_search_node', 'choose_group_node')
-        graph.add_edge('choose_group_node', 'generate_tool_node')
-        graph.add_edge('generate_tool_node', END)
-
-        compiled_graph = graph.compile()
-
-        mermaid_code = compiled_graph.get_graph(xray=1).draw_mermaid(
-            curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
-        )
-        with open('images/create_tool_agent.md', 'w') as f:
-            f.write(f'```mermaid\n{mermaid_code}\n```')
-
-
-@tool
-def select_image(image_id: int, tool_call_id: Annotated[str, InjectedToolCallId]):
-    """Select existing image in the database
-
-    Args:
-        image_id: selected image id
-    """
-    with Session(engine) as session:
-        tool_image = image_crud.get(session, image_id)
-
-    return Command(
-        update={
-            'image_id': image_id,
-            'image': tool_image.image,
-            'messages': [
-                ToolMessage(
-                    content='Available mirrors have been set up, and the next step can begin.',
-                    tool_call_id=tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool
-def select_doc(doc_id: int, tool_call_id: Annotated[str, InjectedToolCallId]):
-    """Select existing help document in the database
-
-    Args:
-        doc_id: selected doc id
-    """
-
-    return Command(
-        update={
-            'doc_id': doc_id,
-            'messages': [
-                ToolMessage(
-                    content='The corresponding help document has been found, you can proceed to the next step.',
-                    tool_call_id=tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool
-def select_group(group_id: int, tool_call_id: Annotated[str, InjectedToolCallId]):
-    """Select the corresponding group for the tool
-
-    Args:
-        group_id: selected group id
-    """
-
-    return Command(
-        update={
-            'group_id': group_id,
-            'messages': [
-                ToolMessage(
-                    content='The corresponding help document has been found, you can proceed to the next step.',
-                    tool_call_id=tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool
-def test_run():
-    """Conduct a trial run with appropriate test data"""
-    return
+        return compiled_graph
 
 
 @tool
