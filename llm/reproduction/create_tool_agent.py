@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.graph import CurveStyle
 from langchain_core.tools import tool
+from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import END
@@ -12,6 +13,8 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent, InjectedState
 from langgraph.types import interrupt
+from mcp import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -22,7 +25,6 @@ import app.crud.tools.tool_tag as tag_crud
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine
 from llm.reproduction.search_info_agent import SearchInfoAgent
-from llm.tools.deepwiki import load_deepwiki_tools
 from llm.utils.formatters import handle_formatter
 from llm.generate_tool_config import tool_generator, ToolConfigSchema
 from llm.models import qwen3_embedding, gemini_25_flash, gpt_41_mini
@@ -250,18 +252,23 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Getting more information through deepwiki...'})
 
-        deepwiki_tools = await load_deepwiki_tools()
-        agent = create_react_agent(self.think_llm, deepwiki_tools, prompt=GET_REPORT_SYSTEM)
+        async with streamablehttp_client('https://mcp.deepwiki.com/mcp') as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
 
-        response = await agent.ainvoke(
-            {
-                'messages': [
-                    HumanMessage(
-                        content=f'The tool command to be analyzed is: `{state.command}`, the github repo of tool is {state.github_url}'
-                    )
-                ]
-            }
-        )
+                tools = await load_mcp_tools(session)
+                agent = create_react_agent(self.think_llm, tools, prompt=GET_REPORT_SYSTEM)
+
+                response = await agent.ainvoke(
+                    {
+                        'messages': [
+                            HumanMessage(
+                                content=f'The tool command to be analyzed is: `{state.command}`, the github repo of tool is {state.github_url}'
+                            )
+                        ]
+                    }
+                )
+
         return {
             'messages': [
                 (
