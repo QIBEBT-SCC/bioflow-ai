@@ -1,49 +1,70 @@
+import uuid
 from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
-from uuid_extensions import uuid7
 
 from app.models.tools import ToolTag, ToolImage, ToolDefine, ToolType, ParamDefine, FileMount, ToolHelpDoc
 from app.utils.input_format import build_command_template
 
 
-class AIGenProp(BaseModel):
+class ToolGroupPublic(BaseModel):
+    """工具分组公开信息，包含工具数量"""
+
+    id: int
     name: str
-    description: str
+    parent_id: Optional[int]
+    tag_id: Optional[int]
+    tool_count: int
+
+
+class ImageUpdate(BaseModel):
+    uid: str
+    description: Optional[str] = None
+    homepage: Optional[str] = None
+    paper_link: Optional[str] = None
+
+
+class SimpleToolDoc(BaseModel):
+    uid: str
     help_command: str
 
-    repository: str
-    tag: str = 'latest'
+
+class AiGenRequest(BaseModel):
+    name: str
+    description: str
+
+    image_uid: str
+
+    help_doc_uid: Optional[str]
+    help_command: str
 
 
 class DockerToolCreate(BaseModel):
     """创建Docker工具的请求模型"""
 
     name: str
-    image_id: int
+    image_uid: uuid.UUID
     description: str
+    help_doc_uid: uuid.UUID
+
     group_id: int
     tags: list[ToolTag]
 
-    help_doc_id: int
     command_template: str
     dynamic_params: list[ParamDefine]
     static_params: str
     file_mounts: list[FileMount]
-
     mkdir_output: bool = True
     use_temp_dir: bool = False
 
     def to_tool_data(self) -> ToolDefine:
-        tool_id = uuid7(as_type='str')
         return ToolDefine(
-            uid=str(tool_id),
             name=self.name,
-            image_id=self.image_id,
+            image_uid=self.image_uid,
             description=self.description,
             tool_type=ToolType.DOCKER,
             group_id=self.group_id,
-            help_doc_id=self.help_doc_id,
+            help_doc_uid=self.help_doc_uid,
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
             static_params=self.static_params,
@@ -55,7 +76,7 @@ class DockerToolCreate(BaseModel):
 
 
 class SimpleToolPublic(BaseModel):
-    id: int
+    uid: str
     name: str
     description: str
     tool_type: ToolType
@@ -67,7 +88,7 @@ class SimpleToolPublic(BaseModel):
 
 
 class ToolPublic(BaseModel):
-    id: int
+    uid: str
     name: str
     description: str
     tool_type: ToolType
@@ -104,7 +125,7 @@ class Handle(BaseModel):
 
 
 class ToolNodePublic(BaseModel):
-    id: int
+    uid: str
     name: str
     description: str
 
@@ -162,12 +183,3 @@ class ToolInfo4Task(BaseModel):
     description: str
 
     file_mounts: list[FileMount]
-
-
-class ToolGroupPublic(BaseModel):
-    """工具分组公开信息，包含工具数量"""
-    id: int
-    name: str
-    parent_id: Optional[int]
-    tag_id: Optional[int]
-    tool_count: int

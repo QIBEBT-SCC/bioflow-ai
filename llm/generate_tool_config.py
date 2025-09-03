@@ -160,16 +160,16 @@ For example, below is the definition of the assembly tool SPAdes for assembling 
 class ToolConfigSchema(BaseModel):
     """Complete tool node encapsulation definition"""
 
+    name: str = Field(description='Name of the tool node')
+    description: str = Field(description='The description of the task encapsulated by this node')
     file_mounts: list[FileMount] = Field(
         description='List of input files required by the tool and output files generated'
     )
+    command_template: str = Field(description='Template string of the command')
     dynamic_params: list[ParamDefine] = Field(
         description='Parameters related to dynamic files, file names, paths, etc.'
     )
     static_params: str = Field(description='Other parameters')
-    command_template: str = Field(description='Template string of the command')
-    name: str = Field(description='Name of the tool node')
-    description: str = Field(description='The description of the task encapsulated by this node')
     mkdir_output: bool = Field(description='Do you need to manually create the output folder?')
     use_temp_dir: bool = Field(description='Do you need to use a temporary folder?')
 

@@ -1,5 +1,6 @@
 import operator
-from typing import Annotated, Optional
+import uuid
+from typing import Annotated, Optional, Any
 
 from langchain_core.messages import BaseMessage
 from langgraph.prebuilt.chat_agent_executor import AgentStatePydantic
@@ -8,27 +9,28 @@ from pydantic import BaseModel, Field
 from app.models.tools import ImageConfig
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
+from llm.utils.uid_mapper import BidirectionalMapper
 
 
 # =====================create tool agent state==========================
 #
 class SearchImageState(AgentStatePydantic):
-    image_id: Optional[int] = None
+    id_mapper: Optional[BidirectionalMapper] = None
+
+    image_uid: Optional[uuid.UUID] = None
     image: Optional[ImageConfig] = None
+
+    github_url: Optional[str] = None
 
 
 class GetDocState(AgentStatePydantic):
-    image_id: Optional[int] = None
+    id_mapper: Optional[BidirectionalMapper] = None
+
+    image_uid: Optional[uuid.UUID] = None
     image: Optional[ImageConfig] = None
 
     last_output: Optional[str] = None
-    doc_id: Optional[int] = None
-
-
-class TestRunState(AgentStatePydantic):
-    image: Optional[ImageConfig] = None
-    container_id: Optional[str] = None
-    last_output: Optional[str] = None
+    doc_uid: Optional[uuid.UUID] = None
 
 
 class SelectGroupState(AgentStatePydantic):
@@ -36,21 +38,25 @@ class SelectGroupState(AgentStatePydantic):
 
 
 class CreateToolState(AgentStatePydantic):
-    image_id: Optional[int] = None
+    image_uid: Optional[uuid.UUID] = None
     image: Optional[ImageConfig] = None
 
-    doc_id: Optional[int] = None
+    doc_uid: Optional[uuid.UUID] = None
     doc: Optional[str] = None
 
-    checked: bool = False
+    command: Optional[str] = None
+
+    github_url: Optional[str] = None
 
     group_id: Optional[int] = None
-    tool_id: Optional[int] = None
+    tool_uid: Optional[uuid.UUID] = None
+
+    json_response: dict[str, Any] = {}
 
 
 class CreateToolOutput(BaseModel):
     messages: list[BaseMessage]
-    tool_id: int
+    tool_uid: uuid.UUID
 
 
 # =====================reproduction agent state==========================

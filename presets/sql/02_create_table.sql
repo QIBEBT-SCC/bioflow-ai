@@ -113,27 +113,25 @@ CREATE TABLE IF NOT EXISTS sample_files
 -- 工具相关
 CREATE TABLE IF NOT EXISTS images
 (
-    id          SERIAL,
+    uid         uuid    NOT NULL,
     name        VARCHAR NOT NULL,
     version     VARCHAR,
     description VARCHAR,
     homepage    VARCHAR,
     paper_link  VARCHAR,
     image       jsonb,
-    PRIMARY KEY (id)
+    PRIMARY KEY (uid)
 );
 
 CREATE TABLE IF NOT EXISTS tool_docs
 (
-    id           SERIAL,
+    uid          uuid    NOT NULL,
     help_command VARCHAR NOT NULL,
     description  VARCHAR,
     content      VARCHAR NOT NULL,
-    image_id     INTEGER,
-    parent_id    INTEGER,
-    PRIMARY KEY (id),
-    FOREIGN KEY (image_id) REFERENCES images,
-    FOREIGN KEY (parent_id) REFERENCES tool_docs
+    image_uid    uuid,
+    PRIMARY KEY (uid),
+    FOREIGN KEY (image_uid) REFERENCES images
 );
 
 CREATE TABLE IF NOT EXISTS tool_tags
@@ -158,32 +156,32 @@ CREATE TABLE IF NOT EXISTS tool_groups
 CREATE TYPE tooltype AS ENUM ('DOCKER', 'COMMAND_LINE');
 CREATE TABLE IF NOT EXISTS tools
 (
-    id               SERIAL,
-    name             VARCHAR  NOT NULL,
-    image_id         INTEGER,
-    description      VARCHAR  NOT NULL,
-    des_vector       vector(1024),
-    tool_type        tooltype NOT NULL,
+    uid              uuid         NOT NULL,
+    name             VARCHAR      NOT NULL,
+    image_uid        uuid,
+    description      VARCHAR      NOT NULL,
+    des_vector       vector(1024) NOT NULL,
+    tool_type        tooltype     NOT NULL,
     group_id         INTEGER,
-    help_doc_id      INTEGER,
-    command_template VARCHAR  NOT NULL,
+    help_doc_uid     uuid,
+    command_template VARCHAR      NOT NULL,
     dynamic_params   jsonb,
-    static_params    VARCHAR  NOT NULL,
+    static_params    VARCHAR      NOT NULL,
     file_mounts      jsonb,
-    mkdir_output     BOOLEAN  NOT NULL,
-    use_temp_dir     BOOLEAN  NOT NULL,
-    PRIMARY KEY (id),
-    FOREIGN KEY (image_id) REFERENCES images,
+    mkdir_output     BOOLEAN      NOT NULL,
+    use_temp_dir     BOOLEAN      NOT NULL,
+    PRIMARY KEY (uid),
+    FOREIGN KEY (image_uid) REFERENCES images,
     FOREIGN KEY (group_id) REFERENCES tool_groups,
-    FOREIGN KEY (help_doc_id) REFERENCES tool_docs
+    FOREIGN KEY (help_doc_uid) REFERENCES tool_docs
 );
 
 CREATE TABLE IF NOT EXISTS tool_tag_link
 (
-    tool_id INTEGER NOT NULL,
-    tag_id  INTEGER NOT NULL,
-    PRIMARY KEY (tool_id, tag_id),
-    FOREIGN KEY (tool_id) REFERENCES tools,
+    tool_uid uuid    NOT NULL,
+    tag_id   INTEGER NOT NULL,
+    PRIMARY KEY (tool_uid, tag_id),
+    FOREIGN KEY (tool_uid) REFERENCES tools,
     FOREIGN KEY (tag_id) REFERENCES tool_tags
 );
 
@@ -222,7 +220,7 @@ CREATE TABLE IF NOT EXISTS task_instances
 (
     uid          uuid    NOT NULL,
     instance_uid uuid,
-    tool_id      INTEGER,
+    tool_uid     uuid    NOT NULL,
     owner_id     INTEGER NOT NULL,
     name         VARCHAR NOT NULL,
     commands     VARCHAR,
@@ -235,7 +233,7 @@ CREATE TABLE IF NOT EXISTS task_instances
     end_time     TIMESTAMP,
     PRIMARY KEY (uid),
     FOREIGN KEY (instance_uid) REFERENCES run_instances,
-    FOREIGN KEY (tool_id) REFERENCES tools,
+    FOREIGN KEY (tool_uid) REFERENCES tools,
     FOREIGN KEY (owner_id) REFERENCES users
 );
 

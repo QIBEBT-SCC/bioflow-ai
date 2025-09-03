@@ -36,21 +36,3 @@ def get_all_by_id(session: Session, ids: list[int]):
 def get_by_name(session: Session, name: str):
     query: Select = select(ToolTag).where(ToolTag.name == name)
     return session.exec(query).one_or_none()
-
-
-def ai_gen_tag(session: Session) -> ToolTag:
-    tag = get_by_name(session, 'AI Checked')
-    if tag:
-        return tag
-
-    new_tag = insert(session, ToolTag(name='AI Checked'))
-    return new_tag
-
-
-def ai_nocheck_tag(session: Session) -> ToolTag:
-    tag = get_by_name(session, 'AI no Checked')
-    if tag:
-        return tag
-
-    new_tag = insert(session, ToolTag(name='AI no Checked'))
-    return new_tag

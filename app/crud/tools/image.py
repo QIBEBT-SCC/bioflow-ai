@@ -4,6 +4,7 @@ from sqlalchemy import Select, func
 from sqlmodel import Session, select, col
 
 from app.models.tools import ToolImage
+from app.schemas.tools import ImageUpdate
 
 
 def insert(session: Session, image: ToolImage) -> ToolImage:
@@ -24,11 +25,25 @@ def insert_all(session: Session, images: list[ToolImage]):
     return images
 
 
-def delete(session: Session, image_id: int):
-    image = get(session, image_id)
+def delete(session: Session, image_uid: str):
+    image = get(session, image_uid)
     if image:
         session.delete(image)
         session.commit()
+
+
+def update(session: Session, image_update: ImageUpdate):
+    db_image = get(session, image_update.uid)
+    if not db_image:
+        raise ValueError(f'Image with uid {image_update.uid} not found')
+
+    update_data = image_update.model_dump(exclude_unset=True)
+    db_image.sqlmodel_update(update_data)
+
+    session.add(db_image)
+    session.commit()
+    session.refresh(db_image)
+    return db_image
 
 
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
@@ -44,10 +59,10 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
 
 
 def get_all(session: Session, limit: int, offset: int):
-    query: Select = select(ToolImage).order_by(col(ToolImage.id)).limit(limit).offset(offset)
+    query: Select = select(ToolImage).order_by(col(ToolImage.name)).limit(limit).offset(offset)
     return session.exec(query).all()
 
 
-def get(session: Session, image_id: int) -> Optional[ToolImage]:
-    query: Select = select(ToolImage).where(ToolImage.id == image_id)
+def get(session: Session, image_uid: str) -> Optional[ToolImage]:
+    query: Select = select(ToolImage).where(ToolImage.uid == image_uid)
     return session.exec(query).one_or_none()

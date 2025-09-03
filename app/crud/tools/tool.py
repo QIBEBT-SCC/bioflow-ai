@@ -24,28 +24,31 @@ def insert_all(session: Session, tools: list[ToolDefine]):
     return tools
 
 
-def delete(session: Session, tool_id: int):
-    tool = get(session, tool_id)
+def delete(session: Session, tool_uid: str):
+    tool = get(session, tool_uid)
     if tool:
         session.delete(tool)
         session.commit()
 
-def update(session:Session, tool: ToolDefine):
+
+def update(session: Session, tool: ToolDefine):
     session.add(tool)
     session.commit()
     session.refresh(tool)
 
     return tool
 
+
 def get_counts(session: Session):
     query: Select = select(func.count()).select_from(ToolDefine)
 
     return session.exec(query).one()
 
+
 def get_all(session: Session, limit: int, offset: int):
     query: Select = (
         select(ToolDefine)
-        .order_by(col(ToolDefine.id))
+        .order_by(col(ToolDefine.name))
         .options(selectinload(ToolDefine.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
@@ -54,10 +57,10 @@ def get_all(session: Session, limit: int, offset: int):
     return session.exec(query).all()
 
 
-def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, offset: int):
+def get_all_by_group(session: Session, group_id: Optional[int], limit: int, offset: int):
     query: Select = (
         select(ToolDefine)
-        .where(ToolDefine.group_id == parent_id)
+        .where(ToolDefine.group_id == group_id)
         .options(selectinload(ToolDefine.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
@@ -66,8 +69,8 @@ def get_all_by_group(session: Session, parent_id: Optional[int], limit: int, off
     return session.exec(query).all()
 
 
-def get_all_by_uid(session: Session, ids: list[int]):
-    query: Select = select(ToolDefine).where(col(ToolDefine.id).in_(ids))
+def get_all_by_uid(session: Session, uids: list[str]):
+    query: Select = select(ToolDefine).where(col(ToolDefine.uid).in_(uids))
     return session.exec(query).all()
 
 
@@ -84,6 +87,6 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     return session.exec(query).all()
 
 
-def get(session: Session, tool_id: int):
-    query: Select = select(ToolDefine).where(ToolDefine.id == tool_id)
+def get(session: Session, tool_uid: str):
+    query: Select = select(ToolDefine).where(ToolDefine.uid == tool_uid)
     return session.exec(query).one()

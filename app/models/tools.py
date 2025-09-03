@@ -1,6 +1,8 @@
+import uuid
 from enum import IntEnum
 from typing import Optional, Literal, Any
 
+import uuid_extensions
 from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel, Field as PField, ValidationError
 from sqlalchemy import Column
@@ -93,7 +95,7 @@ class ToolGroup(SQLModel, table=True):
 class ToolTagLink(SQLModel, table=True):
     __tablename__ = 'tool_tag_link'
 
-    tool_id: int = Field(foreign_key='tools.id', primary_key=True)
+    tool_uid: uuid.UUID = Field(foreign_key='tools.uid', primary_key=True)
     tag_id: int = Field(foreign_key='tool_tags.id', primary_key=True)
 
 
@@ -110,13 +112,13 @@ class ToolTag(SQLModel, table=True):
 class ToolImage(SQLModel, table=True):
     __tablename__ = 'images'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
     version: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     homepage: Optional[str] = Field(default=None)
     paper_link: Optional[str] = Field(default=None)
-    image: Optional[ImageConfig] = Field(sa_column=Column(PydanticJson(ImageConfig)))
+    image: ImageConfig = Field(sa_column=Column(PydanticJson(ImageConfig)))
 
     tools: list['ToolDefine'] = Relationship(back_populates='image')
     docs: list['ToolHelpDoc'] = Relationship(back_populates='image')
@@ -125,13 +127,12 @@ class ToolImage(SQLModel, table=True):
 class ToolHelpDoc(SQLModel, table=True):
     __tablename__ = 'tool_docs'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     help_command: str
     description: Optional[str] = Field(default=None)
     content: str
 
-    image_id: Optional[int] = Field(default=None, foreign_key='images.id')
-    parent_id: Optional[int] = Field(default=None, foreign_key='tool_docs.id')
+    image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
 
     image: Optional['ToolImage'] = Relationship(back_populates='docs')
     tools: list['ToolDefine'] = Relationship(back_populates='help_doc')
@@ -140,16 +141,16 @@ class ToolHelpDoc(SQLModel, table=True):
 class ToolDefine(SQLModel, table=True):
     __tablename__ = 'tools'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
-    image_id: Optional[int] = Field(default=None, foreign_key='images.id')
+    image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
     description: str
     des_vector: Any = Field(sa_type=Vector(1024))
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
 
-    help_doc_id: Optional[int] = Field(default=None, foreign_key='tool_docs.id')
+    help_doc_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='tool_docs.uid')
     command_template: str
     dynamic_params: list[ParamDefine] = Field(sa_column=Column(PydanticJson(list[ParamDefine])))
     static_params: str

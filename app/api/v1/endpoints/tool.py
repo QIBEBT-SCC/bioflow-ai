@@ -1,32 +1,38 @@
 from typing import Sequence, Annotated, Optional
 
-from fastapi import APIRouter, Query, Form
-from loguru import logger
+from fastapi import APIRouter, Query, Form, HTTPException
 from starlette.responses import StreamingResponse
+from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.tools.tool_tag as tag_crud
 import app.crud.tools.tool_group as group_crud
+import app.crud.tools.image as image_crud
+import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool as tool_crud
 from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
-from app.models.tools import ToolTag, ToolGroup, ImageConfig
+from app.models.tools import ToolTag, ToolGroup, ToolImage, ToolHelpDoc
 from app.schemas.tools import (
     DockerToolCreate,
     SimpleToolPublic,
     ToolPublic,
     ToolNodePublic,
     ToolTaskInfo,
-    AIGenProp,
     ToolGroupPublic,
+    SimpleToolDoc,
+    AiGenRequest,
 )
 from app.utils.container.podman import run_podman
-from app.utils.security import UserDep, AdminDep
-from llm.generate_tool_config import ToolConfigSchema, agenerate_tool_config
+from app.utils.security import UserDep, AdminDep, MemberDep
 
 router = APIRouter()
 tag_router = APIRouter()
 group_router = APIRouter()
 image_router = APIRouter()
+doc_router = APIRouter()
+
+
+# ===============tag and group===============
 
 
 @tag_router.get('')
@@ -57,6 +63,46 @@ async def get_group_tools(
     return tool_crud.get_all_by_group(session, parent_id, limit, offset)
 
 
+# =============== image ===============
+@image_router.post('', response_model=ToolImage)
+async def create_image(image: ToolImage, session: SessionDep, current_user: AdminDep):
+    return image_crud.insert(session, image)
+
+
+@image_router.get('')
+async def get_images(session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20):
+    return image_crud.get_all(session, limit, offset)
+
+
+@image_router.get('/search', response_model=list[ToolImage])
+def get_images_by_name(session: SessionDep, name: str, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20):
+    return image_crud.get_by_name_fuzzy(session, name, limit, offset)
+
+
+@image_router.get('/{uid}/documents', response_model=list[SimpleToolDoc])
+async def get_image_docs(session: SessionDep, uid: str):
+    return doc_crud.get_image_docs(session, uid)
+
+
+@image_router.post('/{uid}')
+async def run_in_image(
+    uid: str, command: Annotated[str, Form(description='要运行的命令')], session: SessionDep, current_user: MemberDep
+):
+    image = image_crud.get(session, uid)
+    if not image:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'No corresponding image found')
+
+    code, result = run_podman(image.image, command, [])
+    return {'code': code, 'result': result}
+
+
+# =============== doc ===============
+@doc_router.get('/{uid}', response_model=ToolHelpDoc)
+async def get_doc(session: SessionDep, uid: str):
+    return doc_crud.get(session, uid)
+
+
+# =============== tool ===============
 @router.post('')
 async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, current_user: AdminDep):
     tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tool_tag if tag.id == -1]
@@ -93,35 +139,26 @@ def get_tools_by_name(
     return tool_crud.get_by_name_fuzzy(session, name, limit, offset)
 
 
-@router.post('/ai/config')
-async def gen_tool_config(prop: Annotated[AIGenProp, Form()], current_user: UserDep):
+@router.post('/generate')
+async def gen_tool_config(prop: Annotated[AiGenRequest, Form()], session: SessionDep, current_user: UserDep):
+    image = image_crud.get(session, prop.image_uid)
+
     async def generator():
         yield SSEMessage(event=EventType.LOADING, data='reading tool help doc...').to_sse()
-        code, help_doc = run_podman(ImageConfig(repository=prop.repository, tag=prop.tag), prop.help_command, [])
-        if help_doc:
-            yield SSEMessage(event=EventType.GENERATING, data='generating tool config...').to_sse()
-            logger.debug(f'generating tool config for {prop.repository}:{prop.tag}')
-            msg = f'<Require>\n{prop.description}\n</Require>\n\n<Doc>\n{help_doc}\n</Doc>'
-            result: ToolConfigSchema = await agenerate_tool_config(msg)
-            logger.debug(result)
-            yield SSEMessage(event=EventType.SUCCESS, data=result.model_dump()).to_sse()
-        else:
-            logger.error(f'help doc is empty for {prop.repository}:{prop.tag}')
-            yield SSEMessage(event=EventType.ERROR, data='help doc is empty').to_sse()
 
     return StreamingResponse(generator(), media_type='text/event-stream')
 
 
-@router.get('/{tool_id}', response_model=ToolPublic)
-async def get_tool_detail(session: SessionDep, tool_id: int) -> ToolPublic:
-    return tool_crud.get(session, tool_id)
+@router.get('/{tool_uid}', response_model=ToolPublic)
+async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
+    return tool_crud.get(session, tool_uid)
 
 
-@router.get('/{tool_id}/args', response_model=ToolNodePublic)
-async def get_tool_args(session: SessionDep, tool_id: int) -> ToolNodePublic:
-    return tool_crud.get(session, tool_id)
+@router.get('/{tool_uid}/args', response_model=ToolNodePublic)
+async def get_tool_args(session: SessionDep, tool_uid: str) -> ToolNodePublic:
+    return tool_crud.get(session, tool_uid)
 
 
-@router.get('/{tool_id}/task_info', response_model=ToolTaskInfo)
-async def get_tool4task(session: SessionDep, tool_id: int):
-    return tool_crud.get(session, tool_id)
+@router.get('/{tool_uid}/task_info', response_model=ToolTaskInfo)
+async def get_tool4task(session: SessionDep, tool_uid: str):
+    return tool_crud.get(session, tool_uid)

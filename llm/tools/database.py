@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Optional
 
 from langchain_core.messages import ToolMessage
@@ -13,14 +14,16 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
 from app.core.session import engine
+from llm.reproduction.search_info_agent import SearchInfoAgent
 from llm.utils.formatters import handle_formatter
 from app.models.resource import BioDb
 from app.models.tools import ToolImage, ToolDefine, ToolHelpDoc, ImageConfig, ToolTag, ToolGroup
 from app.schemas.tools import ToolNodePublic
+from llm.utils.uid_mapper import BidirectionalMapper
 
 
 @tool
-def search_local_image(query: str) -> str:
+def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
     """Search the database for images that have already been pulled locally.
 
     Args:
@@ -28,12 +31,13 @@ def search_local_image(query: str) -> str:
     """
     with Session(engine) as session:
         images: list[ToolImage] = image_crud.get_by_name_fuzzy(session, query, 50, 0)
+        mappers = BidirectionalMapper(datas=images)
 
     if images:
         image_blocks = [
             (
                 f'  <image>\n'
-                f'    <id>{image.id}</id>\n'
+                f'    <id>{mappers.get_index_by_uid(str(image.uid))}</id>\n'
                 f'    <name>{image.name}</name>\n'
                 f'    <description>{image.description}</description>\n'
                 f'    <url>{image.image.get_image()}</url>\n'
@@ -41,35 +45,48 @@ def search_local_image(query: str) -> str:
             )
             for image in images
         ]
-        return f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>'
 
-    return 'Based on the keywords you provided, no results found'
-
-
-@tool
-def pull_and_save_image(
-    name: str, image_url: str, version: str, description: str, tool_call_id: Annotated[str, InjectedToolCallId]
-) -> Command:
-    """Pull down the searched images and save relevant information to the database
-
-    Args:
-        name: Name of the tool, can contain upper and lower case letters
-        image_url: url of the image
-        version: version of tool, can be judged by the image tag
-        description: A brief description of the tool corresponding to this image
-    """
-    # 实际上这里并不会拉取镜像，只不过为了让LLM不要乱想我们谎称会拉取♪
-    with Session(engine) as session:
-        new_image = ToolImage(
-            name=name, image=ImageConfig.from_str(image_url), version=version, description=description
+        return Command(
+            update={
+                'id_mapper': mappers,
+                'messages': [
+                    ToolMessage(
+                        content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+            }
         )
-        new_image = image_crud.insert(session, new_image)
-        image_id = new_image.id
 
     return Command(
         update={
-            'image_id': image_id,
-            'image': new_image.image,
+            'messages': [
+                ToolMessage(content='Based on the keywords you provided, no results found', tool_call_id=tool_call_id)
+            ]
+        }
+    )
+
+
+@tool
+def select_image(
+    image_id: int,
+    mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Select existing image in the database
+
+    Args:
+        image_id: selected image id
+    """
+    image_uid = mapper.get_uid_by_index(image_id)
+    with Session(engine) as session:
+        tool_image = image_crud.get(session, image_uid)
+
+    return Command(
+        update={
+            'image_uid': image_uid,
+            'image': tool_image.image,
+            'github_url': tool_image.homepage,
             'messages': [
                 ToolMessage(
                     content='Available mirrors have been set up, and the next step can begin.',
@@ -81,38 +98,134 @@ def pull_and_save_image(
 
 
 @tool
-def list_docs(image_id: Annotated[int, InjectedState('image_id')]) -> str:
+async def pull_and_save_image(
+    name: str, image_url: str, version: str, description: str, tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
+    """Pull down the searched images and save relevant information to the database
+
+    It should be noted that the tag and version of an image are not necessarily the same; some image tags may contain other content after them.
+
+    Args:
+        name: Name of the tool, can contain upper and lower case letters
+        image_url: url of the image, the format is [registry]/[namespace]/[repository]:tag
+        version: version of tool, can be judged by the image tag
+        description: A brief description of the tool corresponding to this image
+    """
+    # 首先联网搜索补全GitHub链接和引用文献
+    web_search_agent = SearchInfoAgent().build()
+    result = await web_search_agent.ainvoke(
+        {'messages': [('human', f'Search github and paper link for tool "{name}"')]}
+    )
+
+    # 实际上这里并不会拉取镜像，只不过为了让LLM不要乱想我们谎称会拉取♪
+    with Session(engine) as session:
+        new_image = ToolImage(
+            name=name,
+            image=ImageConfig.from_str(image_url),
+            version=version,
+            description=description,
+            homepage=result['final_response'].github_url,
+            paper_link=result['final_response'].paper_url,
+        )
+        new_image = image_crud.insert(session, new_image)
+        image_uid = new_image.uid
+
+    return Command(
+        update={
+            'image_uid': image_uid,
+            'image': new_image.image,
+            'github_url': new_image.homepage,
+            'messages': [
+                ToolMessage(
+                    content='Available mirrors have been set up, and the next step can begin.',
+                    tool_call_id=tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+@tool
+def list_docs(
+    image_uid: Annotated[uuid.UUID, InjectedState('image_uid')], tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
     """List existing document records under the corresponding image"""
     with Session(engine) as session:
-        docs: list[ToolHelpDoc] = doc_crud.get_image_docs(session, image_id)
+        docs: list[ToolHelpDoc] = doc_crud.get_image_docs(session, str(image_uid))
+        mappers = BidirectionalMapper(datas=docs)
 
     if docs:
         doc_blocks = [
             (
                 f'  <doc>\n'
-                f'    <id>{d.id}</id>\n'
+                f'    <id>{mappers.get_index_by_uid(str(d.uid))}</id>\n'
                 f'    <desc>{d.description}</desc>\n'
                 f'    <command>{d.help_command}</command>\n'
                 f'  </doc>'
             )
             for d in docs
         ]
-        return f'Under this image, we found {len(docs)} corresponding help document records:\n\n<docs>\n{"\n".join(doc_blocks)}\n</docs>'
 
-    return 'No existing help documentation records found under this image.'
+        return Command(
+            update={
+                'id_mapper': mappers,
+                'messages': [
+                    ToolMessage(
+                        content=f'Under this image, we found {len(docs)} corresponding help document records:\n\n<docs>\n{"\n".join(doc_blocks)}\n</docs>',
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+            }
+        )
+
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content='No existing help documentation records found under this image.', tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
 
 
 @tool
-def view_doc(doc_id: int) -> str:
+def view_doc(doc_id: int, mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')]) -> str:
     """View the specific content of the corresponding help document
 
     Args:
         doc_id: ID of the document to view
     """
+    doc_uid = mapper.get_uid_by_index(doc_id)
     with Session(engine) as session:
-        doc: ToolHelpDoc = doc_crud.get(session, doc_id)
+        doc: ToolHelpDoc = doc_crud.get(session, doc_uid)
 
     return doc.content
+
+
+@tool
+def select_doc(
+    doc_id: int,
+    mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Select existing help document in the database
+
+    Args:
+        doc_id: selected doc id
+    """
+
+    return Command(
+        update={
+            'doc_uid': mapper.get_uid_by_index(doc_id),
+            'messages': [
+                ToolMessage(
+                    content='The corresponding help document has been found, you can proceed to the next step.',
+                    tool_call_id=tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 @tool
@@ -120,7 +233,7 @@ def save_doc(
     help_command: str,
     description: str,
     content: Annotated[str, InjectedState('last_output')],
-    image_id: Annotated[int, InjectedState('image_id')],
+    image_uid: Annotated[uuid.UUID, InjectedState('image_uid')],
     tool_call_id: Annotated[str, InjectedToolCallId],
 ) -> Command:
     """Save the results from the last run to the database as help documentation records.
@@ -130,16 +243,16 @@ def save_doc(
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
     with Session(engine) as session:
-        new_doc = ToolHelpDoc(help_command=help_command, description=description, content=content, image_id=image_id)
+        new_doc = ToolHelpDoc(help_command=help_command, description=description, content=content, image_uid=image_uid)
         new_doc = doc_crud.insert(session, new_doc)
-        doc_id = new_doc.id
+        doc_uid = new_doc.uid
 
     return Command(
         update={
-            'doc_id': doc_id,
+            'doc_uid': doc_uid,
             'messages': [
                 ToolMessage(
-                    content=f'The corresponding help document has been found, and its ID is {doc_id}. You can proceed to the next step.',
+                    content='The corresponding help document has been found, you can proceed to the next step.',
                     tool_call_id=tool_call_id,
                 )
             ],
@@ -148,7 +261,7 @@ def save_doc(
 
 
 @tool
-def search_tool(query: str) -> str:
+def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
     """Search for the corresponding tool node
 
     Args:
@@ -156,6 +269,7 @@ def search_tool(query: str) -> str:
     """
     with Session(engine) as session:
         exist_tools: list[ToolDefine] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
+        mappers = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
         tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
@@ -171,7 +285,7 @@ def search_tool(query: str) -> str:
                 f'{handle_formatter(t.output_handles)}\n'
                 f'    </output_handles>\n'
                 f'    <data>\n'
-                f'      <tool_id>{t.id}</tool_id>\n'
+                f'      <tool_id>{mappers.get_index_by_uid(t.uid)}</tool_id>\n'
                 f'      <args>{t.static_params}<args>\n'
                 f'    </data>\n'
                 f'    <command>{t.complete_command}</command>'
@@ -179,17 +293,30 @@ def search_tool(query: str) -> str:
             )
             for t in tool_nodes
         ]
-        return f'Based on the keywords, the following tool nodes are available (To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n<tools>\n{"\n\n".join(tool_blocks)}\n</tools>'
+        return Command(
+            update={
+                'id_mapper': mappers,
+                'messages': [
+                    ToolMessage(
+                        f'Based on the keywords, the following tool nodes are available (To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n<tools>\n{"\n\n".join(tool_blocks)}\n</tools>',
+                        tool_call_id=tool_call_id,
+                    )
+                ],
+            }
+        )
 
-    return 'Based on the keywords you provided, no results found'
+    return Command(
+        update={
+            'messages': [ToolMessage('Based on the keywords you provided, no results found', tool_call_id=tool_call_id)]
+        }
+    )
 
 
 @tool
 def view_groups() -> str:
     """View all existing groups"""
     with Session(engine) as session:
-        # 如果超过200个group，该考虑下你自己的问题了
-        groups = group_crud.get_all(session, 200, 0)
+        groups = group_crud.get_all(session)
 
     if groups:
 
@@ -213,6 +340,27 @@ def view_groups() -> str:
         return group_str
 
     return 'No groups found'
+
+
+@tool
+def select_group(group_id: int, tool_call_id: Annotated[str, InjectedToolCallId]):
+    """Select the corresponding group for the tool
+
+    Args:
+        group_id: selected group id
+    """
+
+    return Command(
+        update={
+            'group_id': group_id,
+            'messages': [
+                ToolMessage(
+                    content='The corresponding help document has been found, you can proceed to the next step.',
+                    tool_call_id=tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 @tool

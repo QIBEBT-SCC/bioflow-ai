@@ -1,9 +1,11 @@
+import uuid
 from datetime import datetime, UTC
 from enum import IntEnum
 from pathlib import Path
 from typing import Optional
 
-from pydantic import UUID7, BaseModel
+import uuid_extensions
+from pydantic import BaseModel
 from sqlalchemy import Column, UUID, ForeignKey
 from sqlmodel import SQLModel, Field, Relationship
 
@@ -28,7 +30,7 @@ class WorkflowType(IntEnum):
 class Workflow(SQLModel, table=True):
     __tablename__ = 'workflows'
 
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
     owner_id: int = Field(foreign_key='users.id')
     wf_type: WorkflowType
@@ -41,7 +43,7 @@ class Workflow(SQLModel, table=True):
 class RunInstance(SQLModel, table=True):
     __tablename__ = 'run_instances'
 
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
     project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
     owner_id: int = Field(foreign_key='users.id')
@@ -75,9 +77,9 @@ class ToolOutput(BaseModel):
 class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
-    instance_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
-    tool_id: int = Field(foreign_key='tools.id')
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    instance_uid: uuid.UUID = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
+    tool_uid: uuid.UUID = Field(foreign_key='tools.uid')
     owner_id: int = Field(foreign_key='users.id')
     name: str
     commands: Optional[str] = Field(default=None)
@@ -100,7 +102,7 @@ class TaskMonitor(SQLModel, table=True):
     __tablename__ = 'task_monitor_logs'
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    task_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('task_instances.uid')))
+    task_uid: uuid.UUID = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('task_instances.uid')))
     cpu_usage: float
     mem_usage: float
     mem_used: float

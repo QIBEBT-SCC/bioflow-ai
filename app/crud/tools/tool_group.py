@@ -34,18 +34,17 @@ def get_by_name(session: Session, name: str) -> Optional[ToolGroup]:
     return session.exec(query).one_or_none()
 
 
+def get_all(session: Session):
+    query: Select = select(ToolGroup)
+    return session.exec(query).all()
+
+
 def get_all_with_tool_counts(session: Session) -> list[dict]:
     """获取所有工具分组及其对应的工具数量"""
     query = (
-        select(
-            ToolGroup.id,
-            ToolGroup.name,
-            ToolGroup.parent_id,
-            ToolGroup.tag_id,
-            func.count(ToolDefine.id).label('tool_count'),
-        )
+        select(ToolGroup.id, ToolGroup.name, ToolGroup.tag_id, func.count(ToolDefine.uid).label('tool_count'))
         .outerjoin(ToolDefine, ToolGroup.id == ToolDefine.group_id)
-        .group_by(ToolGroup.id, ToolGroup.name, ToolGroup.parent_id, ToolGroup.tag_id)
+        .group_by(ToolGroup.id, ToolGroup.name, ToolGroup.tag_id)
         .order_by(ToolGroup.id)
     )
 
