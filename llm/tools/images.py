@@ -72,12 +72,14 @@ class SearchImage(BaseTool):
             image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
             return f'Found pullable tool docker image: `{image.get_image()}`'
 
-        # # 从staphb仓库中搜索
-        # if check_repository_tags('staphb', tool_name.lower()) == 200:
-        #     tags = get_repository_tags('staphb', tool_name.lower())
-        #     if (tag := tags.pop(0)) == 'latest':
-        #         tag = tags[0]
-        #     return ImageConfig(namespace='staphb', repository=tool_name.lower(), tag=tag)
+        # 从staphb仓库中搜索
+        if check_repository_tags('staphb', tool_name.lower()) == 200:
+            tags = get_repository_tags('staphb', tool_name.lower())
+            if (tag := tags.pop(0)) == 'latest':
+                tag = tags[0]
+            # 从docker hub搜索，但是下载使用quay.io源
+            image = ImageConfig(registry='quay.io', namespace='staphb', repository=tool_name.lower(), tag=tag)
+            return f'Found pullable tool docker image: `{image.get_image()}`'
 
         # 从 BioContainer 中搜索
         else:
@@ -111,6 +113,16 @@ class SearchImage(BaseTool):
             if (tag := tags.pop(0)) == 'latest':
                 tag = tag[0]
             image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
+            return f'Found pullable tool docker image: `{image.get_image()}`'
+
+        # 从staphb仓库中搜索
+        status_code = await acheck_repository_tags('staphb', tool_name.lower())
+        if status_code == 200:
+            tags = await aget_repository_tags('staphb', tool_name.lower())
+            if (tag := tags.pop(0)) == 'latest':
+                tag = tags[0]
+            # 从docker hub搜索，但是下载使用quay.io源
+            image = ImageConfig(registry='quay.io', namespace='staphb', repository=tool_name.lower(), tag=tag)
             return f'Found pullable tool docker image: `{image.get_image()}`'
 
         # 从 BioContainer 中搜索
