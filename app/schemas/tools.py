@@ -18,14 +18,14 @@ class ToolGroupPublic(BaseModel):
 
 
 class ImageUpdate(BaseModel):
-    uid: str
+    uid: uuid.UUID
     description: Optional[str] = None
     homepage: Optional[str] = None
     paper_link: Optional[str] = None
 
 
 class SimpleToolDoc(BaseModel):
-    uid: str
+    uid: uuid.UUID
     help_command: str
 
 
@@ -33,10 +33,7 @@ class AiGenRequest(BaseModel):
     name: str
     description: str
 
-    image_uid: str
-
-    help_doc_uid: Optional[str]
-    help_command: str
+    image_uid: uuid.UUID
 
 
 class DockerToolCreate(BaseModel):
@@ -76,7 +73,7 @@ class DockerToolCreate(BaseModel):
 
 
 class SimpleToolPublic(BaseModel):
-    uid: str
+    uid: uuid.UUID
     name: str
     description: str
     tool_type: ToolType
@@ -88,7 +85,7 @@ class SimpleToolPublic(BaseModel):
 
 
 class ToolPublic(BaseModel):
-    uid: str
+    uid: uuid.UUID
     name: str
     description: str
     tool_type: ToolType
@@ -125,7 +122,7 @@ class Handle(BaseModel):
 
 
 class ToolNodePublic(BaseModel):
-    uid: str
+    uid: uuid.UUID
     name: str
     description: str
 

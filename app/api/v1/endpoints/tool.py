@@ -1,8 +1,15 @@
 from typing import Sequence, Annotated, Optional
 
+import aiosqlite
 from fastapi import APIRouter, Query, Form, HTTPException
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from loguru import logger
 from starlette.responses import StreamingResponse
 from starlette.status import HTTP_404_NOT_FOUND
+from uuid_extensions import uuid7str
 
 import app.crud.tools.tool_tag as tag_crud
 import app.crud.tools.tool_group as group_crud
@@ -23,7 +30,10 @@ from app.schemas.tools import (
     AiGenRequest,
 )
 from app.utils.container.podman import run_podman
-from app.utils.security import UserDep, AdminDep, MemberDep
+from app.utils.security import AdminDep, MemberDep
+from llm.models import qwen3_embedding
+from llm.reproduction.create_tool_agent import CreateToolAgent
+from llm.states import CreateToolState
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -103,10 +113,10 @@ async def get_doc(session: SessionDep, uid: str):
 
 
 # =============== tool ===============
-@router.post('')
+@router.post('', response_model=SimpleToolPublic)
 async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, current_user: AdminDep):
-    tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tool_tag if tag.id == -1]
-    exist_ids: list[int] = [tag.id for tag in tool_prop.tool_tag if tag.id != -1]
+    tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tags if tag.id == -1]
+    exist_ids: list[int] = [tag.id for tag in tool_prop.tags if tag.id != -1]
     if tags_to_add:
         tags_to_add = tag_crud.insert_all(session, tags_to_add)
         exist_ids.extend([tag.id for tag in tags_to_add])
@@ -115,6 +125,11 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, current
 
     tool_data = tool_prop.to_tool_data()
     tool_data.tags = tags
+
+    # 添加描述的向量索引
+    embedding_model = qwen3_embedding()
+    vector = embedding_model.embed_documents([tool_data.description])[0]
+    tool_data.des_vector = vector
 
     new_tool = tool_crud.insert(session, tool_data)
     return new_tool
@@ -140,11 +155,36 @@ def get_tools_by_name(
 
 
 @router.post('/generate')
-async def gen_tool_config(prop: Annotated[AiGenRequest, Form()], session: SessionDep, current_user: UserDep):
-    image = image_crud.get(session, prop.image_uid)
+async def gen_tool_config(prop: Annotated[AiGenRequest, Form()], current_user: AdminDep):
+    thread_id = uuid7str()
+    # thread_id = '1'
 
     async def generator():
-        yield SSEMessage(event=EventType.LOADING, data='reading tool help doc...').to_sse()
+        search_input = CreateToolState(
+            messages=[
+                HumanMessage(
+                    content=f'The node to be encapsulated is named **{prop.name}**, and its function is {prop.description}'
+                )
+            ],
+            image_uid=prop.image_uid,
+        )
+
+        async with aiosqlite.connect('checkpoints.db') as conn:
+            memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
+            agent = CreateToolAgent().build(memory=memory)
+
+            config: RunnableConfig = {
+                'configurable': {'thread_id': thread_id, 'auto_save': False},
+                'recursion_limit': 50,
+            }
+            async for _, chunk_data in agent.astream(search_input, config, stream_mode='custom', subgraphs=True):
+                logger.debug(chunk_data)
+                yield SSEMessage(event=EventType.GENERATING, data=chunk_data['info']).to_sse()
+
+            response = await agent.aget_state(config)
+            yield SSEMessage(event=EventType.SUCCESS, data=response.values['json_response']).to_sse()
+
+            await memory.adelete_thread(thread_id)
 
     return StreamingResponse(generator(), media_type='text/event-stream')
 

@@ -45,7 +45,7 @@ from llm.tools.database import (
 from llm.tools.human import ask_human
 from llm.tools.images import search_image
 from app.models.tools import ToolType, ToolDefine
-from app.schemas.tools import ToolNodePublic, ImageUpdate
+from app.schemas.tools import ToolNodePublic, ImageUpdate, DockerToolCreate
 
 SELECT_IMAGE_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, analysis data, etc., into individual nodes. Now, what we need to do is encapsulate a new node.
@@ -204,16 +204,17 @@ class CreateToolAgent:
 
         doc_input = GetDocState(messages=state.messages, image_uid=state.image_uid, image=state.image)
         response = await self.get_doc_agent.ainvoke(doc_input)
+        doc_uid = response['doc_uid']
 
         with Session(engine) as session:
-            doc = doc_crud.get(session, str(response['doc_uid']))
+            doc = doc_crud.get(session, str(doc_uid))
 
         return {
             'messages': [
                 ('ai', 'First I need the help documentation for this tool'),
                 ('human', f'The following is the help documentation: \n\n{doc.content}'),
             ],
-            'doc_uid': response['doc_uid'],
+            'doc_uid': doc_uid,
             'doc': doc.content,
         }
 
@@ -316,19 +317,19 @@ class CreateToolAgent:
                 tag = tag_crud.get_by_name(session, 'AI Unchecked')
 
             result_data = result.model_dump(exclude={'dynamic_params', 'file_mounts'})
-            tool_data = ToolDefine(
+            create_data = DockerToolCreate(
                 image_uid=state.image_uid,
-                tool_type=ToolType.DOCKER,
+                help_doc_uid=state.doc_uid,
                 group_id=group.id,
                 tags=[group.tag, tag],
-                help_doc_uid=state.doc_uid,
                 dynamic_params=result.dynamic_params,
                 file_mounts=result.file_mounts,
                 **result_data,
             )
-
             if not config['configurable'].get('auto_save'):
-                return {'json_response': tool_data.model_dump()}
+                return {'json_response': create_data.model_dump()}
+
+            tool_data = create_data.to_tool_data()
 
             # 添加描述的向量索引
             embedding_model = qwen3_embedding()
