@@ -173,10 +173,7 @@ async def gen_tool_config(prop: Annotated[AiGenRequest, Form()], current_user: A
             memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
             agent = CreateToolAgent().build(memory=memory)
 
-            config: RunnableConfig = {
-                'configurable': {'thread_id': thread_id, 'auto_save': False},
-                'recursion_limit': 50,
-            }
+            config = RunnableConfig(configurable={'thread_id': thread_id, 'auto_save': False}, recursion_limit=50)
             async for _, chunk_data in agent.astream(search_input, config, stream_mode='custom', subgraphs=True):
                 logger.debug(chunk_data)
                 yield SSEMessage(event=EventType.GENERATING, data=chunk_data['info']).to_sse()
