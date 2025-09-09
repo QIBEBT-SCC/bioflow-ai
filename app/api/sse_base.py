@@ -12,6 +12,7 @@ class EventType(Enum):
     TOOL_CALL = 'tool_call'
     ERROR = 'error'
     SUCCESS = 'success'
+    INTERRUPT = 'interrupt'
 
 
 class UUIDEncoder(json.JSONEncoder):
