@@ -2,11 +2,15 @@ import asyncio
 from datetime import datetime, UTC
 from typing import AsyncGenerator, Optional, Annotated, List
 
+import aiosqlite
 import psycopg
 from fastapi import APIRouter, HTTPException, Query, Form, UploadFile, File
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessageChunk, ToolMessage, filter_messages, BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import AIMessageChunk, filter_messages, BaseMessage, HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_postgres import PostgresChatMessageHistory
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
 from loguru import logger
 from sqlmodel import Session
 from uuid_extensions import uuid7
@@ -23,7 +27,8 @@ from app.utils.file.file_storage import file_storage
 from app.utils.file.file_validator import file_validator
 from app.utils.multimodal_builder import build_multimodal_message
 from llm.prebuild.chains import conclude_chain
-from llm.prebuild.simple_agent import simple_agent
+from llm.reproduction.reproduction import ReproductionAgent
+from llm.states import ReproductionState
 
 router = APIRouter()
 
@@ -50,6 +55,7 @@ async def chat_completions(
     current_user: UserDep,
     message: Annotated[str, Form(description='用户消息')],
     session_id: Annotated[str, Form(description='会话ID')],
+    resume: Annotated[bool, Form(description='是否是一条中断信息')],
     files: List[UploadFile] = File(default=[], description='要处理的文件列表'),
 ):
     """
@@ -84,7 +90,7 @@ async def chat_completions(
 
     # 流式响应
     return StreamingResponse(
-        generate_chat_stream(message, stored_files, session_id, session),
+        generate_chat_stream(message, stored_files, resume, session_id, session),
         media_type='text/event-stream',
         headers={
             'Cache-Control': 'no-cache',
@@ -124,7 +130,7 @@ async def get_history(session_id: str, current_user: UserDep):
 
 
 async def generate_chat_stream(
-    text_message: str, stored_files: List[StoredFileInfo], session_id: Optional[str], session: Session
+    text_message: str, stored_files: List[StoredFileInfo], resume: bool, session_id: Optional[str], session: Session
 ) -> AsyncGenerator[str, None]:
     msg_db = get_settings().persistent.CHECKPOINT_URL
     conn = await psycopg.AsyncConnection.connect(msg_db)
@@ -138,92 +144,102 @@ async def generate_chat_stream(
             yield SSEMessage(event=EventType.LOADING, data={'message': '初始化智能体...'}).to_sse()
 
             # 获取LLM实例
-            agent = simple_agent
+            async with aiosqlite.connect('checkpoints.db') as conn:
+                memory = AsyncSqliteSaver(conn)
+                agent = ReproductionAgent().build(memory=memory)
 
-            yield SSEMessage(event=EventType.GENERATING, data={'message': '模型加载完成，开始生成响应...'}).to_sse()
+                yield SSEMessage(event=EventType.LOADING, data={'message': '模型加载完成，开始生成响应...'}).to_sse()
 
-            # 构建多模态消息内容
-            if stored_files:
-                human_message = await build_multimodal_message(text_message, stored_files)
-            else:
-                human_message = HumanMessage(content=text_message)
+                config = RunnableConfig(configurable={'thread_id': '1'}, recursion_limit=500)
+                if resume:
+                    chat_input = Command(resume=text_message) if text_message else Command(resume=True)
+                else:
+                    # 构建多模态消息内容
+                    if stored_files:
+                        human_message = await build_multimodal_message(text_message, stored_files)
+                    else:
+                        human_message = HumanMessage(content=text_message)
+                    chat_input = ReproductionState(messages=[*messages, human_message])
 
-            # 流式生成响应
-            temp_response = ''
-            final_response = ''
-            tool_name = ''
-            tool_call_id = ''
-            is_tool_call = False
-            async for stream_mode, chunk in agent.astream(
-                {'messages': [*messages, human_message]}, stream_mode=['messages', 'custom']
-            ):
-                match stream_mode:
-                    case 'messages':
-                        chunk_data, _ = chunk
+                exclude_nodes = ['extract_tools_node']
+                # 流式生成响应
+                current_id = ''
+                temp_response = ''
+                is_tool_call = {}
+                is_interrupt = False
+                async for source, stream_mode, chunk in agent.astream(
+                    chat_input, config, stream_mode=['messages', 'updates', 'custom'], subgraphs=True
+                ):
+                    match stream_mode:
+                        case 'messages':
+                            message_chunk, chunk_meta = chunk
 
-                        if isinstance(chunk_data, AIMessageChunk):
-                            if 'tool_calls' in chunk_data.additional_kwargs and not is_tool_call:
-                                # 工具调用
-                                tool_name = chunk_data.additional_kwargs['tool_calls'][0]['function']['name']
-                                tool_call_id = chunk_data.additional_kwargs['tool_calls'][0]['id']
-                                is_tool_call = True
+                            if isinstance(message_chunk, AIMessageChunk):
+                                if message_chunk.id != current_id:
+                                    current_id = message_chunk.id
+                                    is_tool_call[source] = False
+                                    temp_response = ''
 
-                            if chunk_data.usage_metadata:
-                                # 生成结束
-                                if is_tool_call:
+                                if 'tool_calls' in message_chunk.additional_kwargs and not is_tool_call[source]:
+                                    # 工具调用
+                                    tool_name = message_chunk.additional_kwargs['tool_calls'][0]['function']['name']
                                     yield SSEMessage(
-                                        event=EventType.TOOL_CALL,
-                                        data={'id': tool_call_id, 'tool_name': tool_name, 'status': 'begin'},
+                                        event=EventType.LOADING, data={'message': f'call tool {tool_name}...'}
                                     ).to_sse()
-                                    is_tool_call = False
-                                else:
+
+                                if message_chunk.content and chunk_meta['langgraph_node'] not in exclude_nodes:
+                                    temp_response += message_chunk.content
+
                                     yield SSEMessage(
-                                        event=EventType.SUCCESS,
+                                        event=EventType.GENERATING,
                                         data={
-                                            'id': chunk_data.id,
-                                            'message': {'role': 'assistant', 'content': temp_response},
+                                            'id': current_id,
+                                            'delta': message_chunk.content,
+                                            'full_text': temp_response,
                                         },
                                     ).to_sse()
-                                    final_response = temp_response
-                                    temp_response = ''
-                                logger.debug(chunk_data.usage_metadata)
 
-                            if chunk_data.content:
-                                temp_response += chunk_data.content
-
-                                yield SSEMessage(
-                                    event=EventType.GENERATING,
-                                    data={'id': chunk_data.id, 'delta': chunk_data.content, 'full_text': temp_response},
-                                ).to_sse()
-
-                                # 添加小延迟，避免客户端处理过快
-                                await asyncio.sleep(0.01)
-
-                        elif isinstance(chunk_data, ToolMessage):
-                            yield SSEMessage(
-                                event=EventType.TOOL_CALL,
-                                data={'id': chunk_data.tool_call_id, 'tool_name': tool_name, 'status': 'end'},
-                            ).to_sse()
-                        else:
+                                    await asyncio.sleep(0.01)
+                        case 'custom':
+                            logger.info(chunk['info'])
+                            yield SSEMessage(event=EventType.LOADING, data={'message': chunk['info']}).to_sse()
+                        case 'updates':
                             logger.debug(chunk)
-                    case _:
-                        pass
+                            if '__interrupt__' in chunk:
+                                yield SSEMessage(
+                                    event=EventType.INTERRUPT, data={'message': chunk['__interrupt__'][0].value}
+                                ).to_sse()
+                                is_interrupt = True
+                        case _:
+                            pass
 
-            chat_update = ChatSessionUpdate(uid=session_id, update_time=datetime.now(UTC))
+                update_messages = []
+                if stored_files:
+                    update_messages.append(
+                        HumanMessage(content=f'I upload files at: {",".join([f.file_path for f in stored_files])}')
+                    )
 
-            update_messages = []
-            if stored_files:
-                update_messages.append(
-                    HumanMessage(content=f'I upload files at: {",".join([f.file_path for f in stored_files])}')
-                )
-            update_messages.extend([HumanMessage(content=text_message), AIMessage(content=final_response)])
+                message_content = text_message if text_message else 'Yes' if resume else None
+                if message_content:
+                    update_messages.append(HumanMessage(content=message_content))
 
-            if len(messages) <= 4:
-                conclude_response = await conclude_chain().ainvoke({'history': [*messages, *update_messages]})
-                chat_update.description = conclude_response.content
-            chat_crud.update(session, chat_update)
+                response = await agent.aget_state(config)
+                if not is_interrupt:
+                    final_response = response.values['messages'][-1].content
+                else:
+                    final_response = response.interrupts[0].value
+                update_messages.extend([AIMessage(content=final_response)])
 
-            await history.aadd_messages(update_messages)
+                await history.aadd_messages(update_messages)
+
+                chat_update = ChatSessionUpdate(uid=session_id, update_time=datetime.now(UTC))
+                if len(messages) <= 4:
+                    conclude_response = await conclude_chain().ainvoke({'history': [*messages, *update_messages]})
+                    chat_update.description = conclude_response.content
+                chat_crud.update(session, chat_update)
+
+                if not is_interrupt:
+                    await memory.adelete_thread('1')
 
         except Exception as e:
             logger.exception(f'生成聊天响应时发生错误: {str(e)}')

@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Literal, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -12,7 +13,6 @@ from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent, InjectedState
-from langgraph.types import interrupt
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import BaseModel, Field
@@ -25,9 +25,10 @@ import app.crud.tools.tool_tag as tag_crud
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine
 from llm.reproduction.search_info_agent import SearchInfoAgent
+from llm.tools.web_search import jina_search, jina_reader
 from llm.utils.formatters import handle_formatter
 from llm.generate_tool_config import tool_generator, ToolConfigSchema
-from llm.models import qwen3_embedding, gemini_25_flash, gpt_41_mini
+from llm.models import qwen3_embedding, gemini_25_flash, gpt_5_mini
 from llm.states import CreateToolState, CreateToolOutput, SearchImageState, GetDocState, SelectGroupState
 from llm.tools.container import run_command
 from llm.tools.database import (
@@ -44,8 +45,8 @@ from llm.tools.database import (
 )
 from llm.tools.human import ask_human
 from llm.tools.images import search_image
-from app.models.tools import ToolType, ToolDefine
 from app.schemas.tools import ToolNodePublic, ImageUpdate, DockerToolCreate
+from llm.utils.uid_mapper import BidirectionalMapper
 
 SELECT_IMAGE_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, analysis data, etc., into individual nodes. Now, what we need to do is encapsulate a new node.
@@ -74,7 +75,8 @@ To achieve your goal, you can follow these steps:
 3. If the result of step 1 is empty or there are no suitable records, then you need to call the `run_command` tool to try to run commands within the corresponding container to get help documentation (see the detailed explanation in the <RunCommand> section).
 4. `save_doc` will save the output from the last `run_command` execution to the database. After you get the desired help documentation, remember to call this tool to save the document and complete your task.
 
-If you encounter any unresolvable issues at any point, you can call the `ask_human` tool to ask for human assistance.
+When you think a document can be selected or saved, **directly** call the tool to execute the operation. 
+When `run_command` fails multiple times or other unresolvable errors occur, you can call the `ask_human` tool to seek human intervention.
 </ThinkingProcess>
 
 <RunCommand>
@@ -98,8 +100,11 @@ To achieve this, your task is to **obtain the output structure of the correspond
 
 <ToolCalling>
 To accurately understand the output and other relevant information produced by a tool's commands, we provide you with a series of tools. 
-They can read GitHub repositories and ask questions, returning the desired information. 
+Toolkits `read_wiki_structure`, `read_wiki_contentsThey` and `ask_question` can read GitHub repositories and ask questions, returning the desired information. 
 Make full use of these tools to get all the information needed for your report.
+
+Toolkits `web_search` and `web_reader` can be used for searching and reading internet information, which is another viable way to obtain the required materials.
+Due to the lower accuracy of online searches, this method should only be used to get information when there are no available GitHub repositories, or when an error is encountered while using the aforementioned tools to query GitHub.
 </ToolCalling>
 
 <OutputFormat>
@@ -141,9 +146,13 @@ To complete this task, you can follow these steps:
 """
 
 
+class TempIDClass(BaseModel):
+    uid: uuid.UUID
+
+
 class CreateToolAgent:
     def __init__(self):
-        self.struct_llm = gpt_41_mini(0.2)
+        self.struct_llm = gpt_5_mini(0.2)
         self.think_llm = gemini_25_flash(0.2)
 
         # sub agents
@@ -181,7 +190,7 @@ class CreateToolAgent:
                         {'messages': [('human', f'Search github and paper link for tool "{tool_image.name}"')]}
                     )
                     image_update = ImageUpdate(
-                        uid=str(state.image_uid),
+                        uid=state.image_uid,
                         homepage=result['final_response'].github_url,
                         paper_link=result['final_response'].paper_url,
                     )
@@ -242,12 +251,6 @@ class CreateToolAgent:
             'command': response.command,
         }
 
-    @staticmethod
-    def how_to_get_output(state: CreateToolState) -> Literal['get_output_report_node', 'web_search_node']:
-        if state.github_url:
-            return 'get_output_report_node'
-        return 'web_search_node'
-
     async def get_output_report_node(self, state: CreateToolState):
         """尝试获取工具的输出结果（使用deepwiki）"""
         writer = get_stream_writer()
@@ -258,17 +261,17 @@ class CreateToolAgent:
                 await session.initialize()
 
                 tools = await load_mcp_tools(session)
-                agent = create_react_agent(self.think_llm, tools, prompt=GET_REPORT_SYSTEM)
+                agent = create_react_agent(self.think_llm, [*tools, jina_search, jina_reader], prompt=GET_REPORT_SYSTEM)
 
-                response = await agent.ainvoke(
-                    {
-                        'messages': [
-                            HumanMessage(
-                                content=f'The tool command to be analyzed is: `{state.command}`, the github repo of tool is {state.github_url}'
-                            )
-                        ]
-                    }
-                )
+                if state.github_url:
+                    input_message = HumanMessage(
+                        content=f'The tool command to be analyzed is: `{state.command}`, the github repo of tool is {state.github_url}'
+                    )
+                else:
+                    input_message = HumanMessage(
+                        content=f'The tool command to be analyzed is: `{state.command}`, no GitHub repository is available for the tool.'
+                    )
+                response = await agent.ainvoke({'messages': [input_message]})
 
         return {
             'messages': [
@@ -279,15 +282,6 @@ class CreateToolAgent:
                 ('human', response['messages'][-1].content),
             ]
         }
-
-    async def web_search_node(self, state: CreateToolState):
-        """没有现成的测试数据，联网搜索"""
-        writer = get_stream_writer()
-        writer({'info': 'Getting more information by web search...'})
-
-        # TODO 先中断，后面再补
-        answer = interrupt(state.messages[-1].content)
-        return f'Human feedback is: "{answer}"'
 
     async def choose_group_node(self, state: CreateToolState):
         """最后一步，为工具选择分组"""
@@ -326,7 +320,7 @@ class CreateToolAgent:
                 file_mounts=result.file_mounts,
                 **result_data,
             )
-            if not config['configurable'].get('auto_save'):
+            if not config['configurable'].get('auto_save', True):
                 return {'json_response': create_data.model_dump()}
 
             tool_data = create_data.to_tool_data()
@@ -337,6 +331,8 @@ class CreateToolAgent:
             tool_data.des_vector = vector
 
             tool_data = tool_crud.insert(session, tool_data)
+
+            mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
 
             tool_node = ToolNodePublic.model_validate(tool_data.model_dump())
             tool_info = (
@@ -350,20 +346,21 @@ class CreateToolAgent:
                 f'{handle_formatter(tool_node.output_handles, 4)}\n'
                 f'  </output_handles>\n'
                 f'  <data>\n'
-                f'    <tool_id>{tool_data.id}</tool_id>\n'
+                f'    <tool_id>{mapper.get_index_by_uid(str(tool_data.uid))}</tool_id>\n'
                 f'    <args>{tool_node.static_params}<args>\n'
                 f'  </data>\n'
-                f'  <command>{tool_node.complete_command}</command>'
+                f'  <command>{tool_node.complete_command}</command>\n'
                 f'</tool>'
             )
 
         return {
+            'id_mapper': mapper,
             'messages': [
                 (
                     'human',
                     f'New tool node has been saved to the database for addition to the workflow: \n\n {tool_info}',
                 )
-            ]
+            ],
         }
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
@@ -373,16 +370,14 @@ class CreateToolAgent:
         graph.add_node('get_doc_node', self.get_doc_node)
         graph.add_node('generate_command_node', self.generate_command_node)
         graph.add_node('get_output_report_node', self.get_output_report_node)
-        graph.add_node('web_search_node', self.web_search_node)
         graph.add_node('choose_group_node', self.choose_group_node)
         graph.add_node('generate_tool_node', self.generate_tool_node)
 
         graph.set_entry_point('select_image_node')
         graph.add_edge('select_image_node', 'get_doc_node')
         graph.add_edge('get_doc_node', 'generate_command_node')
-        graph.add_conditional_edges('generate_command_node', self.how_to_get_output)
+        graph.add_edge('generate_command_node', 'get_output_report_node')
         graph.add_edge('get_output_report_node', 'choose_group_node')
-        graph.add_edge('web_search_node', 'choose_group_node')
         graph.add_edge('choose_group_node', 'generate_tool_node')
         graph.add_edge('generate_tool_node', END)
 

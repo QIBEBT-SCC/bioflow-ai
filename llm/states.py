@@ -52,19 +52,27 @@ class CreateToolState(AgentStatePydantic):
     tool_uid: Optional[uuid.UUID] = None
 
     json_response: dict[str, Any] = {}
+    id_mapper: Optional[BidirectionalMapper] = None
 
 
 class CreateToolOutput(BaseModel):
     messages: list[BaseMessage]
-    tool_uid: uuid.UUID
+
+    id_mapper: Optional[BidirectionalMapper]
+    json_response: dict[str, Any]
 
 
 # =====================reproduction agent state==========================
 #
 class ToolsOutput(BaseModel):
-    """Bioinformatics tools used in the literature"""
+    """Bioinformatics tools and program packages used in the literature"""
 
     tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
+    r_packages: list[str] = Field(description='R packages used in the analysis', default_factory=list)
+    python_packages: list[str] = Field(description='Python libraries used in the analysis', default_factory=list)
+    workflow_description: str = Field(
+        description='A description of the workflow, using the original wording as much as possible, reorganized and streamlined while retaining key information.'
+    )
     workflow_structure: str = Field(description="Workflow's Mermaid flowchart code. The flowchart's layout is LR")
 
 
@@ -90,10 +98,14 @@ class BuildEdge(BaseModel):
 
 
 class ReproductionState(AgentStatePydantic):
-    paper_content: str
     paper_tools: Optional[ToolsOutput] = None
-    checked_tools: Annotated[list[int], operator.add] = []
+
+    id_mapper: Optional[BidirectionalMapper] = None
+
     exist_nodes: Annotated[list[BuildNode], operator.add] = []
     exist_edges: Annotated[list[BuildEdge], operator.add] = []
+
+    workflow_uid: Optional[uuid.UUID] = None
+    should_stop: bool = False
 
     price: Annotated[float, operator.add] = 0.0

@@ -14,7 +14,11 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
 from app.core.session import engine
+from app.crud import workflow as wf_crud
+from app.models.workflow import Workflow, WorkflowType
+from app.schemas.react_flow import Node, Position, Edge, WorkflowDefinition
 from llm.reproduction.search_info_agent import SearchInfoAgent
+from llm.states import ReproductionState
 from llm.utils.formatters import handle_formatter
 from app.models.resource import BioDb
 from app.models.tools import ToolImage, ToolDefine, ToolHelpDoc, ImageConfig, ToolTag, ToolGroup
@@ -109,7 +113,7 @@ async def pull_and_save_image(
         name: Name of the tool, can contain upper and lower case letters
         image_url: url of the image, the format is [registry]/[namespace]/[repository]:tag
         version: version of tool, can be judged by the image tag
-        description: A brief description of the tool corresponding to this image
+        description: A brief description of the tool corresponding to this image. This is a description of the tool, not the current requirements.
     """
     # 首先联网搜索补全GitHub链接和引用文献
     web_search_agent = SearchInfoAgent().build()
@@ -265,7 +269,7 @@ def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
     """Search for the corresponding tool node
 
     Args:
-        query: ID of the document to view
+        query: Name of the tool to search for
     """
     with Session(engine) as session:
         exist_tools: list[ToolDefine] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
@@ -285,7 +289,7 @@ def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
                 f'{handle_formatter(t.output_handles)}\n'
                 f'    </output_handles>\n'
                 f'    <data>\n'
-                f'      <tool_id>{mappers.get_index_by_uid(t.uid)}</tool_id>\n'
+                f'      <tool_id>{mappers.get_index_by_uid(str(t.uid))}</tool_id>\n'
                 f'      <args>{t.static_params}<args>\n'
                 f'    </data>\n'
                 f'    <command>{t.complete_command}</command>'
@@ -298,7 +302,10 @@ def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
                 'id_mapper': mappers,
                 'messages': [
                     ToolMessage(
-                        f'Based on the keywords, the following tool nodes are available (To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n<tools>\n{"\n\n".join(tool_blocks)}\n</tools>',
+                        f'Based on the keywords, the following tool nodes are available '
+                        f'(To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n'
+                        f'<tools>\n{"\n\n".join(tool_blocks)}\n</tools>\n\n'
+                        f'Note that if you are reproducing the workflow rather than designing it yourself, the selection of tools must strictly follow the original paper (the versions can be different).',
                         tool_call_id=tool_call_id,
                     )
                 ],
@@ -410,3 +417,58 @@ def search_biodb(query: str) -> str:
         return f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}'
 
     return 'Based on the keywords you provided, no results found'
+
+
+@tool
+def save_workflow(
+    name: str, state: Annotated[ReproductionState, InjectedState], tool_call_id: Annotated[str, InjectedToolCallId]
+):
+    """Save the completed workflow into the database
+
+    Args:
+        name: Workflow name, brief description of this workflow's tasks
+    """
+    nodes = []
+    for n in state.exist_nodes:
+        node = Node(
+            id=n.id,
+            type=n.type,
+            data=n.data,
+            position=Position(x=n.x * 500, y=n.y * 400),
+            dragHandle='.nodeDragable',
+            zIndex=-10 if n.type == 'note' else 20,
+        )
+        nodes.append(node)
+
+    edges = []
+    for e in state.exist_edges:
+        source_handle = f'{e.source_node}-out-{e.source_handle}'
+        target_handle = f'{e.target_node}-in-{e.target_handle}'
+        edge = Edge(
+            id=f'xy-edge__{source_handle}-{target_handle}',
+            animated=True,
+            source=e.source_node,
+            target=e.target_node,
+            sourceHandle=source_handle,
+            targetHandle=target_handle,
+        )
+        edges.append(edge)
+
+    workflow_define = WorkflowDefinition(nodes=nodes, edges=edges)
+
+    with Session(engine) as session:
+        workflow = Workflow(
+            name=f'{name}(AI)', owner_id=1, wf_type=WorkflowType.TEMPLATE, workflow=workflow_define, public=True
+        )
+
+        workflow = wf_crud.insert(session, workflow)
+
+    return Command(
+        update={
+            'workflow_uid': workflow.uid,
+            'should_stop': True,
+            'messages': [
+                ToolMessage(content='The workflow has been saved to the database.', tool_call_id=tool_call_id)
+            ],
+        }
+    )

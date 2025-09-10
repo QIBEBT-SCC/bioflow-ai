@@ -5,143 +5,162 @@ from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
 from langchain_core.tools import tool, InjectedToolCallId, ToolException
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
-from langgraph.constants import START, END
+from langgraph.constants import START
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from langgraph.prebuilt import ToolNode, InjectedState
 from langgraph.types import Command, interrupt
+from loguru import logger
 from sqlmodel import Session
-from uuid_extensions import uuid7
 
 import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
-import app.crud.workflow as wf_crud
-from llm.models import gemini_25_flash, gpt_o4_mini
+from llm.models import gemini_25_flash, gpt_5_mini
 from app.core.session import engine
-from llm.utils.formatters import node_formatter
 from llm.reproduction.create_tool_agent import CreateToolAgent
+from llm.utils.formatters import node_formatter
 from llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ToolsOutput
-from llm.tools.database import search_tool, search_biodb
+from llm.tools.database import search_tool, search_biodb, save_workflow
 from llm.tools.human import ask_human
 from app.models.resource import BioDb
-from app.models.workflow import WorkflowType, Workflow
-from app.schemas.react_flow import WorkflowDefinition, Node, Position, NodeData, Edge
+from app.schemas.react_flow import NodeData
 from app.schemas.tools import ToolNodePublic, Handle
 
 GET_TOOL_SYSTEM = """You are a bioinformatics researcher helping set up software tools for a research group's server.
 Your task is to analyze academic text and extract information about bioinformatics tools mentioned in the literature.
 
-## Important Instructions:
-- **Return only actual bioinformatics tools**
-    – These include tools used for quality control, sequence alignment, genome assembly, annotation, variant calling, transcript quantification, metagenomic profiling, etc.
-- **Do NOT include:**
-    - General-purpose programming languages (e.g., R, Python, Perl)
-    - Statistical functions or downstream analysis methods (e.g., PCA, t-SNE, DESeq2)
-
-## Output Format
-Your output needs to include the following two pieces of information:
-- `tools`: a list containing all the tool names you have extracted
-- `workflow_structure`: a **mermaid code** for the workflow diagram derived from the original paper
+<ThinkingProcess>
+1. First, categorize the tools you have extracted into three types:
+    - tools: bioinformatics analysis tools, generally referring to software tools installed using conda or directly as binary packages
+    - r_packages and python_packages: programming function packages, generally used for further downstream analysis
+2. Next, you will need to rewrite a descriptive text for the workflow, using the original text as much as possible for information regarding tool usage and parameters, but removing irrelevant context to obtain a concise but accurate descriptive text that solely describes the analysis workflow.
+3. Finally, use mermaid syntax to write an analysis workflow flowchart:
     - Starts with "```mermaid" and ends with "```" (that is, the standard markdown code block format), does not contain any other text in the task.
-    - Use regular nodes to represent tools, and hexagon nodes to represent files
+    - Use default nodes to represent analysis tools (`id`)
+    - Use an asymmetric shape node to represent intermediate files (`id>file description]`)
+    - Use a subroutine shape node to represent R or Python packages (`id[[tool/package name]]`)
+    - Note that the node display **only needs** the most basic tool/package name and file description. Version numbers, parameters, and other details have already appeared in the description above and **should not be** displayed in the node.
+    - For Mermaid to render correctly, **do not use any special symbols** (especially parentheses, quotation marks, etc.) in the node display content, other than those required by the syntax.
+</ThinkingProcess>
 """
 
-GET_TOOL_USER = """Here are the relevant paragraphs of the paper:
-<paper_content>
-{paper_content}
-</paper_content>
+GET_TOOL_USER = """## Workflow Description
+{description}
 """
 
-BUILD_FLOW_SYSTEM = """你是一名生物信息分析工程师，正在使用一个节点式的生物信息分析平台。
-这个平台将分析工具、数据库、分析数据等都封装成了一个个的节点，你的任务是使用它们复现一篇论文中的原始工作流。
+BUILD_FLOW_SYSTEM = """You are a bioinformatics researcher helping set up software tools for a research group's server.
+Your task is to analyze academic text and extract information about bioinformatics tools mentioned in the literature.
 
 <NodeDefine>
-本系统将所有的工具、资源、操作等都封装成了节点。每个节点都包含以下五部分：
-- **id**: 每添加一个新的节点，会自动为其分配一个id
-- **type**: 节点的类型，包括tool、resource、data_process和note四类
-    - tool: 生物信息工具节点
-    - resource: 资源节点，一般代表静态的文件资源，包括原始测序数据、数据库、参考基因组等
-    - data_process: 对一些数据操作的封装，如将文件复制、截取、更进一步的数据过滤等等非生信工具本身能够实现的操作
-    - note: 笔记，可以对某些节点加以说明
-- **input_handles**: 节点接受的输入
-- **output_handles**: 节点产生的输出
-- **data**: 节点自身的其他数据，不同的节点类型对应不同的具体格式
+This system encapsulates all tools, resources, operations, etc., into nodes. Each node includes the following five parts:
+- **id**: Each time a new node is added, an ID is automatically assigned to it.
+- **type**: The type of node, including four categories: tool, resource, data_process, code, and note.
+    - tool: Bioinformatics tool node.
+    - resource: Resource node, generally representing static file resources, including raw sequencing data, databases, reference genomes, etc.
+    - data_process: Encapsulation of some data operations, such as copying,截取, and further data filtering of files, which cannot be achieved by bioinformatics tools themselves.
+    - code: Different from tool, it is a node used for R or Python code analysis and execution.
+    - note: Notes, used to add supplementary explanations on the workflow canvas.
+- **input_handles**: Inputs accepted by the node.
+- **output_handles**: Outputs generated by the node.
+- **data**: Other data of the node itself, with different specific formats corresponding to different node types.
 
-此外，为了便于理解，tool类型的节点还存在一个command属性，展示了这个节点的完整运行命令。
+In addition, for ease of understanding, tool-type nodes also have a command attribute, which displays the complete running command of the node.
 </NodeDefine>
 
 <ThinkingProcess>
-你的任务就是根据原始文章的内容，调用相应的工具，逐步向工作流中添加节点。
-你可能已经注意到了节点的data字段并可能为此困扰，实际上我们对此封装了完善的工具，你只需要将简单的参数传递给工具，系统能够自动根据现有数据完成data的内容。你只需要按照以下思路来进行即可：
-1. 根据历史进度，决定当前要添加什么节点。按照工具调用顺序，先添加前置工具再添加后面的；先添数据库再添加工具本体。总之遵循的原则就是：当前添加节点的输入来源一定要全部存在
-2. 接下来，调用合适的搜索工具(search_开头)，并从返回的结果中选择合适的“节点模板”
-    - 如果这一步有可用的工具节点，直接进入下一步
-    - 当没有找到可用的工具的节点时，调用`create_tool_node`工具新建节点
-3. 调用添加节点工具，将你选择的模板实际添加到工作流中，这个工具会返回实例化后的节点信息，包括data的内容以及分配给这个节点的id。后者有助于你在后续添加节点时定义边连接使用
-    - 这一步你主要需要决定两个内容，一个是节点的坐标，一个是节点的输入边连接
-    - 根据现有工具已经占用的坐标位置和整个工作流的结构，为新节点分配合适的坐标
-    - 利用现有工具的输出，定义通向此节点的输入边连接
-    - 具体的描述可见于<ToolCalling>部分
-4. 在添加节点时，你可能会发现由于最开始考虑不周，某些节点缺失了必要的前置分析节点。此时你可以先暂缓添加该节点，先去添加所需的前置节点
-5. 如果在任意一处遇到设想之外的情况（如数据库找不到、节点没有合适的边连接对象等），都可以调用`ask_human`工具，询问人类意见
+Your task is to call the corresponding tools and add nodes to the workflow step by step based on the content of the original article.
+You may have noticed and been bothered by the `data` field of the nodes. In fact, we have a complete set of tools encapsulated for this. You only need to pass simple parameters to the tools, and the system can automatically complete the `data` content based on existing data. You just need to follow these steps:
+1. Based on the historical progress, decide what node to add next. Follow the tool calling order: add pre-requisite tools first, then the subsequent ones; add the database first, then the tool itself. In short, the principle to follow is: all input sources for the node currently being added must exist.
+2. Next, call the appropriate search tool (starting with `search_`) and select the appropriate "node template" from the returned results.
+    - If there are available nodes at this step, proceed directly to the next step.
+    - When no available tool nodes are found:
+        - For tool nodes, call the `create_tool_node` tool to create a new node.
+        - For database-type resource nodes, add a note node at the corresponding location, explaining that a database is needed here and how to download it. Only in this case can the input handle of the corresponding tool be allowed to have no edge connection.
+3. Call the add node tool (starting with `add_`) to add the corresponding type of node to the workflow. The tool will return the instantiated node information, including the content of the `data` and the ID assigned to this node. The latter will help you define edge connections when adding subsequent nodes.
+    - At this step, you mainly need to decide two things: the coordinates of the node and the input edge connections of the node.
+    - Assign appropriate coordinates to the new node based on the coordinates already occupied by existing tools and the overall structure of the workflow.
+    - Use the output of existing tools to define the input edge connections to this node.
+    - Specific descriptions can be found in the <ToolCalling> section.
+4. When adding nodes, you may find that some necessary pre-analysis nodes are missing due to initial oversight. In this case, you can temporarily postpone adding that node and first add the required pre-requisite nodes.
+5. If you encounter an unexpected situation at any point, you can call the `ask_human` tool to ask for human advice.
 
-这样，当你一个节点一个节点的添加完毕的时候，实际上也就得到了整个完整的工作流，你的任务就完成了。
-整个工作流中初始已经添加了一个reads资源节点，输出r1和r2的双端reads数据，一般都可以作为常规生物信息工作流的起点。如果这个输入不合适，建议先询问人类意见。
+In this way, when you have added all the nodes one by one, you will actually have the complete workflow, and your task will be completed.
+Initially, a `sequence` resource node has been added to the entire workflow, outputting paired-end reads data for r1 and r2, which can usually serve as the starting point for a conventional bioinformatics workflow. If this input is not suitable, it is recommended to first ask for human advice.
 </ThinkingProcess>
 
 <ToolCalling>
-为了帮助你更好的搜索节点和构筑工作流，我们定义了以下工具：
-- `search_tool`: 用于搜索工具节点，使用工具名称进行搜索
-- `add_tool_node`: 用于向工具流中添加工具节点，你需要从搜索结果中选择一个合适的对象，将他的id传给此工具。除此之外，你还主要需要思考以下两点
-    - 节点的位置：以初始的read节点开始，剩下的节点向x轴正方向铺开，同一个层次的工具可以放在同一个x坐标的不同y坐标上。总之，遵顼以下两点：
-        - 一个坐标只能放一个节点
-        - 每次改动以1为单位，如（上一个工具B在[1, 0]，下一个工具C基于B的输出，放在[2, 0]; 工具D也基于B的输出，但是[2, 0]已经有节点了，则放在[2, 1]）
-    - 节点的输入边：此节点的所有必须连接的input_handle对应的边列表。每一条边主要就是看来自哪个节点的哪个output_handle，输入到这个节点的哪个input_handle
-- `create_tool_node`: 当使用`search_tool`没有找到可用的工具节点时，调用此工具新建工具节点
-- `search_biodb`: 用于搜索数据库节点，一般使用调用此数据库的工具名称搜索，如果找不到，可以再试试直接使用工具库本身的名称搜索
-- `add_resource_node`: 用于向工具流中添加资源节点（有的资源节点也需要id，有的则不需要）。添加的思考过程与工具节点类似
-- `ask_human`: 当遇到所有无法解决的问题（一般是搜不到资源）时，调用这个工具，它会向人类请示并返回人类的反馈信息
-- `save_workflow`: Once the workflow is built, call this tool to save the workflow.
+To help you better search for nodes and build workflows, we have defined the following tools:
+1. Tool node related
+    - `search_tool`: Used to search for tool nodes, using the tool name for searching.
+    - `add_tool_node`: Used to add tool nodes to the tool flow. You need to select a suitable object from the search results and pass its ID to this tool. In addition, you mainly need to consider the following two points:
+        - Node position: Starting with the initial read node, the remaining nodes spread out in the positive direction of the x-axis. Tools at the same level can be placed at different y-coordinates on the same x-coordinate. In short, follow these two points:
+            - Only one node can be placed at one coordinate.
+            - Each change is made in units of 1, e.g., (the previous tool B is at [1, 0], the next tool C based on B's output is placed at [2, 0]; tool D is also based on B's output, but [2, 0] already has a node, so it is placed at [2, 1]).
+        - Node input edges: A list of edges corresponding to all required input_handles for this node. Each edge mainly looks at which node's output_handle it comes from and which input_handle it goes into on this node.
+    - `create_tool_node`: Call this tool to create a new tool node when `search_tool` does not find any available tool nodes.
+2. Resource node related
+    - `search_biodb`: Used to search for database nodes, generally by searching using the name of the tool that calls this database. If not found, you can try searching directly using the database's own name.
+    - `add_resource_node`: Used to add resource nodes to the tool flow (some resource nodes require an ID, others do not). The thought process for adding is similar to tool nodes.
+3. Data process node related
+    - `search_processor`: Searches for available data processing nodes. Operations outside of tools and downstream code analysis are basically handled by data_process nodes.
+    - `add_data_process_node`: Adds data processing nodes.
+4. Other nodes
+    - `add_code_node`: Add a code node, more information about this node can be found in the <CodeNode> section.
+    - `add_note_node`: Note nodes have no input or output, only need to be placed in an appropriate position.
+5. Other tools
+    - `ask_human`: When encountering any unsolvable problems (resource not found, network connection failed, etc.), call this tool. It will consult a human and return human feedback.
+    - `save_workflow`: Once the workflow is built, call this tool to save the workflow.
 </ToolCalling>
+
+<CodeNode>
+Since writing code requires more professional knowledge, this task will be handed over to more professional people.
+Your task is to break down the downstream code analysis in the text into appropriate parts, place these code blocks to be implemented in appropriate positions on the canvas, and describe what kind of code is expected to be written in these code blocks to achieve what.
+
+All code blocks have the same input and output:
+- The only input handle `input_files` is all external files that the code needs to read. You only need to directly connect the output generated by the corresponding node to this handle.
+- The only output handle `output_folder` is the folder where all output files generated by the code are located. If other code blocks need to use it, it can be directly connected as an output to the `input_files` of the corresponding code block. If other types of nodes need to use it, you may need to add corresponding `data_process` nodes to further utilize the files in that folder.
+</CodeNode>
 """
 
 
 class ReproductionAgent:
     def __init__(self):
-        self.struct_llm: ChatOpenAI = gpt_o4_mini()
-        self.tool_llm: ChatGoogleGenerativeAI = gemini_25_flash()
-
-        # agents
-        self.create_tool_agent = CreateToolAgent().build()
+        self.struct_llm = gpt_5_mini(0.2)
+        self.tool_llm = gemini_25_flash(0.2)
 
         # tools
-        self.call_tool_node = ToolNode(
-            [search_tool, search_biodb, add_tool_node, add_resource_node, create_tool, ask_human, save_workflow]
-        )
+        self.tools = [
+            search_tool,
+            add_tool_node,
+            create_tool_node,
+            search_biodb,
+            add_resource_node,
+            search_processor,
+            add_data_process_node,
+            add_code_node,
+            add_note_node,
+            ask_human,
+            save_workflow,
+        ]
+        self.call_tool_node = ToolNode(self.tools)
 
-    def extract_tools_node(self, state: ReproductionState):
+    async def extract_tools_node(self, state: ReproductionState):
         """从原始文章中提取出所使用的工具"""
+        writer = get_stream_writer()
+        writer({'info': 'Extracting workflow from the literature...'})
 
         class StructureOutput(TypedDict):
             raw: AIMessage
             parsed: Optional[ToolsOutput]
             parsing_error: Optional[BaseException]
 
-        if len(state.messages) == 0:
-            human_question = (
-                ChatPromptTemplate(messages=[('human', GET_TOOL_USER)]).invoke(state.paper_content).to_messages()
-            )
-            state.messages = human_question
-
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=GET_TOOL_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
         chain = prompt | self.struct_llm.with_structured_output(ToolsOutput, include_raw=True)
-        output: StructureOutput = chain.invoke({'history': state.messages})
+        output: StructureOutput = await chain.ainvoke({'history': state.messages})
 
         return {'paper_tools': output['parsed'], 'messages': [output['raw']]}
 
@@ -164,7 +183,9 @@ class ReproductionAgent:
             )
 
         question = (
-            f'I found {len(state.paper_tools.tools)} tools in the paper, '
+            f'I found {len(state.paper_tools.tools)} tools, {len(state.paper_tools.r_packages)} r packages and {len(state.paper_tools.python_packages)} python packages in the paper.\n'
+            f'The workflow mentioned in the article is summarized as follows:\n'
+            f'> {state.paper_tools.workflow_description}\n\n'
             f'Their workflow is shown in the figure below. Do you think there is any problem?\n'
             f'{state.paper_tools.workflow_structure}'
         )
@@ -172,7 +193,7 @@ class ReproductionAgent:
         if isinstance(answer, bool) and answer:
             init_node = BuildNode(
                 id='A',
-                type='reads',
+                type='resource_sequence',
                 input_handles=[],
                 output_handles=[
                     Handle(name='r1', description='the first read of a paired-end sequence.'),
@@ -188,10 +209,12 @@ class ReproductionAgent:
                     'exist_nodes': [init_node],
                     'messages': [
                         RemoveMessage(id=REMOVE_ALL_MESSAGES),
-                        ('human', GET_TOOL_USER.format(paper_content=state.paper_content)),
+                        ('human', GET_TOOL_USER.format(description=state.paper_tools.workflow_description)),
                         (
                             'ai',
-                            f'I found {len(state.paper_tools.tools)} tools in the paper: [{",".join(state.paper_tools.tools)}]. '
+                            f'I found {len(state.paper_tools.tools)} tools({",".join(state.paper_tools.tools)}), '
+                            f'{len(state.paper_tools.r_packages)} r packages({", ".join(state.paper_tools.r_packages)}) '
+                            f'and {len(state.paper_tools.python_packages)} python packages({", ".join(state.paper_tools.python_packages)}) in the paper.\n'
                             f'Their general workflow is shown in the figure below:\n{state.paper_tools.workflow_structure}',
                         ),
                         (
@@ -205,42 +228,38 @@ class ReproductionAgent:
             goto='extract_tools_node', update={'messages': [AIMessage(content=question), HumanMessage(content=answer)]}
         )
 
-    def build_workflow_node(self, state: ReproductionState):
+    async def build_workflow_node(self, state: ReproductionState):
         """根据返回的结构构建工作流"""
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=BUILD_FLOW_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
-        llm = self.tool_llm.bind_tools(
-            [search_tool, search_biodb, create_tool, add_tool_node, add_resource_node, ask_human, save_workflow],
-            tool_choice='any',
-        )
+        llm = self.tool_llm.bind_tools(self.tools, tool_choice='any')
         chain = prompt | llm
 
-        response = chain.invoke({'history': state.messages})
+        response = await chain.ainvoke({'history': state.messages})
         return {'messages': [response]}
 
     @staticmethod
-    def should_continue_build(
-        state: ReproductionState,
-    ) -> Literal['call_tool_node', 'create_tool_node', 'save_workflow_node']:
+    def should_continue_build(state: ReproductionState) -> Literal['call_tool_node', '__end__']:
         last_message = state.messages[-1]
-        assert last_message.tool_calls
-        tool_call = last_message.tool_calls[0]
 
-        if tool_call['name'] == 'save_workflow':
-            return 'save_workflow_node'
-        elif tool_call['name'] == 'create_tool_node':
-            return 'create_tool_node'
-        return 'call_tool_node'
+        if last_message.tool_calls:
+            return 'call_tool_node'
+
+        return '__end__'
 
     @staticmethod
-    def should_compress(state: ReproductionState) -> Literal['compress_message_node', 'build_workflow_node']:
+    def should_compress(state: ReproductionState) -> Literal['compress_message_node', 'build_workflow_node', '__end__']:
         ai_message = state.messages[-2]
         assert ai_message.tool_calls
         tool_call = ai_message.tool_calls[0]
 
-        if tool_call['name'] == 'add_node_by_id':
+        if tool_call['name'] in ['add_tool_node', 'add_code_node']:
             return 'compress_message_node'
+
+        if state.should_stop:
+            return '__end__'
+
         return 'build_workflow_node'
 
     @staticmethod
@@ -261,136 +280,55 @@ class ReproductionAgent:
             ]
         }
 
-    def create_tool_node(self, state: ReproductionState):
-        last_message: AIMessage = state.messages[-1]
-
-        writer = get_stream_writer()
-        writer({'custom_msg': f'search query: {last_message.tool_calls[0]["args"]["request"]}'})
-
-        sub_agent_input = CreateToolState(
-            messages=[HumanMessage(content=last_message.tool_calls[0]['args']['request'])]
-        )
-        response = self.create_tool_agent.invoke(sub_agent_input)
-        agent_msg = response['messages'][-1].content
-
-        return {'messages': [ToolMessage(content=agent_msg, tool_call_id=last_message.tool_calls[0]['id'])]}
-
-    @staticmethod
-    def save_workflow_node(state: ReproductionState):
-        nodes = []
-        for n in state.exist_nodes:
-            if n.type == 'tool':
-                node_type = 'tool'
-            elif n.type == 'db':
-                node_type = 'dbInputNode'
-            elif n.type == 'genome':
-                node_type = 'refInputNode'
-            elif n.type == 'reads':
-                node_type = 'sequenceInputNode'
-            else:
-                node_type = ''
-
-            node = Node(
-                id=n.id,
-                type=node_type,
-                data=n.data,
-                position=Position(x=n.x * 500, y=n.y * 400),
-                dragHandle='.nodeDragable',
-                zIndex=20,
-            )
-            nodes.append(node)
-
-        edges = []
-        for e in state.exist_edges:
-            source_handle = f'{e.source_node}-out-{e.source_handle}'
-            target_handle = f'{e.target_node}-in-{e.target_handle}'
-            edge = Edge(
-                id=f'xy-edge__{source_handle}-{target_handle}',
-                animated=True,
-                source=e.source_node,
-                target=e.target_node,
-                sourceHandle=source_handle,
-                targetHandle=target_handle,
-            )
-            edges.append(edge)
-
-        workflow_define = WorkflowDefinition(nodes=nodes, edges=edges)
-
-        wf_name = state.messages[-1].tool_calls[0]['args']['name']
-        with Session(engine) as session:
-            uid = uuid7(as_type='str')
-            workflow = Workflow(
-                uid=uid,
-                name=f'{wf_name}(AI)',
-                owner_id=1,
-                wf_type=WorkflowType.TEMPLATE,
-                workflow=workflow_define,
-                public=True,
-            )
-
-            wf_crud.insert(session, workflow)
-
-        return
-
-    def build(self, memory: BaseCheckpointSaver) -> CompiledStateGraph:
+    def build(self, memory: BaseCheckpointSaver, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(ReproductionState)
         graph.add_node('extract_tools_node', self.extract_tools_node)
         graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
         graph.add_node('build_workflow_node', self.build_workflow_node)
         graph.add_node('call_tool_node', self.call_tool_node)
         graph.add_node('compress_message_node', self.compress_message_node)
-        graph.add_node('create_tool_node', self.create_tool_node)
-        graph.add_node('save_workflow_node', self.save_workflow_node)
 
         graph.add_edge(START, 'extract_tools_node')
         graph.add_edge('extract_tools_node', 'analyse_extract_result_node')
         graph.add_conditional_edges('build_workflow_node', self.should_continue_build)
         graph.add_conditional_edges('call_tool_node', self.should_compress)
         graph.add_edge('compress_message_node', 'build_workflow_node')
-        graph.add_edge('create_tool_node', 'build_workflow_node')
-        graph.add_edge('save_workflow_node', END)
 
         compiled_graph = graph.compile(checkpointer=memory)
+        if visualize:
+            mermaid_code = compiled_graph.get_graph(xray=2).draw_mermaid(
+                curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
+            )
+            with open('images/reproduction_agent.md', 'w') as f:
+                f.write(f'```mermaid\n{mermaid_code}\n```')
         return compiled_graph
-
-    def visualize(self):
-        graph = StateGraph(ReproductionState)
-        graph.add_node('extract_tools_node', self.extract_tools_node)
-        graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
-        graph.add_node('build_workflow_node', self.build_workflow_node)
-        graph.add_node('call_tool_node', self.call_tool_node)
-        graph.add_node('compress_message_node', self.compress_message_node)
-        graph.add_node('create_tool_node', self.create_tool_agent)
-        graph.add_node('save_workflow_node', self.save_workflow_node)
-
-        graph.add_edge(START, 'extract_tools_node')
-        graph.add_edge('extract_tools_node', 'analyse_extract_result_node')
-        graph.add_conditional_edges('build_workflow_node', self.should_continue_build)
-        graph.add_conditional_edges('call_tool_node', self.should_compress)
-        graph.add_edge('compress_message_node', 'build_workflow_node')
-        graph.add_edge('create_tool_node', 'build_workflow_node')
-        graph.add_edge('save_workflow_node', END)
-
-        compiled_graph = graph.compile()
-        mermaid_code = compiled_graph.get_graph(xray=2).draw_mermaid(
-            curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
-        )
-        with open('images/reproduction_agent.md', 'w') as f:
-            f.write(f'```mermaid\n{mermaid_code}\n```')
-
-
-@tool('create_tool_node')
-def create_tool(request: str):
-    """Create new tool node
-
-    Args:
-        request: Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the tool's input is, and what the expected output is)"
-    """
-    return
 
 
 @tool
-def add_tool_node(
+async def create_tool_node(request: str, tool_call_id: Annotated[str, InjectedToolCallId]):
+    """Create new tool node
+
+    Args:
+        request: Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the tool's input is, and what the main expected output is)"
+    """
+
+    writer = get_stream_writer()
+    writer({'info': f'Creating new tool: {request}'})
+
+    sub_agent = CreateToolAgent().build()
+    sub_agent_input = CreateToolState(messages=[HumanMessage(content=request)])
+    response = await sub_agent.ainvoke(sub_agent_input)
+
+    return Command(
+        update={
+            'id_mapper': response['id_mapper'],
+            'messages': [ToolMessage(response['messages'][-1].content, tool_call_id=tool_call_id)],
+        }
+    )
+
+
+@tool
+async def add_tool_node(
     pos_x: int,
     pos_y: int,
     selected_id: int,
@@ -408,16 +346,17 @@ def add_tool_node(
     """
     node_count = len(state.exist_nodes)
     node_id = generate_char_index(node_count + 1)
+    tool_uid = state.id_mapper.get_uid_by_index(selected_id)
 
     with Session(engine) as session:
-        db_tool = tool_crud.get(session, selected_id)
+        db_tool = tool_crud.get(session, tool_uid)
         db_node = ToolNodePublic.model_validate(db_tool.model_dump())
         new_node = BuildNode(
             id=node_id,
             type='tool',
             input_handles=db_node.input_handles,
             output_handles=db_node.output_handles,
-            data=NodeData(tool_id=selected_id, args=db_node.static_params),
+            data=NodeData(tool_uid=tool_uid, args=db_node.static_params),
             command=db_node.complete_command,
             x=pos_x,
             y=pos_y,
@@ -438,8 +377,8 @@ def add_tool_node(
 
 
 @tool
-def add_resource_node(
-    resource_type: Literal['db', 'ref_genome'],
+async def add_resource_node(
+    resource_type: Literal['db', 'genome'],
     pos_x: int,
     pos_y: int,
     selected_id: Optional[int],
@@ -450,7 +389,7 @@ def add_resource_node(
     """Add a resource node to the workflow
 
     Args:
-        resource_type: Resource node type (db: biological database; ref_genome: reference genome)
+        resource_type: Resource node type (db: biological database; genome: reference genome)
         pos_x: The x-coordinate of the node's layout on the panel, only positive integer
         pos_y: The y-coordinate of the node's layout on the panel
         selected_id: ID of the corresponding resource (required for DB type)
@@ -465,17 +404,17 @@ def add_resource_node(
                 db_db: BioDb = db_crud.get(session, selected_id)
                 new_node = BuildNode(
                     id=node_id,
-                    type='db',
+                    type='resource_db',
                     input_handles=[],
                     output_handles=[Handle(name='file_path', description='db file path')],
                     data=NodeData(args=f'db:{db_db.name}'),
                     x=pos_x,
                     y=pos_y,
                 )
-        case 'ref_genome':
+        case 'genome':
             new_node = BuildNode(
                 id=node_id,
-                type='genome',
+                type='resource_genome',
                 input_handles=[
                     Handle(
                         name='species_name',
@@ -510,20 +449,150 @@ def add_resource_node(
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
             'messages': [
-                ToolMessage(content=f'add new tool node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id)
+                ToolMessage(content=f'add new resource node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id)
             ],
         }
     )
 
 
 @tool
-def save_workflow(name: str):
-    """Save the completed workflow into the database
+async def search_processor(query: str):
+    """Find the data_process node for the relevant function
 
     Args:
-        name: Workflow name, brief description of this workflow's tasks
+        query: Briefly describe the function you need to search for nodes
     """
-    return
+    logger.debug(query)
+    return 'Based on your needs, no suitable data_process node was found. You can consider changing your search method or using the `ask_human` tool to report this situation to a human.'
+
+
+@tool
+async def add_data_process_node(
+    processor_id: int,
+    pos_x: int,
+    pos_y: int,
+    input_edges: list[BuildEdge],
+    state: Annotated[ReproductionState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Add a data_process node to the workflow
+
+    Args:
+        processor_id: program language(R or python)
+        pos_x: The x-coordinate of the node's layout on the panel, only positive integer
+        pos_y: The y-coordinate of the node's layout on the panel
+        input_edges: Code node only have one edge `files`, just need to connect the files generated during the preliminary analysis, which are required by the code here, to this handle.
+    """
+    node_count = len(state.exist_nodes)
+    node_id = generate_char_index(node_count + 1)
+
+    # TODO: 这里实际应该是处理器名称
+    new_node = BuildNode(
+        id=node_id,
+        type=f'processor_{processor_id}',
+        input_handles=[Handle(name='files', description='The files required by this code')],
+        output_handles=[],
+        data=NodeData(args='', tool_uid=''),
+        x=pos_x,
+        y=pos_y,
+    )
+
+    for edge in input_edges:
+        edge.target_node = node_id
+
+    return Command(
+        update={
+            'exist_nodes': [new_node],
+            'exist_edges': input_edges,
+            'messages': [
+                ToolMessage(
+                    content=f'add new data_process node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id
+                )
+            ],
+        }
+    )
+
+
+@tool
+async def add_code_node(
+    language: Literal['R', 'python'],
+    pos_x: int,
+    pos_y: int,
+    program_request: str,
+    input_edges: list[BuildEdge],
+    state: Annotated[ReproductionState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Add a code node to the workflow
+
+    Args:
+        language: program language(R or python)
+        pos_x: The x-coordinate of the node's layout on the panel, only positive integer
+        pos_y: The y-coordinate of the node's layout on the panel
+        program_request: What functionality needs to be implemented in the code. The description needs to be **accurate**, as subsequent work will directly base code writing on your description.
+        input_edges: Code node only have one edge `files`, just need to connect the files generated during the preliminary analysis, which are required by the code here, to this handle.
+    """
+    node_count = len(state.exist_nodes)
+    node_id = generate_char_index(node_count + 1)
+
+    new_node = BuildNode(
+        id=node_id,
+        type=f'code_{language}',
+        input_handles=[Handle(name='input_files', description='The files required by this code')],
+        output_handles=[Handle(name='output_folder', description='The files required by this code')],
+        data=NodeData(args=f'{{"description":"{program_request}","code":""}}'),
+        x=pos_x,
+        y=pos_y,
+    )
+
+    for edge in input_edges:
+        edge.target_node = node_id
+
+    return Command(
+        update={
+            'exist_nodes': [new_node],
+            'exist_edges': input_edges,
+            'messages': [
+                ToolMessage(content=f'add new code node:\n{node_formatter(new_node)}', tool_call_id=tool_call_id)
+            ],
+        }
+    )
+
+
+@tool
+async def add_note_node(
+    note_content: str,
+    pos_x: int,
+    pos_y: int,
+    input_edges: list[BuildEdge],
+    state: Annotated[ReproductionState, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Add a note node to the workflow
+
+    Args:
+        note_content: Specific content of the notes (as brief and precise as possible)
+        pos_x: The x-coordinate of the node's layout on the panel, only positive integer
+        pos_y: The y-coordinate of the node's layout on the panel
+        input_edges: Code node only have one edge `files`, just need to connect the files generated during the preliminary analysis, which are required by the code here, to this handle.
+    """
+    node_count = len(state.exist_nodes)
+    node_id = generate_char_index(node_count + 1)
+
+    new_node = BuildNode(
+        id=node_id, type='note', input_handles=[], output_handles=[], data=NodeData(args=note_content), x=pos_x, y=pos_y
+    )
+
+    for edge in input_edges:
+        edge.target_node = node_id
+
+    return Command(
+        update={
+            'exist_nodes': [new_node],
+            'exist_edges': input_edges,
+            'messages': [ToolMessage(content=f'add new note:\n{node_formatter(new_node)}', tool_call_id=tool_call_id)],
+        }
+    )
 
 
 def generate_char_index(n: int) -> str:

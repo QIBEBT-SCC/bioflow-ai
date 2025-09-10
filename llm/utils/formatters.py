@@ -18,7 +18,7 @@ def node_formatter(node: BuildNode) -> str:
     if node.type == 'tool':
         node_data = (
             f'  <data>\n'
-            f'    <tool_id>{node.data.tool_id}</tool_id>\n'
+            f'    <tool_id>{node.data.tool_uid}</tool_id>\n'
             f'    <args>{node.data.args}</args>\n'
             f'  </data>\n'
             f'  <command>{node.command}</command>\n'

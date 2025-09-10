@@ -8,7 +8,7 @@ class Position(BaseModel):
 
 
 class NodeData(BaseModel):
-    tool_id: Optional[int] = None
+    tool_uid: Optional[str] = None
     args: str
 
 

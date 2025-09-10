@@ -17,7 +17,8 @@ class AskHuman(BaseTool):
     return_direct: bool = False
 
     def _run(self, question: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        answer = interrupt(question)
+        answer = interrupt({'question': question})
         return f'Human feedback is: "{answer}"'
+
 
 ask_human = AskHuman()
