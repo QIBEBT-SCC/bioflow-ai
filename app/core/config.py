@@ -96,6 +96,7 @@ class LLMConfig(BaseModel):
     GPT: LLMApiConfig = LLMApiConfig()
     CLAUDE: LLMApiConfig = LLMApiConfig()
     DEEPSEEK: LLMApiConfig = LLMApiConfig()
+    GLM: LLMApiConfig = LLMApiConfig()
     VLLM: LLMApiConfig = LLMApiConfig()
 
     tools: LLMToolConfig = LLMToolConfig()

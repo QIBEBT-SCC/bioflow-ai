@@ -1,46 +1,10 @@
 from langchain_core.language_models import BaseChatModel
-from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_qwen3 import Qwen3Embeddings
 
 from app.core.config import get_settings
 from llm.utils.cache import cache_model
-
-
-def deepseek_r1_structure(temperature: float = 0.7) -> BaseChatModel:
-    if base_url := get_settings().llm.DEEPSEEK.BASE_URL:
-        provider = get_settings().llm.DEEPSEEK.PROVIDER
-        llm = ChatOpenAI(
-            model=f'{provider}/deepseek-reasoner' if provider else 'deepseek-reasoner',
-            base_url=base_url,
-            api_key=get_settings().llm.DEEPSEEK.API_KEY,
-            temperature=temperature,
-        )
-    else:
-        llm = ChatDeepSeek(
-            model='deepseek-reasoner',
-            api_key=get_settings().llm.DEEPSEEK.API_KEY,
-            temperature=temperature,
-            disabled_params={'tool_choice': None},
-        )
-
-    return llm
-
-
-def deepseek_v3(temperature: float = 0.7) -> ChatDeepSeek:
-    if base_url := get_settings().llm.DEEPSEEK.BASE_URL:
-        provider = get_settings().llm.DEEPSEEK.PROVIDER
-        llm = ChatOpenAI(
-            model=f'{provider}/deepseek-chat' if provider else 'deepseek-chat',
-            base_url=base_url,
-            api_key=get_settings().llm.DEEPSEEK.API_KEY,
-            temperature=temperature,
-        )
-    else:
-        llm = ChatDeepSeek(model='deepseek-chat', api_key=get_settings().llm.DEEPSEEK.API_KEY, temperature=temperature)
-
-    return llm
 
 
 def gemini_25_flash(temperature: float = 0.7) -> BaseChatModel:
@@ -113,6 +77,7 @@ def gpt_o4_mini(temperature: float = 0.7) -> ChatOpenAI:
 
     return llm
 
+
 def gpt_5_mini(temperature: float = 0.7) -> ChatOpenAI:
     if base_url := get_settings().llm.GPT.BASE_URL:
         provider = get_settings().llm.GPT.PROVIDER
@@ -126,6 +91,55 @@ def gpt_5_mini(temperature: float = 0.7) -> ChatOpenAI:
         llm = ChatOpenAI(model='gpt-5-mini', api_key=get_settings().llm.GPT.API_KEY, temperature=temperature)
 
     return llm
+
+
+def deepseek_v3(temperature: float = 0.7) -> ChatOpenAI:
+    provider = get_settings().llm.DEEPSEEK.PROVIDER
+    llm = ChatOpenAI(
+        model=f'{provider}/deepseek-chat' if provider else 'deepseek-chat',
+        base_url=get_settings().llm.DEEPSEEK.BASE_URL,
+        api_key=get_settings().llm.DEEPSEEK.API_KEY,
+        temperature=temperature,
+    )
+
+    return llm
+
+
+def deepseek_r1(temperature: float = 0.7) -> ChatOpenAI:
+    provider = get_settings().llm.DEEPSEEK.PROVIDER
+    llm = ChatOpenAI(
+        model=f'{provider}/deepseek-reasoner' if provider else 'deepseek-reasoner',
+        base_url=get_settings().llm.DEEPSEEK.BASE_URL,
+        api_key=get_settings().llm.DEEPSEEK.API_KEY,
+        temperature=temperature,
+    )
+
+    return llm
+
+
+def glm_45_air(temperature: float = 0.7) -> ChatOpenAI:
+    provider = get_settings().llm.GLM.PROVIDER
+    llm = ChatOpenAI(
+        model=f'{provider}/glm-4.5-air' if provider else 'glm-4.5-air',
+        base_url=get_settings().llm.GLM.BASE_URL,
+        api_key=get_settings().llm.GLM.API_KEY,
+        temperature=temperature,
+    )
+
+    return llm
+
+
+def glm_45(temperature: float = 0.7) -> ChatOpenAI:
+    provider = get_settings().llm.GLM.PROVIDER
+    llm = ChatOpenAI(
+        model=f'{provider}/glm-4.5' if provider else 'glm-4.5',
+        base_url=get_settings().llm.GLM.BASE_URL,
+        api_key=get_settings().llm.GLM.API_KEY,
+        temperature=temperature,
+    )
+
+    return llm
+
 
 @cache_model()
 def qwen3_embedding() -> Qwen3Embeddings:

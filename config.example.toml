@@ -61,7 +61,12 @@ api_key = ""
 
 [llm.deepseek]
 provider = ""
-base_url = ""
+base_url = "https://api.deepseek.com/v1"
+api_key = ""
+
+[llm.glm]
+provider = ""
+base_url = "https://open.bigmodel.cn/api/coding/paas/v4"
 api_key = ""
 
 [llm.vllm]
