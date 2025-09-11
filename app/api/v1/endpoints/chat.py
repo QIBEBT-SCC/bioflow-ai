@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, UTC
-from typing import AsyncGenerator, Optional, Annotated, List
+from typing import AsyncGenerator, Annotated, List
 
 import aiosqlite
 import psycopg
@@ -130,14 +130,14 @@ async def get_history(session_id: str, current_user: UserDep):
 
 
 async def generate_chat_stream(
-    text_message: str, stored_files: List[StoredFileInfo], resume: bool, session_id: Optional[str], session: Session
+    text_message: str, stored_files: List[StoredFileInfo], resume: bool, session_id: str, session: Session
 ) -> AsyncGenerator[str, None]:
     msg_db = get_settings().persistent.CHECKPOINT_URL
     conn = await psycopg.AsyncConnection.connect(msg_db)
     try:
         history = PostgresChatMessageHistory('simple_history', session_id, async_connection=conn)
         messages = await history.aget_messages()
-        messages = filter_messages(messages, exclude_types=['info'])
+        messages = filter_messages(messages, exclude_types=['info', 'link'])
 
         try:
             # 发送开始生成消息
@@ -150,7 +150,7 @@ async def generate_chat_stream(
 
                 yield SSEMessage(event=EventType.LOADING, data={'message': '模型加载完成，开始生成响应...'}).to_sse()
 
-                config = RunnableConfig(configurable={'thread_id': '1'}, recursion_limit=500)
+                config = RunnableConfig(configurable={'thread_id': session_id}, recursion_limit=500)
                 if resume:
                     chat_input = Command(resume=text_message) if text_message else Command(resume=True)
                 else:
@@ -161,7 +161,7 @@ async def generate_chat_stream(
                         human_message = HumanMessage(content=text_message)
                     chat_input = ReproductionState(messages=[*messages, human_message])
 
-                exclude_nodes = ['extract_tools_node']
+                exclude_nodes = ['extract_tools_node', 'generate_tool_node']
                 # 流式生成响应
                 current_id = ''
                 temp_response = ''
@@ -207,7 +207,8 @@ async def generate_chat_stream(
                             logger.debug(chunk)
                             if '__interrupt__' in chunk:
                                 yield SSEMessage(
-                                    event=EventType.INTERRUPT, data={'message': chunk['__interrupt__'][0].value}
+                                    event=EventType.INTERRUPT,
+                                    data={'message': chunk['__interrupt__'][0].value['question']},
                                 ).to_sse()
                                 is_interrupt = True
                         case _:
@@ -227,7 +228,7 @@ async def generate_chat_stream(
                 if not is_interrupt:
                     final_response = response.values['messages'][-1].content
                 else:
-                    final_response = response.interrupts[0].value
+                    final_response = response.interrupts[0].value['question']
                 update_messages.extend([AIMessage(content=final_response)])
 
                 await history.aadd_messages(update_messages)
@@ -239,7 +240,7 @@ async def generate_chat_stream(
                 chat_crud.update(session, chat_update)
 
                 if not is_interrupt:
-                    await memory.adelete_thread('1')
+                    await memory.adelete_thread(session_id)
 
         except Exception as e:
             logger.exception(f'生成聊天响应时发生错误: {str(e)}')

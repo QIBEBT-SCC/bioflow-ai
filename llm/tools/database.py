@@ -314,7 +314,13 @@ def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
 
     return Command(
         update={
-            'messages': [ToolMessage('Based on the keywords you provided, no results found', tool_call_id=tool_call_id)]
+            'messages': [
+                ToolMessage(
+                    'Based on the keywords you provided, no results found. '
+                    'Consider using new search keywords or calling the `create_tool_node` tool to create new tool nodes',
+                    tool_call_id=tool_call_id,
+                )
+            ]
         }
     )
 
@@ -416,7 +422,10 @@ def search_biodb(query: str) -> str:
 
         return f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}'
 
-    return 'Based on the keywords you provided, no results found'
+    return (
+        'Based on the keywords you provided, no results found. '
+        'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.'
+    )
 
 
 @tool
@@ -466,7 +475,6 @@ def save_workflow(
     return Command(
         update={
             'workflow_uid': workflow.uid,
-            'should_stop': True,
             'messages': [
                 ToolMessage(content='The workflow has been saved to the database.', tool_call_id=tool_call_id)
             ],

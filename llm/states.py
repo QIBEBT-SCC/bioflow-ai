@@ -106,6 +106,5 @@ class ReproductionState(AgentStatePydantic):
     exist_edges: Annotated[list[BuildEdge], operator.add] = []
 
     workflow_uid: Optional[uuid.UUID] = None
-    should_stop: bool = False
 
     price: Annotated[float, operator.add] = 0.0

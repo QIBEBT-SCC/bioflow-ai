@@ -59,7 +59,7 @@ This system encapsulates all tools, resources, operations, etc., into nodes. Eac
 - **type**: The type of node, including four categories: tool, resource, data_process, code, and note.
     - tool: Bioinformatics tool node.
     - resource: Resource node, generally representing static file resources, including raw sequencing data, databases, reference genomes, etc.
-    - data_process: Encapsulation of some data operations, such as copying,截取, and further data filtering of files, which cannot be achieved by bioinformatics tools themselves.
+    - data_process: Encapsulation of some data operations, such as copying, concat, and further data filtering of files, which cannot be achieved by bioinformatics tools themselves.
     - code: Different from tool, it is a node used for R or Python code analysis and execution.
     - note: Notes, used to add supplementary explanations on the workflow canvas.
 - **input_handles**: Inputs accepted by the node.
@@ -75,12 +75,9 @@ You may have noticed and been bothered by the `data` field of the nodes. In fact
 1. Based on the historical progress, decide what node to add next. Follow the tool calling order: add pre-requisite tools first, then the subsequent ones; add the database first, then the tool itself. In short, the principle to follow is: all input sources for the node currently being added must exist.
 2. Next, call the appropriate search tool (starting with `search_`) and select the appropriate "node template" from the returned results.
     - If there are available nodes at this step, proceed directly to the next step.
-    - When no available tool nodes are found:
-        - For tool nodes, call the `create_tool_node` tool to create a new node.
-        - For database-type resource nodes, add a note node at the corresponding location, explaining that a database is needed here and how to download it. Only in this case can the input handle of the corresponding tool be allowed to have no edge connection.
-3. Call the add node tool (starting with `add_`) to add the corresponding type of node to the workflow. The tool will return the instantiated node information, including the content of the `data` and the ID assigned to this node. The latter will help you define edge connections when adding subsequent nodes.
-    - At this step, you mainly need to decide two things: the coordinates of the node and the input edge connections of the node.
-    - Assign appropriate coordinates to the new node based on the coordinates already occupied by existing tools and the overall structure of the workflow.
+    - When no available nodes are found, follow the advice in the tool feedback for further processing.
+3. Call the add node tool (starting with `add_`) to add the corresponding type of node to the workflow. At this step, you mainly need to decide two things: the coordinates of the node and the input edge connections of the node.
+    - Assign appropriate coordinates to the new node based on the coordinates already occupied by existing nodes and the overall structure of the workflow.
     - Use the output of existing tools to define the input edge connections to this node.
     - Specific descriptions can be found in the <ToolCalling> section.
 4. When adding nodes, you may find that some necessary pre-analysis nodes are missing due to initial oversight. In this case, you can temporarily postpone adding that node and first add the required pre-requisite nodes.
@@ -94,7 +91,7 @@ Initially, a `sequence` resource node has been added to the entire workflow, out
 To help you better search for nodes and build workflows, we have defined the following tools:
 1. Tool node related
     - `search_tool`: Used to search for tool nodes, using the tool name for searching.
-    - `add_tool_node`: Used to add tool nodes to the tool flow. You need to select a suitable object from the search results and pass its ID to this tool. In addition, you mainly need to consider the following two points:
+    - `add_tool_node`: Used to add tool nodes to the workflow. You need to select a suitable object from the search results and pass its ID to this tool. In addition, you mainly need to consider the following two points:
         - Node position: Starting with the initial read node, the remaining nodes spread out in the positive direction of the x-axis. Tools at the same level can be placed at different y-coordinates on the same x-coordinate. In short, follow these two points:
             - Only one node can be placed at one coordinate.
             - Each change is made in units of 1, e.g., (the previous tool B is at [1, 0], the next tool C based on B's output is placed at [2, 0]; tool D is also based on B's output, but [2, 0] already has a node, so it is placed at [2, 1]).
@@ -102,15 +99,16 @@ To help you better search for nodes and build workflows, we have defined the fol
     - `create_tool_node`: Call this tool to create a new tool node when `search_tool` does not find any available tool nodes.
 2. Resource node related
     - `search_biodb`: Used to search for database nodes, generally by searching using the name of the tool that calls this database. If not found, you can try searching directly using the database's own name.
-    - `add_resource_node`: Used to add resource nodes to the tool flow (some resource nodes require an ID, others do not). The thought process for adding is similar to tool nodes.
+    - `add_resource_node`: Used to add resource nodes to the workflow. The thought process for adding is similar to tool nodes.
 3. Data process node related
     - `search_processor`: Searches for available data processing nodes. Operations outside of tools and downstream code analysis are basically handled by data_process nodes.
-    - `add_data_process_node`: Adds data processing nodes.
+    - `add_data_process_node`: Adds data processing nodes to the workflow.
 4. Other nodes
-    - `add_code_node`: Add a code node, more information about this node can be found in the <CodeNode> section.
+    - `add_code_node`: Add a code node to the workflow, more information about this node can be found in the <CodeNode> section.
     - `add_note_node`: Note nodes have no input or output, only need to be placed in an appropriate position.
 5. Other tools
     - `ask_human`: When encountering any unsolvable problems (resource not found, network connection failed, etc.), call this tool. It will consult a human and return human feedback.
+    - `compress_history`: After **successfully** executing the `add_tool_node` and `add_code_node` tools, call this tool to compress the conversation context.
     - `save_workflow`: Once the workflow is built, call this tool to save the workflow.
 </ToolCalling>
 
@@ -122,6 +120,9 @@ All code blocks have the same input and output:
 - The only input handle `input_files` is all external files that the code needs to read. You only need to directly connect the output generated by the corresponding node to this handle.
 - The only output handle `output_folder` is the folder where all output files generated by the code are located. If other code blocks need to use it, it can be directly connected as an output to the `input_files` of the corresponding code block. If other types of nodes need to use it, you may need to add corresponding `data_process` nodes to further utilize the files in that folder.
 </CodeNode>
+
+<InputEdges>
+<InputEdges>
 """
 
 
@@ -133,8 +134,8 @@ class ReproductionAgent:
         # tools
         self.tools = [
             search_tool,
-            add_tool_node,
             create_tool_node,
+            add_tool_node,
             search_biodb,
             add_resource_node,
             search_processor,
@@ -142,6 +143,7 @@ class ReproductionAgent:
             add_code_node,
             add_note_node,
             ask_human,
+            compress_history,
             save_workflow,
         ]
         self.call_tool_node = ToolNode(self.tools)
@@ -189,7 +191,7 @@ class ReproductionAgent:
             f'Their workflow is shown in the figure below. Do you think there is any problem?\n'
             f'{state.paper_tools.workflow_structure}'
         )
-        answer = interrupt(question)
+        answer = interrupt({'question': question})
         if isinstance(answer, bool) and answer:
             init_node = BuildNode(
                 id='A',
@@ -233,34 +235,27 @@ class ReproductionAgent:
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=BUILD_FLOW_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
-        llm = self.tool_llm.bind_tools(self.tools, tool_choice='any')
+        llm = self.tool_llm.bind_tools(self.tools)
         chain = prompt | llm
 
         response = await chain.ainvoke({'history': state.messages})
         return {'messages': [response]}
 
     @staticmethod
-    def should_continue_build(state: ReproductionState) -> Literal['call_tool_node', '__end__']:
+    def tool_call_route(
+        state: ReproductionState,
+    ) -> Literal['call_tool_node', 'compress_message_node', 'fix_toolcall_miss_node', '__end__']:
         last_message = state.messages[-1]
+        assert isinstance(last_message, AIMessage)
 
-        if last_message.tool_calls:
-            return 'call_tool_node'
+        if not last_message.tool_calls:
+            return '__end__' if state.workflow_uid else 'fix_toolcall_miss_node'
 
-        return '__end__'
+        return 'compress_message_node' if last_message.tool_calls[0]['name'] == 'compress_history' else 'call_tool_node'
 
     @staticmethod
-    def should_compress(state: ReproductionState) -> Literal['compress_message_node', 'build_workflow_node', '__end__']:
-        ai_message = state.messages[-2]
-        assert ai_message.tool_calls
-        tool_call = ai_message.tool_calls[0]
-
-        if tool_call['name'] in ['add_tool_node', 'add_code_node']:
-            return 'compress_message_node'
-
-        if state.should_stop:
-            return '__end__'
-
-        return 'build_workflow_node'
+    async def fix_toolcall_miss_node(state: ReproductionState):
+        return {'messages': [HumanMessage('Okay, continue calling tools to complete the work.')]}
 
     @staticmethod
     def compress_message_node(state: ReproductionState):
@@ -270,9 +265,29 @@ class ReproductionAgent:
             'edges': [e.model_dump() for e in state.exist_edges],
         }
         wf_str = json.dumps(wf_data, indent=2, sort_keys=False)
+
+        # human: origin question (keep)
+        # ai: description (keep)
+        # ....(remove)
+        # ai: call add_node (keep)
+        # tool: add node (keep)
+        # - ai: message (remove)
+        #   human: fix (remove)
+        # ai: call compress (remove)
+        if isinstance(state.messages[-2], HumanMessage):
+            remove_list = [
+                *[RemoveMessage(id=m.id) for m in state.messages[2:-5]],
+                *[RemoveMessage(id=m.id) for m in state.messages[-3:]],
+            ]
+        else:
+            remove_list = [
+                *[RemoveMessage(id=m.id) for m in state.messages[2:-3]],
+                RemoveMessage(id=state.messages[-1].id),
+            ]
+
         return {
             'messages': [
-                *[RemoveMessage(id=m.id) for m in state.messages[2:-2]],
+                *remove_list,
                 (
                     'human',
                     f'Prefect, now the following are some of the workflows that have been completed:\n<workflow>\n{wf_str}\n</workflow>\n\nPlease continue to call the tools to work.',
@@ -287,12 +302,14 @@ class ReproductionAgent:
         graph.add_node('build_workflow_node', self.build_workflow_node)
         graph.add_node('call_tool_node', self.call_tool_node)
         graph.add_node('compress_message_node', self.compress_message_node)
+        graph.add_node('fix_toolcall_miss_node', self.fix_toolcall_miss_node)
 
         graph.add_edge(START, 'extract_tools_node')
         graph.add_edge('extract_tools_node', 'analyse_extract_result_node')
-        graph.add_conditional_edges('build_workflow_node', self.should_continue_build)
-        graph.add_conditional_edges('call_tool_node', self.should_compress)
+        graph.add_conditional_edges('build_workflow_node', self.tool_call_route)
+        graph.add_edge('call_tool_node', 'build_workflow_node')
         graph.add_edge('compress_message_node', 'build_workflow_node')
+        graph.add_edge('fix_toolcall_miss_node', 'build_workflow_node')
 
         compiled_graph = graph.compile(checkpointer=memory)
         if visualize:
@@ -463,7 +480,10 @@ async def search_processor(query: str):
         query: Briefly describe the function you need to search for nodes
     """
     logger.debug(query)
-    return 'Based on your needs, no suitable data_process node was found. You can consider changing your search method or using the `ask_human` tool to report this situation to a human.'
+    return (
+        'Based on your needs, no suitable data_process node was found. '
+        'You can consider changing your search query or using the `ask_human` tool to report this situation to a human.'
+    )
 
 
 @tool
@@ -593,6 +613,12 @@ async def add_note_node(
             'messages': [ToolMessage(content=f'add new note:\n{node_formatter(new_node)}', tool_call_id=tool_call_id)],
         }
     )
+
+
+@tool
+async def compress_history():
+    """Compress context to refine relevant information"""
+    return
 
 
 def generate_char_index(n: int) -> str:
