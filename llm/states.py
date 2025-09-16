@@ -64,16 +64,26 @@ class CreateToolOutput(BaseModel):
 
 # =====================reproduction agent state==========================
 #
-class ToolsOutput(BaseModel):
+class ExtractOutput1(BaseModel):
+    """A brief summary of the literature (requirements) and a brief overview of the workflow"""
+
+    overall_summary: str = Field(
+        description='The main conclusions/findings and general analytical direction/methods of this literature.'
+    )
+    major_finding: str = Field(
+        description='Summary of the main findings/conclusions of the literature. Leave blank if it is not a complete research paper'
+    )
+    workflow_overview: str = Field(description='What bioinformatics workflows are there in the text')
+
+
+class ExtractOutput2(BaseModel):
     """Bioinformatics tools and program packages used in the literature"""
 
     tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
-    r_packages: list[str] = Field(description='R packages used in the analysis', default_factory=list)
-    python_packages: list[str] = Field(description='Python libraries used in the analysis', default_factory=list)
-    workflow_description: str = Field(
-        description='A description of the workflow, using the original wording as much as possible, reorganized and streamlined while retaining key information.'
-    )
-    workflow_structure: str = Field(description="Workflow's Mermaid flowchart code. The flowchart's layout is LR")
+    r_packages: list[str] = Field(description='All R packages used in the analysis', default_factory=list)
+    python_packages: list[str] = Field(description='All Python libraries used in the analysis', default_factory=list)
+    workflow_details: str = Field(description='Specific description of the bioinformatic workflow')
+    mermaid_code: str = Field(description="Workflow's Mermaid flowchart code. The flowchart's layout is LR")
 
 
 class BuildNode(BaseModel):
@@ -98,7 +108,9 @@ class BuildEdge(BaseModel):
 
 
 class ReproductionState(AgentStatePydantic):
-    paper_tools: Optional[ToolsOutput] = None
+    analyse_step: Annotated[int, operator.add] = 0
+    formatted_msg: Optional[str] = None
+    paper_tools: Optional[ExtractOutput2] = None
 
     id_mapper: Optional[BidirectionalMapper] = None
 
