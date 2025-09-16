@@ -1,5 +1,5 @@
 import json
-from typing import Annotated, Literal, TypedDict, Optional
+from typing import Annotated, Literal, Optional, TypedDict
 
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -21,33 +21,81 @@ from llm.models import gemini_25_flash, gpt_5_mini
 from app.core.session import engine
 from llm.reproduction.create_tool_agent import CreateToolAgent
 from llm.utils.formatters import node_formatter
-from llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ToolsOutput
+from llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ExtractOutput1, ExtractOutput2
 from llm.tools.database import search_tool, search_biodb, save_workflow
 from llm.tools.human import ask_human
 from app.models.resource import BioDb
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import ToolNodePublic, Handle
 
-GET_TOOL_SYSTEM = """You are a bioinformatics researcher helping set up software tools for a research group's server.
-Your task is to analyze academic text and extract information about bioinformatics tools mentioned in the literature.
+GET_TOOL_SYSTEM_1 = """You are a bioinformatics engineer, and you will be presented with a paper or a text of an oral description.
+Your task is to extract the bioinformatics analysis workflow from the content of the literature (or text), organize and summarize it, and output it in a fixed format.
+**Do not** analyze the specific implementation details of the workflow, that's not your job.
+
+<OutputFormat>
+Your output consists of two parts:
+- `overall_summary`: A brief summary of the content provided by the user
+- `major_finding`: If you are looking at a complete document, summarize the main conclusions/findings of this document in this section, presented as an **markdown ordered list**; if there is only a description of a bioinformatics analysis task, then this section does not need to be filled in, just leave it blank.
+- `workflow_overview`: The analysis workflow(s) described in the paper to obtain the aforementioned results.
+    - We **only** concerned with bioinformatics analysis workflows; other wet lab-related methods do not need to be extracted.
+    - If there is only one analysis workflow, describe it directly; if there are multiple, list them one by one using **markdown list**. See the <WorkflowOverviewExample> section for the specific format
+    - For each workflow, you need to summarize:
+        1. Explain the function of this workflow from a purely bioinformatics perspective.
+        2. (If `major_finding` has content) Combine with the main conclusions of the article to explain how the results of this workflow support or prove these conclusions.
+    - We consider it a workflow as long as the relevant analyses are in the same directed acyclic graph. Only analyses where upstream and downstream data are completely unrelated can be considered different workflows. **Avoid unnecessary splitting.**
+    - You may see users asking to reproduce the workflow, but this is a subsequent task. You currently only need to briefly describe the workflow, without describing specific implementation details (such as what tools were used, what parameters were used, etc.)
+
+The language of your generated output should depends on the language of the user's query.
+</OutputFormat>
+
+<WorkflowOverviewExample>
+Based on the information you provided, N bioinformatics analysis workflows were found:
+1. **(e.g., single-cell transcriptome annotation)**
+    - **What does this workflow do?**: ...
+    - (Optional) **How do the analysis results support the conclusion?**: ...
+2. (If there are multiple workflows, the format is the same as above)
+...
+</WorkflowOverviewExample>
+"""
+
+GET_TOOL_SYSTEM_2 = """You are a bioinformatics engineer, and you will be presented with a paper or a text of an oral description.
+Your task is to extract the bioinformatics analysis workflow from the content of the literature (or text), organize and summarize it, and output it in a fixed format.
 
 <ThinkingProcess>
-1. First, categorize the tools you have extracted into three types:
-    - tools: bioinformatics analysis tools, generally referring to software tools installed using conda or directly as binary packages
-    - r_packages and python_packages: programming function packages, generally used for further downstream analysis
-2. Next, you will need to rewrite a descriptive text for the workflow, using the original text as much as possible for information regarding tool usage and parameters, but removing irrelevant context to obtain a concise but accurate descriptive text that solely describes the analysis workflow.
-3. Finally, use mermaid syntax to write an analysis workflow flowchart:
+To accomplish this task, you can proceed in two steps:
+1. First, briefly summarize this document (requirements) and describe the general situation of the extractable workflow.
+2. After receiving confirmation, further extract specific tools and workflow structures, organize them into the corresponding format; at the same time, use mermaid to draw a flowchart of the workflow to assist user understanding.
+</ThinkingProcess>
+
+<OutputFormat>
+Your output should consists these parts:
+
+- The extracted tools, specifically, are the following three lists:
+    - `tools`: bioinformatics tools, generally referring to those installed via conda or directly as binary packages
+    - `r_packages` and `python_packages`: specific programming language packages used for downstream analysis
+- `workflow_details`: Based on the specific information extracted from the files and articles, describe the composition of the workflow in detail using a markdown list.
+    - Each list item describes one operation, with the text format "(Tool Type): Use (Tool Name) to ...". Tool Type must be one of `tools`, `r packages`, or `python packages`.
+    - List detailed information related to tool parameter selection from the original text using sub-lists
+    - If there is only one workflow, return the list directly; if there are multiple workflows, summarize an appropriate title for each workflow, separated by markdown level-three headings (###).
+- `mermaid_code`: Workflow flowchart drawn using Mermaid
     - Starts with "```mermaid" and ends with "```" (that is, the standard markdown code block format), does not contain any other text in the task.
     - Use default nodes to represent analysis tools (`id`)
     - Use an asymmetric shape node to represent intermediate files (`id>file description]`)
     - Use a subroutine shape node to represent R or Python packages (`id[[tool/package name]]`)
     - Note that the node display **only needs** the most basic tool/package name and file description. Version numbers, parameters, and other details have already appeared in the description above and **should not be** displayed in the node.
     - For Mermaid to render correctly, **do not use any special symbols** (especially parentheses, quotation marks, etc.) in the node display content, other than those required by the syntax.
-</ThinkingProcess>
-"""
+</OutputFormat>
 
-GET_TOOL_USER = """## Workflow Description
-{description}
+To help you understand the output style, here is an example for your reference.
+<Example>
+{
+    "tools": ["fastp","STAR","featureCounts"],
+    "r_packages": ["DESeq2","clusterProfiler"],
+    "python_packages": [],
+    "workflow_details": "1.  (tool): Perform quality control on raw data using `fastp`\\n    * Filter out reads shorter than 35bp\\n2.  (tool): Align high-quality reads to the reference genome using `STAR`\\n3.  (tool): Quantify gene expression using `featureCounts`\\n    * Count at the gene level, summarizing reads aligned to exons\\n4.  (r package): Perform differential expression analysis using the `DESeq2` R package\\n5.  (r package): Perform functional enrichment analysis using the `clusterProfiler` R package",
+    "mermaid_code": "```mermaid\\ngraph LR;\\n    A>Raw FASTQ] --> B(fastp);\\n    B --> C>Clean FASTQ];\\n    C --> D(STAR);\\n    D --> E>Aligned BAM];\\n    E --> F(featureCounts);\\n    F --> G>Counts Matrix];\\n    G --> H[[DESeq2]];\\n    H --> I>DEG List];\\n    I --> J[[clusterProfiler]];\\n    J --> K>Enrichment Results];\\n```"
+}
+</Example>
 """
 
 BUILD_FLOW_SYSTEM = """You are a bioinformatics researcher helping set up software tools for a research group's server.
@@ -148,6 +196,40 @@ class ReproductionAgent:
         ]
         self.call_tool_node = ToolNode(self.tools)
 
+    async def summary_paper_node(self, state: ReproductionState):
+        writer = get_stream_writer()
+        writer({'info': 'Summarizing literature...'})
+
+        class StructureOutput(TypedDict):
+            raw: AIMessage
+            parsed: Optional[ExtractOutput1]
+            parsing_error: Optional[BaseException]
+
+        prompt = ChatPromptTemplate(
+            messages=[SystemMessage(content=GET_TOOL_SYSTEM_1), MessagesPlaceholder(variable_name='history')]
+        )
+        chain = prompt | self.struct_llm.with_structured_output(ExtractOutput1, include_raw=True)
+        output: StructureOutput = await chain.ainvoke({'history': state.messages})
+
+        if output['parsed'].major_finding:
+            formatted_msg = (
+                f'## Overall Summary\n'
+                f'{output["parsed"].overall_summary}\n\n'
+                f'## Major Finding\n'
+                f'{output["parsed"].major_finding}\n\n'
+                f'## Workflow Overview\n'
+                f'{output["parsed"].workflow_overview}'
+            )
+        else:
+            formatted_msg = (
+                f'## Overall Summary\n'
+                f'{output["parsed"].overall_summary}\n\n'
+                f'## Workflow Overview\n'
+                f'{output["parsed"].workflow_overview}'
+            )
+
+        return {'formatted_msg': formatted_msg, 'messages': [output['raw']]}
+
     async def extract_tools_node(self, state: ReproductionState):
         """从原始文章中提取出所使用的工具"""
         writer = get_stream_writer()
@@ -155,80 +237,91 @@ class ReproductionAgent:
 
         class StructureOutput(TypedDict):
             raw: AIMessage
-            parsed: Optional[ToolsOutput]
+            parsed: Optional[ExtractOutput2]
             parsing_error: Optional[BaseException]
 
         prompt = ChatPromptTemplate(
-            messages=[SystemMessage(content=GET_TOOL_SYSTEM), MessagesPlaceholder(variable_name='history')]
+            messages=[SystemMessage(content=GET_TOOL_SYSTEM_2), MessagesPlaceholder(variable_name='history')]
         )
-        chain = prompt | self.struct_llm.with_structured_output(ToolsOutput, include_raw=True)
+        chain = prompt | self.struct_llm.with_structured_output(ExtractOutput2, include_raw=True)
         output: StructureOutput = await chain.ainvoke({'history': state.messages})
+        formatted_msg = (
+            f'## Workflow Details\n'
+            f'{output["parsed"].workflow_details}\n\n'
+            f'## Workflow Structure\n'
+            f'{output["parsed"].mermaid_code}'
+        )
 
-        return {'paper_tools': output['parsed'], 'messages': [output['raw']]}
+        return {'paper_tools': output['parsed'], 'formatted_msg': formatted_msg, 'messages': [output['raw']]}
 
     @staticmethod
     def analyse_extract_result_node(
         state: ReproductionState,
-    ) -> Command[Literal['extract_tools_node', 'build_workflow_node']]:
+    ) -> Command[Literal['summary_paper_node', 'extract_tools_node', 'build_workflow_node']]:
         """工具提取的结果处理
 
         如果没有找到工具，触发中断询问人类，并将结果返回到提取节点
         否则，将提取的工具和流程图返回给人类，询问意见。如果同意则进入下一步，否则将反馈信息返回并重新提取。
         """
 
-        if len(state.paper_tools.tools) == 0:
-            question = 'I found 0 tools in the paper, please checkout the content you provide.'
-            answer = interrupt(question)
-            return Command(
-                goto='extract_tools_node',
-                update={'messages': [AIMessage(content=question), HumanMessage(content=answer)]},
-            )
-
-        question = (
-            f'I found {len(state.paper_tools.tools)} tools, {len(state.paper_tools.r_packages)} r packages and {len(state.paper_tools.python_packages)} python packages in the paper.\n'
-            f'The workflow mentioned in the article is summarized as follows:\n'
-            f'> {state.paper_tools.workflow_description}\n\n'
-            f'Their workflow is shown in the figure below. Do you think there is any problem?\n'
-            f'{state.paper_tools.workflow_structure}'
-        )
-        answer = interrupt({'question': question})
+        answer = interrupt({'confirm': f"{state.formatted_msg}\n\nDo you think it's okay? Can we continue?"})
         if isinstance(answer, bool) and answer:
-            init_node = BuildNode(
-                id='A',
-                type='resource_sequence',
-                input_handles=[],
-                output_handles=[
-                    Handle(name='r1', description='the first read of a paired-end sequence.'),
-                    Handle(name='r2', description='the second read of a paired-end sequence.'),
-                ],
-                data=NodeData(args='{"r1":"","r2":""}'),
-                x=0,
-                y=0,
-            )
-            return Command(
-                goto='build_workflow_node',
-                update={
-                    'exist_nodes': [init_node],
-                    'messages': [
-                        RemoveMessage(id=REMOVE_ALL_MESSAGES),
-                        ('human', GET_TOOL_USER.format(description=state.paper_tools.workflow_description)),
-                        (
-                            'ai',
-                            f'I found {len(state.paper_tools.tools)} tools({",".join(state.paper_tools.tools)}), '
-                            f'{len(state.paper_tools.r_packages)} r packages({", ".join(state.paper_tools.r_packages)}) '
-                            f'and {len(state.paper_tools.python_packages)} python packages({", ".join(state.paper_tools.python_packages)}) in the paper.\n'
-                            f'Their general workflow is shown in the figure below:\n{state.paper_tools.workflow_structure}',
-                        ),
-                        (
-                            'human',
-                            f'Prefect, now start calling tools to perform specific workflow construction tasks. The following nodes have been initially added:\n{node_formatter(init_node)}',
-                        ),
+            if state.analyse_step == 0:
+                filtered_history = [
+                    m if isinstance(m, HumanMessage) else AIMessage(content='Blocked history messages')
+                    for m in state.messages[1:-1]
+                ]
+                return Command(
+                    goto='extract_tools_node',
+                    update={
+                        'analyse_step': 1,
+                        'messages': [
+                            *[RemoveMessage(id=m.id) for m in state.messages[1:]],
+                            *filtered_history,
+                            ('ai', state.formatted_msg),
+                            ('human', 'Very good, now continue to complete the remaining steps.'),
+                        ],
+                    },
+                )
+            else:
+                init_node = BuildNode(
+                    id='A',
+                    type='resource_sequence',
+                    input_handles=[],
+                    output_handles=[
+                        Handle(name='r1', description='the first read of a paired-end sequence.'),
+                        Handle(name='r2', description='the second read of a paired-end sequence.'),
                     ],
-                },
-            )
-        return Command(
-            goto='extract_tools_node', update={'messages': [AIMessage(content=question), HumanMessage(content=answer)]}
-        )
+                    data=NodeData(args='{"r1":"","r2":""}'),
+                    x=0,
+                    y=0,
+                )
+                workflow_description = state.messages[-1].content
+                return Command(
+                    goto='build_workflow_node',
+                    update={
+                        'analyse_step': 1,
+                        'exist_nodes': [init_node],
+                        'messages': [
+                            RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                            ('human', workflow_description),
+                            (
+                                'ai',
+                                f'I found {len(state.paper_tools.tools)} tools({",".join(state.paper_tools.tools)}), '
+                                f'{len(state.paper_tools.r_packages)} r packages({", ".join(state.paper_tools.r_packages)}) '
+                                f'and {len(state.paper_tools.python_packages)} python packages({", ".join(state.paper_tools.python_packages)}) in the paper.\n'
+                                f'Their general workflow is shown in the figure below:\n{state.paper_tools.mermaid_code}',
+                            ),
+                            (
+                                'human',
+                                f'Prefect, now start calling tools to perform specific workflow construction tasks. The following nodes have been initially added:\n{node_formatter(init_node)}',
+                            ),
+                        ],
+                    },
+                )
+
+        next_node = 'summary_paper_node' if state.analyse_step == 0 else 'extract_tools_node'
+        return Command(goto=next_node, update={'messages': [HumanMessage(content=answer)]})
 
     async def build_workflow_node(self, state: ReproductionState):
         """根据返回的结构构建工作流"""
@@ -239,6 +332,9 @@ class ReproductionAgent:
         chain = prompt | llm
 
         response = await chain.ainvoke({'history': state.messages})
+        if state.workflow_uid:
+            writer = get_stream_writer()
+            writer({'link': f'/editor/{state.workflow_uid}'})
         return {'messages': [response]}
 
     @staticmethod
@@ -297,6 +393,7 @@ class ReproductionAgent:
 
     def build(self, memory: BaseCheckpointSaver, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(ReproductionState)
+        graph.add_node('summary_paper_node', self.summary_paper_node)
         graph.add_node('extract_tools_node', self.extract_tools_node)
         graph.add_node('analyse_extract_result_node', self.analyse_extract_result_node)
         graph.add_node('build_workflow_node', self.build_workflow_node)
@@ -304,7 +401,8 @@ class ReproductionAgent:
         graph.add_node('compress_message_node', self.compress_message_node)
         graph.add_node('fix_toolcall_miss_node', self.fix_toolcall_miss_node)
 
-        graph.add_edge(START, 'extract_tools_node')
+        graph.add_edge(START, 'summary_paper_node')
+        graph.add_edge('summary_paper_node', 'analyse_extract_result_node')
         graph.add_edge('extract_tools_node', 'analyse_extract_result_node')
         graph.add_conditional_edges('build_workflow_node', self.tool_call_route)
         graph.add_edge('call_tool_node', 'build_workflow_node')
