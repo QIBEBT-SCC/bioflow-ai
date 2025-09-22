@@ -12,6 +12,20 @@ CREATE TABLE IF NOT EXISTS users
     UNIQUE (email)
 );
 
+CREATE TABLE IF NOT EXISTS chat_sessions
+(
+    uid            uuid      NOT NULL,
+    owner_id       INTEGER   NOT NULL,
+    description    VARCHAR   NOT NULL,
+    checkpoint_uid uuid,
+    interrupted    BOOLEAN   NOT NULL,
+    create_time    TIMESTAMP NOT NULL,
+    update_time    TIMESTAMP NOT NULL,
+    PRIMARY KEY (uid),
+    FOREIGN KEY (owner_id) REFERENCES users
+);
+
+
 -- 项目相关
 CREATE TABLE IF NOT EXISTS projects
 (

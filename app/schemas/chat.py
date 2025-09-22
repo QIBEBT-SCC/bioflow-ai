@@ -1,7 +1,8 @@
+import uuid
 from typing import Optional
 from enum import Enum
 
-from pydantic import BaseModel, Field, UUID7
+from pydantic import BaseModel, Field
 from datetime import datetime, UTC
 
 
@@ -33,7 +34,9 @@ class ChatSessionUpdate(BaseModel):
 
 
 class ChatSessionPublic(BaseModel):
-    uid: UUID7
+    uid: uuid.UUID
     description: str
+    checkpoint_uid: Optional[uuid.UUID]
+    interrupted: bool
     create_time: datetime
     update_time: datetime

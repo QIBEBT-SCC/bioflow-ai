@@ -161,7 +161,7 @@ async def generate_chat_stream(
                         human_message = HumanMessage(content=text_message)
                     chat_input = ReproductionState(messages=[*messages, human_message])
 
-                exclude_nodes = ['extract_tools_node', 'generate_tool_node']
+                exclude_nodes = ['generate_tool_node']
                 # 流式生成响应
                 current_id = ''
                 temp_response = ''
@@ -196,19 +196,22 @@ async def generate_chat_stream(
                                             'id': current_id,
                                             'delta': message_chunk.content,
                                             'full_text': temp_response,
+                                            'thinking': True,
                                         },
                                     ).to_sse()
 
                                     await asyncio.sleep(0.01)
                         case 'custom':
-                            logger.info(chunk['info'])
-                            yield SSEMessage(event=EventType.LOADING, data={'message': chunk['info']}).to_sse()
+                            logger.info(chunk)
+                            if 'info' in chunk:
+                                yield SSEMessage(event=EventType.LOADING, data={'message': chunk['info']}).to_sse()
+                            elif 'link' in chunk:
+                                yield SSEMessage(event=EventType.SUCCESS, data=chunk).to_sse()
                         case 'updates':
                             logger.debug(chunk)
                             if '__interrupt__' in chunk:
                                 yield SSEMessage(
-                                    event=EventType.INTERRUPT,
-                                    data={'message': chunk['__interrupt__'][0].value['question']},
+                                    event=EventType.INTERRUPT, data=chunk['__interrupt__'][0].value
                                 ).to_sse()
                                 is_interrupt = True
                         case _:
@@ -228,7 +231,10 @@ async def generate_chat_stream(
                 if not is_interrupt:
                     final_response = response.values['messages'][-1].content
                 else:
-                    final_response = response.interrupts[0].value['question']
+                    interrupt_value = response.interrupts[0].value
+                    final_response = (
+                        interrupt_value['question'] if 'question' in interrupt_value else interrupt_value['confirm']
+                    )
                 update_messages.extend([AIMessage(content=final_response)])
 
                 await history.aadd_messages(update_messages)
