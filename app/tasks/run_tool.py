@@ -73,7 +73,7 @@ def docker_task(
     self: Task,
     result_dict: Optional[dict[str, Any]] = None,
     *,
-    tool_id: int,
+    tool_uid: str,
     inputs: dict[str, TaskInput],
     output_dir: str,
     params: str = '',
@@ -84,7 +84,7 @@ def docker_task(
     Args:
         self: Celery任务
         result_dict: 用于占位，防止celery链式调用时报错
-        tool_id: 工具id，用于从数据库获取具体信息
+        tool_uid: 工具uid，用于从数据库获取具体信息
         inputs: 输入参数字典，格式为 {参数名: (uid, 类型)}
         output_dir: 输出目录
         params: 额外参数
@@ -93,7 +93,7 @@ def docker_task(
     Returns:
         ToolOutput: 工具输出结果
     """
-    tool_config = get_tool_data(tool_id)
+    tool_config = get_tool_data(tool_uid)
 
     # 创建输出目录
     host_output_dir = Path(output_dir).absolute()

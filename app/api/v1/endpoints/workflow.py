@@ -1,13 +1,11 @@
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Form
+from fastapi import APIRouter, Depends, Query, HTTPException
 from starlette import status
-from starlette.responses import StreamingResponse
 from uuid_extensions import uuid7
 
 import app.crud.workflow as wf_crud
 import app.crud.run_instance as run_crud
-from app.api.sse_base import SSEMessage, EventType
 from app.core.session import SessionDep
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.workflow import WorkflowCreateProp
@@ -109,13 +107,3 @@ async def update_workflow(
 
     wf_crud.update(session, uid, workflow)
     return uid
-
-
-@router.post('/reproduction')
-async def reproduction_by_paper(
-    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)], paper_content: str = Form()
-):
-    async def generator():
-        yield SSEMessage(event=EventType.LOADING, data='reading paper content...').to_sse()
-
-    return StreamingResponse(generator(), media_type='text/event-stream')

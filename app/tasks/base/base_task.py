@@ -16,9 +16,7 @@ class BaseBioTask(celery.Task):
     def before_start(self, task_id, args, kwargs):
         os_info = platform.platform()
         hostname = socket.gethostname()
-        data = TaskUpdate(
-            status=Status.RUNNING, system=os_info, hostname=hostname, start_time=datetime.now()
-        )
+        data = TaskUpdate(status=Status.RUNNING, system=os_info, hostname=hostname, start_time=datetime.now())
         update_task(task_id, data)
 
     def on_success(self, retval, task_id, args, kwargs):
@@ -32,8 +30,8 @@ class BaseBioTask(celery.Task):
         update_monitor_log(task_id)
 
 
-def get_tool_data(tool_id: int) -> ToolTaskInfo:
-    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tools/{tool_id}/task_info'
+def get_tool_data(tool_uid: str) -> ToolTaskInfo:
+    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tools/{tool_uid}/task_info'
     headers = {'Content-Type': 'application/json'}
 
     response = requests.get(url, headers=headers)

@@ -25,7 +25,7 @@ def get_all_tasks(
     current_user: Annotated[User, Depends(get_current_active_user)],
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-) -> list[SimpleTaskPublic]:
+):
     return task_crud.get_all(session, limit, offset, current_user.id)
 
 
@@ -35,9 +35,7 @@ def get_task_count(session: SessionDep, current_user: Annotated[User, Depends(ge
 
 
 @router.get('/recent/{hour}', response_model=list[SimpleTaskPublic])
-def get_by_time(
-    hour: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
-) -> list[SimpleTaskPublic]:
+def get_by_time(hour: int, session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
     return task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
 
 
@@ -45,7 +43,7 @@ def get_by_time(
 async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
     updated_task = task_crud.update(session, uid, task_update)
 
-    run_uid = updated_task.instance_uid
+    run_uid = str(updated_task.instance_uid)
     run_cache = monitor_redis_client.get(f'run-stats-{run_uid}')
     if run_cache:
         run_cache_data = Stat.model_validate_json(run_cache.decode('utf-8'))
@@ -90,7 +88,7 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
 
 
 @router.get('/{uid}', response_model=TaskPublic)
-def get_task_instance(uid: str, session: SessionDep) -> TaskPublic:
+def get_task_instance(uid: str, session: SessionDep):
     return task_crud.get(session, uid)
 
 
