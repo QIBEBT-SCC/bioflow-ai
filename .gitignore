@@ -170,3 +170,5 @@ storage/
 
 log/
 database/
+/script/pubmed_data/abstract-Bioinforma-set.txt
+/script/pubmed_data/
