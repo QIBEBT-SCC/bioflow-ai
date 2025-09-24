@@ -1,19 +1,10 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 
-import aiohttp
-import requests
-import rich
+import httpx
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-
-
-class BioContainerToolVersion(BaseModel):
-    id: str
-    meta_version: str
-    name: str
-    url: str
 
 
 class BioContainerTool(BaseModel):
@@ -26,89 +17,66 @@ class BioContainerTool(BaseModel):
 
 class BioContainerImage(BaseModel):
     image_name: str
-    image_type: str
-    registry_host: str
+    image_type: Literal['Docker', 'Singularity', 'Conda']
+    size: int
     updated: Optional[datetime] = None
 
 
-class BioContainerVersion(BioContainerToolVersion):
+class BioContainerVersion(BaseModel):
+    name: str
+    meta_version: str
     images: list[BioContainerImage]
 
 
-def search_bio_container(tool_name: str) -> list[BioContainerTool]:
+def search_biocontainer(tool_name: str) -> list[BioContainerTool]:
     url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools?toolname={tool_name}&limit=20&sort_field=pulls&sort_order=desc'
-    headers = {'Accept': 'application/json'}
 
-    proxies = None
-    if get_settings().network.USE_PROXY:
-        proxies = {'http': get_settings().network.get_proxy_url(), 'https': get_settings().network.get_proxy_url()}
-
-    response = requests.get(url, headers=headers, proxies=proxies)
-    assert response.status_code == 200
-    response_data = response.json()
-
-    return [BioContainerTool.model_validate(r) for r in response_data]
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    with httpx.Client(proxy=proxy) as client:
+        response = client.get(url)
+        response.raise_for_status()
+        return [BioContainerTool.model_validate(r) for r in response.json()]
 
 
-async def asearch_bio_container(tool_name: str) -> list[BioContainerTool]:
+async def asearch_biocontainer(tool_name: str) -> list[BioContainerTool]:
     url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools?toolname={tool_name}&limit=20&sort_field=pulls&sort_order=desc'
-    headers = {'Accept': 'application/json'}
 
-    connector = None
-    if get_settings().network.USE_PROXY:
-        connector = aiohttp.TCPConnector()
-
-    async with aiohttp.ClientSession(connector=connector) as session:
-        request_kwargs = {'url': url, 'headers': headers}
-
-        if get_settings().network.USE_PROXY:
-            request_kwargs['proxy'] = get_settings().network.get_proxy_url()
-
-        async with session.get(**request_kwargs) as response:
-            assert response.status == 200
-            response_data = await response.json()
-
-            return [BioContainerTool.model_validate(r) for r in response_data]
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    async with httpx.AsyncClient(proxy=proxy) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return [BioContainerTool.model_validate(r) for r in response.json()]
 
 
-def get_bio_container_image(tool_name: str) -> Optional[str]:
+def get_biocontainer_image_tags(tool_name: str) -> list[BioContainerVersion]:
     url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools/{tool_name}/versions'
-    headers = {'Accept': 'application/json'}
 
-    proxies = None
-    if get_settings().network.USE_PROXY:
-        proxies = {'http': get_settings().network.get_proxy_url(), 'https': get_settings().network.get_proxy_url()}
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    with httpx.Client(proxy=proxy) as client:
+        response = client.get(url)
+        response.raise_for_status()
 
-    response = requests.get(url, headers=headers, proxies=proxies)
-    assert response.status_code == 200
-    last_version = BioContainerVersion.model_validate(response.json()[-1])
-    for image in last_version.images:
-        if image.image_type == 'Docker':
-            return image.image_name
+        versions = []
+        for r in response.json():
+            version = BioContainerVersion.model_validate(r)
+            version.images = [img for img in version.images if img.image_type == 'Docker']
+            versions.append(version)
 
-    return None
+        return versions[::-1]
 
 
-async def aget_bio_container_image(tool_name: str) -> Optional[str]:
+async def aget_biocontainer_image_tags(tool_name: str) -> list[BioContainerVersion]:
     url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools/{tool_name}/versions'
-    headers = {'Accept': 'application/json'}
 
-    connector = None
-    if get_settings().network.USE_PROXY:
-        connector = aiohttp.TCPConnector()
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    async with httpx.AsyncClient(proxy=proxy) as client:
+        response = await client.get(url)
+        response.raise_for_status()
 
-    async with aiohttp.ClientSession(connector=connector) as session:
-        request_kwargs = {'url': url, 'headers': headers}
+        versions = []
+        for r in response.json():
+            version = BioContainerVersion.model_validate(r)
+            version.images = [img for img in version.images if img.image_type == 'Docker']
+            versions.append(version)
 
-        if get_settings().network.USE_PROXY:
-            request_kwargs['proxy'] = get_settings().network.get_proxy_url()
-
-        async with session.get(**request_kwargs) as response:
-            assert response.status == 200
-            response_data = await response.json()
-            last_version = BioContainerVersion.model_validate(response_data[-1])
-            for image in last_version.images:
-                if image.image_type == 'Docker':
-                    return image.image_name
-
-            return None
+        return versions[::-1]

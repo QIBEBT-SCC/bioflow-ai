@@ -10,11 +10,11 @@ from pydantic import BaseModel, Field
 
 from app.models.tools import ImageConfig
 from app.utils.api.biocontainer import (
-    search_bio_container,
+    search_biocontainer,
     BioContainerTool,
-    get_bio_container_image,
-    asearch_bio_container,
-    aget_bio_container_image,
+    get_biocontainer_image_tags,
+    asearch_biocontainer,
+    aget_biocontainer_image_tags,
 )
 from app.utils.api.docker_hub import (
     check_repository_tags,
@@ -72,18 +72,9 @@ class SearchImage(BaseTool):
             image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
             return f'Found pullable tool docker image: `{image.get_image()}`'
 
-        # 从staphb仓库中搜索
-        if check_repository_tags('staphb', tool_name.lower()) == 200:
-            tags = get_repository_tags('staphb', tool_name.lower())
-            if (tag := tags.pop(0)) == 'latest':
-                tag = tags[0]
-            # 从docker hub搜索，但是下载使用quay.io源
-            image = ImageConfig(registry='quay.io', namespace='staphb', repository=tool_name.lower(), tag=tag)
-            return f'Found pullable tool docker image: `{image.get_image()}`'
-
         # 从 BioContainer 中搜索
         else:
-            bio_container_tools = search_bio_container(tool_name.lower())
+            bio_container_tools = search_biocontainer(tool_name.lower())
             if len(bio_container_tools) == 0:
                 raise ToolException('No image for this tool was found in the docker repository')
 
@@ -100,7 +91,8 @@ class SearchImage(BaseTool):
                 raise ToolException('No image for this tool was found in the docker repository')
 
             selected_image = bio_container_tools[select_result.correct_image_id].id
-            latest_image = get_bio_container_image(selected_image)
+            image_tags = get_biocontainer_image_tags(selected_image)
+            latest_image = image_tags[0].images[-1].image_name
             return f'Found pullable tool docker image: `{latest_image}`'
 
     async def _arun(
@@ -111,23 +103,13 @@ class SearchImage(BaseTool):
         if status_code == 200:
             tags = await aget_repository_tags('aye1032', tool_name.lower())
             if (tag := tags.pop(0)) == 'latest':
-                tag = tag[0]
-            image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
-            return f'Found pullable tool docker image: `{image.get_image()}`'
-
-        # 从staphb仓库中搜索
-        status_code = await acheck_repository_tags('staphb', tool_name.lower())
-        if status_code == 200:
-            tags = await aget_repository_tags('staphb', tool_name.lower())
-            if (tag := tags.pop(0)) == 'latest':
                 tag = tags[0]
-            # 从docker hub搜索，但是下载使用quay.io源
-            image = ImageConfig(registry='quay.io', namespace='staphb', repository=tool_name.lower(), tag=tag)
+            image = ImageConfig(registry='docker.io', namespace='aye1032', repository=tool_name.lower(), tag=tag)
             return f'Found pullable tool docker image: `{image.get_image()}`'
 
         # 从 BioContainer 中搜索
         else:
-            bio_container_tools = await asearch_bio_container(tool_name.lower())
+            bio_container_tools = await asearch_biocontainer(tool_name.lower())
             if len(bio_container_tools) == 0:
                 raise ToolException('No image for this tool was found in the docker repository')
 
@@ -144,7 +126,8 @@ class SearchImage(BaseTool):
                 raise ToolException('No image for this tool was found in the docker repository')
 
             selected_image = bio_container_tools[select_result.correct_image_id].id
-            latest_image = await aget_bio_container_image(selected_image)
+            image_tags = await aget_biocontainer_image_tags(selected_image)
+            latest_image = image_tags[0].images[-1].image_name
             return f'Found pullable tool docker image: `{latest_image}`'
 
     @staticmethod
