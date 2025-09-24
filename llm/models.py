@@ -50,22 +50,6 @@ def gemini_25_pro(temperature: float = 0.7, disable_streaming: bool = False) -> 
     return llm
 
 
-def gpt_41_mini(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
-    if base_url := get_settings().llm.GPT.BASE_URL:
-        provider = get_settings().llm.GPT.PROVIDER
-        llm = ChatOpenAI(
-            model=f'{provider}/gpt-4.1-mini' if provider else 'gpt-4.1-mini',
-            base_url=base_url,
-            api_key=get_settings().llm.GPT.API_KEY,
-            temperature=temperature,
-            disable_streaming=disable_streaming,
-        )
-    else:
-        llm = ChatOpenAI(model='gpt-4.1-mini', api_key=get_settings().llm.GPT.API_KEY, temperature=temperature, disable_streaming=disable_streaming)
-
-    return llm
-
-
 def gpt_o4_mini(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
     if base_url := get_settings().llm.GPT.BASE_URL:
         provider = get_settings().llm.GPT.PROVIDER
@@ -77,7 +61,33 @@ def gpt_o4_mini(temperature: float = 0.7, disable_streaming: bool = False) -> Ch
             disable_streaming=disable_streaming,
         )
     else:
-        llm = ChatOpenAI(model='o4-mini', api_key=get_settings().llm.GPT.API_KEY, temperature=temperature, disable_streaming=disable_streaming)
+        llm = ChatOpenAI(
+            model='o4-mini',
+            api_key=get_settings().llm.GPT.API_KEY,
+            temperature=temperature,
+            disable_streaming=disable_streaming,
+        )
+
+    return llm
+
+
+def gpt_5(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
+    if base_url := get_settings().llm.GPT.BASE_URL:
+        provider = get_settings().llm.GPT.PROVIDER
+        llm = ChatOpenAI(
+            model=f'{provider}/gpt-5' if provider else 'gpt-5',
+            base_url=base_url,
+            api_key=get_settings().llm.GPT.API_KEY,
+            temperature=temperature,
+            disable_streaming=disable_streaming,
+        )
+    else:
+        llm = ChatOpenAI(
+            model='gpt-5',
+            api_key=get_settings().llm.GPT.API_KEY,
+            temperature=temperature,
+            disable_streaming=disable_streaming,
+        )
 
     return llm
 
