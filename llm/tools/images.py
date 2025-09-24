@@ -8,7 +8,6 @@ from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.tools import BaseTool, ArgsSchema, ToolException
 from pydantic import BaseModel, Field
 
-from llm.models import gpt_41_mini
 from app.models.tools import ImageConfig
 from app.utils.api.biocontainer import (
     search_bio_container,
@@ -23,6 +22,7 @@ from app.utils.api.docker_hub import (
     acheck_repository_tags,
     aget_repository_tags,
 )
+from llm.models import gpt_5_mini
 
 SELECT_IMAGE_SYS = """You will receive the following inputs:
 1. A list of container image metadata from BioContainer, each including fields such as `image_name`, `description`, `pull_count`, and `tool_url`.
@@ -87,7 +87,7 @@ class SearchImage(BaseTool):
             if len(bio_container_tools) == 0:
                 raise ToolException('No image for this tool was found in the docker repository')
 
-            llm = gpt_41_mini()
+            llm = gpt_5_mini()
             formatter = itemgetter('bio_container_tools') | RunnableLambda(self.image_formatter)
             prompt = ChatPromptTemplate(messages=[SystemMessage(content=SELECT_IMAGE_SYS), ('human', SELECT_HUMAN)])
             chain = RunnablePassthrough.assign(tool_info=formatter) | prompt | llm.with_structured_output(SelectResult)
@@ -131,7 +131,7 @@ class SearchImage(BaseTool):
             if len(bio_container_tools) == 0:
                 raise ToolException('No image for this tool was found in the docker repository')
 
-            llm = gpt_41_mini()
+            llm = gpt_5_mini()
             formatter = itemgetter('bio_container_tools') | RunnableLambda(self.image_formatter)
             prompt = ChatPromptTemplate(messages=[SystemMessage(content=SELECT_IMAGE_SYS), ('human', SELECT_HUMAN)])
             chain = RunnablePassthrough.assign(tool_info=formatter) | prompt | llm.with_structured_output(SelectResult)
