@@ -1,33 +1,33 @@
-from langchain_core.messages import SystemMessage
+from typing import TypedDict, Optional
+
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableSerializable
+from langchain_core.runnables.graph import CurveStyle
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 
-from llm.models import gemini_25_flash
 from app.models.tools import ParamDefine, FileMount
+from llm.states import ToolGeneratorState
 
 SYSTEM_PROMPT = """We are designing a node-based bioinformatics analysis platform, to achieve this goal, it is necessary to encapsulate the analysis tools as nodes for invocation.  
 As a bioinformatics engineer, your task is to complete the encapsulation settings of the tools according to actual needs.
 
 <ThoughtProcess>
 To achieve this goal, you can break down the task into the following steps:
-1. **Command Design**: If the user provides a complete command for reference, start designing the encapsulation directly based on that command; otherwise, design the command based on the help documentation yourself，and pay attention to the following details:
-    - If there are set parameters related to the number of threads and memory, use 8 threads, 16G as default parameters  
-    - Need to save the tool's running logs. If the tool itself generates (or is enabled via parameters), use the tool's own; otherwise, use `&>` to direct running information to a log file
-2. **Mount Files**: Process and format the tool's input/output files, organizing them into a list that adheres to a specific format (details are provided in the <FileMounts> section). If the user provides a reference structure for the output files, organize based on it; otherwise, use your own knowledge. Note that you do not simply list all the tool's output files. In short:
+1. **Mount Files**: Process and format the tool's input/output files, organizing them into a list that adheres to a specific format (details are provided in the <FileMounts> section). Note that you do not simply list all the tool's output files. In short:
     - If the tool's output consists of only a few files and all are potentially used in subsequent analysis tasks, retain all of them.
     - If the tool's output files are complex (e.g., including intermediate files generated during execution, temporary folders, etc.), extract only the files needed for subsequent analysis tasks based on your knowledge.
 3. **Command Splitting**: Combine the previously generated commands, summarized output files, and tool help documents to classify the instructions into `dynamic_params` and `static_params`:
     - `dynamic_params`: Dynamically changing parameters related to file names, paths, etc. Each parameter is a specific data structure, detailed in the following <ParamDefine> section.
     - `static_params`: The remaining parameters, treated as a single string.
-4. **Template Definition**: After completing the above splitting, use the three filling variables {static_params}, `{dynamic_params}`, and `{position_params}` (the latter two are split from dynamic_params based on the value of `is_position`) to construct a template string `command_template`, so that subsequent programs can use `command_template` to restore the original command based on the previously defined `file_mounts`, `dynamic_params`, and `static_params`.
-    - Except for the part of redirecting log output, the template string should only contain the three variables mentioned above (the redirection part can use `{log}` defined in **FileMounts**)
-    - This step and the above **Command Splitting** are encapsulated in the tool `set_params`, because in fact, as the splitting is completed, the definition of the template string is also completed simultaneously.
+4. **Template Definition**: After completing the above splitting, use the three filling variables `{static_params}`, `{dynamic_params}`, and `{position_params}` (the latter two are split from dynamic_params based on the value of `is_position`) to construct a template string `command_template`, so that subsequent programs can use `command_template` to restore the original command based on the previously defined `file_mounts`, `dynamic_params`, and `static_params`.
+    - The template string should only contain the three variables mentioned above
+    - Specifically, if the program itself does not generate log files, you can use `&>` after the template to write logs to the {log} file. This is the only other variable allowed in command_template besides the three variables mentioned above.
 5. **Information Generation**: Complete the remaining node information
     - Name the tool and generate a brief description, following the naming rules specified in the <Naming> section.
     - Set the `use_temp_dir` value: If in the previous **Output Organization** step you decided to keep only some output files, set this value to true.  
     - Set the `mkdir_output` value: Based on your knowledge (or if the user provided relevant information), determine whether this tool needs a manually created output folder. When your knowledge is insufficient, one approach you can consider is to check if the tool's parameters include options like override or force; these usually indicate that the tool will create the output folder itself (if these parameters are used to force override the output path).
-6. **Organized Output**: Finally, integrate the above information and output it in JSON string format. Do not include any other information.
 </ThoughtProcess>
 
 <FileMounts>
@@ -45,7 +45,8 @@ Each output file must include:
         - Specifically, if it is a database type (many bioinformatics software have such parameters), map it to `/data/db`.  
     - For OUTPUT files, if not specified by the user, the default value is `/data/output`.
 - **is_report**: If the file is a **read-only** report file (such as html, png, svg, etc.), set it to true. However, for files like csv, json, or similar tsv that are functionally reports but can be used for subsequent analysis tasks, do not set it to true.
-- `There must be one and only one file named `log` with **is_log** set to true, representing the tool's execution log. This log might be generated by the tool itself, or if the tool lacks this feature, it will be output by the user using `...&> {log}`.
+
+There must be one and only one file named `log` with **is_log** set to true, representing the tool's execution log. This log might be generated by the tool itself, or if the tool lacks this feature, it will be output by the user using `...&> {log}`.
 </FileMounts>
 
 <ParamDefine>
@@ -158,39 +159,133 @@ For example, below is the definition of the assembly tool SPAdes for assembling 
 
 
 class ToolConfigSchema(BaseModel):
-    """Complete tool node encapsulation definition"""
+    name: str
+    description: str
+    file_mounts: list[FileMount]
+    command_template: str
+    dynamic_params: list[ParamDefine]
+    static_params: str
+    mkdir_output: bool
+    use_temp_dir: bool
 
-    name: str = Field(description='Name of the tool node')
-    description: str = Field(description='The description of the task encapsulated by this node')
+
+class FileMountsResult(BaseModel):
+    """Tool's file mount result"""
+
     file_mounts: list[FileMount] = Field(
         description='List of input files required by the tool and output files generated'
     )
-    command_template: str = Field(description='Template string of the command')
+
+
+class CommandDesignResult(BaseModel):
+    """Tool parameters and command templates"""
+
     dynamic_params: list[ParamDefine] = Field(
         description='Parameters related to dynamic files, file names, paths, etc.'
     )
     static_params: str = Field(description='Other parameters')
+    command_template: str = Field(
+        description='Template string of the command. Variables can only contain `{static_params}`, `{dynamic_params}`, `{position_params}`, and `{log}` (optional)'
+    )
+
+
+class ToolInfoResult(BaseModel):
+    """Other information about the tool"""
+
+    name: str = Field(description='Name of the tool node')
+    description: str = Field(description='The description of the task encapsulated by this node')
     mkdir_output: bool = Field(description='Do you need to manually create the output folder?')
     use_temp_dir: bool = Field(description='Do you need to use a temporary folder?')
 
 
-def tool_generator() -> RunnableSerializable[dict, dict | ToolConfigSchema]:
-    """structure output chain
+class ToolGenerator:
+    def __init__(self, llm: ChatOpenAI):
+        llm.temperature = 0.2
+        self.llm = llm
 
-    use by `chain.invoke({'question': msg})`
-    """
-    prompt = ChatPromptTemplate(
-        messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
-    )
-    llm = gemini_25_flash()
-    chain = prompt | llm.with_structured_output(ToolConfigSchema, method='json_mode')
-    return chain
+    async def mount_file_node(self, state: ToolGeneratorState):
+        class StructureOutput(TypedDict):
+            raw: AIMessage
+            parsed: Optional[FileMountsResult]
+            parsing_error: Optional[BaseException]
 
+        prompt = ChatPromptTemplate(
+            messages=[
+                SystemMessage(content=SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name='history'),
+                HumanMessage(content='First, please design the file mount list for the tool.'),
+            ]
+        )
+        chain = prompt | self.llm.with_structured_output(FileMountsResult, include_raw=True)
 
-async def agenerate_tool_config(msg: str):
-    prompt = ChatPromptTemplate(messages=[SystemMessage(content=SYSTEM_PROMPT), ('human', '{question}')])
-    llm = gemini_25_flash()
-    chain = prompt | llm.with_structured_output(ToolConfigSchema, method='json_mode')
+        response: StructureOutput = await chain.ainvoke({'history': state.messages})
 
-    response = await chain.ainvoke({'question': msg})
-    return response
+        return {
+            'file_mounts': response['parsed'].file_mounts,
+            'messages': [
+                response['raw'],
+                ('human', 'Okay, next, please design the relevant parameters and command template.'),
+            ],
+        }
+
+    async def command_design_node(self, state: ToolGeneratorState):
+        class StructureOutput(TypedDict):
+            raw: AIMessage
+            parsed: Optional[CommandDesignResult]
+            parsing_error: Optional[BaseException]
+
+        prompt = ChatPromptTemplate(
+            messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
+        )
+        chain = prompt | self.llm.with_structured_output(CommandDesignResult, include_raw=True)
+
+        response: StructureOutput = await chain.ainvoke({'history': state.messages})
+
+        return {
+            'command_template': response['parsed'].command_template,
+            'dynamic_params': response['parsed'].dynamic_params,
+            'static_params': response['parsed'].static_params,
+            'messages': [response['raw'], ('human', "Great, let's complete the remaining information.")],
+        }
+
+    async def info_generate_node(self, state: ToolGeneratorState):
+        class StructureOutput(TypedDict):
+            raw: AIMessage
+            parsed: Optional[ToolInfoResult]
+            parsing_error: Optional[BaseException]
+
+        prompt = ChatPromptTemplate(
+            messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
+        )
+        chain = prompt | self.llm.with_structured_output(ToolInfoResult, include_raw=True)
+
+        response: StructureOutput = await chain.ainvoke({'history': state.messages})
+
+        return {
+            'name': response['parsed'].name,
+            'description': response['parsed'].description,
+            'use_temp_dir': response['parsed'].use_temp_dir,
+            'mkdir_output': response['parsed'].mkdir_output,
+        }
+
+    def build(self, visualize: bool = False):
+        graph = StateGraph(ToolGeneratorState, output_schema=ToolConfigSchema)
+        graph.add_sequence(
+            [
+                ('mount_file', self.mount_file_node),
+                ('command_design', self.command_design_node),
+                ('info_generate', self.info_generate_node),
+            ]
+        )
+
+        graph.set_entry_point('mount_file')
+        graph.set_finish_point('info_generate')
+
+        compiled_graph = graph.compile()
+        if visualize:
+            mermaid_code = compiled_graph.get_graph().draw_mermaid(
+                curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
+            )
+            with open('images/tool_generator.md', 'w') as f:
+                f.write(f'```mermaid\n{mermaid_code}\n```')
+        return compiled_graph

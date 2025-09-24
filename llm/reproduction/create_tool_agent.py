@@ -27,8 +27,8 @@ from app.core.session import engine
 from llm.reproduction.search_info_agent import SearchInfoAgent
 from llm.tools.web_search import jina_search, jina_reader
 from llm.utils.formatters import handle_formatter
-from llm.generate_tool_config import tool_generator, ToolConfigSchema
-from llm.models import qwen3_embedding, gemini_25_flash, gpt_5_mini
+from llm.prebuild.generate_tool_config import ToolGenerator
+from llm.models import qwen3_embedding, gpt_5, gpt_5_mini
 from llm.states import CreateToolState, CreateToolOutput, SearchImageState, GetDocState, SelectGroupState
 from llm.tools.container import run_command
 from llm.tools.database import (
@@ -55,7 +55,7 @@ To achieve this, your first task is to **find available Docker images** based on
 <ThinkingProcess>
 To find them, you just need to follow these steps:
 First, use the `search_local_image` tool to search the local database for existing tool images.
-    - If an image for the tool exists, use `select_image` to select the corresponding image.
+    - If an image for the tool exists, directly use `select_image` to select the corresponding image.
     - Otherwise, call `search_image` to search for images on Docker Hub, and based on the results, use the `pull_and_save_image` tool to pull and save the image.
 
 If you encounter any unresolvable issues at any point, you can call the `ask_human` tool to ask for human assistance.
@@ -152,8 +152,8 @@ class TempIDClass(BaseModel):
 
 class CreateToolAgent:
     def __init__(self):
-        self.struct_llm = gpt_5_mini(0.2)
-        self.think_llm = gemini_25_flash(0.2)
+        self.struct_llm = gpt_5(0.2)
+        self.think_llm = gpt_5_mini(0.3)
 
         # sub agents
         self.search_image_agent = create_react_agent(
@@ -174,6 +174,7 @@ class CreateToolAgent:
             prompt=SELECT_GROUP_SYSTEM,
             state_schema=SelectGroupState,
         )
+        self.tool_generator = ToolGenerator(llm=self.struct_llm).build()
 
     async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
@@ -219,10 +220,7 @@ class CreateToolAgent:
             doc = doc_crud.get(session, str(doc_uid))
 
         return {
-            'messages': [
-                ('ai', 'First I need the help documentation for this tool'),
-                ('human', f'The following is the help documentation: \n\n{doc.content}'),
-            ],
+            'messages': [('ai', 'First I need the help documentation for this tool'), ('human', doc.content)],
             'doc_uid': doc_uid,
             'doc': doc.content,
         }
@@ -299,7 +297,7 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
-        result: ToolConfigSchema = await tool_generator().ainvoke({'history': state.messages})
+        result = await self.tool_generator.ainvoke({'messages': state.messages})
 
         with Session(engine) as session:
             group = group_crud.get(session, state.group_id)
@@ -310,15 +308,12 @@ class CreateToolAgent:
             else:
                 tag = tag_crud.get_by_name(session, 'AI Unchecked')
 
-            result_data = result.model_dump(exclude={'dynamic_params', 'file_mounts'})
             create_data = DockerToolCreate(
                 image_uid=state.image_uid,
                 help_doc_uid=state.doc_uid,
                 group_id=group.id,
                 tags=[group.tag, tag],
-                dynamic_params=result.dynamic_params,
-                file_mounts=result.file_mounts,
-                **result_data,
+                **result,
             )
             if not config['configurable'].get('auto_save', True):
                 return {'json_response': create_data.model_dump()}
@@ -366,20 +361,20 @@ class CreateToolAgent:
     def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(CreateToolState, output_schema=CreateToolOutput)
 
-        graph.add_node('select_image_node', self.select_image_node)
-        graph.add_node('get_doc_node', self.get_doc_node)
-        graph.add_node('generate_command_node', self.generate_command_node)
-        graph.add_node('get_output_report_node', self.get_output_report_node)
-        graph.add_node('choose_group_node', self.choose_group_node)
-        graph.add_node('generate_tool_node', self.generate_tool_node)
+        graph.add_node('select_image', self.select_image_node)
+        graph.add_node('get_doc', self.get_doc_node)
+        graph.add_node('generate_command', self.generate_command_node)
+        graph.add_node('get_output_report', self.get_output_report_node)
+        graph.add_node('choose_group', self.choose_group_node)
+        graph.add_node('generate_tool_config', self.generate_tool_node)
 
-        graph.set_entry_point('select_image_node')
-        graph.add_edge('select_image_node', 'get_doc_node')
-        graph.add_edge('get_doc_node', 'generate_command_node')
-        graph.add_edge('generate_command_node', 'get_output_report_node')
-        graph.add_edge('get_output_report_node', 'choose_group_node')
-        graph.add_edge('choose_group_node', 'generate_tool_node')
-        graph.add_edge('generate_tool_node', END)
+        graph.set_entry_point('select_image')
+        graph.add_edge('select_image', 'get_doc')
+        graph.add_edge('get_doc', 'generate_command')
+        graph.add_edge('generate_command', 'get_output_report')
+        graph.add_edge('get_output_report', 'choose_group')
+        graph.add_edge('choose_group', 'generate_tool_config')
+        graph.add_edge('generate_tool_config', END)
 
         if memory is not None:
             compiled_graph = graph.compile(checkpointer=memory)
