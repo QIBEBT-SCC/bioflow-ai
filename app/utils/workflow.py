@@ -1,3 +1,5 @@
+import uuid
+
 import rustworkx as rx
 
 from pathlib import Path
@@ -67,7 +69,7 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
     # 构建TaskNode
     node_map: dict[str, TaskNode] = {}
     for node in workflow.nodes:
-        node_map[node.id] = TaskNode(id=node.id, type=node.type, tool_id=node.data.tool_id, args=node.data.args)
+        node_map[node.id] = TaskNode(id=node.id, type=node.type, tool_uid=node.data.tool_uid, args=node.data.args)
     for edge in workflow.edges:
         node_map[edge.target].kwarg[edge.targetHandle.split('-in-')[-1]] = TaskInput(
             source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1]
@@ -90,7 +92,12 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
 
 
 def send_task(
-    session: Session, task_nodes: list[list[TaskNode]], sample_name: str, output_base: str, run_uid: str, owner: User
+    session: Session,
+    task_nodes: list[list[TaskNode]],
+    sample_name: str,
+    output_base: str,
+    run_uid: uuid.UUID,
+    owner: User,
 ) -> None:
     """构建实际任务队列，并发送至celery worker
 
@@ -99,7 +106,7 @@ def send_task(
         task_nodes: 排序后的任务节点队列
         sample_name: 此次分析的样本名称
         output_base: 根输出目录
-        run_uid: 运行实例ID
+        run_uid: 运行实例UID
         owner: 任务创建者
     """
     tasks = []
@@ -108,12 +115,12 @@ def send_task(
         sub_tasks = []
         for task_node in sub_group:
             if task_node.type == 'tool':
-                tool_data = tool_crud.get(session, task_node.tool_id)
+                tool_data = tool_crud.get(session, task_node.tool_uid)
 
                 task_instance = TaskInstance(
                     uid=task_node.id,
                     instance_uid=run_uid,
-                    tool_id=task_node.tool_id,
+                    tool_uid=task_node.tool_uid,
                     owner_id=owner.id,
                     name=tool_data.name,
                     status=Status.WAITING,
