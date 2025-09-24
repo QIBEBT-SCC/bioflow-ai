@@ -6,14 +6,25 @@ from langchain_core.messages import BaseMessage
 from langgraph.prebuilt.chat_agent_executor import AgentStatePydantic
 from pydantic import BaseModel, Field
 
-from app.models.tools import ImageConfig
+from app.models.tools import ImageConfig, FileMount, ParamDefine
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
 from llm.utils.uid_mapper import BidirectionalMapper
 
 
+# =====================tool generator state==========================
+class ToolGeneratorState(AgentStatePydantic):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    file_mounts: list[FileMount] = Field(default_factory=list)
+    command_template: Optional[str] = None
+    dynamic_params: list[ParamDefine] = Field(default_factory=list)
+    static_params: Optional[str] = None
+    mkdir_output: Optional[bool] = None
+    use_temp_dir: Optional[bool] = None
+
+
 # =====================create tool agent state==========================
-#
 class SearchImageState(AgentStatePydantic):
     id_mapper: Optional[BidirectionalMapper] = None
 
@@ -62,10 +73,9 @@ class CreateToolOutput(BaseModel):
     json_response: dict[str, Any]
 
 
-# =====================reproduction agent state==========================
-#
+# =====================extra workflow state==========================
 class ExtractOutput1(BaseModel):
-    """A brief summary of the literature (requirements) and a brief overview of the workflow"""
+    """A brief summary of the literature (requirements) and the extraction of tools mentioned in the text"""
 
     overall_summary: str = Field(
         description='The main conclusions/findings and general analytical direction/methods of this literature.'
@@ -73,19 +83,40 @@ class ExtractOutput1(BaseModel):
     major_finding: str = Field(
         description='Summary of the main findings/conclusions of the literature. Leave blank if it is not a complete research paper'
     )
-    workflow_overview: str = Field(description='What bioinformatics workflows are there in the text')
-
-
-class ExtractOutput2(BaseModel):
-    """Bioinformatics tools and program packages used in the literature"""
-
     tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
     r_packages: list[str] = Field(description='All R packages used in the analysis', default_factory=list)
     python_packages: list[str] = Field(description='All Python libraries used in the analysis', default_factory=list)
-    workflow_details: str = Field(description='Specific description of the bioinformatic workflow')
+
+
+class PaperWorkflow(BaseModel):
+    """Details of each workflow"""
+
+    name: str = Field(description='Name for this workflow')
+    workflow_summary: str = Field(description='A brief description of the bioinformatics role of this workflow')
+    conclusion_support: Optional[str] = Field(
+        description='(Only for complete articles) How do the results of this workflow support the final conclusions of the article?',
+        default=None,
+    )
+    workflow_detail: str = Field(description='Detailed workflow described in a list format')
     mermaid_code: str = Field(description="Workflow's Mermaid flowchart code. The flowchart's layout is LR")
 
 
+class ExtractOutput2(BaseModel):
+    """The workflows described in the user-provided materials"""
+
+    workflows: list[PaperWorkflow] = Field(description='Workflow List', default_factory=list)
+
+
+class ExtraWorkflowState(AgentStatePydantic):
+    analyse_step: Annotated[int, operator.add] = 0
+    formatted_msg: Optional[str] = None
+
+    tools: list[str] = Field(default_factory=list)
+    r_packages: list[str] = Field(default_factory=list)
+    python_packages: list[str] = Field(default_factory=list)
+
+
+# =====================reproduction agent state==========================
 class BuildNode(BaseModel):
     id: str
     type: str
