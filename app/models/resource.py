@@ -58,8 +58,9 @@ class ReferenceGenomes(SQLModel, table=True):
     __tablename__ = 'reference_genomes'
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)
     ncbi_tax_id: int = Field(unique=True)
+    name: str = Field(unique=True)
+    aliases: Optional[str] = Field(default=None, description="物种别名，多个别名用|分隔")
     genome_sequences: str
     annotation_features: str
 
