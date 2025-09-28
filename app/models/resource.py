@@ -66,5 +66,5 @@ class ReferenceGenomes(SQLModel, table=True):
     bowtie2_index: Optional[str]
     bwa_index: Optional[str]
     hisat2_index: Optional[str]
-    minimap2_index: Optional[str]
     star_index: Optional[str]
+    minimap2_index: Optional[str]

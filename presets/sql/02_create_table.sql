@@ -89,8 +89,8 @@ CREATE TABLE IF NOT EXISTS reference_genomes
     bowtie2_index       VARCHAR,
     bwa_index           VARCHAR,
     hisat2_index        VARCHAR,
-    minimap2_index      VARCHAR,
     star_index          VARCHAR,
+    minimap2_index      VARCHAR,
     PRIMARY KEY (id),
     UNIQUE (name),
     UNIQUE (ncbi_tax_id)
