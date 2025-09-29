@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS reference_genomes
     id                  SERIAL,
     ncbi_tax_id         INTEGER NOT NULL,
     name                VARCHAR NOT NULL,
+    accession           VARCHAR NOT NULL,
     aliases             VARCHAR,
     genome_sequences    VARCHAR NOT NULL,
     annotation_features VARCHAR NOT NULL,

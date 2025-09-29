@@ -1,11 +1,12 @@
-from datetime import datetime, UTC
+import uuid
+from datetime import UTC, datetime
 from enum import IntEnum
 from typing import Optional
 
-from pydantic import UUID7
-from sqlalchemy import Column, UUID, ForeignKey
+import uuid_extensions
+from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.user import User
 
@@ -20,7 +21,7 @@ class SampleFileType(IntEnum):
 class Sample(SQLModel, table=True):
     __tablename__ = 'samples'
 
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     owner_id: int = Field(foreign_key='users.id')
     project_id: int = Field(foreign_key='projects.id')
     sample_name: str
@@ -33,8 +34,8 @@ class Sample(SQLModel, table=True):
 class SampleFiles(SQLModel, table=True):
     __tablename__ = 'sample_files'
 
-    uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), primary_key=True))
-    sample_uid: UUID7 = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('samples.uid')))
+    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    sample_uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, foreign_key='samples.uid')
     data_type: SampleFileType
     file_path: str
     file_format: str
@@ -60,7 +61,8 @@ class ReferenceGenomes(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ncbi_tax_id: int = Field(unique=True)
     name: str = Field(unique=True)
-    aliases: Optional[str] = Field(default=None, description="物种别名，多个别名用|分隔")
+    accession: str
+    aliases: Optional[str] = Field(default=None, description='物种别名，多个别名用|分隔')
     genome_sequences: str
     annotation_features: str
 
