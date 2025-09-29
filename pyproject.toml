@@ -54,6 +54,9 @@ quote-style = "single"
 docstring-code-format = true
 skip-magic-trailing-comma = true
 
+[tool.ruff.lint]
+extend-select = ["I"]
+
 [dependency-groups]
 dev = [
     "celery-types>=0.23.0",
