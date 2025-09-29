@@ -171,7 +171,7 @@ class ToolTaskInfo(BaseModel):
     mkdir_output: bool
     use_temp_dir: bool
 
-    image: Optional[ToolImage]
+    image: ToolImage
 
 
 class ToolInfo4Task(BaseModel):
