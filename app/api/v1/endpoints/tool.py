@@ -84,6 +84,11 @@ async def get_images(session: SessionDep, offset: int = 0, limit: Annotated[int,
     return image_crud.get_all(session, limit, offset)
 
 
+@image_router.get('/count')
+async def get_image_count(session: SessionDep) -> int:
+    return image_crud.get_counts(session)
+
+
 @image_router.get('/search', response_model=list[ToolImage])
 def get_images_by_name(session: SessionDep, name: str, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20):
     return image_crud.get_by_name_fuzzy(session, name, limit, offset)

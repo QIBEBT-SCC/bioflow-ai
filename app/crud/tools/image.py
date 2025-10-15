@@ -66,3 +66,8 @@ def get_all(session: Session, limit: int, offset: int):
 def get(session: Session, image_uid: str) -> Optional[ToolImage]:
     query: Select = select(ToolImage).where(ToolImage.uid == image_uid)
     return session.exec(query).one_or_none()
+
+
+def get_counts(session: Session) -> int:
+    query: Select = select(func.count()).select_from(ToolImage)
+    return session.exec(query).one()
