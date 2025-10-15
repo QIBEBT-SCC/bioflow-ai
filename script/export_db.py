@@ -2,13 +2,13 @@ import json
 
 from sqlmodel import Session
 
-import app.crud.tools.tool_tag as tag_crud
-import app.crud.tools.tool_group as group_crud
 import app.crud.tools.image as image_crud
-import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool as tool_crud
+import app.crud.tools.tool_doc as doc_crud
+import app.crud.tools.tool_group as group_crud
+import app.crud.tools.tool_tag as tag_crud
 from app.core.session import engine
-from app.models.tools import ToolImage, ToolHelpDoc, ToolDefine, ToolTag, ToolGroup
+from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 
 
 def export_tags():
@@ -45,7 +45,7 @@ def export_images():
     json_data = []
     for image in images:
         ordered_image = {
-            'id': image.id,
+            'uid': str(image.uid),
             'name': image.name,
             'version': image.version,
             'description': image.description,
@@ -66,12 +66,11 @@ def export_docs():
     json_data = []
     for doc in docs:
         ordered_doc = {
-            'id': doc.id,
+            'id': doc.uid,
             'help_command': doc.help_command,
             'description': doc.description,
             'content': doc.content,
-            'image_id': doc.image_id,
-            'parent_id': doc.parent_id,
+            'image_uid': doc.image_uid,
         }
         json_data.append(ordered_doc)
 
@@ -86,13 +85,13 @@ def export_tools():
         json_data = []
         for tool in tools:
             ordered_tool = {
-                'id': tool.id,
+                'uid': tool.uid,
                 'name': tool.name,
-                'image_id': tool.image_id,
+                'image_uid': tool.image_uid,
                 'description': tool.description,
                 'tool_type': tool.tool_type,
                 'group_id': tool.group_id,
-                'help_doc_id': tool.help_doc_id,
+                'help_doc_uid': tool.help_doc_uid,
                 'command_template': tool.command_template,
                 'dynamic_params': [param.model_dump() for param in tool.dynamic_params],
                 'static_params': tool.static_params,
@@ -108,8 +107,8 @@ def export_tools():
 
 
 if __name__ == '__main__':
-    export_tags()
-    export_groups()
-    # export_images()
+    # export_tags()
+    # export_groups()
+    export_images()
     # export_docs()
     # export_tools()
