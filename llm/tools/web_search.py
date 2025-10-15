@@ -1,108 +1,81 @@
-from typing import Optional
+import uuid
+from typing import Annotated
 
-from langchain_core.callbacks import CallbackManagerForToolRun
-from langchain_core.tools import BaseTool, ArgsSchema
-from pydantic import BaseModel, Field
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from ddgs import DDGS
+from langchain_core.messages import RemoveMessage, ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.prebuilt import InjectedState
+from langgraph.prebuilt.chat_agent_executor import AgentStatePydantic
+from langgraph.types import Command
 
 from app.core.config import get_settings
 
 
-class JinaSearchInput(BaseModel):
-    query: str = Field(description='query for searching')
+@tool
+async def web_searcher(query: str):
+    """Search the network based on keywords and return a series of web pages found.
+
+    Args:
+        query: Search query
+    """
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    with DDGS(proxy=proxy) as ddgs:
+        search_result = ddgs.text(query, region='en', max_results=10)
+
+    response_block = [
+        (
+            f'<result>\n'
+            f'  <title>{d["title"]}</title>\n'
+            f'  <url>{d["href"]}</url>\n'
+            f'  <fragment>{d["body"]}</fragment>\n'
+            f'</result>'
+        )
+        for d in search_result
+    ]
+
+    return '\n\n'.join(response_block)
 
 
-class JinaSearch(BaseTool):
-    name: str = 'web_search'
-    description: str = 'Search information from web'
-    args_schema: Optional[ArgsSchema] = JinaSearchInput
-    return_direct: bool = False
+@tool
+async def web_reader(url: str):
+    """Calling this tool allows you to read the content of a specific web page.
 
-    def _run(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        import requests
+    Args:
+        url: URL of the web page to read
+    """
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    async with AsyncWebCrawler(config=BrowserConfig(proxy=proxy, verbose=False, text_mode=True)) as crawler:
+        result = await crawler.arun(url=url, config=CrawlerRunConfig(verbose=False, exclude_all_images=True))
 
-        url = f'https://s.jina.ai/?q={query}&hl=en'
-        headers = {'Accept': 'application/json', 'X-Respond-With': 'no-content'}
-        if api_key := get_settings().llm.tools.JINA_API:
-            headers['Authorization'] = f'Bearer {api_key.get_secret_value()}'
-
-        response = requests.get(url, headers=headers)
-
-        response_block = [
-            (
-                f'<result>\n'
-                f'  <title>{d["title"]}</title>\n'
-                f'  <url>{d["url"]}</url>\n'
-                f'  <fragment>{d["description"]}</fragment>\n'
-                f'</result>'
-            )
-            for d in response.json()['data']
-        ]
-        return '\n\n'.join(response_block)
-
-    async def _arun(self, query: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        import aiohttp
-
-        url = f'https://s.jina.ai/?q={query}&hl=en'
-        headers = {'Accept': 'application/json', 'X-Respond-With': 'no-content'}
-        if api_key := get_settings().llm.tools.JINA_API:
-            headers['Authorization'] = f'Bearer {api_key.get_secret_value()}'
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                data = await response.json()
-
-                response_block = [
-                    (
-                        f'<result>\n'
-                        f'  <title>{d["title"]}</title>\n'
-                        f'  <url>{d["url"]}</url>\n'
-                        f'  <fragment>{d["description"]}</fragment>\n'
-                        f'</result>'
-                    )
-                    for d in data['data']
-                ]
-                return '\n\n'.join(response_block)
+    return f'<PageContent>\n{result.markdown}\n</PageContent>\n\n接下来，调用`conclude_web_reader_result`工具对此次阅读结果进行总结。'
 
 
-class JinaReaderInput(BaseModel):
-    url: str = Field(description='Web page link to read')
+@tool
+async def conclude_web_reader_result(
+    summary_content: str,
+    state: Annotated[AgentStatePydantic, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
+    """Summarize the return result of `web_reader` tool
 
+    Args:
+        summary_content: The valid information contained in the last web page reading. If not, just say "There is no information needed in this web page."
+    """
+    tool_call_message = state.messages[-1].model_copy()
+    tool_call_message.id = str(uuid.uuid4())
+    new_messages = [
+        ToolMessage(content='...', tool_call_id=state.messages[-2].tool_call_id),
+        tool_call_message,
+        ToolMessage(content='Web content has been summarized.', tool_call_id=tool_call_id),  # 简单的确认消息
+    ]
 
-class JinaReader(BaseTool):
-    name: str = 'web_reader'
-    description: str = 'Read the detailed content of the specified URL'
-    args_schema: Optional[ArgsSchema] = JinaReaderInput
-    return_direct: bool = False
-
-    def _run(self, url: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        import requests
-
-        url = f'https://r.jina.ai/{url}'
-        headers = {'X-Remove-Selector': 'header, .class, #id', 'X-Retain-Images': 'none'}
-        if api_key := get_settings().llm.tools.JINA_API:
-            headers['Authorization'] = f'Bearer {api_key.get_secret_value()}'
-        if get_settings().network.USE_PROXY:
-            headers['X-Proxy-Url'] = get_settings().network.get_proxy_url()
-
-        response = requests.get(url, headers=headers)
-        return response.text
-
-    async def _arun(self, url: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        import aiohttp
-
-        url = f'https://r.jina.ai/{url}'
-        headers = {'X-Remove-Selector': 'header, .class, #id', 'X-Retain-Images': 'none'}
-        if api_key := get_settings().llm.tools.JINA_API:
-            headers['Authorization'] = f'Bearer {api_key.get_secret_value()}'
-        if get_settings().network.USE_PROXY:
-            headers['X-Proxy-Url'] = get_settings().network.get_proxy_url()
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                data = await response.text()
-
-        return data
-
-
-jina_search = JinaSearch()
-jina_reader = JinaReader()
+    return Command(
+        update={
+            'messages': [
+                RemoveMessage(id=state.messages[-2].id),
+                RemoveMessage(id=state.messages[-1].id),
+                *new_messages,
+            ]
+        }
+    )
