@@ -1,13 +1,14 @@
 import uuid
 from enum import IntEnum
-from typing import Optional, Literal, Any
+from typing import Any, Literal, Optional
 
 import uuid_extensions
 from pgvector.sqlalchemy import Vector
-from pydantic import BaseModel, Field as PField, ValidationError
+from pydantic import BaseModel, ValidationError
+from pydantic import Field as PField
 from sqlalchemy import Column
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
 
@@ -145,7 +146,7 @@ class ToolDefine(SQLModel, table=True):
     name: str
     image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
     description: str
-    des_vector: Any = Field(sa_type=Vector(1024))
+    des_vector: Any = Field(sa_type=Vector(2560))
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
