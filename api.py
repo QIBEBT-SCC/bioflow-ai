@@ -5,9 +5,9 @@ from fastapi import FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import workflow, tool, auth, project, user, run_instance, task_instance, resource, chat
-from app.core.session import create_db_and_tables
+from app.api.v1.endpoints import auth, chat, project, resource, run_instance, task_instance, tool, user, workflow
 from app.core.config import get_settings
+from app.core.session import create_db_and_tables
 from app.utils.logger import init_logging
 
 init_logging()
@@ -23,7 +23,8 @@ async def lifespan(main_app: FastAPI):
 
 app = FastAPI(title=get_settings().PROJECT_NAME, version=get_settings().VERSION, lifespan=lifespan)
 
-origins = ['http://localhost', 'http://127.0.0.1']
+# 允许所有源地址
+origins = ['*']
 
 app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=['*'], allow_headers=['*']
