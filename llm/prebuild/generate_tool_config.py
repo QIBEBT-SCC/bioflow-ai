@@ -1,14 +1,14 @@
-from typing import TypedDict, Optional
+from typing import Optional, TypedDict
 
-from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 
-from app.models.tools import ParamDefine, FileMount
-from llm.states import ToolGeneratorState
+from app.models.tools import FileMount, ParamDefine
+from llm.agents.states import ToolGeneratorState
 
 SYSTEM_PROMPT = """We are designing a node-based bioinformatics analysis platform, to achieve this goal, it is necessary to encapsulate the analysis tools as nodes for invocation.  
 As a bioinformatics engineer, your task is to complete the encapsulation settings of the tools according to actual needs.
@@ -216,7 +216,9 @@ class ToolGenerator:
                 HumanMessage(content='First, please design the file mount list for the tool.'),
             ]
         )
-        chain = prompt | self.llm.with_structured_output(FileMountsResult, include_raw=True)
+        chain = prompt | self.llm.with_structured_output(FileMountsResult, include_raw=True).with_retry(
+            retry_if_exception_type=(ValueError,), stop_after_attempt=3
+        )
 
         response: StructureOutput = await chain.ainvoke({'history': state.messages})
 
@@ -237,7 +239,9 @@ class ToolGenerator:
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
         )
-        chain = prompt | self.llm.with_structured_output(CommandDesignResult, include_raw=True)
+        chain = prompt | self.llm.with_structured_output(CommandDesignResult, include_raw=True).with_retry(
+            retry_if_exception_type=(ValueError,), stop_after_attempt=3
+        )
 
         response: StructureOutput = await chain.ainvoke({'history': state.messages})
 
@@ -257,7 +261,9 @@ class ToolGenerator:
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
         )
-        chain = prompt | self.llm.with_structured_output(ToolInfoResult, include_raw=True)
+        chain = prompt | self.llm.with_structured_output(ToolInfoResult, include_raw=True).with_retry(
+            retry_if_exception_type=(ValueError,), stop_after_attempt=3
+        )
 
         response: StructureOutput = await chain.ainvoke({'history': state.messages})
 
