@@ -1,32 +1,32 @@
 import json
 from typing import Annotated, Literal, Optional, TypedDict
 
-from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, ToolMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
-from langchain_core.tools import tool, InjectedToolCallId, ToolException
+from langchain_core.tools import InjectedToolCallId, ToolException, tool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import START
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph, StateGraph
-from langgraph.prebuilt import ToolNode, InjectedState
+from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command, interrupt
 from loguru import logger
 from sqlmodel import Session
 
-import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
-from llm.models import gemini_25_flash, gpt_5_mini
+import app.crud.tools.tool as tool_crud
 from app.core.session import engine
-from llm.reproduction.create_tool_agent import CreateToolAgent
-from llm.utils.formatters import node_formatter
-from llm.states import CreateToolState, BuildNode, BuildEdge, ReproductionState, ExtractOutput1, ExtractOutput2
-from llm.tools.database import search_tool, search_biodb, save_workflow
-from llm.tools.human import ask_human
 from app.models.resource import BioDb
 from app.schemas.react_flow import NodeData
-from app.schemas.tools import ToolNodePublic, Handle
+from app.schemas.tools import Handle, ToolNodePublic
+from llm.models import gemini_25_flash, gpt_5_mini
+from llm.agents.reproduction.create_tool_agent import CreateToolAgent
+from llm.agents.states import BuildEdge, BuildNode, CreateToolState, ExtractOutput1, ExtractOutput2, ReproductionState
+from llm.tools.database import save_workflow, search_biodb, search_tool
+from llm.tools.human import ask_human
+from llm.utils.formatters import node_formatter
 
 GET_TOOL_SYSTEM_1 = """You are a bioinformatics engineer, and you will be presented with a paper or a text of an oral description.
 Your task is to extract the bioinformatics analysis workflow from the content of the literature (or text), organize and summarize it, and output it in a fixed format.
@@ -38,11 +38,11 @@ Your output consists of two parts:
 - `major_finding`: If you are looking at a complete document, summarize the main conclusions/findings of this document in this section, presented as an **markdown ordered list**; if there is only a description of a bioinformatics analysis task, then this section does not need to be filled in, just leave it blank.
 - `workflow_overview`: The analysis workflow(s) described in the paper to obtain the aforementioned results.
     - We **only** concerned with bioinformatics analysis workflows; other wet lab-related methods do not need to be extracted.
+    - The only criterion for judging multiple workflows is to see how many **directed acyclic graphs** can be formed in the text. Whether it is upstream or downstream analysis, as long as their source is the same original file, and they can be grouped into the same directed acyclic graph in terms of process, we consider them to belong to the same workflow.
     - If there is only one analysis workflow, describe it directly; if there are multiple, list them one by one using **markdown list**. See the <WorkflowOverviewExample> section for the specific format
     - For each workflow, you need to summarize:
         1. Explain the function of this workflow from a purely bioinformatics perspective.
         2. (If `major_finding` has content) Combine with the main conclusions of the article to explain how the results of this workflow support or prove these conclusions.
-    - We consider it a workflow as long as the relevant analyses are in the same directed acyclic graph. Only analyses where upstream and downstream data are completely unrelated can be considered different workflows. **Avoid unnecessary splitting.**
     - You may see users asking to reproduce the workflow, but this is a subsequent task. You currently only need to briefly describe the workflow, without describing specific implementation details (such as what tools were used, what parameters were used, etc.)
 
 The language of your generated output should depends on the language of the user's query.

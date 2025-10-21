@@ -1,14 +1,14 @@
 from typing import Optional
 
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode
 from langchain_core.messages import SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.graph import END, StateGraph
+from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.chat_agent_executor import AgentStatePydantic
 from pydantic import BaseModel, Field
 
 from llm.models import gemini_25_flash
-from llm.tools.web_search import jina_search, jina_reader
+from llm.tools.web_search import conclude_web_reader_result, web_reader, web_searcher
 
 SEARCH_SYS = """To organize information about bioinformatics tools, we need to search for their corresponding GitHub repositories and paper links. 
 To search for this information, you need to call the `web_search` tool to search online for relevant information. 
@@ -35,7 +35,7 @@ class SearchInfoAgent:
     def __init__(self):
         self.llm = gemini_25_flash(0.3)
 
-        self.tools = [jina_search, jina_reader]
+        self.tools = [web_searcher, web_reader, conclude_web_reader_result]
         self.tool_node = ToolNode(self.tools)
 
     async def call_model_node(self, state: AgentState):

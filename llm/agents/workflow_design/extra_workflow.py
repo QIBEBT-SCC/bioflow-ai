@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph
 from langgraph.types import Command, interrupt
 
 from llm.models import gemini_25_flash
-from llm.states import ExtractOutput1, ExtractOutput2, ExtraWorkflowState
+from llm.agents.states import ExtractOutput1, ExtractOutput2, ExtraWorkflowState
 
 EXTRA_SYSTEM_1 = """You are an expert bioinformatics analyst and a meticulous text processor. Your primary function is to read scientific text, summarize it, and accurately extract and categorize the bioinformatics tools mentioned. You must adhere strictly to the provided output format and follow all instructions precisely.
 

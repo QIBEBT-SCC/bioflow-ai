@@ -9,7 +9,7 @@ from langgraph.prebuilt.chat_agent_executor import AgentStatePydantic
 
 from llm.models import deepseek_v3
 from llm.prebuild.simple_agent import web_search_agent
-from llm.workflow_design.extra_workflow import extract_paper_agent
+from llm.agents.workflow_design.extra_workflow import extract_paper_agent
 
 _SYSTEM_PROMPT = """# Role and Goal
 You are the **Supervisor**, an expert AI router for a bioinformatic analysis system. Your primary and ONLY responsibility is to analyze the user's request and determine which specialized agent is best suited to handle it. You must delegate the task by making a single, appropriate tool call.

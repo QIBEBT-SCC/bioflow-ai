@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated, Literal, Optional
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.graph import CurveStyle
@@ -12,40 +12,40 @@ from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import create_react_agent, InjectedState
+from langgraph.prebuilt import InjectedState, create_react_agent
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 import app.crud.tools.image as image_crud
+import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
-import app.crud.tools.tool as tool_crud
 from app.core.session import engine
-from llm.reproduction.search_info_agent import SearchInfoAgent
-from llm.tools.web_search import jina_search, jina_reader
-from llm.utils.formatters import handle_formatter
+from app.schemas.tools import DockerToolCreate, ImageUpdate, ToolNodePublic
+from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.prebuild.generate_tool_config import ToolGenerator
-from llm.models import qwen3_embedding, gpt_5, gpt_5_mini
-from llm.states import CreateToolState, CreateToolOutput, SearchImageState, GetDocState, SelectGroupState
+from llm.agents.reproduction.search_info_agent import SearchInfoAgent
+from llm.agents.states import CreateToolOutput, CreateToolState, GetDocState, SearchImageState, SelectGroupState
 from llm.tools.container import run_command
 from llm.tools.database import (
-    search_local_image,
-    pull_and_save_image,
-    list_docs,
-    view_doc,
-    save_doc,
-    view_groups,
     add_group,
-    select_image,
+    list_docs,
+    pull_and_save_image,
+    save_doc,
+    search_local_image,
     select_doc,
     select_group,
+    select_image,
+    view_doc,
+    view_groups,
 )
 from llm.tools.human import ask_human
 from llm.tools.images import search_image
-from app.schemas.tools import ToolNodePublic, ImageUpdate, DockerToolCreate
+from llm.tools.web_search import conclude_web_reader_result, web_reader, web_searcher
+from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
 SELECT_IMAGE_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
@@ -259,7 +259,11 @@ class CreateToolAgent:
                 await session.initialize()
 
                 tools = await load_mcp_tools(session)
-                agent = create_react_agent(self.think_llm, [*tools, jina_search, jina_reader], prompt=GET_REPORT_SYSTEM)
+                agent = create_react_agent(
+                    self.think_llm,
+                    [*tools, web_searcher, web_reader, conclude_web_reader_result],
+                    prompt=GET_REPORT_SYSTEM,
+                )
 
                 if state.github_url:
                     input_message = HumanMessage(
