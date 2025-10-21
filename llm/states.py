@@ -86,6 +86,7 @@ class ExtractOutput1(BaseModel):
     tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
     r_packages: list[str] = Field(description='All R packages used in the analysis', default_factory=list)
     python_packages: list[str] = Field(description='All Python libraries used in the analysis', default_factory=list)
+    unknown:list[str] = Field(description='')
 
 
 class PaperWorkflow(BaseModel):
@@ -114,6 +115,7 @@ class ExtraWorkflowState(AgentStatePydantic):
     tools: list[str] = Field(default_factory=list)
     r_packages: list[str] = Field(default_factory=list)
     python_packages: list[str] = Field(default_factory=list)
+    unknown: list[str] = Field(default_factory=list)
 
 
 # =====================reproduction agent state==========================

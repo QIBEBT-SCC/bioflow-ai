@@ -1,6 +1,6 @@
-from typing import TypedDict, Optional, cast, Literal
+from typing import Literal, Optional, TypedDict, cast
 
-from langchain_core.messages import SystemMessage, AIMessage, HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
 from langchain_openai import ChatOpenAI
@@ -10,76 +10,152 @@ from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.types import Command, interrupt
 
-from llm.states import ExtraWorkflowState, ExtractOutput1, ExtractOutput2
+from llm.models import gemini_25_flash
+from llm.states import ExtractOutput1, ExtractOutput2, ExtraWorkflowState
 
-EXTRA_SYSTEM_1 = """你是一名生物信息学工程师，你的任务是根据用户提供的资料，将其中描述的生物信息学分析流程总结出来，并以固定的格式输出。
+EXTRA_SYSTEM_1 = """You are an expert bioinformatics analyst and a meticulous text processor. Your primary function is to read scientific text, summarize it, and accurately extract and categorize the bioinformatics tools mentioned. You must adhere strictly to the provided output format and follow all instructions precisely.
 
-<ThinkingProcess>
-为了达成这一目的，你可以将整个任务分解为以下步骤：
+### Primary Directives
+1.  **Strict Formatting**: Your entire output must be **exclusively** the structured text within the `<OutputFormat>` tags. Do not add any introductory text, explanations, or conversational remarks.
+2.  **Language Adaptability**: The language of the text **values** in your output must match the language of the user's query.
+    *   Specifically, the content for `overall_summary` and `major_finding` must be in the same language as the user's prompt (e.g., Chinese if the user asks in Chinese, English if in English).
+    *   The structure keys (`overall_summary`, `tools`, etc.) and the extracted tool names (`samtools`, `Seurat`, etc.) must **always** remain in their original form (English) and should not be translated.
 
-1. 首先简要的阅读用户提供的资料，先对其进行总结。同时提取出材料中所使用到的生物信息分析工具
-2. 详细阅读材料，提取出其中的生物信息分析工作流并输出
+### Core Instructions & Logic
+1.  **Initial Assessment**: First, carefully read the entire text provided by the user. Your immediate first step is to determine if the text discusses bioinformatics analysis.
+2.  **Handling Non-Bioinformatics Content**:
+    *   If the text **does not** contain any information about bioinformatics analysis, you MUST follow this specific instruction:
+    *   Set the `overall_summary` to the appropriate language version of the designated phrase:
+        *   For English queries: "The provided text does not contain information about bioinformatics analysis."
+        *   For Chinese queries: "用户提供的文本不包含生物信息学分析内容。"
+    *   Leave all other fields (`major_finding`, `tools`, `r_packages`, `python_packages`, `unknown`) completely empty.
+3.  **Handling Bioinformatics Content**:
+    *   If the text **does** contain bioinformatics analysis, proceed with filling out the entire structure according to the language directive.
+    *   **`overall_summary`**: Write a concise, one-to-two-sentence summary of the text's primary subject or research goal, written in the user's query language.
+    *   **`major_finding`**: Summarize the main conclusions or scientific findings, written in the user's query language. Do this **only if** the provided text appears to be a complete academic paper (e.g., includes an "Abstract" and "Results/Conclusion" section). If the text is just a "Methods" section, a code snippet, or an incomplete fragment, leave this field blank.
+    *   **Tool Extraction and Categorization**: Meticulously scan the text, especially the "Methods" section, for names of software, packages, and libraries. Use the definitions below to categorize each tool.
 
-每一步都需要遵循固定的格式进行输出，详见下文<OutputFormat>部分
-</ThinkingProcess>
-
+### Output Format and Tool Definitions
 <OutputFormat>
-当前正在进行的是步骤一，你的输出需要包含以下内容：
-- `overall_summary`：对用户所提供资料的简单描述
-- `major_finding`：如果用户提供的是一篇完整的学术论文，总结这篇论文的主要结论/发现。否则留空
-- 提取的工具。具体而言，包括：
-    - `tools`：生物信息学分析工具，一般指的是通过conda或者二进制包的形式安装的分析软件
-    - `r_packages`和`python_packages`：在下游分析中使用的特定编程语言中的库函数
-    - 注意，区分tools和packages主要是看此软件（算法）是直接可以通过命令行调用，还是需要编写代码调用相关模块。不能因为有的软件是用python编写的（如spades）就觉得他是packages
-    - 我们只需要直接进行分析的软件和包，因为我们将编写自己的工作流编排软件。类似nextflow这样的编排工具不需要提取
-
-特别的，如果用户提供的资料中没用可用的生物信息学分析工作流，则直接在`overall_summary`中指出，其它词条全部为空。
+*   `overall_summary`: A brief description of the information provided by the user.
+*   `major_finding`: If the user provides a complete academic paper, summarize the main conclusions/findings of the paper. Otherwise, leave it blank.
+*   `tools`:
+    *   **Definition**: Independent bioinformatics analysis software, typically executed directly via a **Command-Line Interface (CLI)**.
+    *   **Characteristics**: Installed via Conda, source code compilation, or binary files. Users run the tool by typing its name and parameters directly in the terminal.
+    *   **Examples**: `fastp`, `bowtie2`, `samtools`, `GATK`, `BLAST`, `DIAMOND`, `Trimmomatic`.
+    *   **Clues**: Look for phrases like "was run with default parameters", "aligned using", "processed with the tool".
+*   `r_packages`:
+    *   **Definition**: R language extension packages (libraries) that need to be **loaded in an R environment or R script using `library()` or `require()`**, and their provided functions are called to perform analysis or visualization.
+    *   **Characteristics**: Installed using `install.packages()` or `BiocManager::install()`. Often associated with Bioconductor.
+    *   **Examples**: `ggplot2`, `DESeq2`, `Seurat`, `dplyr`, `clusterProfiler`.
+    *   **Clues**: Look for explicit mentions of "R package", "Bioconductor package", or context involving R programming.
+*   `python_packages`:
+    *   **Definition**: Python language extension packages (libraries) that need to be **imported into a Python environment or Python script using an `import` statement**, and their modules, classes, or functions are called.
+    *   **Characteristics**: Installed using `pip` or `conda`.
+    *   **Examples**: `numpy`, `pandas`, `scipy`, `scikit-learn`, `Biopython`, `scanpy`.
+    *   **Clues**: Look for explicit mentions of "Python library/package" or context involving Python scripting.
+*   `unknown`:
+    *   **Definition**: Tools whose category cannot be determined based on your knowledge base or the context provided.
+    *   **Possible scenarios**: Internal scripts from paper authors (e.g., "in-house script"), very novel or niche tools, or tools with ambiguous names where context is missing.
 </OutputFormat>
+
+### Additional Rules and Constraints
+*   **Extraction Purity**: Extract only the name of the tool (e.g., `GATK`, not `GATK v4.1`). Do not include version numbers, parameters, or surrounding text.
+*   **No Duplicates**: Ensure each list contains unique tool names. If a tool is mentioned multiple times, list it only once in the appropriate category.
+*   **Exclusions**:
+    *   Do **not** include general-purpose software like `Microsoft Excel`, `SPSS`, `GraphPad Prism`, or `Adobe Illustrator`.
+    *   Do **not** list databases or web servers as tools (e.g., NCBI, GenBank, PDB, DAVID, STRING-DB, GO, KEGG). Only list the specific software used to access or analyze data from them (e.g., `blastn` is a tool, but the 'nr' database is not).
 """
 
-EXTRA_SYSTEM_2 = """你是一名生物信息学工程师，你的任务是根据用户提供的资料，将其中描述的生物信息学分析流程总结出来，并以固定的格式输出。
+EXTRA_SYSTEM_2 = """You are a professional bioinformatics engineer. Your task is to analyze user-provided materials, identify the bioinformatics analysis workflows described within, and summarize them. Your output must be **directly in Markdown format** to support stream rendering.
 
 <ThinkingProcess>
-为了达成这一目的，你可以将整个任务分解为以下步骤：
+To achieve this, follow these logical steps:
 
-1. 首先简要的阅读用户提供的资料，先对其进行总结。同时提取出材料中所使用到的生物信息分析工具
-2. 详细阅读材料，提取出其中的生物信息分析工作流并输出
-    - 基于上一步提取到的工具，如果根据文中的描述可以将它们归入同一个有向无环图之中，则我们认为这些工具可以组成一个工作流
-    - 有多少个有向无环图，就有多少个工作流
-
-每一步都需要遵循固定的格式进行输出，详见下文<OutputFormat>部分
+1.  **Initial Skim & Tool Extraction**: Begin with a quick read-through of the provided material to grasp its overall purpose. During this pass, identify and list all key bioinformatics tools, R packages, or Python packages mentioned.
+2.  **Workflow Construction**: Perform a detailed reading to understand the relationships between the extracted tools. Organize them into one or more coherent analysis workflows, where each workflow represents a Directed Acyclic Graph (DAG).
+    -   The number of distinct DAGs corresponds to the number of workflows.
+    -   Typically, a single paper contains one or two core workflows. If you identify three or more, please re-evaluate to ensure they are genuinely independent and not sub-parts of a larger process.
+3.  **Formatted Output Generation**: Structure your findings according to the Markdown format specified below in the `<OutputFormat>` section.
 </ThinkingProcess>
 
 <OutputFormat>
-当前正在进行的是步骤二，你的输出需要包含一个列表`workflows`，每一个元素对应一个工作流。每个工作流对象需要包含如下元素：
-- `name`：基于功能、分析数据类型等为这个工作流起一个名字
-- `workflow_summary`：简要描述这个工作流的生物信息学作用
-- `conclusion_support`：如果用户提供的是一篇完整的学术论文，基于上一步得到的`major_finding`的内容，描述这个工作流运行得到的结果在得到分析结果的过程中起了什么作用。否则可以留空
-- `workflow_detail`：工作流的详细描述
-    - 使用有序列表描述工作流的每一步，格式为：`1. (工具类型) 使用**(工具名称)**...`
-        - 工具类型只允许在tool、r_package和python_package中三选一
-        - 如果文中有与工具参数选择相关的描述，使用无序列表将相关的原文作为子列表附加
-    - 这一步的样式可以参考下文的<WorkflowDetailExample>部分
-- `mermaid_code`：使用mermaid语法绘制的工作流结构示意图，布局为LR
-    - 以 "```mermaid" 开头，以 "```" 结尾（即标准markdown代码块格式），任务中不包含任何其他文本。
-    - 使用默认节点表示分析工具 (`id`)
-    - 使用不对称形状节点表示中间文件 (`id>文件描述]`)
-    - 使用子例程形状节点表示 R 或 Python 包 (`id[[工具/包名称]]`)
-    - 请注意，节点显示**只需要**最基本的工具/包名称和文件描述。版本号、参数和其他详细信息已在`workflow_detail`中描述，**不应**在节点中显示。
-    - 为了Mermaid正确渲染，节点显示内容中**不要使用任何特殊符号**（尤其是括号、引号等），除了语法要求之外。
+Your response must strictly adhere to the following Markdown structure. If there are multiple workflows, use a level 3 heading (`###`) to introduce each one.
 
-特别的，如果用户提供的资料中没用可用的生物信息学分析工作流，则直接返回一个空的workflows列表即可
+---
+
+`###` [Workflow Name]
+*Provide a concise and descriptive name for the workflow based on its function, data type, or objective.*
+
+**Workflow Overview**
+*Briefly describe the overall purpose and bioinformatics function of this workflow.*
+
+**Contribution to Conclusion**
+*(Applicable only for academic papers)* Describe how the results generated by this workflow supported the main conclusions of the study. If the source material is not a paper or this section is not applicable, omit it.
+
+**Detailed Steps**
+*Use an ordered list to describe each step of the workflow.*
+1.  `(Tool Type)` Use **(Tool Name)** to perform...
+    -   The `Tool Type` must be one of `tool`, `r_package`, or `python_package`.
+    -   If the source text mentions specific key parameters or settings, add them as a nested unordered list.
+
+**Workflow Diagram (Mermaid)**
+*Provide a Mermaid diagram illustrating the workflow structure, enclosed in a Markdown code block.*
+-   The layout must be from Left to Right (`LR`).
+-   Use default nodes for analysis tools (`id`).
+-   Use asymmetric shape nodes for data or intermediate files (`id>File Description]`).
+-   Use subroutine shape nodes for R or Python packages (`id[[Package/Tool Name]]`).
+-   **IMPORTANT**: Node text must only contain the core tool/package name or file description. Do not include version numbers, parameters, or any special characters (e.g., parentheses, quotes) to ensure proper rendering.
+
+---
+
+*(If no identifiable workflow is found, output the following text and nothing else:)*
+`No clear bioinformatics analysis workflow could be identified in the provided material.`
 </OutputFormat>
 
-<WorkflowDetailExample>
-1.  (tool): Perform quality control on raw data using `fastp`
-    * Filter out reads shorter than 35bp
-2.  (tool): Align high-quality reads to the reference genome using `STAR`
-3.  (tool): Quantify gene expression using `featureCounts`
-    * Count at the gene level, summarizing reads aligned to exons
-4.  (r package): Perform differential expression analysis using the `DESeq2` R package
-5.  (r package): Perform functional enrichment analysis using the `clusterProfiler` R package
-</WorkflowOverviewExample>
+Here is a complete example of the expected output for a standard RNA-Seq analysis.
+<Example>
+### RNA-Seq Differential Expression Analysis
+
+**Workflow Overview**
+This workflow processes raw RNA-Seq reads to identify differentially expressed genes between experimental conditions, followed by a functional enrichment analysis to interpret the biological significance of these genes.
+
+**Contribution to Conclusion**
+The results from this workflow, specifically the list of upregulated genes in the treatment group, directly supported the paper's main conclusion that Compound X activates the cellular stress response pathway.
+
+**Detailed Steps**
+1.  `(tool)` Perform quality control on raw reads using **fastp**.
+    -   Reads shorter than 35bp were filtered out.
+    -   Adapter sequences were automatically detected and trimmed.
+2.  `(tool)` Align high-quality reads to the reference genome (GRCh38) using **STAR**.
+3.  `(tool)` Quantify gene expression levels using **featureCounts**.
+    -   Counts were summarized at the gene level based on exon features.
+4.  `(r_package)` Conduct differential expression analysis using the **DESeq2** R package.
+5.  `(r_package)` Perform functional enrichment analysis (GO and KEGG) on the list of significant genes using the **clusterProfiler** R package.
+
+**Workflow Diagram (Mermaid)**
+```mermaid
+graph LR
+    A[Raw Reads] --> B(fastp);
+    B --> C>Clean Reads];
+    C --> D(STAR);
+    D --> E>Aligned BAM];
+    E --> F(featureCounts);
+    F --> G>Count Matrix];
+    G --> H[[DESeq2]];
+    H --> I>DEG List];
+    I --> J[[clusterProfiler]];
+    J --> K[Enrichment Results];
+```
+</Example>
+
+<LanguageConstraint>
+You must respond in the same language as the user's query. For example, if the user asks a question in Spanish, your entire output, including all headers and descriptions, must be in Spanish.
+</LanguageConstraint>
+
+<DirectOutputConstraint>
+Your response must be direct and contain **only** the final report. Do not include any introductory sentences, conversational filler, or explanations (e.g., "Certainly, here is the analysis..."). Your output must begin immediately with the first `##` header for the first workflow, or with the "No clear bioinformatics..." message if no workflow is found.
+</DirectOutputConstraint>
 """
 
 
@@ -125,6 +201,7 @@ class ExtraWorkflowAgent:
             'tools': output['parsed'].tools,
             'r_packages': output['parsed'].r_packages,
             'python_packages': output['parsed'].python_packages,
+            'unknown': output['parsed'].unknown,
             'formatted_msg': formatted_msg,
             'messages': [output['raw']],
         }
@@ -133,30 +210,13 @@ class ExtraWorkflowAgent:
         writer = get_stream_writer()
         writer({'info': 'Extracting workflow...'})
 
-        class StructureOutput(TypedDict):
-            raw: AIMessage
-            parsed: Optional[ExtractOutput2]
-            parsing_error: Optional[BaseException]
-
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=EXTRA_SYSTEM_2), MessagesPlaceholder(variable_name='history')]
         )
-        chain = prompt | self.llm.with_structured_output(ExtractOutput2, include_raw=True)
-        output = cast(StructureOutput, await chain.ainvoke({'history': state.messages}))
+        chain = prompt | self.llm
+        response = await chain.ainvoke({'history': state.messages})
 
-        if output['parsed'].workflows:
-            step1_msg = state.formatted_msg
-            step2_msg = _workflow_formatter(output['parsed'])
-
-            return {'messages': [AIMessage(content=f'{step1_msg}\n\n## Workflows\n{step2_msg}')]}
-        else:
-            return {
-                'messages': [
-                    AIMessage(
-                        content='It seems that the file you provided does not contain a bioinformatics analysis workflow.'
-                    )
-                ]
-            }
+        return {'messages': [AIMessage(content=f'{state.formatted_msg}\n\n{response.content}')]}
 
     def step_router(self, state: ExtraWorkflowState) -> Literal['human_interrupt', 'auto_decision']:
         if self.need_interrupt:
@@ -232,7 +292,9 @@ class ExtraWorkflowAgent:
         graph.set_entry_point('summary_paper')
         graph.add_conditional_edges('summary_paper', self.step_router)
 
-        compiled_graph = graph.compile(checkpointer=memory) if memory else graph.compile()
+        compiled_graph = (
+            graph.compile(checkpointer=memory, name='extract_paper') if memory else graph.compile(name='extract_paper')
+        )
         if visualize:
             mermaid_code = compiled_graph.get_graph(xray=2).draw_mermaid(
                 curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
@@ -252,6 +314,9 @@ def _tool_formatter(llm_result: ExtractOutput1) -> str:
 
     if llm_result.python_packages:
         tool_list.append(f'- **python packages**\n{"\n".join([f"    - `{t}`" for t in llm_result.python_packages])}')
+
+    if llm_result.unknown:
+        tool_list.append(f'- **unknown**\n{"\n".join([f"    - `{t}`" for t in llm_result.unknown])}')
 
     return '\n'.join(tool_list)
 
@@ -282,3 +347,6 @@ def _workflow_formatter(llm_result: ExtractOutput2) -> str:
             )
 
     return '\n'.join(wf_list)
+
+
+extract_paper_agent = ExtraWorkflowAgent(gemini_25_flash(temperature=0.3), need_interrupt=True).build()
