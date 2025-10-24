@@ -1,28 +1,11 @@
-from operator import itemgetter
-from typing import Optional
+from datetime import datetime
+from typing import Literal, Optional
 
-from langchain_core.callbacks import CallbackManagerForToolRun
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain_core.tools import BaseTool, ArgsSchema, ToolException
-from pydantic import BaseModel, Field
+import httpx
+from langchain_core.tools import tool
+from pydantic import BaseModel
 
-from app.models.tools import ImageConfig
-from app.utils.api.biocontainer import (
-    search_biocontainer,
-    BioContainerTool,
-    get_biocontainer_image_tags,
-    asearch_biocontainer,
-    aget_biocontainer_image_tags,
-)
-from app.utils.api.docker_hub import (
-    check_repository_tags,
-    get_repository_tags,
-    acheck_repository_tags,
-    aget_repository_tags,
-)
-from llm.models import gpt_5_mini
+from app.core.config import get_settings
 
 SELECT_IMAGE_SYS = """You will receive the following inputs:
 1. A list of container image metadata from BioContainer, each including fields such as `image_name`, `description`, `pull_count`, and `tool_url`.
@@ -48,104 +31,130 @@ Below is available images:
 """
 
 
-class SelectResult(BaseModel):
-    correct_image_id: int = Field(description='The <id/> value of the correct image, or -1 if it is not available')
+class BioContainerTool(BaseModel):
+    id: str
+    description: Optional[str] = None
+    pulls: int
 
 
-class SearchImageInput(BaseModel):
-    tool_name: str = Field(description='Possible tool docker image names, usually lowercase letters')
-    origin_text: str = Field(description='origin user require')
+class BioContainerImage(BaseModel):
+    image_name: str
+    image_type: Literal['Docker', 'Singularity', 'Conda']
+    size: int
+    updated: Optional[datetime] = None
 
 
-class SearchImage(BaseTool):
-    name: str = 'search_image'
-    description: str = 'Search for image of a tool from the appropriate registries'
-    args_schema: Optional[ArgsSchema] = SearchImageInput
-    return_direct: bool = False
+class BioContainerVersion(BaseModel):
+    name: str
+    meta_version: str
+    images: list[BioContainerImage]
 
-    def _run(self, tool_name: str, origin_text: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        # 从项目专有镜像库中搜索
-        if check_repository_tags('aye1032', tool_name.lower()) == 200:
-            tags = get_repository_tags('aye1032', tool_name.lower())
-            if (tag := tags.pop(0)) == 'latest':
-                tag = tags[0]
-            image = ImageConfig(namespace='aye1032', repository=tool_name.lower(), tag=tag)
-            return f'Found pullable tool docker image: `{image.get_image()}`'
 
-        # 从 BioContainer 中搜索
-        else:
-            bio_container_tools = search_biocontainer(tool_name.lower())
-            if len(bio_container_tools) == 0:
-                raise ToolException('No image for this tool was found in the docker repository')
+def _format_size(size_bytes: int) -> str:
+    """Format raw byte size to human-readable string.
 
-            llm = gpt_5_mini()
-            formatter = itemgetter('bio_container_tools') | RunnableLambda(self.image_formatter)
-            prompt = ChatPromptTemplate(messages=[SystemMessage(content=SELECT_IMAGE_SYS), ('human', SELECT_HUMAN)])
-            chain = RunnablePassthrough.assign(tool_info=formatter) | prompt | llm.with_structured_output(SelectResult)
+    Examples: 1024 -> "1.00 KB", 123 -> "123 B"
+    """
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    size = float(size_bytes)
+    for unit in units:
+        if size < 1024 or unit == 'TB':
+            return f'{size:.2f} {unit}'
+        size /= 1024
+    return ''
 
-            select_result: SelectResult = chain.invoke(
-                {'bio_container_tools': bio_container_tools, 'origin_text': origin_text}
-            )
 
-            if select_result.correct_image_id == -1:
-                raise ToolException('No image for this tool was found in the docker repository')
+@tool
+async def search_image(tool_name: str):
+    """Search BioContainer to get the image of the target tool.
 
-            selected_image = bio_container_tools[select_result.correct_image_id].id
-            image_tags = get_biocontainer_image_tags(selected_image)
-            latest_image = image_tags[0].images[-1].image_name
-            return f'Found pullable tool docker image: `{latest_image}`'
+    Args:
+        tool_name: The name of the tool to be found
+    """
+    url = (
+        f'https://api.biocontainers.pro/ga4gh/trs/v2/tools?toolname={tool_name}'
+        f'&limit=6&sort_field=pulls&sort_order=desc'
+    )
 
-    async def _arun(
-        self, tool_name: str, origin_text: str, run_manager: Optional[CallbackManagerForToolRun] = None
-    ) -> str:
-        # 从项目专有镜像库中搜索
-        status_code = await acheck_repository_tags('aye1032', tool_name.lower())
-        if status_code == 200:
-            tags = await aget_repository_tags('aye1032', tool_name.lower())
-            if (tag := tags.pop(0)) == 'latest':
-                tag = tags[0]
-            image = ImageConfig(registry='docker.io', namespace='aye1032', repository=tool_name.lower(), tag=tag)
-            return f'Found pullable tool docker image: `{image.get_image()}`'
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    async with httpx.AsyncClient(proxy=proxy) as client:
+        response = await client.get(url)
+        response.raise_for_status()
 
-        # 从 BioContainer 中搜索
-        else:
-            bio_container_tools = await asearch_biocontainer(tool_name.lower())
-            if len(bio_container_tools) == 0:
-                raise ToolException('No image for this tool was found in the docker repository')
+    # 检查响应是否有内容
+    if response.status_code == 204 or not response.content:
+        return 'No corresponding mirror found, please try asking human to confirm the tool name.'
 
-            llm = gpt_5_mini()
-            formatter = itemgetter('bio_container_tools') | RunnableLambda(self.image_formatter)
-            prompt = ChatPromptTemplate(messages=[SystemMessage(content=SELECT_IMAGE_SYS), ('human', SELECT_HUMAN)])
-            chain = RunnablePassthrough.assign(tool_info=formatter) | prompt | llm.with_structured_output(SelectResult)
+    tool_list = [BioContainerTool.model_validate(r) for r in response.json()]
+    if not tool_list:
+        return 'No corresponding mirror found, please try asking human to confirm the tool name.'
 
-            select_result: SelectResult = await chain.ainvoke(
-                {'bio_container_tools': bio_container_tools, 'origin_text': origin_text}
-            )
+    xml_list = [
+        (
+            f'  <tool>\n'
+            f'    <name>{t.id}</name>\n'
+            f'    <description>{t.description}</description>\n'
+            f'    <pulls>{t.pulls}</pulls>\n'
+            f'  </tool>'
+        )
+        for t in tool_list
+    ]
 
-            if select_result.correct_image_id == -1:
-                raise ToolException('No image for this tool was found in the docker repository')
+    return f'<tool>\n{"\n".join(xml_list)}\n</tool>\n\nDetermine the image you need based on its name, description, and pull count.'
 
-            selected_image = bio_container_tools[select_result.correct_image_id].id
-            image_tags = await aget_biocontainer_image_tags(selected_image)
-            latest_image = image_tags[0].images[-1].image_name
-            return f'Found pullable tool docker image: `{latest_image}`'
 
-    @staticmethod
-    def image_formatter(tools: list[BioContainerTool]) -> str:
-        formatted = [
+@tool
+async def view_image_tags(image_name: str):
+    """View tags for a specified image name.
+
+    Args:
+        image_name: Image name to be viewed
+    """
+    url = f'https://api.biocontainers.pro/ga4gh/trs/v2/tools/{image_name}/versions'
+
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    async with httpx.AsyncClient(proxy=proxy) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+
+        # 检查响应是否有内容
+        if response.status_code == 204 or not response.content:
+            return 'No tags found for this image, please confirm the image name.'
+
+        versions = []
+        for r in response.json():
+            version = BioContainerVersion.model_validate(r)
+            version.images = [img for img in version.images if img.image_type == 'Docker']
+            versions.append(version)
+        versions = versions[::-1][:5]
+
+    if not versions:
+        return 'No tags found for this image, please confirm the image name.'
+
+    version_xml_list = []
+    for v in versions:
+        image_xml_list = [
             (
-                '   <image>\n'
-                f'      <id>{index}</id>\n'
-                f'      <image_name>{t.id}</image_name>\n'
-                f'      <description>{t.description}</description>\n'
-                f'      <pull_count>{t.pulls}</pull_count>\n'
-                f'      <tool_url>{t.tool_url}</tool_url>\n'
-                '   </image>'
+                f'    <image>\n'
+                f'      <name>{img.image_name}</name>\n'
+                f'      <size>{_format_size(img.size)}</size>\n'
+                f'      <updated>{img.updated.strftime("%Y-%m-%d %H:%M:%S")}</updated>\n'
+                f'    </image>'
             )
-            for index, t in enumerate(tools)
+            for img in v.images
         ]
 
-        return '\n\n'.join(formatted)
+        version_xml = (
+            f'  <version>\n'
+            f'    <meta_version>{v.meta_version}</meta_version>\n'
+            f'{("\n".join(image_xml_list)) if image_xml_list else "    <image />"}\n'
+            f'  </version>'
+        )
+        version_xml_list.append(version_xml)
 
-
-search_image = SearchImage()
+    return (
+        f'<versions image="{image_name}">\n'
+        f'{"\n".join(version_xml_list)}\n'
+        f'</versions>\n\n'
+        f'Prefer the latest version of the image. If a version has multiple images, first select the smaller version containing only basic tools based on size (some images include databases, which will cause the image size to be significantly larger than the normal version); if they are of similar size, choose the one with a more recent push time.'
+    )
