@@ -1,69 +1,83 @@
 import operator
 import uuid
-from typing import Annotated, Optional, Any
+from dataclasses import dataclass, field
+from typing import Annotated, Any, NotRequired, Optional
 
-from langchain_core.messages import BaseMessage
-from langgraph.prebuilt.chat_agent_executor import AgentStatePydantic
+from langchain_core.messages import AnyMessage, BaseMessage
+from langgraph.graph import MessagesState, add_messages
 from pydantic import BaseModel, Field
 
-from app.models.tools import ImageConfig, FileMount, ParamDefine
+from app.models.tools import FileMount, ImageConfig, ParamDefine
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
 from llm.utils.uid_mapper import BidirectionalMapper
 
 
 # =====================tool generator state==========================
-class ToolGeneratorState(AgentStatePydantic):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    file_mounts: list[FileMount] = Field(default_factory=list)
-    command_template: Optional[str] = None
-    dynamic_params: list[ParamDefine] = Field(default_factory=list)
-    static_params: Optional[str] = None
-    mkdir_output: Optional[bool] = None
-    use_temp_dir: Optional[bool] = None
+class ToolGeneratorState(MessagesState, total=False):
+    name: str
+    description: str
+    file_mounts: list[FileMount]
+    command_template: str
+    dynamic_params: list[ParamDefine]
+    static_params: str
+    mkdir_output: bool
+    use_temp_dir: bool
 
 
 # =====================create tool agent state==========================
-class SearchImageState(AgentStatePydantic):
-    id_mapper: Optional[BidirectionalMapper] = None
-
-    image_uid: Optional[uuid.UUID] = None
-    image: Optional[ImageConfig] = None
-
-    github_url: Optional[str] = None
+@dataclass
+class CreateImageContext:
+    homepage: str
+    paper_link: str
 
 
-class GetDocState(AgentStatePydantic):
-    id_mapper: Optional[BidirectionalMapper] = None
+class SearchImageState(MessagesState, total=False):
+    id_mapper: BidirectionalMapper
 
-    image_uid: Optional[uuid.UUID] = None
-    image: Optional[ImageConfig] = None
+    image_uid: uuid.UUID
+    image: ImageConfig
 
-    last_output: Optional[str] = None
-    doc_uid: Optional[uuid.UUID] = None
-
-
-class SelectGroupState(AgentStatePydantic):
-    group_id: Optional[int] = None
+    homepage: str
+    paper_link: str
 
 
-class CreateToolState(AgentStatePydantic):
-    image_uid: Optional[uuid.UUID] = None
-    image: Optional[ImageConfig] = None
+class GetDocState(MessagesState):
+    id_mapper: NotRequired[BidirectionalMapper]
 
-    doc_uid: Optional[uuid.UUID] = None
-    doc: Optional[str] = None
+    image_uid: uuid.UUID
+    image: ImageConfig
 
-    command: Optional[str] = None
+    last_output: NotRequired[str]
+    doc_uid: NotRequired[uuid.UUID]
 
-    github_url: Optional[str] = None
 
-    group_id: Optional[int] = None
-    tool_uid: Optional[uuid.UUID] = None
+class SelectGroupState(MessagesState):
+    group_id: NotRequired[int]
 
-    json_response: dict[str, Any] = {}
-    id_mapper: Optional[BidirectionalMapper] = None
+
+@dataclass
+class CreateToolContext:
+    auto_save: bool = True
+
+
+class CreateToolState(MessagesState, total=False):
+    id_mapper: BidirectionalMapper
+
+    image_uid: uuid.UUID
+    image: ImageConfig
+
+    doc_uid: uuid.UUID
+    doc: str
+
+    command: str
+
+    homepage: str
+
+    group_id: int
+    tool_uid: uuid.UUID
+
+    json_response: dict[str, Any]
 
 
 class CreateToolOutput(BaseModel):
@@ -86,7 +100,7 @@ class ExtractOutput1(BaseModel):
     tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
     r_packages: list[str] = Field(description='All R packages used in the analysis', default_factory=list)
     python_packages: list[str] = Field(description='All Python libraries used in the analysis', default_factory=list)
-    unknown:list[str] = Field(description='')
+    unknown: list[str] = Field(description='')
 
 
 class PaperWorkflow(BaseModel):
@@ -108,14 +122,14 @@ class ExtractOutput2(BaseModel):
     workflows: list[PaperWorkflow] = Field(description='Workflow List', default_factory=list)
 
 
-class ExtraWorkflowState(AgentStatePydantic):
-    analyse_step: Annotated[int, operator.add] = 0
-    formatted_msg: Optional[str] = None
+class ExtraWorkflowState(MessagesState):
+    analyse_step: Annotated[int, operator.add]
+    formatted_msg: Optional[str]
 
-    tools: list[str] = Field(default_factory=list)
-    r_packages: list[str] = Field(default_factory=list)
-    python_packages: list[str] = Field(default_factory=list)
-    unknown: list[str] = Field(default_factory=list)
+    tools: list[str]
+    r_packages: list[str]
+    python_packages: list[str]
+    unknown: list[str]
 
 
 # =====================reproduction agent state==========================
@@ -140,16 +154,14 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
-class ReproductionState(AgentStatePydantic):
-    analyse_step: Annotated[int, operator.add] = 0
-    formatted_msg: Optional[str] = None
-    paper_tools: Optional[ExtractOutput2] = None
+@dataclass
+class ReproductionState:
+    messages: Annotated[list[AnyMessage], add_messages] = field(default_factory=list)
 
-    id_mapper: Optional[BidirectionalMapper] = None
+    id_mapper: Optional[BidirectionalMapper] = field(default=None)
 
-    exist_nodes: Annotated[list[BuildNode], operator.add] = []
-    exist_edges: Annotated[list[BuildEdge], operator.add] = []
+    exist_nodes: Annotated[list[BuildNode], operator.add] = field(default_factory=list)
+    exist_edges: Annotated[list[BuildEdge], operator.add] = field(default_factory=list)
 
-    workflow_uid: Optional[uuid.UUID] = None
-
+    workflow_uid: Optional[uuid.UUID] = field(default=None)
     price: Annotated[float, operator.add] = 0.0

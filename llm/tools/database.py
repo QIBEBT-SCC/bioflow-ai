@@ -1,28 +1,28 @@
 import uuid
 from typing import Annotated, Optional
 
+from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import tool, InjectedToolCallId
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from sqlmodel import Session
 
-import app.crud.tools.image as image_crud
-import app.crud.tools.tool_doc as doc_crud
-import app.crud.tools.tool_tag as tag_crud
-import app.crud.tools.tool_group as group_crud
-import app.crud.tools.tool as tool_crud
 import app.crud.resource.bio_db as db_crud
+import app.crud.tools.image as image_crud
+import app.crud.tools.tool as tool_crud
+import app.crud.tools.tool_doc as doc_crud
+import app.crud.tools.tool_group as group_crud
+import app.crud.tools.tool_tag as tag_crud
 from app.core.session import engine
 from app.crud import workflow as wf_crud
-from app.models.workflow import Workflow, WorkflowType
-from app.schemas.react_flow import Node, Position, Edge, WorkflowDefinition
-from llm.reproduction.search_info_agent import SearchInfoAgent
-from llm.states import ReproductionState
-from llm.utils.formatters import handle_formatter
 from app.models.resource import BioDb
-from app.models.tools import ToolImage, ToolDefine, ToolHelpDoc, ImageConfig, ToolTag, ToolGroup
+from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from app.models.workflow import Workflow, WorkflowType
+from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
+from llm.states import CreateImageContext, ReproductionState
+from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
 
@@ -90,10 +90,10 @@ def select_image(
         update={
             'image_uid': image_uid,
             'image': tool_image.image,
-            'github_url': tool_image.homepage,
+            'homepage': tool_image.homepage,
             'messages': [
                 ToolMessage(
-                    content='Available mirrors have been set up, and the next step can begin.',
+                    content='The correct image has been selected, you can summarize the information and end the task.',
                     tool_call_id=tool_call_id,
                 )
             ],
@@ -103,7 +103,11 @@ def select_image(
 
 @tool
 async def pull_and_save_image(
-    name: str, image_url: str, version: str, description: str, tool_call_id: Annotated[str, InjectedToolCallId]
+    name: str,
+    image_url: str,
+    version: str,
+    description: str,
+    runtime: ToolRuntime[CreateImageContext],
 ) -> Command:
     """Pull down the searched images and save relevant information to the database
 
@@ -113,14 +117,8 @@ async def pull_and_save_image(
         name: Name of the tool, can contain upper and lower case letters
         image_url: url of the image, the format is [registry]/[namespace]/[repository]:tag
         version: version of tool, can be judged by the image tag
-        description: A brief description of the tool corresponding to this image. This is a description of the tool, not the current requirements.
+        description: Description of the tool corresponding to this image. This is a description of the tool, not the current requirements.
     """
-    # 首先联网搜索补全GitHub链接和引用文献
-    web_search_agent = SearchInfoAgent().build()
-    result = await web_search_agent.ainvoke(
-        {'messages': [('human', f'Search github and paper link for tool "{name}"')]}
-    )
-
     # 实际上这里并不会拉取镜像，只不过为了让LLM不要乱想我们谎称会拉取♪
     with Session(engine) as session:
         new_image = ToolImage(
@@ -128,8 +126,8 @@ async def pull_and_save_image(
             image=ImageConfig.from_str(image_url),
             version=version,
             description=description,
-            homepage=result['final_response'].github_url,
-            paper_link=result['final_response'].paper_url,
+            homepage=runtime.context.homepage,
+            paper_link=runtime.context.paper_link,
         )
         new_image = image_crud.insert(session, new_image)
         image_uid = new_image.uid
@@ -138,11 +136,10 @@ async def pull_and_save_image(
         update={
             'image_uid': image_uid,
             'image': new_image.image,
-            'github_url': new_image.homepage,
             'messages': [
                 ToolMessage(
-                    content='Available mirrors have been set up, and the next step can begin.',
-                    tool_call_id=tool_call_id,
+                    content="The tool's image has been saved locally, you can summarize and finish the work.",
+                    tool_call_id=runtime.tool_call_id,
                 )
             ],
         }
