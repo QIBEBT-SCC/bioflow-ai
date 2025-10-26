@@ -19,6 +19,7 @@ dependencies = [
     "langchain-community>=0.4.0",
     "langchain-google-genai>=2.1.5",
     "langchain-mcp-adapters>=0.1.9",
+    "langchain-milvus>=0.2.2",
     "langchain-openai==1.0.1",
     "langchain-postgres>=0.0.15",
     "langchain-qwen3>=0.1.2",
