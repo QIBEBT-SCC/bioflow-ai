@@ -166,7 +166,7 @@ cython_debug/
 test/
 storage/
 log/
-database/
+volumes/
 
 config.toml
 CLAUDE.md
