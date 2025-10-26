@@ -176,7 +176,6 @@ CREATE TABLE IF NOT EXISTS tools
     name             VARCHAR      NOT NULL,
     image_uid        uuid,
     description      VARCHAR      NOT NULL,
-    des_vector       vector(2560) NOT NULL,
     tool_type        tooltype     NOT NULL,
     group_id         INTEGER,
     help_doc_uid     uuid,

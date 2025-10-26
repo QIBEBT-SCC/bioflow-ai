@@ -1,9 +1,8 @@
 import uuid
 from enum import IntEnum
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 import uuid_extensions
-from pgvector.sqlalchemy import Vector
 from pydantic import BaseModel, ValidationError
 from pydantic import Field as PField
 from sqlalchemy import Column
@@ -146,7 +145,6 @@ class ToolDefine(SQLModel, table=True):
     name: str
     image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
     description: str
-    des_vector: Any = Field(sa_type=Vector(2560))
     tool_type: ToolType
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)

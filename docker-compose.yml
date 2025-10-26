@@ -98,7 +98,7 @@ services:
     restart: always
 
   postgres-db:
-    image: docker.io/pgvector/pgvector:pg17
+    image: docker.io/library/postgres:18.0-alpine
     shm_size: 2gb
     environment:
       TZ: Asia/Shanghai
