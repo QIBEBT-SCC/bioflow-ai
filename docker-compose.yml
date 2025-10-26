@@ -109,7 +109,7 @@ services:
       - "5432:5432"
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/postgres:/var/lib/postgresql/data:rw
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/postgres:/var/lib/postgresql/18/docker:rw
       - ./presets/sql:/docker-entrypoint-initdb.d
     networks:
       - postgres-net
