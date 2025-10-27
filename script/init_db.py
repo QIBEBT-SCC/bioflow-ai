@@ -1,17 +1,66 @@
+import asyncio
 import json
 
 import polars as pl
+from langchain_core.documents import Document
+from langchain_milvus import Milvus
 from loguru import logger
 from sqlalchemy import text
 from sqlmodel import Session
+from tqdm import tqdm
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
+from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from llm.models import qwen3_embedding
+
+
+async def init_images(drop_old: bool = True):
+    with Session(engine) as session:
+        if drop_old:
+            delete_count = image_crud.drop_all(session)
+            logger.info(f'Delete {delete_count} data')
+
+        image_df = pl.read_parquet('../presets/images.parquet')
+        images: list[ToolImage] = []
+        for row in image_df.iter_rows(named=True):
+            try:
+                image = ImageConfig.from_str(row['image_url'])
+                image_data = row
+                image_data['image'] = image
+                images.append(ToolImage.model_validate(image_data))
+            except Exception as e:
+                logger.warning(f'Invalid image URL: {row["image_url"]}, {e}')
+
+        images = image_crud.insert_all(session, images)
+
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        embedding_function=embedding,
+        collection_name='ImageCollection',
+        connection_args={'uri': get_settings().persistent.MILVUS_URL},
+        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        search_params={'M': 64, 'efConstruction': 100},
+        consistency_level='Strong',
+        drop_old=drop_old,
+        auto_id=True,
+    )
+
+    batch_size = 100
+
+    for i in tqdm(range(0, len(images), batch_size)):
+        batch_images = images[i : i + batch_size]
+        docs = [
+            Document(page_content=img.description, metadata={'image_uid': str(img.uid), 'name': img.name})
+            for img in batch_images
+        ]
+
+        await vectorstore.aadd_documents(docs)
 
 
 def init_db():
@@ -27,20 +76,6 @@ def init_db():
             groups_data = json.loads(f.read())
             groups = [ToolGroup.model_validate(group) for group in groups_data]
         group_crud.insert_all(session, groups)
-
-        # init image
-        image_df = pl.read_parquet('../presets/images.parquet')
-        images = []
-        for row in image_df.iter_rows(named=True):
-            try:
-                image = ImageConfig.from_str(row['image_url'])
-                image_data = row
-                image_data['image'] = image
-                images.append(ToolImage.model_validate(image_data))
-            except Exception as e:
-                logger.warning(f'Invalid image URL: {row["image_url"]}, {e}')
-
-        image_crud.insert_all(session, images)
 
         # init doc
         with open('../presets/tool_docs.json', 'r') as f:
@@ -76,4 +111,4 @@ def init_db():
 
 
 if __name__ == '__main__':
-    init_db()
+    asyncio.run(init_images())

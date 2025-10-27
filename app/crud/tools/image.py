@@ -1,7 +1,7 @@
 from typing import Optional
 
-from sqlalchemy import Select, func
-from sqlmodel import Session, select, col
+from sqlalchemy import Select, func, text
+from sqlmodel import Session, col, select
 
 from app.models.tools import ToolImage
 from app.schemas.tools import ImageUpdate
@@ -30,6 +30,20 @@ def delete(session: Session, image_uid: str):
     if image:
         session.delete(image)
         session.commit()
+
+
+def drop_all(session: Session) -> int:
+    count_query = select(func.count()).select_from(ToolImage)
+    count = session.exec(count_query).one()
+
+    if count == 0:
+        return 0
+
+    table_name = ToolImage.__tablename__
+    session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
+    session.commit()
+
+    return count
 
 
 def update(session: Session, image_update: ImageUpdate):
