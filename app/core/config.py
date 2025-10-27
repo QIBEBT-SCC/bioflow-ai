@@ -1,12 +1,12 @@
 import os
 import secrets
 from functools import lru_cache
-from typing import Type, Literal
-import tomli_w
+from typing import Literal, Type
 
+import tomli_w
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource, TomlConfigSettingsSource
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
 class SecurityConfig(BaseModel):
@@ -65,10 +65,11 @@ class PersistenceConfig(BaseModel):
 
     DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
     CHECKPOINT_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/llm_history'
+    MILVUS_URL: str = 'http://localhost:19530'
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
     STORAGE_PATH: str = './storage'
-    GENOME_PATH:str = './storage/genome'
+    GENOME_PATH: str = './storage/genome'
     TEST_DATA_PATH: str = './testdata'
     MAX_THREAD: int = 8
     MAX_MEM: str = '4G'
