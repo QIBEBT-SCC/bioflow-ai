@@ -61,6 +61,11 @@ provider = ""
 base_url = ""
 api_key = ""
 
+[llm.grok]
+provider = ""
+base_url = ""
+api_key = ""
+
 [llm.deepseek]
 provider = ""
 base_url = "https://api.deepseek.com/v1"

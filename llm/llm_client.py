@@ -7,6 +7,8 @@ from langchain_openai import ChatOpenAI
 
 
 class ChatOpenAIReasoning(ChatOpenAI):
+    provider: str = 'openai'
+
     def _convert_chunk_to_generation_chunk(
         self,
         chunk: dict,
@@ -24,6 +26,13 @@ class ChatOpenAIReasoning(ChatOpenAI):
                 elif (reasoning := top.get('delta', {}).get('reasoning')) is not None:
                     generation_chunk.message.additional_kwargs['reasoning_content'] = reasoning
 
+        if (
+            (citations := chunk.get('citations'))
+            and generation_chunk
+            and isinstance(generation_chunk.message, AIMessageChunk)
+        ):
+            generation_chunk.message.additional_kwargs['citations'] = citations
+
         return generation_chunk
 
     def _create_chat_result(
@@ -32,6 +41,9 @@ class ChatOpenAIReasoning(ChatOpenAI):
         generation_info: Optional[dict] = None,
     ) -> ChatResult:
         rtn = super()._create_chat_result(response, generation_info)
+
+        for generation in rtn.generations:
+            generation.message.response_metadata['model_provider'] = self.provider
 
         if not isinstance(response, openai.BaseModel):
             return rtn
@@ -44,5 +56,8 @@ class ChatOpenAIReasoning(ChatOpenAI):
             model_extra = choices[0].message.model_extra
             if isinstance(model_extra, dict) and (reasoning := model_extra.get('reasoning')):
                 rtn.generations[0].message.additional_kwargs['reasoning_content'] = reasoning
+
+        if hasattr(response, 'citations'):
+            rtn.generations[0].message.additional_kwargs['citations'] = response.citations
 
         return rtn

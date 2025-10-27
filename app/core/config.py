@@ -97,6 +97,7 @@ class LLMConfig(BaseModel):
     GEMINI: LLMApiConfig = LLMApiConfig()
     GPT: LLMApiConfig = LLMApiConfig()
     CLAUDE: LLMApiConfig = LLMApiConfig()
+    GROK: LLMApiConfig = LLMApiConfig()
     DEEPSEEK: LLMApiConfig = LLMApiConfig()
     GLM: LLMApiConfig = LLMApiConfig()
     VLLM: LLMApiConfig = LLMApiConfig()
