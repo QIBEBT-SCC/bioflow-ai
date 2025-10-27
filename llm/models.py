@@ -22,12 +22,16 @@ def gemini_25_flash(temperature: float = 0.7, disable_streaming: bool = False) -
             model=f'{provider}/gemini-2.5-flash' if provider else 'gemini-2.5-flash',
             base_url=base_url,
             api_key=get_settings().llm.GEMINI.API_KEY,
+            provider='google',
             temperature=temperature,
             disable_streaming=disable_streaming,
         )
     else:
         llm = ChatGoogleGenerativeAI(
-            model='gemini-2.5-flash', google_api_key=get_settings().llm.GEMINI.API_KEY, temperature=temperature
+            model='gemini-2.5-flash',
+            google_api_key=get_settings().llm.GEMINI.API_KEY,
+            temperature=temperature,
+            disable_streaming=disable_streaming,
         )
 
     return llm
@@ -40,6 +44,7 @@ def gemini_25_pro(temperature: float = 0.7, disable_streaming: bool = False) -> 
             model=f'{provider}/gemini-2.5-pro' if provider else 'gemini-2.5-pro',
             base_url=base_url,
             api_key=get_settings().llm.GEMINI.API_KEY,
+            provider='google',
             temperature=temperature,
             disable_streaming=disable_streaming,
         )
@@ -119,12 +124,35 @@ def gpt_5_mini(temperature: float = 0.7, disable_streaming: bool = False, reason
     return llm
 
 
+def grok_4_fast(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAIReasoning:
+    provider = get_settings().llm.GROK.PROVIDER
+    llm = ChatOpenAIReasoning(
+        model=f'{provider}/grok-4-fast-reasoning' if provider else 'grok-4-fast-reasoning',
+        base_url=get_settings().llm.GROK.BASE_URL,
+        api_key=get_settings().llm.GROK.API_KEY,
+        provider='xai',
+        extra_body={
+            'search_parameters': {
+                'mode': 'on',
+                'return_citations': True,
+                'max_search_results': 10,
+                'sources': ['web', 'news'],
+            }
+        },
+        temperature=temperature,
+        disable_streaming=disable_streaming,
+    )
+
+    return llm
+
+
 def deepseek_v3(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
     provider = get_settings().llm.DEEPSEEK.PROVIDER
     llm = ChatOpenAIReasoning(
         model=f'{provider}/deepseek-chat' if provider else 'deepseek-chat',
         base_url=get_settings().llm.DEEPSEEK.BASE_URL,
         api_key=get_settings().llm.DEEPSEEK.API_KEY,
+        provider='deepseek',
         temperature=temperature,
         disable_streaming=disable_streaming,
     )
@@ -138,6 +166,7 @@ def deepseek_r1(temperature: float = 0.7, disable_streaming: bool = False) -> Ch
         model=f'{provider}/deepseek-reasoner' if provider else 'deepseek-reasoner',
         base_url=get_settings().llm.DEEPSEEK.BASE_URL,
         api_key=get_settings().llm.DEEPSEEK.API_KEY,
+        provider='deepseek',
         temperature=temperature,
         disable_streaming=disable_streaming,
     )
@@ -151,6 +180,7 @@ def glm_45_air(temperature: float = 0.7, disable_streaming: bool = False) -> Cha
         model=f'{provider}/glm-4.5-air' if provider else 'glm-4.5-air',
         base_url=get_settings().llm.GLM.BASE_URL,
         api_key=get_settings().llm.GLM.API_KEY,
+        provider='zai',
         temperature=temperature,
         disable_streaming=disable_streaming,
     )
@@ -164,6 +194,7 @@ def glm_45(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpe
         model=f'{provider}/glm-4.5' if provider else 'glm-4.5',
         base_url=get_settings().llm.GLM.BASE_URL,
         api_key=get_settings().llm.GLM.API_KEY,
+        provider='zai',
         temperature=temperature,
         disable_streaming=disable_streaming,
     )
