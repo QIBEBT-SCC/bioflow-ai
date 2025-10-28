@@ -20,6 +20,26 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from llm.models import qwen3_embedding
 
 
+def init_tag_and_group(drop_old: bool = True):
+    with Session(engine) as session:
+        if drop_old:
+            delete_tag_count = tag_crud.drop_all(session)
+            delete_group_count = group_crud.drop_all(session)
+            logger.info(f'Delete {delete_tag_count} tags and {delete_group_count} groups')
+
+        # init tags
+        with open('../presets/tags.json', 'r') as f:
+            tags_data = json.loads(f.read())
+            tags = [ToolTag.model_validate(tag) for tag in tags_data]
+        tag_crud.insert_all(session, tags)
+
+        # init group
+        with open('../presets/groups.json', 'r') as f:
+            groups_data = json.loads(f.read())
+            groups = [ToolGroup.model_validate(group) for group in groups_data]
+        group_crud.insert_all(session, groups)
+
+
 async def init_images(drop_old: bool = True):
     with Session(engine) as session:
         if drop_old:
@@ -65,18 +85,6 @@ async def init_images(drop_old: bool = True):
 
 def init_db():
     with Session(engine) as session:
-        # init tags
-        with open('../presets/tags.json', 'r') as f:
-            tags_data = json.loads(f.read())
-            tags = [ToolTag.model_validate(tag) for tag in tags_data]
-        tag_crud.insert_all(session, tags)
-
-        # init group
-        with open('../presets/groups.json', 'r') as f:
-            groups_data = json.loads(f.read())
-            groups = [ToolGroup.model_validate(group) for group in groups_data]
-        group_crud.insert_all(session, groups)
-
         # init doc
         with open('../presets/tool_docs.json', 'r') as f:
             docs_data = json.loads(f.read())
@@ -111,4 +119,5 @@ def init_db():
 
 
 if __name__ == '__main__':
-    asyncio.run(init_images())
+    init_tag_and_group(True)
+    # asyncio.run(init_images())

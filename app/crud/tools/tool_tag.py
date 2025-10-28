@@ -1,5 +1,5 @@
-from sqlalchemy import Select
-from sqlmodel import Session, select, col
+from sqlalchemy import Select, func, text
+from sqlmodel import Session, col, select
 
 from app.models.tools import ToolTag
 
@@ -20,6 +20,20 @@ def insert_all(session: Session, tags: list[ToolTag]):
         session.refresh(tag)
 
     return tags
+
+
+def drop_all(session: Session) -> int:
+    count_query = select(func.count()).select_from(ToolTag)
+    count = session.exec(count_query).one()
+
+    if count == 0:
+        return 0
+
+    table_name = ToolTag.__tablename__
+    session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
+    session.commit()
+
+    return count
 
 
 def get_all(session: Session):
