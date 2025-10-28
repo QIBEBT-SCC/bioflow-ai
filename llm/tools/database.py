@@ -1,8 +1,9 @@
-from typing import Optional
+from typing import Annotated, Optional
 
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from sqlmodel import Session
 
@@ -24,7 +25,7 @@ from llm.utils.uid_mapper import BidirectionalMapper
 
 
 @tool(parse_docstring=True)
-def search_local_image(query: str, runtime: ToolRuntime) -> Command:
+def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
     """Search the database for images that have already been pulled locally.
 
     Args:
@@ -53,7 +54,7 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
                 'messages': [
                     ToolMessage(
                         content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
-                        tool_call_id=runtime.tool_call_id,
+                        tool_call_id=tool_call_id,
                     )
                 ],
             }
@@ -63,7 +64,8 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
         update={
             'messages': [
                 ToolMessage(
-                    content='Based on the keywords you provided, no results found', tool_call_id=runtime.tool_call_id
+                    content='Based on the keywords you provided, no results found',
+                    tool_call_id=tool_call_id,
                 )
             ]
         }
@@ -71,13 +73,17 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
 
 
 @tool(parse_docstring=True)
-def select_image(image_id: int, runtime: ToolRuntime):
+def select_image(
+    image_id: int,
+    mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+):
     """Select existing image in the database
 
     Args:
         image_id: selected image id
     """
-    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    # mapper: BidirectionalMapper = runtime.state.get('id_mapper')
     image_uid = mapper.get_uid_by_index(image_id)
 
     with Session(engine) as session:
@@ -91,7 +97,7 @@ def select_image(image_id: int, runtime: ToolRuntime):
             'messages': [
                 ToolMessage(
                     content='The correct image has been selected, you can summarize the information and end the task.',
-                    tool_call_id=runtime.tool_call_id,
+                    tool_call_id=tool_call_id,
                 )
             ],
         }
@@ -143,7 +149,7 @@ async def pull_and_save_image(
     )
 
 
-@tool(parse_docstring=True)
+@tool
 def list_docs(runtime: ToolRuntime) -> Command:
     """List existing document records under the corresponding image"""
     image_uid = runtime.state.get('image_uid')
@@ -218,7 +224,7 @@ def select_doc(doc_id: int, runtime: ToolRuntime):
             'doc_uid': mapper.get_uid_by_index(doc_id),
             'messages': [
                 ToolMessage(
-                    content='The corresponding help document has been found, you can proceed to the next step.',
+                    content='The corresponding help document has been found, you can summarize the information and end the task.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -253,7 +259,7 @@ def save_doc(
             'doc_uid': doc_uid,
             'messages': [
                 ToolMessage(
-                    content='The corresponding help document has been found, you can proceed to the next step.',
+                    content='The corresponding help document has been found, you can summarize the information and end the task.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -322,7 +328,7 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
     )
 
 
-@tool(parse_docstring=True)
+@tool
 def view_groups() -> str:
     """View all existing groups"""
     with Session(engine) as session:
@@ -365,7 +371,7 @@ def select_group(group_id: int, runtime: ToolRuntime):
             'group_id': group_id,
             'messages': [
                 ToolMessage(
-                    content='The corresponding help document has been found, you can proceed to the next step.',
+                    content='The corresponding help document has been found, you can summarize the information and end the task.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

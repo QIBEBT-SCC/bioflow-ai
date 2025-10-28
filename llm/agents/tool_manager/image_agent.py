@@ -14,7 +14,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from llm.models import gemini_25_flash, gpt_5_mini
-from llm.states import CreateImageContext, SearchImageState
+from llm.states import SearchImageState
 from llm.tools.database import pull_and_save_image, search_local_image, select_image
 from llm.tools.human import ask_human
 from llm.tools.images import search_image, view_image_tags
@@ -203,7 +203,6 @@ class GetImageAgent:
             tools=[search_image, view_image_tags, web_reader, pull_and_save_image, ask_human],
             system_prompt=SEARCH_IMAGE_SYS,
             state_schema=SearchImageState,
-            context_schema=CreateImageContext,
             middleware=[
                 SummarizationMiddleware(
                     model=gemini_25_flash(),
@@ -234,7 +233,7 @@ class GetImageAgent:
         if last_message.tool_calls:
             return 'search_tool'
 
-        if not state['image_uid']:
+        if 'image_uid' not in state or not state['image_uid']:
             return 'continue_search'
 
         return END
@@ -260,8 +259,7 @@ class GetImageAgent:
 
     async def image_searcher_node(self, state: SearchImageState):
         response = await self.search_image_agent.ainvoke(
-            {'messages': state['messages']},
-            context=CreateImageContext(homepage=state['homepage'], paper_link=state['paper_link']),
+            {'messages': state['messages'], 'homepage': state['homepage'], 'paper_link': state['paper_link']}
         )
         return {
             'messages': [response['messages'][-1]],

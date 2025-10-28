@@ -1,20 +1,21 @@
 import uuid
 from typing import Annotated, Literal, Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.agents import create_agent
+from langchain.agents.middleware import SummarizationMiddleware
+from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.graph import CurveStyle
 from langchain_core.tools import tool
-from langchain_mcp_adapters.tools import load_mcp_tools
+from langchain_milvus import Milvus
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import InjectedState, create_react_agent
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from langgraph.prebuilt import InjectedState
+from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -23,30 +24,48 @@ import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
+from app.core.config import get_settings
 from app.core.session import engine
-from app.schemas.tools import DockerToolCreate, ImageUpdate, ToolNodePublic
+from app.models.tools import ToolDefine, ToolType
+from app.schemas.tools import ToolNodePublic
+from llm.agents.tool_manager.image_agent import GetImageAgent
 from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
-from llm.prebuild.generate_tool_config import ToolGenerator
-from llm.agents.reproduction.search_info_agent import SearchInfoAgent
-from llm.agents.states import CreateToolOutput, CreateToolState, GetDocState, SearchImageState, SelectGroupState
+from llm.agents.tool_manager.generate_tool_config import ToolGenerator
+from llm.states import (
+    CreateToolContext,
+    CreateToolOutput,
+    CreateToolState,
+    GetDocState,
+    SearchImageState,
+    SelectGroupState,
+)
 from llm.tools.container import run_command
 from llm.tools.database import (
     add_group,
     list_docs,
-    pull_and_save_image,
     save_doc,
-    search_local_image,
     select_doc,
     select_group,
-    select_image,
     view_doc,
     view_groups,
 )
 from llm.tools.human import ask_human
-from llm.tools.images import search_image
-from llm.tools.web_search import conclude_web_reader_result, web_reader, web_searcher
+from llm.tools.web_search import web_reader, web_searcher
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
+
+SUMMARY_SYS = """You are an expert summarizer creating a concise log of previously completed web research to prevent redundant work.
+Analyze the provided context of `web_searcher` and `web_reader` tool calls. Your task is to create a historical record of what has been searched and what was learned from the pages that were actually **read**.
+Group the results under the specific search query that led to them.
+
+**Strictly adhere to the following nested format for your output:**
+
+*   **Query:** "[Insert the exact search query text here]"
+    *   **Link:** [The URL that was read]
+    *   **Extracted Information:** [A summary of the key information from that page. If the content was irrelevant or unhelpful, state "No useful information found."]
+
+*If multiple pages were read for a single query, list each one as a separate "Link" entry under that query.*
+"""
 
 SELECT_IMAGE_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, analysis data, etc., into individual nodes. Now, what we need to do is encapsulate a new node.
@@ -87,27 +106,32 @@ When there is no corresponding help document in the database, you need to try ru
 </RunCommand>
 """
 
-GENERATE_COMMAND_SYS = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
+GENERATE_COMMAND_SYS = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform. 
+This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and our current task is to encapsulate a new node.
 To achieve this, you first need to generate an actual command to be used as a reference for node construction.
 
-Your command construction needs to take into account the user's original requirements and be built according to the actual help documentation of the tool.
+## Command Construction Rules
+When constructing the command, you must strictly adhere to the following core principles:
+
+### 1. Principle of Minimalism
+The generated command must be the most basic and concise version that fulfills the user's original requirement. Avoid adding any non-essential optional parameters used for fine-tuning.
+
+### 2. Resource and Logging Rules
+Despite the minimalism rule, if the tool supports the following three categories of parameters, you must set them according to these specific rules:
+
+*   **Number of threads/CPU cores**: Set to `8` (e.g., `-t 8`, `-p 8`, `--threads 8`).
+*   **Memory usage**: Set to `16G` (e.g., `--memory 16G`).
+*   **Log output**: If the tool provides a dedicated log file parameter (e.g., `--log`, `-l`), set it to `run.log`. If not, redirect both standard output and standard error to `run.log` by appending `> run.log 2>&1` to the end of the command.
+
+### 3. Adherence to Official Documentation
+Your command construction must be strictly based on the tool's actual help documentation, ensuring all parameters and syntax are valid. If a tool does not support one of the resource parameters mentioned above, simply omit it.
+
+---
+
+Now, please construct the command based on the user's requirements and the tool's documentation.
 """
 
-GET_REPORT_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
-To achieve this, your task is to **obtain the output structure of the corresponding tool** as the basis for encapsulation.
-
-<ToolCalling>
-To accurately understand the output and other relevant information produced by a tool's commands, we provide you with a series of tools. 
-Toolkits `read_wiki_structure`, `read_wiki_contentsThey` and `ask_question` can read GitHub repositories and ask questions, returning the desired information. 
-Make full use of these tools to get all the information needed for your report.
-
-Toolkits `web_search` and `web_reader` can be used for searching and reading internet information, which is another viable way to obtain the required materials.
-Due to the lower accuracy of online searches, this method should only be used to get information when there are no available GitHub repositories, or when an error is encountered while using the aforementioned tools to query GitHub.
-</ToolCalling>
-
-<OutputFormat>
+REPORT_FORMAT = """<OutputFormat>
 Once you have completed all analyses and gathered all the required information, you must stop calling tools and produce a **Final Report**. This report must strictly adhere to the following text format, without any JSON, code blocks, or other extraneous explanatory text.
 
 ```text
@@ -129,6 +153,34 @@ Once you have completed all analyses and gathered all the required information, 
 </OutputFormat>
 """
 
+SEARCH_BY_DEEPWIKI = f"""You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
+This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
+To achieve this, your task is to **obtain the output structure of the corresponding tool** as the basis for encapsulation.
+
+<ToolCalling>
+To accurately understand the output and other relevant information produced by a tool's commands, we provide you with a series of tools. 
+Toolkits `read_wiki_structure`, `read_wiki_contentsThey` and `ask_question` can read GitHub repositories and ask questions, returning the desired information. 
+Make full use of these tools to get all the information needed for your report.
+
+Toolkits `web_search` and `web_reader` can be used for searching and reading internet information, which is another viable way to obtain the required materials.
+Due to the lower accuracy of online searches, this method should only be used to get information when there are no available GitHub repositories, or when an error is encountered while using the aforementioned tools to query GitHub.
+</ToolCalling>
+
+{REPORT_FORMAT}
+"""
+
+SEARCH_BY_WEB = f"""You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
+This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
+To achieve this, your task is to **obtain the output structure of the corresponding tool** as the basis for encapsulation.
+
+<ToolCalling>
+You can use the `web_search` tool to perform internet searches and the `web_reader` to further read specific URLs.
+</ToolCalling>
+
+{REPORT_FORMAT}
+"""
+
+
 SELECT_GROUP_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
 Now your task is to **assign an appropriate group** to this tool based on the information available about it.
@@ -146,81 +198,113 @@ To complete this task, you can follow these steps:
 """
 
 
+class ToolInfoSchema(BaseModel):
+    homepage: str = Field(description="Tool's homepage, prioritizing the GitHub source code repository")
+    paper_url: Optional[str] = Field(description="Link to the tool's publication, leave blank if not applicable")
+
+
 class TempIDClass(BaseModel):
     uid: uuid.UUID
 
 
 class CreateToolAgent:
-    def __init__(self):
+    """CreateToolAgent is an agent designed to assist in the creation of new tool nodes within a bioinformatics analysis platform.
+
+    Args:
+        deepwiki_tools: 需要初始化MCP工具并传入
+
+        client = MultiServerMCPClient(
+            {
+                'deepwiki': {
+                    'transport': 'streamable_http',  # HTTP-based remote server
+                    'url': 'https://mcp.deepwiki.com/mcp',
+                },
+            }
+        )
+        deepwiki_tools = await client.get_tools()
+    """
+
+    def __init__(self, deepwiki_tools: list):
         self.struct_llm = gpt_5(0.2)
         self.think_llm = gpt_5_mini(0.3)
 
         # sub agents
-        self.search_image_agent = create_react_agent(
-            model=self.think_llm,
-            tools=[search_local_image, search_image, select_image, pull_and_save_image, ask_human],
-            prompt=SELECT_IMAGE_SYSTEM,
-            state_schema=SearchImageState,
-        )
-        self.get_doc_agent = create_react_agent(
+
+        self.search_image_agent = GetImageAgent().build()
+        self.get_doc_agent = create_agent(
             model=self.think_llm,
             tools=[list_docs, view_doc, select_doc, run_command, save_doc, ask_human],
-            prompt=GET_DOC_SYSTEM,
+            system_prompt=GET_DOC_SYSTEM,
             state_schema=GetDocState,
         )
-        self.select_group_agent = create_react_agent(
+        self.deepwiki_agent = create_agent(
+            model=self.think_llm,
+            tools=[*deepwiki_tools, web_searcher, web_reader],
+            middleware=[
+                SummarizationMiddleware(
+                    model=gpt_5_mini(),
+                    max_tokens_before_summary=6000,
+                    messages_to_keep=6,
+                )
+            ],
+            system_prompt=SEARCH_BY_DEEPWIKI,
+        )
+        self.web_search_agent = create_agent(
+            model=self.think_llm,
+            tools=[web_searcher, web_reader],
+            middleware=[
+                SummarizationMiddleware(
+                    model=gpt_5_mini(), max_tokens_before_summary=6000, messages_to_keep=6, summary_prompt=SUMMARY_SYS
+                )
+            ],
+            system_prompt=SEARCH_BY_WEB,
+        )
+        self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, add_group, select_group],
-            prompt=SELECT_GROUP_SYSTEM,
+            system_prompt=SELECT_GROUP_SYSTEM,
             state_schema=SelectGroupState,
         )
         self.tool_generator = ToolGenerator(llm=self.struct_llm).build()
 
     async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
-        if state.image_uid:
-            # 如果提供了镜像，检查是否有GitHub链接
-            writer = get_stream_writer()
-            writer({'info': 'Searching for github link...'})
-
+        if 'image_uid' in state and state['image_uid']:
+            # 我们认为数据库中的镜像信息就是完全的
             with Session(engine) as session:
-                tool_image = image_crud.get(session, str(state.image_uid))
-                if not tool_image.homepage:
-                    web_search_agent = SearchInfoAgent().build()
-                    result = await web_search_agent.ainvoke(
-                        {'messages': [('human', f'Search github and paper link for tool "{tool_image.name}"')]}
-                    )
-                    image_update = ImageUpdate(
-                        uid=state.image_uid,
-                        homepage=result['final_response'].github_url,
-                        paper_link=result['final_response'].paper_url,
-                    )
-                    tool_image = image_crud.update(session, image_update)
+                tool_image = image_crud.get(session, str(state['image_uid']))
+                return {'image': tool_image.image, 'homepage': tool_image.homepage}
+        else:
+            writer = get_stream_writer()
+            writer({'info': 'Searching for docker image...'})
 
-                return {'image': tool_image.image, 'github_url': tool_image.homepage}
+            search_input: SearchImageState = {'messages': state['messages']}
+            response = await self.search_image_agent.ainvoke(search_input)
 
-        writer = get_stream_writer()
-        writer({'info': 'Searching for docker image...'})
-
-        search_input = SearchImageState(messages=state.messages)
-        response = await self.search_image_agent.ainvoke(search_input)
-
-        return {'image_uid': response['image_uid'], 'image': response['image'], 'github_url': response['github_url']}
+            return {
+                'image_uid': response['image_uid'],
+                'image': response['image'],
+                'homepage': response['homepage'],
+            }
 
     async def get_doc_node(self, state: CreateToolState):
         """然后尝试获取指令对应的帮助文档"""
         writer = get_stream_writer()
         writer({'info': "Searching for tool's help document..."})
 
-        doc_input = GetDocState(messages=state.messages, image_uid=state.image_uid, image=state.image)
-        response = await self.get_doc_agent.ainvoke(doc_input)
+        response = await self.get_doc_agent.ainvoke(
+            {'messages': state['messages'], 'image_uid': state['image_uid'], 'image': state['image']}
+        )
         doc_uid = response['doc_uid']
 
         with Session(engine) as session:
             doc = doc_crud.get(session, str(doc_uid))
 
         return {
-            'messages': [('ai', 'First I need the help documentation for this tool'), ('human', doc.content)],
+            'messages': [
+                AIMessage(content='First I need the help documentation for this tool'),
+                HumanMessage(content=doc.content),
+            ],
             'doc_uid': doc_uid,
             'doc': doc.content,
         }
@@ -239,49 +323,61 @@ class CreateToolAgent:
             messages=[SystemMessage(content=GENERATE_COMMAND_SYS), MessagesPlaceholder(variable_name='history')]
         )
         chain = prompt | self.think_llm.with_structured_output(CommandStructure)
-        response = await chain.ainvoke({'history': state.messages})
+        response = await chain.ainvoke({'history': state['messages']})
 
         return {
             'messages': [
-                ('ai', 'Great, it would be even better if you could give me an actual command for reference.'),
-                ('human', response.command),
+                AIMessage(
+                    content='Great, it would be even better if you could give me an actual command for reference.'
+                ),
+                HumanMessage(content=response.command),
             ],
             'command': response.command,
         }
 
-    async def get_output_report_node(self, state: CreateToolState):
+    async def deepwiki_node(self, state: CreateToolState):
         """尝试获取工具的输出结果（使用deepwiki）"""
         writer = get_stream_writer()
         writer({'info': 'Getting more information through deepwiki...'})
 
-        async with streamablehttp_client('https://mcp.deepwiki.com/mcp') as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-
-                tools = await load_mcp_tools(session)
-                agent = create_react_agent(
-                    self.think_llm,
-                    [*tools, web_searcher, web_reader, conclude_web_reader_result],
-                    prompt=GET_REPORT_SYSTEM,
+        input_message = {
+            'messages': [
+                HumanMessage(
+                    content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
                 )
-
-                if state.github_url:
-                    input_message = HumanMessage(
-                        content=f'The tool command to be analyzed is: `{state.command}`, the github repo of tool is {state.github_url}'
-                    )
-                else:
-                    input_message = HumanMessage(
-                        content=f'The tool command to be analyzed is: `{state.command}`, no GitHub repository is available for the tool.'
-                    )
-                response = await agent.ainvoke({'messages': [input_message]})
+            ]
+        }
+        response = await self.deepwiki_agent.ainvoke(input_message)
 
         return {
             'messages': [
-                (
-                    'ai',
-                    'Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
+                AIMessage(
+                    content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
                 ),
-                ('human', response['messages'][-1].content),
+                HumanMessage(content=response['messages'][-1].content),
+            ]
+        }
+
+    async def web_search_node(self, state: CreateToolState):
+        """尝试获取工具的输出结果（使用web search）"""
+        writer = get_stream_writer()
+        writer({'info': 'Getting more information through web search...'})
+
+        input_message = {
+            'messages': [
+                HumanMessage(
+                    content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
+                )
+            ]
+        }
+        response = await self.web_search_agent.ainvoke(input_message)
+
+        return {
+            'messages': [
+                AIMessage(
+                    content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
+                ),
+                HumanMessage(content=f'The information I found is as follows:\n{response}'),
             ]
         }
 
@@ -290,46 +386,61 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Assigning groups to tools...'})
 
-        group_choose_input = SelectGroupState(messages=state.messages)
+        group_choose_input: SelectGroupState = {'messages': state['messages']}
         response = await self.select_group_agent.ainvoke(group_choose_input)
 
         # 不更新消息
         return {'group_id': response['group_id']}
 
-    async def generate_tool_node(self, state: CreateToolState, config: RunnableConfig):
+    async def generate_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
         """生成工具配置"""
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
-        result = await self.tool_generator.ainvoke({'messages': state.messages})
+        result = await self.tool_generator.ainvoke({'messages': state['messages']})
 
         with Session(engine) as session:
-            group = group_crud.get(session, state.group_id)
+            group = group_crud.get(session, state['group_id'])
             assert group is not None
 
-            if state.github_url:
+            if state['homepage']:
                 tag = tag_crud.get_by_name(session, 'AI Checked')
             else:
                 tag = tag_crud.get_by_name(session, 'AI Unchecked')
 
-            create_data = DockerToolCreate(
-                image_uid=state.image_uid,
-                help_doc_uid=state.doc_uid,
-                group_id=group.id,
-                tags=[group.tag, tag],
+            tool_data = ToolDefine(
+                tool_type=ToolType.DOCKER,
+                image_uid=state['image_uid'],
+                help_doc_uid=state['doc_uid'],
+                # group_id=group.id,
+                # tags=[group.tag, tag],
                 **result,
             )
-            if not config['configurable'].get('auto_save', True):
-                return {'json_response': create_data.model_dump()}
+            if not runtime.context.auto_save:
+                return {'json_response': tool_data.model_dump()}
 
-            tool_data = create_data.to_tool_data()
+            tool_data = tool_crud.insert(session, tool_data)
 
             # 添加描述的向量索引
             embedding_model = qwen3_embedding()
-            vector = embedding_model.embed_documents([tool_data.description])[0]
-            tool_data.des_vector = vector
+            vectorstore = Milvus(
+                embedding_function=embedding_model,
+                collection_name='ToolCollection',
+                connection_args={'uri': get_settings().persistent.MILVUS_URL},
+                index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+                search_params={'M': 64, 'efConstruction': 100},
+                consistency_level='Strong',
+                drop_old=False,
+                auto_id=True,
+            )
 
-            tool_data = tool_crud.insert(session, tool_data)
+            docs = [
+                Document(
+                    page_content=tool_data.description,
+                    metadata={'tool_uid': str(tool_data.uid), 'name': tool_data.name},
+                ),
+            ]
+            await vectorstore.aadd_documents(docs)
 
             mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
 
@@ -362,21 +473,33 @@ class CreateToolAgent:
             ],
         }
 
+    @staticmethod
+    def how_to_get_output(state: CreateToolState) -> Literal['deepwiki', 'web_search']:
+        if homepage := state['homepage']:
+            if 'github.com' in homepage:
+                return 'deepwiki'
+
+        return 'web_search'
+
     def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
-        graph = StateGraph(CreateToolState, output_schema=CreateToolOutput)
+        graph = StateGraph(
+            state_schema=CreateToolState, context_schema=CreateToolContext, output_schema=CreateToolOutput
+        )
 
         graph.add_node('select_image', self.select_image_node)
         graph.add_node('get_doc', self.get_doc_node)
         graph.add_node('generate_command', self.generate_command_node)
-        graph.add_node('get_output_report', self.get_output_report_node)
+        graph.add_node('deepwiki', self.deepwiki_node)
+        graph.add_node('web_search', self.web_search_node)
         graph.add_node('choose_group', self.choose_group_node)
         graph.add_node('generate_tool_config', self.generate_tool_node)
 
         graph.set_entry_point('select_image')
         graph.add_edge('select_image', 'get_doc')
         graph.add_edge('get_doc', 'generate_command')
-        graph.add_edge('generate_command', 'get_output_report')
-        graph.add_edge('get_output_report', 'choose_group')
+        graph.add_conditional_edges('generate_command', self.how_to_get_output)
+        graph.add_edge('web_search', 'choose_group')
+        graph.add_edge('deepwiki', 'choose_group')
         graph.add_edge('choose_group', 'generate_tool_config')
         graph.add_edge('generate_tool_config', END)
 

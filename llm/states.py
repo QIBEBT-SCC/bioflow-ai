@@ -26,12 +26,6 @@ class ToolGeneratorState(MessagesState, total=False):
 
 
 # =====================create tool agent state==========================
-@dataclass
-class CreateImageContext:
-    homepage: str
-    paper_link: str
-
-
 class SearchImageState(MessagesState, total=False):
     id_mapper: BidirectionalMapper
 

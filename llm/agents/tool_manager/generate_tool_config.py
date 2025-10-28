@@ -8,7 +8,7 @@ from langgraph.graph import StateGraph
 from pydantic import BaseModel, Field
 
 from app.models.tools import FileMount, ParamDefine
-from llm.agents.states import ToolGeneratorState
+from llm.states import ToolGeneratorState
 
 SYSTEM_PROMPT = """We are designing a node-based bioinformatics analysis platform, to achieve this goal, it is necessary to encapsulate the analysis tools as nodes for invocation.  
 As a bioinformatics engineer, your task is to complete the encapsulation settings of the tools according to actual needs.
@@ -220,7 +220,7 @@ class ToolGenerator:
             retry_if_exception_type=(ValueError,), stop_after_attempt=3
         )
 
-        response: StructureOutput = await chain.ainvoke({'history': state.messages})
+        response: StructureOutput = await chain.ainvoke({'history': state['messages']})
 
         return {
             'file_mounts': response['parsed'].file_mounts,
@@ -243,7 +243,7 @@ class ToolGenerator:
             retry_if_exception_type=(ValueError,), stop_after_attempt=3
         )
 
-        response: StructureOutput = await chain.ainvoke({'history': state.messages})
+        response: StructureOutput = await chain.ainvoke({'history': state['messages']})
 
         return {
             'command_template': response['parsed'].command_template,
@@ -265,7 +265,7 @@ class ToolGenerator:
             retry_if_exception_type=(ValueError,), stop_after_attempt=3
         )
 
-        response: StructureOutput = await chain.ainvoke({'history': state.messages})
+        response: StructureOutput = await chain.ainvoke({'history': state['messages']})
 
         return {
             'name': response['parsed'].name,
