@@ -23,7 +23,7 @@ from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
 
-@tool
+@tool(parse_docstring=True)
 def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     """Search the database for images that have already been pulled locally.
 
@@ -70,7 +70,7 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def select_image(image_id: int, runtime: ToolRuntime):
     """Select existing image in the database
 
@@ -98,7 +98,7 @@ def select_image(image_id: int, runtime: ToolRuntime):
     )
 
 
-@tool
+@tool(parse_docstring=True)
 async def pull_and_save_image(
     name: str,
     image_url: str,
@@ -143,7 +143,7 @@ async def pull_and_save_image(
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def list_docs(runtime: ToolRuntime) -> Command:
     """List existing document records under the corresponding image"""
     image_uid = runtime.state.get('image_uid')
@@ -188,7 +188,7 @@ def list_docs(runtime: ToolRuntime) -> Command:
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
     """View the specific content of the corresponding help document
 
@@ -204,7 +204,7 @@ def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
     return doc.content
 
 
-@tool
+@tool(parse_docstring=True)
 def select_doc(doc_id: int, runtime: ToolRuntime):
     """Select existing help document in the database
 
@@ -226,7 +226,7 @@ def select_doc(doc_id: int, runtime: ToolRuntime):
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def save_doc(
     help_command: str,
     description: str,
@@ -261,7 +261,7 @@ def save_doc(
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def search_tool(query: str, runtime: ToolRuntime) -> Command:
     """Search for the corresponding tool node
 
@@ -322,7 +322,7 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def view_groups() -> str:
     """View all existing groups"""
     with Session(engine) as session:
@@ -352,7 +352,7 @@ def view_groups() -> str:
     return 'No groups found'
 
 
-@tool
+@tool(parse_docstring=True)
 def select_group(group_id: int, runtime: ToolRuntime):
     """Select the corresponding group for the tool
 
@@ -373,7 +373,7 @@ def select_group(group_id: int, runtime: ToolRuntime):
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def add_group(name: str, parent_id: Optional[int] = None):
     """create new tool group
 
@@ -394,7 +394,7 @@ def add_group(name: str, parent_id: Optional[int] = None):
         return f'Create new group "{group.name}", id: {group.id}'
 
 
-@tool
+@tool(parse_docstring=True)
 def search_biodb(query: str) -> str:
     """Search for the biological databases used by the tool using its name
 
@@ -425,7 +425,7 @@ def search_biodb(query: str) -> str:
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def save_workflow(name: str, runtime: ToolRuntime):
     """Save the completed workflow into the database
 

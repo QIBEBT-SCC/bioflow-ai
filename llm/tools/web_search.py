@@ -55,7 +55,7 @@ You must strictly organize your compressed output using the following Markdown h
 """
 
 
-@tool
+@tool(parse_docstring=True)
 async def web_searcher(query: str):
     """Search the network based on keywords and return a series of web pages found.
 
@@ -80,7 +80,7 @@ async def web_searcher(query: str):
     return '\n\n'.join(response_block)
 
 
-@tool
+@tool(parse_docstring=True)
 async def web_reader(url: str):
     """Calling this tool allows you to read the content of a specific web page.
 

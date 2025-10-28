@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.utils.container.podman import create_container, remove_container, run_podman, run_podman_by_id
 
 
-@tool
+@tool(parse_docstring=True)
 def run_command(command: str, runtime: ToolRuntime):
     """run command in a container and return the result
 
@@ -29,7 +29,7 @@ class ContainerMount(BaseModel):
     read_only: str
 
 
-@tool
+@tool(parse_docstring=True)
 def build_container(mounts: list[ContainerMount], runtime: ToolRuntime):
     """Create a container for the test run
 
@@ -65,7 +65,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime):
     )
 
 
-@tool
+@tool(parse_docstring=True)
 def run_command_in_container(command: str, runtime: ToolRuntime):
     """Run command, and return it`s output result
 

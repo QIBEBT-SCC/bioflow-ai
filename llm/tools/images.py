@@ -64,7 +64,7 @@ def _format_size(size_bytes: int) -> str:
     return ''
 
 
-@tool
+@tool(parse_docstring=True)
 async def search_image(tool_name: str):
     """Search BioContainer to get the image of the target tool.
 
@@ -103,7 +103,7 @@ async def search_image(tool_name: str):
     return f'<tool>\n{"\n".join(xml_list)}\n</tool>\n\nDetermine the image you need based on its name, description, and pull count.'
 
 
-@tool
+@tool(parse_docstring=True)
 async def view_image_tags(image_name: str):
     """View tags for a specified image name.
 
