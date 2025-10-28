@@ -1,10 +1,8 @@
-import uuid
-from typing import Annotated, Optional
+from typing import Optional
 
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
+from langchain_core.tools import tool
 from langgraph.types import Command
 from sqlmodel import Session
 
@@ -21,13 +19,12 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
-from llm.states import CreateImageContext, ReproductionState
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
 
 @tool
-def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     """Search the database for images that have already been pulled locally.
 
     Args:
@@ -56,7 +53,7 @@ def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCall
                 'messages': [
                     ToolMessage(
                         content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
-                        tool_call_id=tool_call_id,
+                        tool_call_id=runtime.tool_call_id,
                     )
                 ],
             }
@@ -65,24 +62,24 @@ def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCall
     return Command(
         update={
             'messages': [
-                ToolMessage(content='Based on the keywords you provided, no results found', tool_call_id=tool_call_id)
+                ToolMessage(
+                    content='Based on the keywords you provided, no results found', tool_call_id=runtime.tool_call_id
+                )
             ]
         }
     )
 
 
 @tool
-def select_image(
-    image_id: int,
-    mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-):
+def select_image(image_id: int, runtime: ToolRuntime):
     """Select existing image in the database
 
     Args:
         image_id: selected image id
     """
+    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
     image_uid = mapper.get_uid_by_index(image_id)
+
     with Session(engine) as session:
         tool_image = image_crud.get(session, image_uid)
 
@@ -94,7 +91,7 @@ def select_image(
             'messages': [
                 ToolMessage(
                     content='The correct image has been selected, you can summarize the information and end the task.',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ],
         }
@@ -107,7 +104,7 @@ async def pull_and_save_image(
     image_url: str,
     version: str,
     description: str,
-    runtime: ToolRuntime[CreateImageContext],
+    runtime: ToolRuntime,
 ) -> Command:
     """Pull down the searched images and save relevant information to the database
 
@@ -126,8 +123,8 @@ async def pull_and_save_image(
             image=ImageConfig.from_str(image_url),
             version=version,
             description=description,
-            homepage=runtime.context.homepage,
-            paper_link=runtime.context.paper_link,
+            homepage=runtime.state.get('homepage', ''),
+            paper_link=runtime.state.get('paper_link', ''),
         )
         new_image = image_crud.insert(session, new_image)
         image_uid = new_image.uid
@@ -147,10 +144,10 @@ async def pull_and_save_image(
 
 
 @tool
-def list_docs(
-    image_uid: Annotated[uuid.UUID, InjectedState('image_uid')], tool_call_id: Annotated[str, InjectedToolCallId]
-) -> Command:
+def list_docs(runtime: ToolRuntime) -> Command:
     """List existing document records under the corresponding image"""
+    image_uid = runtime.state.get('image_uid')
+
     with Session(engine) as session:
         docs: list[ToolHelpDoc] = doc_crud.get_image_docs(session, str(image_uid))
         mappers = BidirectionalMapper(datas=docs)
@@ -173,7 +170,7 @@ def list_docs(
                 'messages': [
                     ToolMessage(
                         content=f'Under this image, we found {len(docs)} corresponding help document records:\n\n<docs>\n{"\n".join(doc_blocks)}\n</docs>',
-                        tool_call_id=tool_call_id,
+                        tool_call_id=runtime.tool_call_id,
                     )
                 ],
             }
@@ -183,7 +180,8 @@ def list_docs(
         update={
             'messages': [
                 ToolMessage(
-                    content='No existing help documentation records found under this image.', tool_call_id=tool_call_id
+                    content='No existing help documentation records found under this image.',
+                    tool_call_id=runtime.tool_call_id,
                 )
             ]
         }
@@ -191,13 +189,15 @@ def list_docs(
 
 
 @tool
-def view_doc(doc_id: int, mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')]) -> str:
+def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
     """View the specific content of the corresponding help document
 
     Args:
         doc_id: ID of the document to view
     """
+    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
     doc_uid = mapper.get_uid_by_index(doc_id)
+
     with Session(engine) as session:
         doc: ToolHelpDoc = doc_crud.get(session, doc_uid)
 
@@ -205,16 +205,13 @@ def view_doc(doc_id: int, mapper: Annotated[BidirectionalMapper, InjectedState('
 
 
 @tool
-def select_doc(
-    doc_id: int,
-    mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')],
-    tool_call_id: Annotated[str, InjectedToolCallId],
-):
+def select_doc(doc_id: int, runtime: ToolRuntime):
     """Select existing help document in the database
 
     Args:
         doc_id: selected doc id
     """
+    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
 
     return Command(
         update={
@@ -222,7 +219,7 @@ def select_doc(
             'messages': [
                 ToolMessage(
                     content='The corresponding help document has been found, you can proceed to the next step.',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ],
         }
@@ -233,9 +230,7 @@ def select_doc(
 def save_doc(
     help_command: str,
     description: str,
-    content: Annotated[str, InjectedState('last_output')],
-    image_uid: Annotated[uuid.UUID, InjectedState('image_uid')],
-    tool_call_id: Annotated[str, InjectedToolCallId],
+    runtime: ToolRuntime,
 ) -> Command:
     """Save the results from the last run to the database as help documentation records.
 
@@ -244,7 +239,12 @@ def save_doc(
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
     with Session(engine) as session:
-        new_doc = ToolHelpDoc(help_command=help_command, description=description, content=content, image_uid=image_uid)
+        new_doc = ToolHelpDoc(
+            help_command=help_command,
+            description=description,
+            content=runtime.state.get('last_output'),
+            image_uid=runtime.state.get('image_uid'),
+        )
         new_doc = doc_crud.insert(session, new_doc)
         doc_uid = new_doc.uid
 
@@ -254,7 +254,7 @@ def save_doc(
             'messages': [
                 ToolMessage(
                     content='The corresponding help document has been found, you can proceed to the next step.',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ],
         }
@@ -262,7 +262,7 @@ def save_doc(
 
 
 @tool
-def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+def search_tool(query: str, runtime: ToolRuntime) -> Command:
     """Search for the corresponding tool node
 
     Args:
@@ -303,7 +303,7 @@ def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
                         f'(To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n'
                         f'<tools>\n{"\n\n".join(tool_blocks)}\n</tools>\n\n'
                         f'Note that if you are reproducing the workflow rather than designing it yourself, the selection of tools must strictly follow the original paper (the versions can be different).',
-                        tool_call_id=tool_call_id,
+                        tool_call_id=runtime.tool_call_id,
                     )
                 ],
             }
@@ -315,7 +315,7 @@ def search_tool(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
                 ToolMessage(
                     'Based on the keywords you provided, no results found. '
                     'Consider using new search keywords or calling the `create_tool_node` tool to create new tool nodes',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ]
         }
@@ -353,7 +353,7 @@ def view_groups() -> str:
 
 
 @tool
-def select_group(group_id: int, tool_call_id: Annotated[str, InjectedToolCallId]):
+def select_group(group_id: int, runtime: ToolRuntime):
     """Select the corresponding group for the tool
 
     Args:
@@ -366,7 +366,7 @@ def select_group(group_id: int, tool_call_id: Annotated[str, InjectedToolCallId]
             'messages': [
                 ToolMessage(
                     content='The corresponding help document has been found, you can proceed to the next step.',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ],
         }
@@ -426,16 +426,14 @@ def search_biodb(query: str) -> str:
 
 
 @tool
-def save_workflow(
-    name: str, state: Annotated[ReproductionState, InjectedState], tool_call_id: Annotated[str, InjectedToolCallId]
-):
+def save_workflow(name: str, runtime: ToolRuntime):
     """Save the completed workflow into the database
 
     Args:
         name: Workflow name, brief description of this workflow's tasks
     """
     nodes = []
-    for n in state.exist_nodes:
+    for n in runtime.state.get('exist_nodes', []):
         node = Node(
             id=n.id,
             type=n.type,
@@ -447,7 +445,7 @@ def save_workflow(
         nodes.append(node)
 
     edges = []
-    for e in state.exist_edges:
+    for e in runtime.state.get('exist_edges', []):
         source_handle = f'{e.source_node}-out-{e.source_handle}'
         target_handle = f'{e.target_node}-in-{e.target_handle}'
         edge = Edge(
@@ -473,7 +471,7 @@ def save_workflow(
         update={
             'workflow_uid': workflow.uid,
             'messages': [
-                ToolMessage(content='The workflow has been saved to the database.', tool_call_id=tool_call_id)
+                ToolMessage(content='The workflow has been saved to the database.', tool_call_id=runtime.tool_call_id)
             ],
         }
     )
