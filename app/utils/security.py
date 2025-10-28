@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, TypeAlias
 
 import bcrypt
@@ -10,10 +10,10 @@ from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from starlette import status
 
-from app.crud import user as user_crud
-from app.core.session import SessionDep
-from app.models.user import User, UserRole
 from app.core.config import get_settings
+from app.core.session import SessionDep
+from app.crud import user as user_crud
+from app.models.user import User, UserRole
 
 
 @dataclass
