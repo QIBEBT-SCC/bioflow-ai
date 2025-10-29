@@ -6,7 +6,7 @@ import app.crud.run_instance as run_crud
 from app.core.session import SessionDep
 from app.models.user import User
 from app.models.workflow import RunInstance
-from app.schemas.run_instance import RunUpdate, Stat, AutoRunPublic
+from app.schemas.run_instance import AutoRunPublic, RunUpdate, Stat
 from app.utils.security import get_current_active_user
 
 router = APIRouter()

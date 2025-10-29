@@ -1,7 +1,8 @@
+import uuid
 from datetime import datetime
 from typing import Optional, Self
 
-from pydantic import BaseModel, UUID7, model_validator
+from pydantic import BaseModel, model_validator
 
 from app.models.workflow import Status
 from app.schemas.react_flow import WorkflowDefinition
@@ -40,7 +41,7 @@ class Stat(BaseModel):
 
 
 class TaskPublic4Run(BaseModel):
-    uid: UUID7
+    uid: uuid.UUID
     name: str
 
     status: Status
@@ -51,7 +52,7 @@ class TaskPublic4Run(BaseModel):
 
 
 class RunPublic(BaseModel):
-    uid: UUID7
+    uid: uuid.UUID
     name: str
     owner: UserPublic
 
