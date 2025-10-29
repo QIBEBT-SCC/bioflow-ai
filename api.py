@@ -24,7 +24,10 @@ async def lifespan(main_app: FastAPI):
 app = FastAPI(title=get_settings().PROJECT_NAME, version=get_settings().VERSION, lifespan=lifespan)
 
 # 允许所有源地址
-origins = ['*']
+origins = [
+    'http://localhost:3000',
+    'http://172.18.19.113:3000',
+]
 
 app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=['*'], allow_headers=['*']

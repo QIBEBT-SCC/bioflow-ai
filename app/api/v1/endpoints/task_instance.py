@@ -44,7 +44,7 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
     updated_task = task_crud.update(session, uid, task_update)
 
     run_uid = str(updated_task.instance_uid)
-    run_cache = monitor_redis_client.get(f'run-stats-{run_uid}')
+    run_cache = await monitor_redis_client.get(f'run-stats-{run_uid}')
     if run_cache:
         run_cache_data = Stat.model_validate_json(run_cache.decode('utf-8'))
         match task_update.status:
@@ -82,7 +82,7 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
     else:
         run_cache_data = run_crud.get_run_task_stats(session, run_uid)
 
-    monitor_redis_client.set(f'run-stats-{run_uid}', run_cache_data.model_dump_json(), ex=86400)
+    await monitor_redis_client.set(f'run-stats-{run_uid}', run_cache_data.model_dump_json(), ex=86400)
 
     return updated_task
 
@@ -99,12 +99,12 @@ def get_task_result(uid: str, session: SessionDep) -> ToolOutput:
 
 
 @router.post('/{uid}/notify')
-def read_resource_monitor(uid: str, session: SessionDep):
+async def read_resource_monitor(uid: str, session: SessionDep):
     key = f'task-monitor-{uid}'
     pipe = monitor_redis_client.pipeline()
     pipe.lrange(key, 0, -1)
     pipe.delete(key)
-    logs, _ = pipe.execute()
+    logs, _ = await pipe.execute()
 
     stats_list = [json.loads(log) for log in logs]
 

@@ -1,22 +1,22 @@
 import uuid
 
 import rustworkx as rx
-
-from pathlib import Path
-
 from celery import chain, group
+from loguru import logger
 from sqlmodel import Session
-from uuid_extensions import uuid7
+from uuid_extensions import uuid7str
 
+import app.crud.resource.bio_db as db_crud
 import app.crud.task_instance as task_crud
 import app.crud.tools.tool as tool_crud
-import app.crud.resource.bio_db as db_crud
 from app.core.config import get_settings
 from app.models.user import User
-from app.models.workflow import TaskInstance, Status
+from app.models.workflow import Status, TaskInstance
+from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
+from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
+from app.tasks.load_tasks.load_genome import load_genome_task
+from app.tasks.load_tasks.static_value import set_value_task
 from app.tasks.run_tool import docker_task
-from app.tasks.load_file import load_file_task, load_sequence_task
-from app.schemas.react_flow import WorkflowDefinition, TaskNode, TaskInput
 
 
 def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
@@ -32,17 +32,16 @@ def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
     """
     for node in workflow.nodes:
         old_id = node.id
-        new_id = uuid7(as_type='str')
+        new_id = uuid7str()
+        # 不用刷新edge id，这玩意没用
         for edge in workflow.edges:
             if edge.source == old_id:
                 edge.source = new_id
                 edge.sourceHandle = edge.sourceHandle.replace(old_id, new_id)
-                edge.id = edge.id.replace(old_id, new_id)
 
             elif edge.target == old_id:
                 edge.target = new_id
                 edge.targetHandle = edge.targetHandle.replace(old_id, new_id)
-                edge.id = edge.id.replace(old_id, new_id)
 
         node.id = new_id
 
@@ -69,7 +68,9 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
     # 构建TaskNode
     node_map: dict[str, TaskNode] = {}
     for node in workflow.nodes:
-        node_map[node.id] = TaskNode(id=node.id, type=node.type, tool_uid=node.data.tool_uid, args=node.data.args)
+        node_map[node.id] = TaskNode(
+            id=node.id, type=node.type, resource_uid=node.data.resource_uid, args=node.data.args
+        )
     for edge in workflow.edges:
         node_map[edge.target].kwarg[edge.targetHandle.split('-in-')[-1]] = TaskInput(
             source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1]
@@ -114,56 +115,101 @@ def send_task(
     for sub_group in task_nodes:
         sub_tasks = []
         for task_node in sub_group:
-            if task_node.type == 'tool':
-                tool_data = tool_crud.get(session, task_node.tool_uid)
+            match task_node.type:
+                case 'tool':
+                    assert task_node.resource_uid is not None
+                    tool_data = tool_crud.get(session, task_node.resource_uid)
 
-                task_instance = TaskInstance(
-                    uid=task_node.id,
-                    instance_uid=run_uid,
-                    tool_uid=task_node.tool_uid,
-                    owner_id=owner.id,
-                    name=tool_data.name,
-                    status=Status.WAITING,
-                )
-                task_crud.insert(session, task_instance)
+                    task_instance = TaskInstance(
+                        uid=uuid.UUID(task_node.id),
+                        instance_uid=run_uid,
+                        tool_uid=uuid.UUID(task_node.resource_uid),
+                        owner_id=owner.id,
+                        name=tool_data.name,
+                        status=Status.WAITING,
+                    )
+                    task_crud.insert(session, task_instance)
 
-                sub_tasks.append(
-                    docker_task.s(
-                        tool_id=task_node.tool_id,
-                        inputs=task_node.kwarg,
-                        output_dir=f'{get_settings().persistent.STORAGE_PATH}/{owner.username}/{output_base}/{task_index}_{tool_data.name}',
-                        params=task_node.args,
-                        sample_name=sample_name,
-                    ).set(task_id=task_node.id)
-                )
-                task_index += 1
-            elif task_node.type == 'sequenceInputNode':
-                task_instance = TaskInstance(
-                    uid=task_node.id, instance_uid=run_uid, owner_id=owner.id, name='read_file', status=Status.WAITING
-                )
-                task_crud.insert(session, task_instance)
+                    sub_tasks.append(
+                        docker_task.s(
+                            tool_uid=task_node.resource_uid,
+                            inputs=task_node.kwarg,
+                            output_dir=f'{get_settings().persistent.STORAGE_PATH}/{owner.username}/{output_base}/{task_index}_{tool_data.name}',
+                            params=task_node.args,
+                            sample_name=sample_name,
+                        ).set(task_id=task_node.id)
+                    )
+                    task_index += 1
+                case 'resource_db':
+                    task_instance = TaskInstance(
+                        uid=task_node.id,
+                        instance_uid=run_uid,
+                        owner_id=owner.id,
+                        name='read_file',
+                        status=Status.WAITING,
+                    )
+                    task_crud.insert(session, task_instance)
 
-                sub_tasks.append(load_sequence_task.s(json_str=task_node.args).set(task_id=task_node.id))
-            elif task_node.type in ['fileInput', 'dbInputNode']:
-                task_instance = TaskInstance(
-                    uid=task_node.id, instance_uid=run_uid, owner_id=owner.id, name='read_file', status=Status.WAITING
-                )
-                task_crud.insert(session, task_instance)
-
-                if task_node.args.startswith('db:'):
                     db_path = db_crud.get_by_name(session, task_node.args[3:]).path
                     sub_tasks.append(load_file_task.s(file_path=db_path).set(task_id=task_node.id))
-                else:
+                case 'resource_sequence':
+                    task_instance = TaskInstance(
+                        uid=uuid.UUID(task_node.id),
+                        instance_uid=run_uid,
+                        owner_id=owner.id,
+                        name='read_file',
+                        status=Status.WAITING,
+                    )
+                    task_crud.insert(session, task_instance)
+
+                    sub_tasks.append(load_sequence_task.s(args=task_node.args).set(task_id=task_node.id))
+                case 'resource_genome':
+                    task_instance = TaskInstance(
+                        uid=task_node.id,
+                        instance_uid=run_uid,
+                        owner_id=owner.id,
+                        name='load_reference_genome',
+                        status=Status.WAITING,
+                    )
+                    task_crud.insert(session, task_instance)
+
+                    sub_tasks.append(
+                        load_genome_task.s(
+                            inputs=task_node.kwarg,
+                            required_index=task_node.args['requiredIndex'],
+                        ).set(task_id=task_node.id)
+                    )
+                case 'resource_file':
+                    task_instance = TaskInstance(
+                        uid=task_node.id,
+                        instance_uid=run_uid,
+                        owner_id=owner.id,
+                        name='read_file',
+                        status=Status.WAITING,
+                    )
+                    task_crud.insert(session, task_instance)
+
                     sub_tasks.append(load_file_task.s(file_path=task_node.args).set(task_id=task_node.id))
+                case 'value_string':
+                    task_instance = TaskInstance(
+                        uid=task_node.id,
+                        instance_uid=run_uid,
+                        owner_id=owner.id,
+                        name='value',
+                        status=Status.WAITING,
+                    )
+                    task_crud.insert(session, task_instance)
+
+                    sub_tasks.append(
+                        set_value_task.s(value=task_node.args, value_type='string').set(task_id=task_node.id)
+                    )
+                case 'process_copy2folder':
+                    pass
+                case _:
+                    logger.warning(f'unknown node type {task_node.type}')
+                    pass
+
         tasks.append(group(*sub_tasks))
 
     workflow = chain(*tasks)
     workflow.delay()
-
-
-def run_from_file(json_file: str | Path):
-    with open(json_file, 'r', encoding='utf-8') as f:
-        json_str = f.read()
-        workflow = WorkflowDefinition.model_validate_json(json_str)
-
-    return build_task_list(workflow)

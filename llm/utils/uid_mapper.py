@@ -22,3 +22,15 @@ class BidirectionalMapper(BaseModel):
 
     def has_index(self, index: int) -> bool:
         return index in self.idx_to_uid
+
+
+def generate_char_index(n: int) -> str:
+    """将一个正整数转换为（A, B, ..., Z, AA, AB, ...）形式的索引"""
+    assert n >= 1, '输入必须是一个大于等于1的正整数'
+
+    result = []
+    while n > 0:
+        remainder = (n - 1) % 26
+        result.append(chr(65 + remainder))
+        n = (n - 1) // 26
+    return ''.join(reversed(result))

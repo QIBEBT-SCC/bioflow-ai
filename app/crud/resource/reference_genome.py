@@ -4,6 +4,7 @@ from sqlalchemy import Select, func, or_
 from sqlmodel import Session, select
 
 from app.models.resource import ReferenceGenomes
+from app.schemas.resource import GenomeUpdate
 
 
 def insert(session: Session, genome: ReferenceGenomes) -> ReferenceGenomes:
@@ -24,12 +25,19 @@ def delete(session: Session, genome_id: int) -> bool:
     return False
 
 
-def update(session: Session, genome: ReferenceGenomes) -> ReferenceGenomes:
+def update(session: Session, genome_update: GenomeUpdate) -> ReferenceGenomes:
     """更新参考基因组信息"""
-    session.add(genome)
+    db_genome = get(session, genome_update.id)
+    if not db_genome:
+        raise ValueError(f'Genome id {genome_update.id} not found')
+
+    update_data = genome_update.model_dump(exclude_unset=True)
+    db_genome.sqlmodel_update(update_data)
+
+    session.add(db_genome)
     session.commit()
-    session.refresh(genome)
-    return genome
+    session.refresh(db_genome)
+    return db_genome
 
 
 def get(session: Session, genome_id: int) -> Optional[ReferenceGenomes]:
@@ -38,9 +46,9 @@ def get(session: Session, genome_id: int) -> Optional[ReferenceGenomes]:
     return session.exec(query).one_or_none()
 
 
-def get_by_name(session: Session, name: str) -> Optional[ReferenceGenomes]:
-    """通过标准名称获取参考基因组"""
-    query: Select = select(ReferenceGenomes).where(ReferenceGenomes.name == name)
+def get_by_taxid(session: Session, tax_id: int) -> Optional[ReferenceGenomes]:
+    """通过物种id获取参考基因组"""
+    query: Select = select(ReferenceGenomes).where(ReferenceGenomes.ncbi_tax_id == int)
     return session.exec(query).one_or_none()
 
 

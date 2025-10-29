@@ -63,7 +63,7 @@ def update(session: Session, image_update: ImageUpdate):
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     query: Select = (
         select(ToolImage)
-        .where(func.similarity(ToolImage.name, name) > 0.1)
+        .where(func.similarity(ToolImage.name, name) > 0.3)
         .order_by(func.similarity(ToolImage.name, name).desc())
         .offset(offset)
         .limit(limit)

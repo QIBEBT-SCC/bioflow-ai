@@ -1,10 +1,10 @@
 from celery import Celery
+from redis import Redis
 
 from app.core.config import get_settings
 
-celery_app = Celery(
-    'tasks', broker=get_settings().celery.BROKER, backend=get_settings().celery.BACKEND
-)
+monitor_redis_client = Redis.from_url(get_settings().persistent.MONITOR_CACHE)
+celery_app = Celery('tasks', broker=get_settings().celery.BROKER, backend=get_settings().celery.BACKEND)
 
 celery_app.conf.update(
     worker_concurrency=4,
@@ -14,7 +14,15 @@ celery_app.conf.update(
     enable_utc=True,
     timezone='Asia/Shanghai',
 )
-celery_app.autodiscover_tasks(['app.tasks.run_tool', 'app.tasks.load_file'], None)
+celery_app.autodiscover_tasks(
+    [
+        'app.tasks.load_tasks.load_file',
+        'app.tasks.load_tasks.load_genome',
+        'app.tasks.load_tasks.static_value',
+        'app.tasks.run_tool',
+    ],
+    None,
+)
 
 
 if __name__ == '__main__':

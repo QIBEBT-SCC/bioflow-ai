@@ -2,27 +2,26 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any, Optional
 
 from celery import Task
 from docker.types import Mount
 from loguru import logger
 
-from app.core.redis_client import monitor_redis_client
 from app.models.tools import FileMount, ImageConfig
+from app.schemas.react_flow import TaskInput
 from app.schemas.task_instance import TaskUpdate
 from app.tasks.base.base_task import (
     BaseBioTask,
-    get_tool_output,
-    get_tool_data,
-    update_task,
-    update_monitor_log,
     ToolOutput,
+    get_tool_data,
+    get_tool_output,
+    update_monitor_log,
+    update_task,
 )
-from app.schemas.react_flow import TaskInput
 from app.utils.container.podman import run_podman_background
 from app.utils.input_format import PartialFormatter, build_command_template
-from worker import celery_app
+from worker import celery_app, monitor_redis_client
 
 
 def build_mounts(
@@ -76,8 +75,8 @@ def docker_task(
     tool_uid: str,
     inputs: dict[str, TaskInput],
     output_dir: str,
+    sample_name: str,
     params: str = '',
-    sample_name: Optional[str] = None,
 ) -> ToolOutput:
     """通用Docker工具执行任务
 
@@ -93,6 +92,8 @@ def docker_task(
     Returns:
         ToolOutput: 工具输出结果
     """
+    assert self.request.id is not None
+
     tool_config = get_tool_data(tool_uid)
 
     # 创建输出目录
@@ -126,7 +127,6 @@ def docker_task(
             # 创建临时输出目录的挂载
             volume_binds: list[Mount] = []
             for container_path, host_path in mount_paths.items():
-                # TODO 存疑
                 if any(
                     file.mount_path == container_path
                     for file in tool_config.file_mounts

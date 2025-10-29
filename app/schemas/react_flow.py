@@ -1,4 +1,5 @@
-from typing import Optional
+import uuid
+from typing import Optional, Any
 from pydantic import BaseModel, Field
 
 
@@ -8,8 +9,8 @@ class Position(BaseModel):
 
 
 class NodeData(BaseModel):
-    tool_uid: Optional[str] = None
-    args: str
+    resource_uid: Optional[str] = None
+    args: str | dict[str, Any]
 
 
 class NodeBase(BaseModel):
@@ -33,7 +34,7 @@ class EdgeBase(BaseModel):
 
 class Edge(EdgeBase):
     id: str
-    animated: bool
+    animated: Optional[bool] = True
 
 
 class WorkflowDefinition(BaseModel):
@@ -49,6 +50,6 @@ class TaskInput(BaseModel):
 class TaskNode(BaseModel):
     id: str
     type: str
-    tool_id: Optional[int] = None
-    args: str
+    resource_uid: Optional[str] = None
+    args: str | dict[str, Any]
     kwarg: dict[str, TaskInput] = Field(default_factory=dict)

@@ -1,18 +1,18 @@
 import uuid
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
 from typing import Optional
 
 import uuid_extensions
 from pydantic import BaseModel
-from sqlalchemy import Column, UUID, ForeignKey
-from sqlmodel import SQLModel, Field, Relationship
+from sqlalchemy import UUID, Column, ForeignKey
+from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
-from app.schemas.react_flow import WorkflowDefinition
 from app.models.tools import ToolDefine
 from app.models.user import User
+from app.schemas.react_flow import WorkflowDefinition
 
 
 class Status(IntEnum):
@@ -79,7 +79,7 @@ class TaskInstance(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     instance_uid: uuid.UUID = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
-    tool_uid: uuid.UUID = Field(foreign_key='tools.uid')
+    tool_uid: Optional[uuid.UUID] = Field(foreign_key='tools.uid')
     owner_id: int = Field(foreign_key='users.id')
     name: str
     commands: Optional[str] = Field(default=None)

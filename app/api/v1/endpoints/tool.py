@@ -1,39 +1,38 @@
-from typing import Sequence, Annotated, Optional
+from typing import Annotated, Optional, Sequence
 
-import aiosqlite
-from fastapi import APIRouter, Query, Form, HTTPException
+from fastapi import APIRouter, Form, HTTPException, Query
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from loguru import logger
 from starlette.responses import StreamingResponse
 from starlette.status import HTTP_404_NOT_FOUND
 from uuid_extensions import uuid7str
 
-import app.crud.tools.tool_tag as tag_crud
-import app.crud.tools.tool_group as group_crud
 import app.crud.tools.image as image_crud
-import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool as tool_crud
-from app.api.sse_base import SSEMessage, EventType
+import app.crud.tools.tool_doc as doc_crud
+import app.crud.tools.tool_group as group_crud
+import app.crud.tools.tool_tag as tag_crud
 from app.core.session import SessionDep
-from app.models.tools import ToolTag, ToolGroup, ToolImage, ToolHelpDoc
+from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
-    DockerToolCreate,
-    SimpleToolPublic,
-    ToolPublic,
-    ToolNodePublic,
-    ToolTaskInfo,
-    ToolGroupPublic,
-    SimpleToolDoc,
     AiGenRequest,
+    DockerToolCreate,
+    SimpleToolDoc,
+    SimpleToolPublic,
+    ToolGroupPublic,
+    ToolNodePublic,
+    ToolPublic,
+    ToolTaskInfo,
 )
 from app.utils.container.podman import run_podman
 from app.utils.security import AdminDep, MemberDep
+from llm.agents.tool_manager.create_tool_agent import CreateToolAgent
 from llm.models import qwen3_embedding
-from llm.reproduction.create_tool_agent import CreateToolAgent
-from llm.states import CreateToolState
+from llm.states import CreateToolContext, CreateToolState
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -165,28 +164,38 @@ async def gen_tool_config(prop: Annotated[AiGenRequest, Form()], current_user: A
     # thread_id = '1'
 
     async def generator():
-        search_input = CreateToolState(
-            messages=[
+        memory = InMemorySaver(serde=JsonPlusSerializer(pickle_fallback=True))
+        client = MultiServerMCPClient(
+            {
+                'deepwiki': {
+                    'transport': 'streamable_http',  # HTTP-based remote server
+                    'url': 'https://mcp.deepwiki.com/mcp',
+                },
+            }
+        )
+        deepwiki_tools = await client.get_tools()
+        agent = CreateToolAgent(deepwiki_tools=deepwiki_tools).build(memory=memory, visualize=True)
+        search_input: CreateToolState = {
+            'messages': [
                 HumanMessage(
                     content=f'The node to be encapsulated is named **{prop.name}**, and its function is {prop.description}'
                 )
             ],
-            image_uid=prop.image_uid,
-        )
+            'image_uid': prop.image_uid,
+        }
+        config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 50}
+        context = CreateToolContext(auto_save=False)
 
-        async with aiosqlite.connect('checkpoints.db') as conn:
-            memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-            agent = CreateToolAgent().build(memory=memory)
+        async for namespace, chunk in agent.astream(
+            search_input, config, context=context, stream_mode='custom', subgraphs=True
+        ):
+            logger.debug(chunk)
+            yield chunk
 
-            config = RunnableConfig(configurable={'thread_id': thread_id, 'auto_save': False}, recursion_limit=50)
-            async for _, chunk_data in agent.astream(search_input, config, stream_mode='custom', subgraphs=True):
-                logger.debug(chunk_data)
-                yield SSEMessage(event=EventType.GENERATING, data=chunk_data['info']).to_sse()
+        response = await agent.aget_state(config)
+        yield response.values['json_response']
 
-            response = await agent.aget_state(config)
-            yield SSEMessage(event=EventType.SUCCESS, data=response.values['json_response']).to_sse()
-
-            await memory.adelete_thread(thread_id)
+        await memory.adelete_thread(thread_id)
 
     return StreamingResponse(generator(), media_type='text/event-stream')
 

@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS task_instances
 (
     uid          uuid    NOT NULL,
     instance_uid uuid,
-    tool_uid     uuid    NOT NULL,
+    tool_uid     uuid,
     owner_id     INTEGER NOT NULL,
     name         VARCHAR NOT NULL,
     commands     VARCHAR,

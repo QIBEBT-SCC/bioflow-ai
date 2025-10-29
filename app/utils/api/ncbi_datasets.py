@@ -1,21 +1,21 @@
 """
 NCBI RefSeq参考基因组下载工具
 
-使用NCBI Datasets API v2异步下载指定物种的RefSeq参考基因组及注释文件
+使用NCBI Datasets API v2下载指定物种的RefSeq参考基因组及注释文件
+支持同步和异步两种方式，使用httpx作为HTTP客户端
 """
 
-import asyncio
-import aiohttp
-import aiofiles
-import zipfile
 import shutil
 import tempfile
+import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Literal, Optional
 
-import rich
+import httpx
 from loguru import logger
 from pydantic import BaseModel, Field
+
+from app.core.config import get_settings
 
 NCBI_API_BASE = 'https://api.ncbi.nlm.nih.gov/datasets/v2'
 
@@ -76,139 +76,421 @@ class DownloadResult(BaseModel):
     reports: Optional[str]
 
 
-class NCBIReferenceDownloader:
-    def __init__(self, output_dir: Optional[str] = None, timeout: int = 300):
-        self.output_dir = Path(output_dir) if output_dir else Path('./genomes')
-        self.timeout = timeout
+def _get_http_client(timeout: int = 300) -> httpx.Client:
+    """创建同步HTTP客户端"""
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    return httpx.Client(timeout=timeout, proxy=proxy)
 
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.session: Optional[aiohttp.ClientSession] = None
+def _get_async_http_client(timeout: int = 300) -> httpx.AsyncClient:
+    """创建异步HTTP客户端"""
+    proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    return httpx.AsyncClient(timeout=timeout, proxy=proxy)
 
-    async def __aenter__(self):
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
-        return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
+def _make_request(client: httpx.Client, method: str, url: str, **kwargs) -> httpx.Response:
+    """通用的同步HTTP请求方法"""
+    if method.upper() == 'GET':
+        return client.get(url, **kwargs)
+    elif method.upper() == 'POST':
+        return client.post(url, **kwargs)
+    else:
+        raise ValueError(f'Unsupported HTTP method: {method}')
 
-    async def get_taxonomy_info(self, tax_id: int) -> Optional[NCBITaxonomyNode]:
-        """Get complete taxonomy information for a given tax_id.
 
-        Args:
-            tax_id: NCBI Taxonomy identifier
+async def _make_request_async(
+    client: httpx.AsyncClient, method: Literal['GET', 'POST'], url: str, **kwargs
+) -> httpx.Response:
+    """通用的异步HTTP请求方法"""
+    if method.upper() == 'GET':
+        return await client.get(url, **kwargs)
+    elif method.upper() == 'POST':
+        return await client.post(url, **kwargs)
+    else:
+        raise ValueError(f'Unsupported HTTP method: {method}')
 
-        Returns:
-            NCBITaxonomyNode object containing complete taxonomy information, or None if failed
-        """
-        try:
+
+def _handle_response(response: httpx.Response, expected_content_type: Optional[str] = None) -> Any:
+    """处理HTTP响应"""
+    response.raise_for_status()
+
+    if expected_content_type:
+        content_type = response.headers.get('content-type', '')
+        if expected_content_type not in content_type:
+            error_text = response.text
+            raise ValueError(f'The API returned an unexpected content type: {content_type}, response: {error_text}')
+
+    return response.json() if 'application/json' in response.headers.get('content-type', '') else response
+
+
+def _select_best_genome(genomes: list[NCBIAssemblyDataReport]) -> NCBIAssemblyDataReport:
+    """Select the best reference genome from multiple reference genomes
+
+    Selection priority:
+    1. Reference genome > Representative genome > Others
+    2. Assembly level: Complete Genome > Chromosome > Scaffold > Contig
+    3. Latest release date
+
+    Args:
+        genomes: List of NCBI reference genomes
+
+    Returns:
+        The best reference genome
+    """
+    if not genomes:
+        raise ValueError('No selectable reference genome')
+
+    if len(genomes) == 1:
+        return genomes[0]
+
+    logger.info(f'Selecting the best of {len(genomes)} genomes...')
+
+    refseq_priority = {'reference genome': 3, 'representative genome': 2, 'na': 1}
+    level_priority = {'complete genome': 4, 'chromosome': 3, 'scaffold': 2, 'contig': 1}
+
+    def genome_score(_genome: NCBIAssemblyDataReport) -> tuple:
+        """计算基因组得分，返回用于排序的元组"""
+        _assembly_info = _genome.assembly_info
+
+        # RefSeq category
+        refseq_category = (_assembly_info.refseq_category or '').lower()
+        refseq_score = refseq_priority.get(refseq_category, 0)
+
+        # Assembly level
+        _assembly_level = (_assembly_info.assembly_level or '').lower()
+        level_score = level_priority.get(_assembly_level, 0)
+
+        # Release date
+        date_score = _assembly_info.release_date or ''
+
+        return refseq_score, level_score, date_score
+
+    # 排序并选择最佳的
+    sorted_genomes = sorted(genomes, key=genome_score, reverse=True)
+    best_genome = sorted_genomes[0]
+
+    best_organism = best_genome.organism
+    best_assembly = best_genome.assembly_info
+
+    logger.info('The Best Genome Choice:')
+    logger.info(f'  Accession: {best_genome.accession}')
+    logger.info(f'  Organism: {best_organism.organism_name or best_organism.sci_name}')
+    logger.info(f'  RefSeq Category: {best_assembly.refseq_category}')
+    logger.info(f'  Assembly Level: {best_assembly.assembly_level}')
+    logger.info(f'  Release Date: {best_assembly.release_date}')
+
+    if len(genomes) > 1:
+        logger.info(f'Other {len(genomes) - 1} genomes skipped:')
+        for genome in sorted_genomes[1:]:
+            assembly_info = genome.assembly_info
+            logger.info(f'  - {genome.accession} ({assembly_info.refseq_category}, {assembly_info.assembly_level})')
+
+    return best_genome
+
+
+def _process_zip_file(zip_file: Path, temp_path: Path, output_dir: Path) -> dict[str, str]:
+    """处理下载的ZIP文件，提取并分类文件
+
+    Args:
+        zip_file: ZIP文件路径
+        temp_path: 临时目录路径
+        output_dir: 输出目录路径
+
+    Returns:
+        包含文件路径的字典
+    """
+    file_types: dict[str, str] = {}
+
+    with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        zip_ref.extractall(temp_path)
+
+    data_dir = temp_path / 'ncbi_dataset' / 'data'
+    if not data_dir.exists():
+        logger.warning('ncbi_dataset/data directory not found')
+        raise ValueError('Invalid ZIP file structure')
+
+    accession_dirs = [d for d in data_dir.iterdir() if d.is_dir() and d.name.startswith(('GCF_', 'GCA_'))]
+    if not accession_dirs:
+        logger.warning('No genome accession directory found')
+        raise ValueError('No genome accession directory found')
+
+    assert len(accession_dirs) == 1, (
+        f'Expected exactly 1 accession directory, found {len(accession_dirs)}: {[d.name for d in accession_dirs]}'
+    )
+
+    accession_dir = accession_dirs[0]
+    found_accession = accession_dir.name
+    logger.info(f'Processing genome: {found_accession}')
+
+    target_dir = output_dir / found_accession
+    target_dir.mkdir(exist_ok=True)
+
+    for item in accession_dir.iterdir():
+        if item.is_file():
+            target_file = target_dir / item.name
+            shutil.copy2(item, target_file)
+
+            file_lower = item.name.lower()
+
+            if file_lower.endswith('.fna') or file_lower.endswith('.fasta'):
+                if 'genomic' in file_lower:
+                    file_types['genome_fasta'] = str(target_file.absolute())
+            elif file_lower.endswith('.gff') or file_lower.endswith('.gff3'):
+                file_types['annotation_gff'] = str(target_file.absolute())
+            elif file_lower.endswith('.jsonl') or file_lower.endswith('.tsv'):
+                file_types['reports'] = str(target_file.absolute())
+
+    logger.info(f'Successfully copied {found_accession} to: {target_dir}')
+    return file_types
+
+
+def get_taxonomy_info(tax_id: int, timeout: int = 300) -> Optional[NCBITaxonomyNode]:
+    """Get complete taxonomy information for a given tax_id (synchronous version)."""
+    try:
+        with _get_http_client(timeout) as client:
             url = f'{NCBI_API_BASE}/taxonomy/taxon/{tax_id}'
-            async with self.session.get(url) as response:
-                response.raise_for_status()
-                data = await response.json()
-                taxonomy_response = NCBITaxonomyMetadataResponse.model_validate(data)
-                if taxonomy_response.taxonomy_nodes and taxonomy_response.taxonomy_nodes[0].taxonomy:
-                    return taxonomy_response.taxonomy_nodes[0].taxonomy
-        except Exception as e:
-            logger.debug(f'Failed to get taxonomy info for tax_id {tax_id}: {e}')
-        return None
+            response = _make_request(client, 'GET', url)
+            data = _handle_response(response)
+            taxonomy_response = NCBITaxonomyMetadataResponse.model_validate(data)
+            if taxonomy_response.taxonomy_nodes and taxonomy_response.taxonomy_nodes[0].taxonomy:
+                return taxonomy_response.taxonomy_nodes[0].taxonomy
+    except Exception as e:
+        logger.debug(f'Failed to get taxonomy info for tax_id {tax_id}: {e}')
+    return None
 
-    async def get_species_info(self, strain_tax_id: int) -> NCBITaxonomyNode:
-        """Retrieves the tax_id and name of the corresponding species based on the strain's tax_id.
 
-        Args:
-            strain_tax_id: The taxonomic ID of the strain.
+async def aget_taxonomy_info(tax_id: int, timeout: int = 300) -> Optional[NCBITaxonomyNode]:
+    """Get complete taxonomy information for a given tax_id (asynchronous version)."""
+    try:
+        async with _get_async_http_client(timeout) as client:
+            url = f'{NCBI_API_BASE}/taxonomy/taxon/{tax_id}'
+            response = await _make_request_async(client, 'GET', url)
+            data = _handle_response(response)
+            taxonomy_response = NCBITaxonomyMetadataResponse.model_validate(data)
+            if taxonomy_response.taxonomy_nodes and taxonomy_response.taxonomy_nodes[0].taxonomy:
+                return taxonomy_response.taxonomy_nodes[0].taxonomy
+    except Exception as e:
+        logger.debug(f'Failed to get taxonomy info for tax_id {tax_id}: {e}')
+    return None
 
-        Returns:
-            Tuple of (species_tax_id, species_name).
-        """
-        taxonomy_node = await self.get_taxonomy_info(strain_tax_id)
-        if not taxonomy_node:
-            logger.error(f'Failed to get taxonomy info for tax_id {strain_tax_id}, using original ID')
-            raise
 
-        # 如果当前节点就是species级别，直接返回
-        if taxonomy_node.rank == 'SPECIES':
-            return taxonomy_node
+def get_species_info(strain_tax_id: int, timeout: int = 300) -> NCBITaxonomyNode:
+    """Retrieves the tax_id and name of the corresponding species based on the strain's tax_id (synchronous version)."""
+    taxonomy_node = get_taxonomy_info(strain_tax_id, timeout)
 
-        # 对于非species级别，在lineage中查找species
-        for lineage_tax_id in reversed(taxonomy_node.lineage):
-            lineage_taxonomy = await self.get_taxonomy_info(lineage_tax_id)
-            if lineage_taxonomy and lineage_taxonomy.rank == 'SPECIES':
-                return lineage_taxonomy
+    if not taxonomy_node:
+        logger.error(f'Failed to get taxonomy info for tax_id {strain_tax_id}, using original ID')
+        raise ValueError(f'Failed to get taxonomy info for tax_id {strain_tax_id}')
 
-        logger.warning(f'Species level classification not found for tax_id {strain_tax_id}, using original ID')
+    # 如果当前节点就是species级别，直接返回
+    if taxonomy_node.rank == 'SPECIES':
         return taxonomy_node
 
-    async def search_reference_genomes(self, species_name: str) -> list[NCBIAssemblyDataReport]:
-        """Searches RefSeq reference genomes by species name
+    # 对于非species级别，在lineage中查找species
+    for lineage_tax_id in reversed(taxonomy_node.lineage):
+        lineage_taxonomy = get_taxonomy_info(lineage_tax_id, timeout)
 
-        Args:
-            species_name: Species name (e.g. 'Escherichia coli', 'ecoli', etc.)
+        if lineage_taxonomy and lineage_taxonomy.rank == 'SPECIES':
+            return lineage_taxonomy
 
-        Returns:
-            List of NCBI assembly data reports
-        """
-        logger.info(f"Searching for RefSeq reference genome for species '{species_name}'...")
+    logger.warning(f'Species level classification not found for tax_id {strain_tax_id}, using original ID')
+    return taxonomy_node
 
-        url = f'{NCBI_API_BASE}/genome/taxon/{species_name}/dataset_report'
-        params = {
-            'filters.reference_only': 'true',
-            'filters.assembly_source': 'refseq',
-            'filters.has_annotation': 'true',
-            'page_size': 20,
-        }
 
-        try:
-            async with self.session.get(url, params=params) as response:
-                response.raise_for_status()
-                data = await response.json()
+async def aget_species_info(strain_tax_id: int, timeout: int = 300) -> NCBITaxonomyNode:
+    """Retrieves the tax_id and name of the corresponding species based on the strain's tax_id (asynchronous version)."""
+    taxonomy_node = await aget_taxonomy_info(strain_tax_id, timeout)
 
-                try:
-                    report_page = NCBIAssemblyDataReportPage.model_validate(data)
-                except Exception as e:
-                    logger.error(f'Failed to parse taxonomy API response: {e}')
-                    logger.debug(f'Original Response Data: {data}')
-                    raise
+    if not taxonomy_node:
+        logger.error(f'Failed to get taxonomy info for tax_id {strain_tax_id}, using original ID')
+        raise ValueError(f'Failed to get taxonomy info for tax_id {strain_tax_id}')
 
-                reports = report_page.reports
-                for report in reports:
-                    organism = report.organism
-                    organism_name = organism.organism_name
-                    logger.info(f'Find the reference genome: {report.accession} - {organism_name}')
+    # 如果当前节点就是species级别，直接返回
+    if taxonomy_node.rank == 'SPECIES':
+        return taxonomy_node
 
-                if not reports:
-                    logger.warning(f"RefSeq reference genome for species '{species_name}' not found")
+    # 对于非species级别，在lineage中查找species
+    for lineage_tax_id in reversed(taxonomy_node.lineage):
+        lineage_taxonomy = await aget_taxonomy_info(lineage_tax_id, timeout)
 
-                return reports
+        if lineage_taxonomy and lineage_taxonomy.rank == 'SPECIES':
+            return lineage_taxonomy
 
-        except aiohttp.ClientError as e:
-            logger.error(f'Network error when searching genome: {e}')
-            raise
-        except Exception as e:
-            logger.error(f'Error searching genome: {e}')
-            raise
+    logger.warning(f'Species level classification not found for tax_id {strain_tax_id}, using original ID')
+    return taxonomy_node
 
-    async def download_genome_data(self, accession: str, include_annotation: bool = True) -> dict[str, str]:
-        """Downloads and extracts reference genome data for a single accession.
 
-        Args:
-            accession: The genome accession number.
-            include_annotation: Whether to include annotation files.
+def search_reference_genomes(species_name: str, timeout: int = 300) -> NCBIAssemblyDataReport:
+    """Searches RefSeq reference genomes by species name (synchronous version)"""
+    logger.info(f"Searching for RefSeq reference genome for species '{species_name}'...")
 
-        Returns:
-            Dictionary containing categorized file paths by type.
-        """
-        logger.info(f'Downloading and processing genome data for accession: {accession}')
+    url = f'{NCBI_API_BASE}/genome/taxon/{species_name}/dataset_report'
+    params = {
+        'filters.reference_only': 'true',
+        'filters.assembly_source': 'refseq',
+        'filters.has_annotation': 'true',
+        'page_size': 20,
+    }
 
-        file_types: dict[str, Optional[str]] = {'genome_fasta': None, 'annotation_gff': None, 'reports': None}
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            zip_file = temp_path / f'{accession}_genome.zip'
+    try:
+        with _get_http_client(timeout) as client:
+            response = _make_request(client, 'GET', url, params=params)
+            data = _handle_response(response)
 
             try:
+                report_page = NCBIAssemblyDataReportPage.model_validate(data)
+            except Exception as e:
+                logger.error(f'Failed to parse taxonomy API response: {e}')
+                logger.debug(f'Original Response Data: {data}')
+                raise
+
+            reports = report_page.reports
+
+            if not reports:
+                logger.warning(f"RefSeq reference genome for species '{species_name}' not found")
+
+            return _select_best_genome(reports)
+
+    except httpx.HTTPError as e:
+        logger.error(f'Network error when searching genome: {e}')
+        raise
+    except Exception as e:
+        logger.exception(f'Error searching genome: {e}')
+        raise
+
+
+async def asearch_reference_genomes(species_name: str, timeout: int = 300) -> NCBIAssemblyDataReport:
+    """Searches RefSeq reference genomes by species name (asynchronous version)"""
+    logger.info(f"Searching for RefSeq reference genome for species '{species_name}'...")
+
+    url = f'{NCBI_API_BASE}/genome/taxon/{species_name}/dataset_report'
+    params = {
+        'filters.reference_only': 'true',
+        'filters.assembly_source': 'refseq',
+        'filters.has_annotation': 'true',
+        'page_size': 20,
+    }
+
+    try:
+        async with _get_async_http_client(timeout) as client:
+            response = await _make_request_async(client, 'GET', url, params=params)
+            data = _handle_response(response)
+
+            try:
+                report_page = NCBIAssemblyDataReportPage.model_validate(data)
+            except Exception as e:
+                logger.error(f'Failed to parse taxonomy API response: {e}')
+                logger.debug(f'Original Response Data: {data}')
+                raise
+
+            reports = report_page.reports
+
+            if not reports:
+                logger.warning(f"RefSeq reference genome for species '{species_name}' not found")
+
+            return _select_best_genome(reports)
+
+    except httpx.HTTPError as e:
+        logger.error(f'Network error when searching genome: {e}')
+        raise
+    except Exception as e:
+        logger.exception(f'Error searching genome: {e}')
+        raise
+
+
+def search_reference_genomes_by_tax_id(tax_id: int, timeout: int = 300) -> NCBIAssemblyDataReport:
+    """Searches RefSeq reference genomes by NCBI taxonomy ID (synchronous version)"""
+    logger.info(f"Searching for RefSeq reference genome for tax_id '{tax_id}'...")
+
+    url = f'{NCBI_API_BASE}/genome/taxon/{tax_id}/dataset_report'
+    params = {
+        'filters.reference_only': 'true',
+        'filters.assembly_source': 'refseq',
+        'filters.has_annotation': 'true',
+        'page_size': 20,
+    }
+
+    try:
+        with _get_http_client(timeout) as client:
+            response = _make_request(client, 'GET', url, params=params)
+            data = _handle_response(response)
+
+            try:
+                report_page = NCBIAssemblyDataReportPage.model_validate(data)
+            except Exception as e:
+                logger.error(f'Failed to parse taxonomy API response: {e}')
+                logger.debug(f'Original Response Data: {data}')
+                raise
+
+            reports = report_page.reports
+
+            if not reports:
+                logger.warning(f"RefSeq reference genome for tax_id '{tax_id}' not found")
+
+            return _select_best_genome(reports)
+
+    except httpx.HTTPError as e:
+        logger.error(f'Network error when searching genome: {e}')
+        raise
+    except Exception as e:
+        logger.exception(f'Error searching genome: {e}')
+        raise
+
+
+async def asearch_reference_genomes_by_tax_id(tax_id: int, timeout: int = 300) -> NCBIAssemblyDataReport:
+    """Searches RefSeq reference genomes by NCBI taxonomy ID (asynchronous version)"""
+    logger.info(f"Searching for RefSeq reference genome for tax_id '{tax_id}'...")
+
+    url = f'{NCBI_API_BASE}/genome/taxon/{tax_id}/dataset_report'
+    params = {
+        'filters.reference_only': 'true',
+        'filters.assembly_source': 'refseq',
+        'filters.has_annotation': 'true',
+        'page_size': 20,
+    }
+
+    try:
+        async with _get_async_http_client(timeout) as client:
+            response = await _make_request_async(client, 'GET', url, params=params)
+            data = _handle_response(response)
+
+            try:
+                report_page = NCBIAssemblyDataReportPage.model_validate(data)
+            except Exception as e:
+                logger.error(f'Failed to parse taxonomy API response: {e}')
+                logger.debug(f'Original Response Data: {data}')
+                raise
+
+            reports = report_page.reports
+
+            if not reports:
+                logger.warning(f"RefSeq reference genome for tax_id '{tax_id}' not found")
+
+            return _select_best_genome(reports)
+
+    except httpx.HTTPError as e:
+        logger.error(f'Network error when searching genome: {e}')
+        raise
+    except Exception as e:
+        logger.exception(f'Error searching genome: {e}')
+        raise
+
+
+def download_genome_data(
+    accession: str, output_dir: str = './genomes', include_annotation: bool = True, timeout: int = 300
+) -> dict[str, str]:
+    """Downloads and extracts reference genome data for a single accession (synchronous version)."""
+    logger.info(f'Downloading and processing genome data for accession: {accession}')
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        zip_file = temp_path / f'{accession}_genome.zip'
+
+        try:
+            with _get_http_client(timeout) as client:
                 url = f'{NCBI_API_BASE}/genome/download'
 
                 request_data = {'accessions': [accession]}
@@ -223,178 +505,108 @@ class NCBIReferenceDownloader:
 
                 headers = {'Content-Type': 'application/json'}
 
-                async with self.session.post(url, json=request_data, headers=headers) as response:
-                    response.raise_for_status()
+                response = _make_request(client, 'POST', url, json=request_data, headers=headers)
 
-                    content_type = response.headers.get('content-type', '')
-                    if 'application/zip' not in content_type:
-                        error_text = await response.text()
-                        raise ValueError(f'The API returned a non-ZIP format response: {error_text}')
+                # 检查响应类型
+                content_type = response.headers.get('content-type', '')
+                if 'application/zip' not in content_type:
+                    error_text = response.text
+                    raise ValueError(f'The API returned a non-ZIP format response: {error_text}')
 
-                    async with aiofiles.open(zip_file, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
+                # 下载文件
+                with open(zip_file, 'wb') as f:
+                    for chunk in response.iter_bytes(chunk_size=8192):
+                        f.write(chunk)
 
                 logger.info('Downloaded genome data to temporary location')
 
-                with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-                    zip_ref.extractall(temp_path)
+                # 处理ZIP文件
+                return _process_zip_file(zip_file, temp_path, output_path)
 
-                data_dir = temp_path / 'ncbi_dataset' / 'data'
-                if not data_dir.exists():
-                    logger.warning('ncbi_dataset/data directory not found')
-                    raise
-
-                accession_dirs = [d for d in data_dir.iterdir() if d.is_dir() and d.name.startswith(('GCF_', 'GCA_'))]
-                if not accession_dirs:
-                    logger.warning('No genome accession directory found')
-                    raise
-
-                assert len(accession_dirs) == 1, (
-                    f'Expected exactly 1 accession directory, found {len(accession_dirs)}: {[d.name for d in accession_dirs]}'
-                )
-
-                accession_dir = accession_dirs[0]
-                found_accession = accession_dir.name
-                logger.info(f'Processing genome: {found_accession}')
-
-                target_dir = self.output_dir / found_accession
-                target_dir.mkdir(exist_ok=True)
-
-                for item in accession_dir.iterdir():
-                    if item.is_file():
-                        target_file = target_dir / item.name
-                        shutil.copy2(item, target_file)
-
-                        file_lower = item.name.lower()
-
-                        if file_lower.endswith('.fna') or file_lower.endswith('.fasta'):
-                            if 'genomic' in file_lower:
-                                file_types['genome_fasta'] = str(target_file)
-                        elif file_lower.endswith('.gff') or file_lower.endswith('.gff3'):
-                            file_types['annotation_gff'] = str(target_file)
-                        elif file_lower.endswith('.jsonl') or file_lower.endswith('.tsv'):
-                            file_types['reports'] = str(target_file)
-
-                logger.info(f'Successfully copied {found_accession} to: {target_dir}')
-                return file_types
-
-            except aiohttp.ClientError as e:
-                logger.error(f'Network error when downloading genome data: {e}')
-                raise
-            except Exception as e:
-                logger.error(f'Error downloading genome data: {e}')
-                raise
-
-    @staticmethod
-    def select_best_genome(genomes: list[NCBIAssemblyDataReport]) -> NCBIAssemblyDataReport:
-        """Select the best reference genome from multiple reference genomes
-
-        Selection priority:
-        1. Reference genome > Representative genome > Others
-        2. Assembly level: Complete Genome > Chromosome > Scaffold > Contig
-        3. Latest release date
-
-        Args:
-            genomes: List of NCBI reference genomes
-
-        Returns:
-            The best reference genome
-        """
-        if not genomes:
-            raise ValueError('No selectable reference genome')
-
-        if len(genomes) == 1:
-            return genomes[0]
-
-        logger.info(f'Selecting the best of {len(genomes)} genomes...')
-
-        refseq_priority = {'reference genome': 3, 'representative genome': 2, 'na': 1}
-        level_priority = {'complete genome': 4, 'chromosome': 3, 'scaffold': 2, 'contig': 1}
-
-        def genome_score(_genome: NCBIAssemblyDataReport) -> tuple:
-            """计算基因组得分，返回用于排序的元组"""
-            _assembly_info = _genome.assembly_info
-
-            # RefSeq category
-            refseq_category = (_assembly_info.refseq_category or '').lower()
-            refseq_score = refseq_priority.get(refseq_category, 0)
-
-            # Assembly level
-            _assembly_level = (_assembly_info.assembly_level or '').lower()
-            level_score = level_priority.get(_assembly_level, 0)
-
-            # Release date
-            date_score = _assembly_info.release_date or ''
-
-            return refseq_score, level_score, date_score
-
-        # 排序并选择最佳的
-        sorted_genomes = sorted(genomes, key=genome_score, reverse=True)
-        best_genome = sorted_genomes[0]
-
-        best_organism = best_genome.organism
-        best_assembly = best_genome.assembly_info
-
-        logger.info('The Best Genome Choice:')
-        logger.info(f'  Accession: {best_genome.accession}')
-        logger.info(f'  Organism: {best_organism.organism_name or best_organism.sci_name}')
-        logger.info(f'  RefSeq Category: {best_assembly.refseq_category}')
-        logger.info(f'  Assembly Level: {best_assembly.assembly_level}')
-        logger.info(f'  Release Date: {best_assembly.release_date}')
-
-        if len(genomes) > 1:
-            logger.info(f'Other {len(genomes) - 1} genomes skipped:')
-            for genome in sorted_genomes[1:]:
-                assembly_info = genome.assembly_info
-                logger.info(f'  - {genome.accession} ({assembly_info.refseq_category}, {assembly_info.assembly_level})')
-
-        return best_genome
+        except httpx.HTTPError as e:
+            logger.error(f'Network error when downloading genome data: {e}')
+            raise
+        except Exception as e:
+            logger.error(f'Error downloading genome data: {e}')
+            raise
 
 
-async def download_reference_genome(species_name: str, output_dir: str = './genome_data') -> DownloadResult:
-    """Download RefSeq reference genome by species name
+async def adownload_genome_data(
+    accession: str, output_dir: str = './genomes', include_annotation: bool = True, timeout: int = 300
+) -> dict[str, str]:
+    """Downloads and extracts reference genome data for a single accession (asynchronous version)."""
+    logger.info(f'Downloading and processing genome data for accession: {accession}')
 
-    Args:
-        species_name: Species name (e.g., ‘Escherichia coli’, ‘ecoli’)
-        output_dir: Output directory
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    Returns:
-        DownloadResult struct containing information about the downloaded genome
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir)
+        zip_file = temp_path / f'{accession}_genome.zip'
 
-    Note:
-        This function guarantees to return only one best reference genome
-    """
+        try:
+            async with _get_async_http_client(timeout) as client:
+                url = f'{NCBI_API_BASE}/genome/download'
 
+                request_data = {'accessions': [accession]}
+                if include_annotation:
+                    request_data['include_annotation_type'] = [
+                        'GENOME_FASTA',  # 基因组FASTA序列
+                        'GENOME_GFF',  # GFF3注释文件
+                        'SEQUENCE_REPORT',  # 序列报告
+                    ]
+                else:
+                    request_data['include_annotation_type'] = ['GENOME_FASTA']
+
+                headers = {'Content-Type': 'application/json'}
+
+                response = await _make_request_async(client, 'POST', url, json=request_data, headers=headers)
+
+                # 检查响应类型
+                content_type = response.headers.get('content-type', '')
+                if 'application/zip' not in content_type:
+                    error_text = response.text
+                    raise ValueError(f'The API returned a non-ZIP format response: {error_text}')
+
+                # 下载文件
+                with open(zip_file, 'wb') as f:
+                    async for chunk in response.aiter_bytes(chunk_size=8192):
+                        f.write(chunk)
+
+                logger.info('Downloaded genome data to temporary location')
+
+                # 处理ZIP文件
+                return _process_zip_file(zip_file, temp_path, output_path)
+
+        except httpx.HTTPError as e:
+            logger.error(f'Network error when downloading genome data: {e}')
+            raise
+        except Exception as e:
+            logger.error(f'Error downloading genome data: {e}')
+            raise
+
+
+def download_reference_genome(
+    species_name: str, output_dir: str = './genome_data', timeout: int = 300
+) -> DownloadResult:
+    """Download RefSeq reference genome by species name (synchronous version)"""
     try:
-        async with NCBIReferenceDownloader(output_dir) as downloader:
-            # 1. 搜索参考基因组
-            genomes = await downloader.search_reference_genomes(species_name)
+        # 1. 搜索参考基因组
+        genome = search_reference_genomes(species_name, timeout)
 
-            if not genomes:
-                raise ValueError(f"RefSeq reference genome for species '{species_name}' not found")
+        # 2. 获取物种级别的分类信息
+        species_info = get_species_info(genome.organism.tax_id, timeout)
 
-            # 2. 选择最佳的基因组(保证唯一性)
-            best_genome = downloader.select_best_genome(genomes)
+        # 3. 下载基因组数据
+        extracted_files = download_genome_data(genome.accession, output_dir, include_annotation=True, timeout=timeout)
+        logger.info(f'Genome downloaded successfully: {genome.accession}')
 
-            # 3. 下载基因组数据
-            extracted_files = await downloader.download_genome_data(best_genome.accession, include_annotation=True)
-
-            # 4. 获取基因组信息
-            best_organism = best_genome.organism
-            organism_name = best_organism.organism_name or best_organism.sci_name
-
-            logger.info(f'Genome downloaded successfully: {best_genome.accession} - {organism_name}')
-
-            # 5. 获取物种级别的分类信息
-            species_info = await downloader.get_species_info(best_organism.tax_id)
-
-            return DownloadResult(
-                species=species_info.organism_name,
-                tax_id=species_info.tax_id,
-                accession=best_genome.accession,
-                **extracted_files,
-            )
+        return DownloadResult(
+            species=species_info.organism_name,
+            tax_id=species_info.tax_id,
+            accession=genome.accession,
+            **extracted_files,
+        )
 
     except Exception as e:
         error_msg = f'下载过程中发生错误: {e}'
@@ -402,11 +614,31 @@ async def download_reference_genome(species_name: str, output_dir: str = './geno
         raise
 
 
-async def main():
-    # 下载大肠杆菌参考基因组
-    result = await download_reference_genome('E coli', './ecoli_genome')
-    rich.print(result)
+async def adownload_reference_genome(
+    species_name: str, output_dir: str = './genome_data', timeout: int = 300
+) -> DownloadResult:
+    """Download RefSeq reference genome by species name (asynchronous version)"""
+    try:
+        # 1. 搜索参考基因组
+        genome = await asearch_reference_genomes(species_name, timeout)
 
+        # 3. 获取物种级别的分类信息
+        species_info = await aget_species_info(genome.organism.tax_id, timeout)
 
-if __name__ == '__main__':
-    asyncio.run(main())
+        # 4. 下载基因组数据
+        extracted_files = await adownload_genome_data(
+            genome.accession, output_dir, include_annotation=True, timeout=timeout
+        )
+        logger.info(f'Genome downloaded successfully: {genome.accession}')
+
+        return DownloadResult(
+            species=species_info.organism_name,
+            tax_id=species_info.tax_id,
+            accession=genome.accession,
+            **extracted_files,
+        )
+
+    except Exception as e:
+        error_msg = f'下载过程中发生错误: {e}'
+        logger.error(error_msg)
+        raise

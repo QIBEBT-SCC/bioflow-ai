@@ -160,7 +160,7 @@ class ToolNodePublic(BaseModel):
 
 
 class ToolTaskInfo(BaseModel):
-    id: int
+    uid: uuid.UUID
     name: str
 
     command_template: str
@@ -175,7 +175,7 @@ class ToolTaskInfo(BaseModel):
 
 
 class ToolInfo4Task(BaseModel):
-    id: int
+    uid: uuid.UUID
     name: str
     description: str
 

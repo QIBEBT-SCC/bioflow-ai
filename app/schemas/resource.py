@@ -13,3 +13,14 @@ class BioDbCreate(BaseModel):
 class BioDbSimple(BaseModel):
     id: int
     name: str
+
+
+class GenomeUpdate(BaseModel):
+    id: int
+    aliases: Optional[str] = None
+
+    bowtie2_index: Optional[str] = None
+    bwa_index: Optional[str] = None
+    hisat2_index: Optional[str] = None
+    star_index: Optional[str] = None
+    minimap2_index: Optional[str] = None
