@@ -1,9 +1,9 @@
 import uuid
-from typing import Optional
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
-from datetime import datetime, UTC
 
 
 class ContentType(str, Enum):
@@ -40,3 +40,11 @@ class ChatSessionPublic(BaseModel):
     interrupted: bool
     create_time: datetime
     update_time: datetime
+
+
+class ChatResponse(BaseModel):
+    id: str
+    messages: list[dict[str, Any]]
+    model: str
+    webSearch: bool
+    trigger: str
