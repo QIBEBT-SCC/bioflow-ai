@@ -168,5 +168,7 @@ storage/
 log/
 volumes/
 
+*.docs.yaml
+
 config.toml
 CLAUDE.md
