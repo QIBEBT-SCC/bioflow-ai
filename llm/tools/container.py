@@ -1,6 +1,6 @@
-from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
@@ -26,7 +26,7 @@ def run_command(command: str, runtime: ToolRuntime):
 class ContainerMount(BaseModel):
     target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
     source: str = Field(description='Source path on host')
-    read_only: str
+    read_only: bool
 
 
 @tool(parse_docstring=True)

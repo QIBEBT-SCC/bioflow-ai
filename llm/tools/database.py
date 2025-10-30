@@ -1,9 +1,8 @@
-from typing import Annotated, Optional
+from typing import Optional
 
-from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import InjectedToolCallId, tool
-from langgraph.prebuilt import InjectedState
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from sqlmodel import Session
 
@@ -25,7 +24,7 @@ from llm.utils.uid_mapper import BidirectionalMapper
 
 
 @tool(parse_docstring=True)
-def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     """Search the database for images that have already been pulled locally.
 
     Args:
@@ -54,7 +53,7 @@ def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCall
                 'messages': [
                     ToolMessage(
                         content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
-                        tool_call_id=tool_call_id,
+                        tool_call_id=runtime.tool_call_id,
                     )
                 ],
             }
@@ -65,7 +64,7 @@ def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCall
             'messages': [
                 ToolMessage(
                     content='Based on the keywords you provided, no results found',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ]
         }
@@ -75,15 +74,14 @@ def search_local_image(query: str, tool_call_id: Annotated[str, InjectedToolCall
 @tool(parse_docstring=True)
 def select_image(
     image_id: int,
-    mapper: Annotated[BidirectionalMapper, InjectedState('id_mapper')],
-    tool_call_id: Annotated[str, InjectedToolCallId],
+    runtime: ToolRuntime,
 ):
     """Select existing image in the database
 
     Args:
         image_id: selected image id
     """
-    # mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
     image_uid = mapper.get_uid_by_index(image_id)
 
     with Session(engine) as session:
@@ -97,7 +95,7 @@ def select_image(
             'messages': [
                 ToolMessage(
                     content='The correct image has been selected, you can summarize the information and end the task.',
-                    tool_call_id=tool_call_id,
+                    tool_call_id=runtime.tool_call_id,
                 )
             ],
         }
