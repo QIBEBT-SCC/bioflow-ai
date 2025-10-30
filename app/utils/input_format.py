@@ -67,10 +67,10 @@ def get_sample_name_by_seq_input(r1: str, r2: str):
 def get_sample_name(first_layer: list[TaskNode]) -> str:
     files = []
     for node in first_layer:
-        if node.type == 'sequenceInputNode':
+        if node.type == 'resource_sequence':
             args = json.loads(node.args)
             return get_sample_name_by_seq_input(**args)
-        elif node.type == 'fileInput':
+        elif node.type == 'resource_file':
             files.append(node.args)
 
     # TODO 基于LLM的复杂处理
