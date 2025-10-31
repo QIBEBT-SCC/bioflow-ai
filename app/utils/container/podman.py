@@ -266,7 +266,7 @@ def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = N
         assert client.ping()
 
         container = client.containers.get(container_id)
-        code, result = container.exec_run(command, tty=True, stream=False, workdir=workdir)
+        code, result = container.exec_run(['/bin/bash', '-c', command], tty=True, stream=False, workdir=workdir)
         if isinstance(result, bytes):
             result = result.decode()
 

@@ -33,7 +33,7 @@ def build_micromamba_container(mounts: list[ContainerMount], runtime: ToolRuntim
             'mamba_container': container_id,
             'messages': [
                 ToolMessage(
-                    content=f'The micromamba container "{container_id}" has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.',
+                    content='The micromamba container has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -56,7 +56,7 @@ def build_tool_container(mounts: list[ContainerMount], runtime: ToolRuntime):
             'tool_container': container_id,
             'messages': [
                 ToolMessage(
-                    content=f'The tool container "{container_id}" has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.',
+                    content='The tool container has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -66,7 +66,9 @@ def build_tool_container(mounts: list[ContainerMount], runtime: ToolRuntime):
 
 @tool('run_command', parse_docstring=True)
 def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Optional[str] = None):
-    """Run command, and return it`s output result
+    """Run command, and return it`s output result.
+
+    This tool must be called sequentially; parallel calls within a single response are prohibited.
 
     Args:
         command: The command you need to run
@@ -86,15 +88,21 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
             }
         )
 
-    runtime.stream_writer({'run': command})
+    runtime.stream_writer({'run': command, 'dir': workdir})
     code, out = run_podman_by_id(container_id, command, workdir)
 
     run_status = 'successfully' if code == 0 else 'failed'
+    return_msg = (
+        f'Command ran {run_status}.\n\n......\n{_truncate_output(command, out)}'
+        if out
+        else f'Command ran {run_status}.'
+    )
+
     return Command(
         update={
             'messages': [
                 ToolMessage(
-                    content=f'Command ran {run_status}.\n\n......\n{_truncate_output(command, out)}',
+                    content=return_msg,
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -102,7 +110,7 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
     )
 
 
-@tool
+@tool('remove_container', parse_docstring=True)
 def stop_and_rm_container(remove_type: Literal['micromamba', 'tool', 'all'], runtime: ToolRuntime):
     """Stop and remove container
 
@@ -111,15 +119,41 @@ def stop_and_rm_container(remove_type: Literal['micromamba', 'tool', 'all'], run
     """
 
     rm_ids = []
+    rm_names = []
+    update_dict = {}
+
     if remove_type in ('all', 'tool') and 'tool_container' in runtime.state:
-        rm_ids.append(runtime.state.get('tool_container'))
+        container_id = runtime.state.get('tool_container')
+        rm_ids.append(container_id)
+        rm_names.append('tool container')
+        update_dict['tool_container'] = None
+
     if remove_type in ('all', 'micromamba') and 'mamba_container' in runtime.state:
-        rm_ids.append(runtime.state.get('mamba_container'))
+        container_id = runtime.state.get('mamba_container')
+        rm_ids.append(container_id)
+        rm_names.append('micromamba container')
+        update_dict['mamba_container'] = None
 
     for container_id in rm_ids:
         remove_container(container_id)
 
-    return 'The container has been deleted'
+    # 构建返回消息
+    if len(rm_names) == 1:
+        message = f'The {rm_names[0]} has been deleted.'
+    else:
+        message = f'All containers ({", ".join(rm_names)}) have been deleted.'
+
+    return Command(
+        update={
+            **update_dict,
+            'messages': [
+                ToolMessage(
+                    content=message,
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 @tool(parse_docstring=True)
