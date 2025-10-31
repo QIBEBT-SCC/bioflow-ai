@@ -124,7 +124,7 @@ def gpt_5_mini(temperature: float = 0.7, disable_streaming: bool = False, reason
     return llm
 
 
-def grok_4_fast(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAIReasoning:
+def grok_4_fast_livesearch(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAIReasoning:
     provider = get_settings().llm.GROK.PROVIDER
     llm = ChatOpenAIReasoning(
         model=f'{provider}/grok-4-fast-reasoning' if provider else 'grok-4-fast-reasoning',
@@ -136,7 +136,7 @@ def grok_4_fast(temperature: float = 0.7, disable_streaming: bool = False) -> Ch
                 'mode': 'on',
                 'return_citations': True,
                 'max_search_results': 10,
-                'sources': ['web', 'news'],
+                'sources': ['web'],
             }
         },
         temperature=temperature,
