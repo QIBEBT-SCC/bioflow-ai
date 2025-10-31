@@ -1,6 +1,6 @@
 import datetime
 import time
-from typing import Generator, Any, Optional
+from typing import Any, Generator, Optional
 
 import psutil
 from docker.types import Mount
@@ -250,12 +250,13 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: 
         return container.id
 
 
-def run_podman_by_id(container_id: str, command: str) -> tuple[int, str]:
+def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = None) -> tuple[int, str]:
     """在特定容器中运行命令并返回结果
 
     Args:
         container_id: 目标容器ID
         command: 要运行的指令
+        workdir: 命令执行的工作目录
 
     Returns:
         - int: 运行的状态码
@@ -265,7 +266,7 @@ def run_podman_by_id(container_id: str, command: str) -> tuple[int, str]:
         assert client.ping()
 
         container = client.containers.get(container_id)
-        code, result = container.exec_run(command, tty=True, stream=False)
+        code, result = container.exec_run(command, tty=True, stream=False, workdir=workdir)
         if isinstance(result, bytes):
             result = result.decode()
 

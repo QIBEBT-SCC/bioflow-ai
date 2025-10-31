@@ -81,6 +81,16 @@ class CreateToolOutput(BaseModel):
     json_response: dict[str, Any]
 
 
+# =====================test run agent state==========================
+class TestRunState(MessagesState):
+    tool_image: ImageConfig
+
+    mamba_container: NotRequired[str]
+    tool_container: NotRequired[str]
+
+    container_id: NotRequired[str]
+
+
 # =====================extra workflow state==========================
 class ExtractOutput1(BaseModel):
     """A brief summary of the literature (requirements) and the extraction of tools mentioned in the text"""
