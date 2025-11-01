@@ -15,6 +15,7 @@ dependencies = [
     "ddgs>=9.5.2",
     "docker>=7.1.0",
     "fastapi>=0.115.8",
+    "httpx[socks]>=0.28.1",
     "langchain>=1.0.2",
     "langchain-community>=0.4.0",
     "langchain-google-genai>=3.0.0",
@@ -52,6 +53,10 @@ docstring-code-format = true
 
 [tool.ruff.lint]
 extend-select = ["I"]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [dependency-groups]
 dev = [
