@@ -68,8 +68,7 @@ def get_sample_name(first_layer: list[TaskNode]) -> str:
     files = []
     for node in first_layer:
         if node.type == 'resource_sequence':
-            args = json.loads(node.args)
-            return get_sample_name_by_seq_input(**args)
+            return get_sample_name_by_seq_input(**node.args)
         elif node.type == 'resource_file':
             files.append(node.args)
 
