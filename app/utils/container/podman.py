@@ -153,7 +153,7 @@ def run_podman_background(
 
 
 def formate_container_stats(
-    stats: dict[str, Any], start_time: datetime.datetime.timestamp, pid: int
+    stats: dict[str, Any], start_time: datetime.datetime, pid: int
 ) -> Optional[dict[str, Any]]:
     """提取容器日志中的监控内容
 
