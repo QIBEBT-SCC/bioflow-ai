@@ -1,11 +1,11 @@
 import uuid
-from typing import Annotated, Literal, Optional
+from pathlib import Path
+from typing import Literal, Optional
 
+import rich
 from langchain.agents import create_agent
-from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables.graph import CurveStyle
 from langchain_core.tools import tool
 from langchain_milvus import Milvus
@@ -14,7 +14,7 @@ from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import InjectedState
+from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -28,9 +28,10 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
-from llm.agents.tool_manager.image_agent import GetImageAgent
-from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.agents.tool_manager.generate_tool_config import ToolGenerator
+from llm.agents.tool_manager.image_agent import GetImageAgent
+from llm.agents.tool_manager.test_run_agent import test_run_agent
+from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.states import (
     CreateToolContext,
     CreateToolOutput,
@@ -38,6 +39,7 @@ from llm.states import (
     GetDocState,
     SearchImageState,
     SelectGroupState,
+    TestRunState,
 )
 from llm.tools.container import run_command
 from llm.tools.database import (
@@ -50,7 +52,6 @@ from llm.tools.database import (
     view_groups,
 )
 from llm.tools.human import ask_human
-from llm.tools.web_search import web_reader, web_searcher
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -151,6 +152,11 @@ Once you have completed all analyses and gathered all the required information, 
       * [Yes/No].
 ```
 </OutputFormat>
+
+<Rules>
+When writing the report, you must ensure that the path and name of the output file are accurate. Use {output_dir} to represent the output root directory and {sample_name} to represent the base name of the original file.
+Since the analysis run will directly use the file name to find the result file, if you provide incorrect results here, it will directly lead to the analysis results not being found. Therefore, please be cautious and ensure that you have obtained enough information before providing an accurate report.
+</Rules>
 """
 
 SEARCH_BY_DEEPWIKI = f"""You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
@@ -208,28 +214,11 @@ class TempIDClass(BaseModel):
 
 
 class CreateToolAgent:
-    """CreateToolAgent is an agent designed to assist in the creation of new tool nodes within a bioinformatics analysis platform.
-
-    Args:
-        deepwiki_tools: 需要初始化MCP工具并传入
-
-        client = MultiServerMCPClient(
-            {
-                'deepwiki': {
-                    'transport': 'streamable_http',  # HTTP-based remote server
-                    'url': 'https://mcp.deepwiki.com/mcp',
-                },
-            }
-        )
-        deepwiki_tools = await client.get_tools()
-    """
-
-    def __init__(self, deepwiki_tools: list):
+    def __init__(self, save_message: bool = False, test_run_id: Optional[str] = None):
         self.struct_llm = gpt_5(0.2)
         self.think_llm = gpt_5_mini(0.3)
 
         # sub agents
-
         self.search_image_agent = GetImageAgent().build()
         self.get_doc_agent = create_agent(
             model=self.think_llm,
@@ -237,28 +226,28 @@ class CreateToolAgent:
             system_prompt=GET_DOC_SYSTEM,
             state_schema=GetDocState,
         )
-        self.deepwiki_agent = create_agent(
-            model=self.think_llm,
-            tools=[*deepwiki_tools, web_searcher, web_reader],
-            middleware=[
-                SummarizationMiddleware(
-                    model=gpt_5_mini(),
-                    max_tokens_before_summary=6000,
-                    messages_to_keep=6,
-                )
-            ],
-            system_prompt=SEARCH_BY_DEEPWIKI,
-        )
-        self.web_search_agent = create_agent(
-            model=self.think_llm,
-            tools=[web_searcher, web_reader],
-            middleware=[
-                SummarizationMiddleware(
-                    model=gpt_5_mini(), max_tokens_before_summary=6000, messages_to_keep=6, summary_prompt=SUMMARY_SYS
-                )
-            ],
-            system_prompt=SEARCH_BY_WEB,
-        )
+        # self.deepwiki_agent = create_agent(
+        #     model=self.think_llm,
+        #     tools=[*deepwiki_tools, web_searcher, web_reader],
+        #     middleware=[
+        #         SummarizationMiddleware(
+        #             model=gpt_5_mini(),
+        #             max_tokens_before_summary=6000,
+        #             messages_to_keep=6,
+        #         )
+        #     ],
+        #     system_prompt=SEARCH_BY_DEEPWIKI,
+        # )
+        # self.web_search_agent = create_agent(
+        #     model=self.think_llm,
+        #     tools=[web_searcher, web_reader],
+        #     middleware=[
+        #         SummarizationMiddleware(
+        #             model=gpt_5_mini(), max_tokens_before_summary=6000, messages_to_keep=6, summary_prompt=SUMMARY_SYS
+        #         )
+        #     ],
+        #     system_prompt=SEARCH_BY_WEB,
+        # )
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, add_group, select_group],
@@ -266,6 +255,11 @@ class CreateToolAgent:
             state_schema=SelectGroupState,
         )
         self.tool_generator = ToolGenerator(llm=self.struct_llm).build()
+
+        # 与保存微调数据有关，日常使用不应修改
+        self.save_message = save_message
+        self.test_run_id = test_run_id
+        self.dataset_file = 'test_run.parquet'
 
     async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
@@ -309,75 +303,110 @@ class CreateToolAgent:
             'doc': doc.content,
         }
 
-    async def generate_command_node(self, state: CreateToolState):
-        """获取到帮助文档之后，就可以生成用于参考的命令"""
+    # async def generate_command_node(self, state: CreateToolState):
+    #     """获取到帮助文档之后，就可以生成用于参考的命令"""
+    #     writer = get_stream_writer()
+    #     writer({'info': 'Generating example command...'})
+    #
+    #     class CommandStructure(BaseModel):
+    #         command: str = Field(
+    #             description='Reference commands generated based on requirements and help documentation'
+    #         )
+    #
+    #     prompt = ChatPromptTemplate(
+    #         messages=[SystemMessage(content=GENERATE_COMMAND_SYS), MessagesPlaceholder(variable_name='history')]
+    #     )
+    #     chain = prompt | self.think_llm.with_structured_output(CommandStructure)
+    #     response = await chain.ainvoke({'history': state['messages']})
+    #
+    #     return {
+    #         'messages': [
+    #             AIMessage(
+    #                 content='Great, it would be even better if you could give me an actual command for reference.'
+    #             ),
+    #             HumanMessage(content=response.command),
+    #         ],
+    #         'command': response.command,
+    #     }
+
+    # async def deepwiki_node(self, state: CreateToolState):
+    #     """尝试获取工具的输出结果（使用deepwiki）"""
+    #     writer = get_stream_writer()
+    #     writer({'info': 'Getting more information through deepwiki...'})
+    #
+    #     input_message = {
+    #         'messages': [
+    #             HumanMessage(
+    #                 content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
+    #             )
+    #         ]
+    #     }
+    #     response = await self.deepwiki_agent.ainvoke(input_message)
+    #
+    #     return {
+    #         'messages': [
+    #             AIMessage(
+    #                 content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
+    #             ),
+    #             HumanMessage(content=response['messages'][-1].content),
+    #         ]
+    #     }
+    #
+    # async def web_search_node(self, state: CreateToolState):
+    #     """尝试获取工具的输出结果（使用web search）"""
+    #     writer = get_stream_writer()
+    #     writer({'info': 'Getting more information through web search...'})
+    #
+    #     input_message = {
+    #         'messages': [
+    #             HumanMessage(
+    #                 content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
+    #             )
+    #         ]
+    #     }
+    #     response = await self.web_search_agent.ainvoke(input_message)
+    #
+    #     return {
+    #         'messages': [
+    #             AIMessage(
+    #                 content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
+    #             ),
+    #             HumanMessage(content=f'The information I found is as follows:\n{response}'),
+    #         ]
+    #     }
+
+    async def get_report_node(self, state: CreateToolState):
+        """获取工具的输出结果"""
         writer = get_stream_writer()
-        writer({'info': 'Generating example command...'})
+        writer({'info': 'Getting more information through test run...'})
 
-        class CommandStructure(BaseModel):
-            command: str = Field(
-                description='Reference commands generated based on requirements and help documentation'
-            )
+        testrun_input: TestRunState = {'messages': state['messages'], 'tool_image': state['image']}
+        response = await test_run_agent.ainvoke(testrun_input)
 
-        prompt = ChatPromptTemplate(
-            messages=[SystemMessage(content=GENERATE_COMMAND_SYS), MessagesPlaceholder(variable_name='history')]
-        )
-        chain = prompt | self.think_llm.with_structured_output(CommandStructure)
-        response = await chain.ainvoke({'history': state['messages']})
+        if self.save_message:
+            import polars as pl
 
-        return {
-            'messages': [
-                AIMessage(
-                    content='Great, it would be even better if you could give me an actual command for reference.'
-                ),
-                HumanMessage(content=response.command),
-            ],
-            'command': response.command,
-        }
+            message_dicts = [m.model_dump_json() for m in response['messages']]
+            new_data = {
+                'question': [state['messages'][0].content],
+                'test_run_id': [self.test_run_id],
+                'messages': [message_dicts],  # Convert to list of dicts
+            }
+            df_new = pl.DataFrame(new_data)
 
-    async def deepwiki_node(self, state: CreateToolState):
-        """尝试获取工具的输出结果（使用deepwiki）"""
-        writer = get_stream_writer()
-        writer({'info': 'Getting more information through deepwiki...'})
-
-        input_message = {
-            'messages': [
-                HumanMessage(
-                    content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
-                )
-            ]
-        }
-        response = await self.deepwiki_agent.ainvoke(input_message)
+            if Path(self.dataset_file).exists():
+                df_existing = pl.read_parquet(self.dataset_file)
+                df_existing = df_existing.vstack(df_new)
+                df_existing.write_parquet(self.dataset_file, compression='snappy')
+            else:
+                df_new.write_parquet(self.dataset_file, compression='snappy')
 
         return {
             'messages': [
                 AIMessage(
                     content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
                 ),
-                HumanMessage(content=response['messages'][-1].content),
-            ]
-        }
-
-    async def web_search_node(self, state: CreateToolState):
-        """尝试获取工具的输出结果（使用web search）"""
-        writer = get_stream_writer()
-        writer({'info': 'Getting more information through web search...'})
-
-        input_message = {
-            'messages': [
-                HumanMessage(
-                    content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
-                )
-            ]
-        }
-        response = await self.web_search_agent.ainvoke(input_message)
-
-        return {
-            'messages': [
-                AIMessage(
-                    content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
-                ),
-                HumanMessage(content=f'The information I found is as follows:\n{response}'),
+                HumanMessage(content=f'The information I found is as follows:\n\n{response["messages"][-1].content}'),
             ]
         }
 
@@ -403,17 +432,14 @@ class CreateToolAgent:
             group = group_crud.get(session, state['group_id'])
             assert group is not None
 
-            if state['homepage']:
-                tag = tag_crud.get_by_name(session, 'AI Checked')
-            else:
-                tag = tag_crud.get_by_name(session, 'AI Unchecked')
+            tag = tag_crud.get_by_name(session, 'AI Checked')
 
             tool_data = ToolDefine(
                 tool_type=ToolType.DOCKER,
                 image_uid=state['image_uid'],
                 help_doc_uid=state['doc_uid'],
-                # group_id=group.id,
-                # tags=[group.tag, tag],
+                group_id=group.id,
+                tags=[group.tag, tag],
                 **result,
             )
             if not runtime.context.auto_save:
@@ -488,18 +514,14 @@ class CreateToolAgent:
 
         graph.add_node('select_image', self.select_image_node)
         graph.add_node('get_doc', self.get_doc_node)
-        graph.add_node('generate_command', self.generate_command_node)
-        graph.add_node('deepwiki', self.deepwiki_node)
-        graph.add_node('web_search', self.web_search_node)
+        graph.add_node('get_report', self.get_report_node)
         graph.add_node('choose_group', self.choose_group_node)
         graph.add_node('generate_tool_config', self.generate_tool_node)
 
         graph.set_entry_point('select_image')
         graph.add_edge('select_image', 'get_doc')
-        graph.add_edge('get_doc', 'generate_command')
-        graph.add_conditional_edges('generate_command', self.how_to_get_output)
-        graph.add_edge('web_search', 'choose_group')
-        graph.add_edge('deepwiki', 'choose_group')
+        graph.add_edge('get_doc', 'get_report')
+        graph.add_edge('get_report', 'choose_group')
         graph.add_edge('choose_group', 'generate_tool_config')
         graph.add_edge('generate_tool_config', END)
 
@@ -519,15 +541,14 @@ class CreateToolAgent:
 
 
 @tool
-def view_output(
-    direction: Literal['begin', 'end'], content: Annotated[str, InjectedState('last_output')], lines: int = 20
-):
+def view_output(direction: Literal['begin', 'end'], runtime: ToolRuntime, lines: int = 20):
     """View the output of the last tool run in segments
 
     Args:
         direction: Reading order, begin means reading the first N lines, end means reading the last N lines
         lines: See how many lines, not too large, default is 20
     """
+    content: str = runtime.state.get('last_output', '')
     if direction == 'begin':
         return '\n'.join(content.splitlines()[:lines])
     else:

@@ -1,16 +1,19 @@
 from typing import Literal
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import SummarizationMiddleware, ToolCallLimitMiddleware
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import ToolException, tool
 from langgraph.types import Command
 
-from app.utils.container.podman import remove_container
-from llm.models import gemini_25_flash
+from llm.models import glm_45
 from llm.states import TestRunState
-from llm.tools.container import build_micromamba_container, build_tool_container, run_command_in_container
+from llm.tools.container import (
+    build_micromamba_container,
+    build_tool_container,
+    run_command_in_container,
+    stop_and_rm_container,
+)
 from llm.tools.human import ask_human
 
 TEST_RUN_SYSTEM = """## Role
@@ -22,14 +25,16 @@ You can use the following resources:
 1.  **User Request**: The original instruction specifying the tool to be analyzed.
 2.  **Tool Documentation**: The complete `--help` output of the target tool.
 3.  **Test Data**: A read-only raw test data directory located at `/data/testdata`.
-4.  **Output Directory**: A persistent directory located at `/data/output` for all generated results.
+    * 
 </Context>
 
 
 ## Main Workflow
 1.  **Initialization and Exploration**:
     a. **Primary Task**: Analyze the documentation. Before creating any containers, systematically analyze the tool's `--help` documentation to understand its functionality, inputs, parameters, especially looking for database-related parameters (e.g., `--db`, `--database`).
-    b. If the documentation indicates a database is required, you must immediately use the `ask_human` tool to request the database path on the host. **Do not create a container until the path is obtained**.
+    b. **Dependency Analysis**: Based on the documentation, distinguish between two types of dependencies:
+        *   **Tool-specific Index**: This refers to an index that is built from a source file (e.g., a FASTA reference genome) using a command like `bowtie2-build`. If the tool requires such an index, you must **assume the source file exists in `/data/testdata`** and proceed with the workflow. You will verify its existence after creating a container. Do **not** ask the human for the index or the source file at this stage.
+        *   **Large Pre-built Database**: This refers to large, common databases that are typically downloaded manually (e.g., NCBI `nr`, GTDB). If the tool requires such a database, you must immediately use the `ask_human` tool to request its path on the host. **Do not create a container until this path is obtained**.
     c. After obtaining all necessary information, call `build_tool_container` to initialize the tool container and activate it as your primary working environment using `use_container`.
     d. Understand the available raw data in `/data/testdata` by reading `/data/testdata/DESCRIPTION.md`.
     e. Check previously generated results in `/data/output` for opportunities to reuse.
@@ -110,16 +115,18 @@ You can use the following resources:
 In the following three situations, you must immediately stop all current operations and use the `ask_human` tool to request human intervention:
 
 *  **Missing Raw Data**: When a type of raw data required for analysis (e.g., a type of omics sequencing data, a certain image, etc.) is not available in `/data/testdata`. Do not request intermediate files that you can generate yourself.
-*  **Database Required**: When, through document analysis or during execution, it is found that any tool requires the use or download of a database. You must specify which database is needed in your request and ask the human to provide its path on the host. Before receiving an explicit path response, **pause all container creation or command execution**.
+*  **External Database or Missing Source File Required**:
+    *   When a tool requires a **large, pre-built database** (e.g., NCBI `nr`, GTDB), you must ask the human for its host path.
+    *   When a tool requires an **index** to be built, you should first try to build it assuming the source file (e.g., reference genome) is in `/data/testdata`. If, and only if, the build fails because the source file is missing, you should then use `ask_human` to request the necessary source file.
 *  **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, do not fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
 </HumanAssistancePolicy>
 
 
 ## Final Output Specification
 <ReportingGuide>
-1.  **`Output File Composition Analysis`**:
-    *   How to obtain: Get the output list by using the `ls -F` command in the execution directory of the analysis command.
-    *   Report content: The report must list all files and directories (non-recursive) generated by the **tool itself** in that directory.
+1.  **`Output Files`**:
+    *   How to obtain: Get the output list by using the `ls -lha` command in the execution directory of the analysis command.
+    *   Report content: The report must list **all files and directories** (non-recursive) generated by the tool itself in that directory.
     *   Exclusions: The `00_running_command.txt` and `11_running.log` files created in the above process do not need to be listed.
   2.  **`Does it require manual creation of the output folder?`**:
     *   **Operating procedure**: Your default operation should **always** be to manually create the output directory (`mkdir -p`).
@@ -134,24 +141,25 @@ In the following three situations, you must immediately stop all current operati
 ```
 **Tool Analysis Report**
 1.  **Does it require a database?**
-      * [Yes/No].
+    * [Yes/No].
 
-2.  **Output File Composition Analysis:**
-      * /path/to/file_A: [file/folder] - [Briefly describe the file's purpose.]
-      * /path/to/file_B: [file/folder] - [Briefly describe the file's purpose.]
-      * ...
+2.  **Output Files:**
+    (all file and folders)
+    * /path/to/file_A: [file/folder]
+    * /path/to/file_B: [file/folder]
+    * /path/to/file_C: [file/folder]
+    * ...
 
 3.  **Does it require manual creation of the output folder?**
-      * [Yes/No].
+    * [Yes/No].
 
 4.  **Is a log file generated automatically?**
-      * [Yes/No].
-```
+    * [Yes/No].
 </OutputStructure>
 """
 
 
-@tool
+@tool(parse_docstring=True)
 def use_container(container_type: Literal['micromamba', 'tool'], runtime: ToolRuntime):
     """Activate container environment
 
@@ -203,27 +211,22 @@ def use_container(container_type: Literal['micromamba', 'tool'], runtime: ToolRu
 
 
 test_run_agent = create_agent(
-    model=gemini_25_flash(),
+    model=glm_45(temperature=0.3),
     tools=[
         build_micromamba_container,
         build_tool_container,
         use_container,
         run_command_in_container,
-        remove_container,
+        stop_and_rm_container,
         ask_human,
     ],
-    middleware=[
-        SummarizationMiddleware(
-            model=gemini_25_flash(),
-            max_tokens_before_summary=12000,
-            messages_to_keep=6,
-        ),
-        ToolCallLimitMiddleware(
-            tool_name='run_command',
-            thread_limit=1,
-            run_limit=1,
-        ),
-    ],
+    # middleware=[
+    #     SummarizationMiddleware(
+    #         model=gemini_25_flash(),
+    #         max_tokens_before_summary=12000,
+    #         messages_to_keep=6,
+    #     ),
+    # ],
     system_prompt=TEST_RUN_SYSTEM,
     state_schema=TestRunState,
 )
