@@ -28,7 +28,6 @@ class ParamDefine(BaseModel):
     index: Optional[int] = PField(
         description='Position order of positional parameters (only takes effect in positional parameter)', default=None
     )
-    required: bool = PField(description='Is it a mandatory parameter for the program to run?', default=True)
 
 
 class FileMount(BaseModel):
