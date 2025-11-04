@@ -142,7 +142,7 @@ def send_task(
                     task_index += 1
                 case 'resource_db':
                     task_instance = TaskInstance(
-                        uid=task_node.id,
+                        uid=uuid.UUID(task_node.id),
                         instance_uid=run_uid,
                         owner_id=owner.id,
                         name='read_file',
@@ -150,7 +150,7 @@ def send_task(
                     )
                     task_crud.insert(session, task_instance)
 
-                    db_path = db_crud.get_by_name(session, task_node.args[3:]).path
+                    db_path = db_crud.get(session, int(task_node.resource_uid)).path
                     sub_tasks.append(load_file_task.s(file_path=db_path).set(task_id=task_node.id))
                 case 'resource_sequence':
                     task_instance = TaskInstance(
