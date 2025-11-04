@@ -202,6 +202,33 @@ def glm_45(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpe
     return llm
 
 
+def glm_46(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
+    provider = get_settings().llm.GLM.PROVIDER
+    llm = ChatOpenAIReasoning(
+        model=f'{provider}/glm-4.6' if provider else 'glm-4.6',
+        base_url=get_settings().llm.GLM.BASE_URL,
+        api_key=get_settings().llm.GLM.API_KEY,
+        provider='zai',
+        temperature=temperature,
+        disable_streaming=disable_streaming,
+    )
+
+    return llm
+
+
+def qwen3_30b_a3b_think(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAIReasoning:
+    llm = ChatOpenAIReasoning(
+        model='qwen3-30b-a3b-thinking-2507',
+        base_url=get_settings().llm.VLLM.BASE_URL,
+        api_key=get_settings().llm.VLLM.API_KEY,
+        provider='qwen',
+        temperature=temperature,
+        disable_streaming=disable_streaming,
+    )
+
+    return llm
+
+
 @cache_model()
 def qwen3_embedding() -> Qwen3Embeddings:
     embedding = Qwen3Embeddings(model='Qwen/Qwen3-Embedding-4B', use_modelscope=True)
