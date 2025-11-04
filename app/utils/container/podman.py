@@ -148,13 +148,20 @@ def run_podman_background(
                 yield formate_container_stats(stat, start_time, pid)
                 time.sleep(interval)
         finally:
+            timestamp = datetime.datetime.now(datetime.UTC)
+            yield {
+                'cpu_usage': 0.0,
+                'mem_usage': 0.0,
+                'mem_used': 0.0,
+                'io_in': 0.0,
+                'io_out': 0.0,
+                'time': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f') + '000Z',
+            }
             if container:
                 container.remove()
 
 
-def formate_container_stats(
-    stats: dict[str, Any], start_time: datetime.datetime, pid: int
-) -> Optional[dict[str, Any]]:
+def formate_container_stats(stats: dict[str, Any], start_time: datetime.datetime, pid: int) -> Optional[dict[str, Any]]:
     """提取容器日志中的监控内容
 
     从 Podman stats 输出中提取关键的监控指标，包括CPU利用率、内存利用率、
@@ -197,8 +204,8 @@ def formate_container_stats(
 
             io_in = sum([sub_p.io_counters().read_bytes for sub_p in p.children()])
             io_out = sum([sub_p.io_counters().write_bytes for sub_p in p.children()])
-        except psutil.NoSuchProcess:
-            logger.error(f'PID {pid} not found, skipping.')
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            # logger.error(f'PID {pid} not found, skipping.')
             io_in = 0
             io_out = 0
 
