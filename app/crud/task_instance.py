@@ -1,9 +1,9 @@
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 from sqlalchemy import Select
 from sqlalchemy.orm import joinedload
-from sqlmodel import Session, func, select, or_, and_, col
+from sqlmodel import Session, and_, col, func, or_, select
 
 from app.models.workflow import TaskInstance
 from app.schemas.task_instance import TaskUpdate
@@ -19,12 +19,10 @@ def insert(session: Session, task: TaskInstance) -> TaskInstance:
 
 def update(session: Session, uid: str, task_update: TaskUpdate) -> TaskInstance:
     db_task = get(session, uid)
-    logger.debug(db_task)
 
     update_data = task_update.model_dump(exclude_unset=True)
     logger.debug(update_data)
     db_task.sqlmodel_update(update_data)
-    logger.debug(db_task)
     session.add(db_task)
     session.commit()
     session.refresh(db_task)

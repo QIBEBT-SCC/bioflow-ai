@@ -7,9 +7,9 @@ import celery
 import requests
 
 from app.core.config import get_settings
-from app.schemas.tools import ToolTaskInfo
 from app.models.workflow import Status, ToolOutput
 from app.schemas.task_instance import TaskUpdate
+from app.schemas.tools import ToolTaskInfo
 
 
 class BaseBioTask(celery.Task):
@@ -45,8 +45,7 @@ def update_task(uid: str, data: TaskUpdate):
     headers = {'Content-Type': 'application/json'}
     json_str = data.model_dump_json(exclude_unset=True)
 
-    response = requests.patch(url, json=json.loads(json_str), headers=headers)
-    assert response.status_code == 200
+    requests.patch(url, json=json.loads(json_str), headers=headers)
 
 
 def update_monitor_log(uid: str):

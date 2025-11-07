@@ -31,11 +31,30 @@ def build_mounts(
     mount_paths: dict[str, Path] = {}  # 存储挂载的路径映射
     expected_output = ToolOutput()  # 预期输出文件路径
 
+    # 接下来的内部变量：
+    # host_file_path：宿主机上文件的路径
+    # host_mount_path：宿主机上要挂载的文件夹
+    # container_file_path：容器内文件的路径
+    # file.mount_path：容器内的文件夹映射
+
     for file in file_mounts:
-        if file.file_type == 'OUTPUT':
+        if file.file_type == 'INPUT':
+            # 输入文件，提取资源文件
+            kwarg = inputs[file.name]
+            file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
+            host_file_path = Path(file_path)
+
+            if host_file_path.is_file():
+                host_mount_path = host_file_path.parent
+                container_file_path = f'{file.mount_path}/{host_file_path.name}'
+            else:
+                host_mount_path = host_file_path
+                container_file_path = file.mount_path
+
+        else:
             # 输出文件，添加期望输出
             host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
-            host_file_dir = Path(host_output_dir)
+            host_mount_path = Path(host_output_dir)
             container_file_path = f'{file.mount_path}/{host_file_path.name}'
 
             if file.is_log:
@@ -45,21 +64,9 @@ def build_mounts(
             else:
                 expected_output.result[file.name] = host_file_path.absolute()
 
-        else:
-            # 输入文件，提取资源文件
-            kwarg = inputs[file.name]
-            file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
-            host_file_path = Path(file_path)
-            if host_file_path.is_file():
-                host_file_dir = host_file_path.parent
-                container_file_path = f'{file.mount_path}/{host_file_path.name}'
-            else:
-                host_file_dir = host_file_path
-                container_file_path = file.mount_path
-
         # 添加挂载项
         if file.mount_path not in mount_paths:
-            mount_paths[file.mount_path] = host_file_dir.absolute()
+            mount_paths[file.mount_path] = host_mount_path.absolute()
 
         # 添加指令组成(容器内路径)
         param_inputs[file.name] = container_file_path
@@ -101,11 +108,11 @@ def docker_task(
     if tool_config.mkdir_output:
         host_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 处理样本名
-    # TODO
-
     # 处理文件挂载
     param_inputs, mount_paths, expected_output = build_mounts(tool_config.file_mounts, output_dir, sample_name, inputs)
+    logger.debug(param_inputs)
+    logger.debug(mount_paths)
+    logger.debug(expected_output.all_files())
 
     if expected_output.all_exist():
         return expected_output
@@ -130,22 +137,24 @@ def docker_task(
                 if any(
                     file.mount_path == container_path
                     for file in tool_config.file_mounts
-                    if file.mount_path != '/data/raw'
+                    if file.mount_path != '/data/output'
                 ):
+                    volume_binds.append(Mount(type='bind', source=str(host_path), target=container_path))
+                else:
                     volume_binds.append(
                         Mount(type='bind', source=str(Path(temp_dir).absolute()), target=container_path)
                     )
-                else:
-                    volume_binds.append(Mount(type='bind', source=str(host_path), target=container_path))
 
             data = TaskUpdate(
-                commands=f'podman run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
+                commands=f'podman run --rm {" ".join([f"-v {bind['Source']}:{bind['Target']}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
             )
             update_task(self.request.id, data)
 
             # 执行Docker命令
             log_count = 0
             for stats in run_podman_background(docker_image, command=tool_command, mounts=volume_binds):
+                if stats is None:
+                    continue
                 monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
                 monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
                 log_count += 1
@@ -154,6 +163,7 @@ def docker_task(
                     update_monitor_log(self.request.id)
 
             # 复制结果到最终输出目录
+            logger.debug(list(Path(temp_dir).iterdir()))
             for output_name, output_path in expected_output.all_files().items():
                 relative_path = output_path.relative_to(host_output_dir.absolute())
                 temp_path = Path(temp_dir) / relative_path
@@ -169,7 +179,7 @@ def docker_task(
         ]
 
         data = TaskUpdate(
-            commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Source']}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
+            commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Target']}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
         )
         update_task(self.request.id, data)
 
