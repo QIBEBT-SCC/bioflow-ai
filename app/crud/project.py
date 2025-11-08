@@ -2,10 +2,21 @@ from typing import Optional
 
 from sqlalchemy import Select
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, select, or_, col
+from sqlmodel import Session, col, or_, select
 
 from app.models.project import Project, ProjectStar
 from app.schemas.project import ProjectPublic, ProjectUpdate
+from app.schemas.user import UserPublic
+
+
+def _to_project_public(project: Project, starred: bool) -> ProjectPublic:
+    """将 Project 模型转换为 ProjectPublic schema，包含 starred 字段"""
+    project_dict = project.model_dump()
+    project_dict['starred'] = starred
+    project_dict['tags'] = project.tags
+    if project.owner:
+        project_dict['owner'] = UserPublic.model_validate(project.owner.model_dump())
+    return ProjectPublic.model_validate(project_dict)
 
 
 def insert(session: Session, project: Project) -> Project:
@@ -34,9 +45,7 @@ def get_star_ids(session: Session, user_id: int, project_ids: list[int]) -> set[
 
 
 def star_project(session: Session, user_id: int, project_id: int):
-    statement: Select = select(ProjectStar).where(
-        ProjectStar.user_id == user_id, ProjectStar.project_id == project_id
-    )
+    statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project_id)
     exists = session.exec(statement).first()
     if not exists:
         star = ProjectStar(user_id=user_id, project_id=project_id)
@@ -45,9 +54,7 @@ def star_project(session: Session, user_id: int, project_id: int):
 
 
 def unstar_project(session: Session, user_id: int, project_id: int):
-    statement: Select = select(ProjectStar).where(
-        ProjectStar.user_id == user_id, ProjectStar.project_id == project_id
-    )
+    statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project_id)
     star = session.exec(statement).first()
     if star:
         session.delete(star)
@@ -67,22 +74,11 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[Pro
     project_ids = [p.id for p in projects]
     starred_ids = get_star_ids(session, user_id, project_ids)
 
-    result = []
-    for project in projects:
-        project_public = ProjectPublic.from_orm(
-            project, update={'starred': project.id in starred_ids}
-        )
-        result.append(project_public)
-    return result
+    return [_to_project_public(project, project.id in starred_ids) for project in projects]
 
 
 def get_all_star(session: Session, limit: int, offset: int, user_id: int) -> list[ProjectPublic]:
-    starred_ids = (
-        select(ProjectStar.project_id)
-        .where(ProjectStar.user_id == user_id)
-        .offset(offset)
-        .limit(limit)
-    )
+    starred_ids = select(ProjectStar.project_id).where(ProjectStar.user_id == user_id).offset(offset).limit(limit)
 
     statement: Select = (
         select(Project)
@@ -91,7 +87,7 @@ def get_all_star(session: Session, limit: int, offset: int, user_id: int) -> lis
     )
 
     projects = session.exec(statement).all()
-    return [ProjectPublic.from_orm(p, update={'starred': True}) for p in projects]
+    return [_to_project_public(project, starred=True) for project in projects]
 
 
 def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> list[ProjectPublic]:
@@ -107,37 +103,32 @@ def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> list[
     project_ids = [p.id for p in projects]
     starred_ids = get_star_ids(session, user_id, project_ids)
 
-    result = []
-    for project in projects:
-        project_public = ProjectPublic.from_orm(
-            project, update={'starred': project.id in starred_ids}
-        )
-        result.append(project_public)
-    return result
+    return [_to_project_public(project, project.id in starred_ids) for project in projects]
 
 
 def get(session: Session, user_id: int, project_id: int) -> ProjectPublic:
-    statement: Select = select(Project).where(Project.id == project_id)
+    statement: Select = (
+        select(Project).where(Project.id == project_id).options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore
+    )
     project: Project = session.exec(statement).one()
 
-    statement: Select = select(ProjectStar).where(
-        ProjectStar.user_id == user_id, ProjectStar.project_id == project.id
-    )
+    statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project.id)
     starred = session.exec(statement).first() is not None
-    return ProjectPublic.from_orm(project, update={'starred': starred})
+    return _to_project_public(project, starred)
 
 
 def get_recent(session: Session, user_id: int) -> Optional[ProjectPublic]:
     statement: Select = (
-        select(Project).where(Project.owner_id == user_id).order_by(col(Project.update_time).desc())
+        select(Project)
+        .where(Project.owner_id == user_id)
+        .order_by(col(Project.update_time).desc())
+        .options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore
     )
     project: Project = session.exec(statement).first()
 
     if project is None:
         return None
 
-    statement: Select = select(ProjectStar).where(
-        ProjectStar.user_id == user_id, ProjectStar.project_id == project.id
-    )
+    statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project.id)
     starred = session.exec(statement).first() is not None
-    return ProjectPublic.from_orm(project, update={'starred': starred})
+    return _to_project_public(project, starred)

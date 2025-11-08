@@ -1,16 +1,16 @@
-from typing import Annotated, Optional, Sequence
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from app.crud import projetc_tag as tag_crud
-from app.crud import project as project_crud
 from app.core.session import SessionDep
+from app.crud import project as project_crud
+from app.crud import projetc_tag as tag_crud
 from app.models.project import (
     Project,
     ProjectTag,
 )
-from app.schemas.project import ProjectPublic, TagWithCount, ProjectCreateProp, TagProp
 from app.models.user import User
+from app.schemas.project import ProjectCreateProp, ProjectPublic, TagProp, TagWithCount
 from app.utils.security import get_current_active_user
 
 router = APIRouter()
@@ -29,10 +29,8 @@ def new_tag(
     return tag
 
 
-@tag_router.get('')
-def get_tag_list(
-    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
-) -> Sequence[TagWithCount]:
+@tag_router.get('', response_model=list[TagWithCount])
+def get_tag_list(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
     tags = tag_crud.get_all(session)
     return tags
 
@@ -51,7 +49,6 @@ def new_project(
         owner_id=current_user.id,
         name=project_prop.name,
         description=project_prop.description,
-        starred=project_prop.starred,
         public=project_prop.public,
         tags=tags,
     )
@@ -77,47 +74,41 @@ def unstar_project(
     project_crud.unstar_project(session, current_user.id, project_id)
 
 
-@router.get('')
+@router.get('', response_model=list[ProjectPublic])
 def get_project_list(
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    offset: int = 0,
-    limit: Annotated[int, Query(le=20)] = 20,
-) -> list[ProjectPublic]:
-    return project_crud.get_all(session, limit, offset, current_user.id)
-
-
-@router.get('/starred')
-def get_starred_project_list(
-    session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    offset: int = 0,
-    limit: Annotated[int, Query(le=20)] = 20,
-) -> list[ProjectPublic]:
-    return project_crud.get_all_star(session, limit, offset, current_user.id)
-
-
-@router.get('/my', response_model=list[ProjectPublic])
-def get_my_project_list(
-    session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    filter_type: Annotated[Optional[str], Query(description='过滤条件: starred, my, all', alias='filter')] = 'all',
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ):
-    return project_crud.get_all_my(session, limit, offset, current_user.id)
+    """获取项目列表
+
+    - filter=all: 获取所有可见项目（公开的或用户拥有的）
+    - filter=starred: 获取用户收藏的项目
+    - filter=my: 获取用户拥有的项目
+    """
+    match filter_type:
+        case 'starred':
+            return project_crud.get_all_star(session, limit, offset, current_user.id)
+        case 'my':
+            return project_crud.get_all_my(session, limit, offset, current_user.id)
+        case 'all':
+            return project_crud.get_all(session, limit, offset, current_user.id)
+        case _:
+            return []
 
 
-@router.get('/recent')
-def get_recent_project(
-    session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]
-) -> Optional[ProjectPublic]:
+@router.get('/recent', response_model=ProjectPublic)
+def get_recent_project(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
+    """获取用户最近更新的项目"""
     return project_crud.get_recent(session, current_user.id)
 
 
-@router.get('/{project_id}')
+@router.get('/{project_id}', response_model=ProjectPublic)
 def get_project(
     project_id: int,
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
-) -> Optional[ProjectPublic]:
+):
     return project_crud.get(session, current_user.id, project_id)

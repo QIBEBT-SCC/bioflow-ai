@@ -1,9 +1,9 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlmodel import SQLModel, Field, Relationship, select
+from sqlmodel import Field, Relationship, SQLModel, select
 
 from app.models.user import User
 
