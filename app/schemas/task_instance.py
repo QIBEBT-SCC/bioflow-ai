@@ -1,16 +1,22 @@
+import uuid
 from datetime import datetime
 from typing import Optional
 
 from pydantic import UUID7, BaseModel
 
 from app.models.workflow import Status, ToolOutput
-from app.schemas.tools import ToolInfo4Task
 from app.schemas.user import UserPublic
 
 
 class RunInfo4Task(BaseModel):
     uid: UUID7
     name: str
+
+
+class ToolInfo4Task(BaseModel):
+    uid: uuid.UUID
+    name: str
+    description: str
 
 
 class SimpleTaskPublic(BaseModel):
@@ -28,7 +34,6 @@ class SimpleTaskPublic(BaseModel):
 
 class TaskPublic(BaseModel):
     uid: UUID7
-    instance_uid: UUID7
     name: str
     owner: UserPublic
     run_instance: RunInfo4Task

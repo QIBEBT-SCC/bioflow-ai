@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Sequence
 
 from loguru import logger
 from sqlalchemy import Select
@@ -29,7 +30,7 @@ def update(session: Session, uid: str, task_update: TaskUpdate) -> TaskInstance:
     return db_task
 
 
-def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[TaskInstance]:
+def get_all(session: Session, limit: int, offset: int, user_id: int) -> Sequence[TaskInstance]:
     statement: Select = (
         select(TaskInstance)
         .where(TaskInstance.owner_id == user_id)
@@ -42,7 +43,7 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[Tas
     return session.exec(statement).all()
 
 
-def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> list[TaskInstance]:
+def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequence[TaskInstance]:
     now = datetime.now(UTC)
     since_time = now - delta
     statement: Select = (

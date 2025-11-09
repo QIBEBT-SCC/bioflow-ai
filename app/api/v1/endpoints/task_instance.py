@@ -12,7 +12,8 @@ from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.user import User
 from app.models.workflow import Status, TaskInstance, TaskMonitor, ToolOutput
-from app.schemas.run_instance import RunUpdate, Stat
+from app.schemas.common import Statistics
+from app.schemas.run_instance import RunUpdate
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic, TaskUpdate
 from app.utils.security import get_current_active_user
 
@@ -46,7 +47,7 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
     run_uid = str(updated_task.instance_uid)
     run_cache = await monitor_redis_client.get(f'run-stats-{run_uid}')
     if run_cache:
-        run_cache_data = Stat.model_validate_json(run_cache.decode('utf-8'))
+        run_cache_data = Statistics.model_validate_json(run_cache.decode('utf-8'))
         match task_update.status:
             case Status.RUNNING:
                 run_cache_data.add_running()

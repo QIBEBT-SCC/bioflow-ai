@@ -1,9 +1,12 @@
+from typing import Sequence
+
 from sqlalchemy import Select
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, select, col, func, case
+from sqlmodel import Session, case, col, func, select
 
 from app.models.workflow import RunInstance, Status, TaskInstance
-from app.schemas.run_instance import RunUpdate, Stat
+from app.schemas.common import Statistics
+from app.schemas.run_instance import RunUpdate
 
 
 def insert(session: Session, run: RunInstance) -> RunInstance:
@@ -30,7 +33,7 @@ def get_run_counts(session: Session, user_id: int):
     return session.exec(statement).one()
 
 
-def get_run_status(session: Session, user_id: int) -> Stat:
+def get_run_status(session: Session, user_id: int) -> Statistics:
     """Get statistics of run instances by their status."""
     stats: Select = (
         select(  # type: ignore
@@ -45,10 +48,10 @@ def get_run_status(session: Session, user_id: int) -> Stat:
     )
 
     total, success, error, running, waiting = session.exec(stats).one()
-    return Stat(total=total, success=success, error=error, running=running, waiting=waiting)
+    return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
-def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> list[RunInstance]:
+def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> Sequence[RunInstance]:
     statement: Select = (
         select(RunInstance)
         .where(RunInstance.owner_id == user_id)
@@ -66,7 +69,7 @@ def get(session: Session, uid: str) -> RunInstance:
     return session.exec(statement).one()
 
 
-def get_run_task_stats(session: Session, uid: str) -> Stat:
+def get_run_task_stats(session: Session, uid: str) -> Statistics:
     statement: Select = (
         select(  # type: ignore
             func.count().label('total'),
@@ -80,4 +83,4 @@ def get_run_task_stats(session: Session, uid: str) -> Stat:
     )
 
     total, success, error, running, waiting = session.exec(statement).one()
-    return Stat(total=total, success=success, error=error, running=running, waiting=waiting)
+    return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)

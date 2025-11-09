@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.tools import ToolTag, ToolImage, ToolDefine, ToolType, ParamDefine, FileMount, ToolHelpDoc
+from app.models.tools import FileMount, ParamDefine, ToolDefine, ToolHelpDoc, ToolImage, ToolTag, ToolType
 from app.utils.input_format import build_command_template
 
 
@@ -172,11 +172,3 @@ class ToolTaskInfo(BaseModel):
     use_temp_dir: bool
 
     image: ToolImage
-
-
-class ToolInfo4Task(BaseModel):
-    uid: uuid.UUID
-    name: str
-    description: str
-
-    file_mounts: list[FileMount]
