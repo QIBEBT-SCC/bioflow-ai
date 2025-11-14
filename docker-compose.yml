@@ -43,7 +43,7 @@ services:
 
   standalone:
     container_name: milvus-standalone
-    image: docker.io/milvusdb/milvus:v2.6.4-gpu
+    image: docker.io/milvusdb/milvus:v2.6.5-gpu
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
@@ -60,13 +60,13 @@ services:
       - "19530:19530"
       - "9091:9091"
     # Docker GPU配置 (适用于Docker Desktop和Docker Engine)
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - driver: nvidia
-#              capabilities: [ "gpu" ]
-#              device_ids: [ "0" ]
+    #    deploy:
+    #      resources:
+    #        reservations:
+    #          devices:
+    #            - driver: nvidia
+    #              capabilities: [ "gpu" ]
+    #              device_ids: [ "0" ]
     
     # Podman GPU配置 (适用于Podman) - 取消注释下面部分并注释上面的deploy部分
     devices:
