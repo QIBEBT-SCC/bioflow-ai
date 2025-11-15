@@ -51,12 +51,42 @@ line-length = 120
 quote-style = "single"
 docstring-code-format = true
 
-[tool.ruff.lint]
-extend-select = ["I"]
-
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[tool.ruff.lint]
+extend-select = ["I"]
+ignore = [
+    "C90", # McCabe complexity
+    "COM812", # Messes with the formatter
+    "FIX002", # Line contains TODO
+    "PERF203", # Rarely useful
+    "PLR09", # Too many something (arg, statements, etc)
+    "RUF012", # Doesn't play well with Pydantic
+    "TC001", # Doesn't play well with Pydantic
+    "TC002", # Doesn't play well with Pydantic
+    "TC003", # Doesn't play well with Pydantic
+    "TD002", # Missing author in TODO
+    "TD003", # Missing issue link in TODO
+    "RUF002", # Em-dash in docstring
+
+    # TODO rules
+    "ANN401", # No type Any
+    "D100", # pydocstyle: missing docstring in public module
+    "PLC0415", # pylint: import-outside-top-level
+    "TRY301", # tryceratops: raise-within-try
+]
+unfixable = [
+    "B028", # People should intentionally tune the stacklevel
+    "PLW1510", # People should intentionally set the check argument
+]
+
+flake8-annotations.allow-star-arg-any = true
+flake8-annotations.mypy-init-return = true
+flake8-type-checking.runtime-evaluated-base-classes = ["pydantic.BaseModel", "langchain_core.load.serializable.Serializable", "langchain_core.runnables.base.RunnableSerializable"]
+pep8-naming.classmethod-decorators = ["classmethod", "langchain_core.utils.pre_init", "pydantic.field_validator", "pydantic.v1.root_validator", ]
+pyupgrade.keep-runtime-typing = true
 
 [dependency-groups]
 dev = [
