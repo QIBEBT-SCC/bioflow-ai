@@ -83,6 +83,7 @@ async def web_searcher(query: str):
 @tool(parse_docstring=True)
 async def web_reader(url: str):
     """Calling this tool allows you to read the content of a specific web page.
+    **This tool prohibits parallel calls! You are only allowed to read one webpage at a time!**
 
     Args:
         url: URL of the web page to read
@@ -91,9 +92,11 @@ async def web_reader(url: str):
     async with AsyncWebCrawler(config=BrowserConfig(proxy_config=proxy, verbose=False, text_mode=True)) as crawler:
         result = await crawler.arun(url=url, config=CrawlerRunConfig(verbose=False, exclude_all_images=True))
 
+    if result.markdown and len(result.markdown) > 8000:
+        return f'<PageContent>\n{result.markdown[:8000]}...\n</PageContent>\n\n'
     return f'<PageContent>\n{result.markdown}\n</PageContent>\n\n'
 
 
 web_summary_middleware = SummarizationMiddleware(
-    model=gemini_25_flash(), max_tokens_before_summary=6000, messages_to_keep=6, summary_prompt=_SUMMARY_SYS
+    model=gemini_25_flash(), max_tokens_before_summary=10000, messages_to_keep=4, summary_prompt=_SUMMARY_SYS
 )
