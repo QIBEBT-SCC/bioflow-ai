@@ -56,28 +56,6 @@ def gemini_25_pro(temperature: float = 0.7, disable_streaming: bool = False) -> 
     return llm
 
 
-def gpt_o4_mini(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
-    if base_url := get_settings().llm.GPT.BASE_URL:
-        provider = get_settings().llm.GPT.PROVIDER
-        llm = ChatOpenAIReasoning(
-            model=f'{provider}/o4-mini' if provider else 'o4-mini',
-            base_url=base_url,
-            api_key=get_settings().llm.GPT.API_KEY,
-            temperature=temperature,
-            disable_streaming=disable_streaming,
-        )
-    else:
-        llm = ChatOpenAIReasoning(
-            model='o4-mini',
-            base_url='https://api.openai.com/v1',
-            api_key=get_settings().llm.GPT.API_KEY,
-            temperature=temperature,
-            disable_streaming=disable_streaming,
-        )
-
-    return llm
-
-
 def gpt_5(temperature: float = 0.7, disable_streaming: bool = False, reasoning_effort: str = 'low') -> ChatOpenAI:
     if base_url := get_settings().llm.GPT.BASE_URL:
         provider = get_settings().llm.GPT.PROVIDER
@@ -88,6 +66,7 @@ def gpt_5(temperature: float = 0.7, disable_streaming: bool = False, reasoning_e
             temperature=temperature,
             disable_streaming=disable_streaming,
             reasoning_effort=reasoning_effort,
+            openai_proxy=get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None,
         )
     else:
         llm = ChatOpenAIReasoning(
@@ -96,6 +75,7 @@ def gpt_5(temperature: float = 0.7, disable_streaming: bool = False, reasoning_e
             temperature=temperature,
             disable_streaming=disable_streaming,
             reasoning_effort=reasoning_effort,
+            openai_proxy=get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None,
         )
 
     return llm
@@ -111,6 +91,7 @@ def gpt_5_mini(temperature: float = 0.7, disable_streaming: bool = False, reason
             temperature=temperature,
             disable_streaming=disable_streaming,
             reasoning_effort=reasoning_effort,
+            openai_proxy=get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None,
         )
     else:
         llm = ChatOpenAIReasoning(
@@ -119,6 +100,7 @@ def gpt_5_mini(temperature: float = 0.7, disable_streaming: bool = False, reason
             temperature=temperature,
             disable_streaming=disable_streaming,
             reasoning_effort=reasoning_effort,
+            openai_proxy=get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None,
         )
 
     return llm
@@ -231,5 +213,5 @@ def qwen3_30b_a3b_think(temperature: float = 0.7, disable_streaming: bool = Fals
 
 @cache_model()
 def qwen3_embedding() -> Qwen3Embeddings:
-    embedding = Qwen3Embeddings(model='Qwen/Qwen3-Embedding-4B', use_modelscope=True)
+    embedding = Qwen3Embeddings(model='Qwen/Qwen3-Embedding-4B', use_modelscope=True, device='cuda:4')
     return embedding

@@ -32,6 +32,8 @@ class SearchImageState(MessagesState, total=False):
     image_uid: uuid.UUID
     image: ImageConfig
 
+    name:str
+    description:str
     homepage: str
     paper_link: str
 

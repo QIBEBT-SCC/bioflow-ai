@@ -12,10 +12,14 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 from pydantic import BaseModel, Field
+from sqlmodel import Session
 
+import app.crud.tools.image as image_crud
+from app.core.session import engine
+from app.models.tools import ImageConfig, ToolImage
 from llm.models import gemini_25_flash, gpt_5_mini
 from llm.states import SearchImageState
-from llm.tools.database import pull_and_save_image, search_local_image, select_image
+from llm.tools.database import search_local_image, select_image
 from llm.tools.human import ask_human
 from llm.tools.images import search_image, view_image_tags
 from llm.tools.web_search import web_reader, web_searcher, web_summary_middleware
@@ -60,127 +64,149 @@ SEARCHER_SYSTEM = """## Role Definition
 *   `search_local_image`工具不支持并行调用，如果有多个搜索目标，必须按顺序一个接一个地生成请求
 """
 
-SEARCH_HOMEPAGE_SYS = """## Role & Goal
-You are a rigorous and focused bioinformatics research assistant agent. Your core task is to, based on a user-provided bioinformatics tool name, precisely locate its **official homepage** and its **single, foundational citation paper** through a series of searches and validations. You must also provide an accessible link for the paper.
+SEARCH_INFO_SYS = """You are an AI assistant specializing in the field of bioinformatics. 
+Your task is to identify the bioinformatics command-line tools mentioned by the user, call the tool for an internet search, and finally output the details of this tool in the specified format.
 
 <AvailableTools>
 - `web_searcher`: Takes a string as a search query and returns a list of search results.
 - `web_reader`: Takes a URL and returns the text content of that webpage.
+
+To save tokens, all tools are forbidden from parallel invocation, meaning **you can only call one tool at a time**.
 </AvailableTools>
 
+<ToolInfoSchema>
+Your final output needs to be a JSON string containing the following fields:
 
-<Instructions>
-You must strictly follow the steps and priority order below. For each step, you should think and state your plan.
-
-### Step 1: Validate and Determine the Homepage
-1.  **Initial Search**:
-    *   **Primary Strategy (P1):** Search for the tool's official GitHub repository. Call `web_searcher` using a query like `"[tool_name] github"`.
-    *   **Secondary Strategy (P2):** If a suitable GitHub repository cannot be found, search for its official website. Call `web_searcher` using a query like `"[tool_name] bioinformatics tool"`.
-
-2.  **Critical Validation (Mandatory Step)**:
-    *   You **must** verify that the discovered homepage is indeed for a **bioinformatics tool**.
-    *   **Action:** For the most promising URL, use `web_reader` to read its content (e.g., the GitHub README or website homepage).
-    *   **Criteria:** Check if the page description, title, or content explicitly contains keywords from the bioinformatics domain, such as: `bioinformatics`, `genomics`, `computational biology`, `sequence`, `alignment`, `genome`, `DNA`, `RNA`, `protein`, etc.
-    *   **Decision:** Only after confirming its bioinformatics context can you designate it as the homepage. If a project with the same name clearly belongs to another field (e.g., web development, gaming), you **must** ignore it and continue your search.
-
-3.  **Final Determination**:
-    *   Identify a single, validated, and most authoritative URL as the homepage. If, after validation, no relevant homepage is found, the task fails. Inform the user.
-
-### Step 2: Locate and Link the Core Citation Paper
-1.  **Extract Citation Information**:
-    *   Call `web_reader` on the homepage URL determined in Step 1.
-    *   Search the content for keywords like `cite`, `citation`, `publication`, `paper`, `reference` to find the citation section.
-
-2.  **Select the Foundational Paper**:
-    *   **Rule:** If multiple papers are found, you **must** select the one with the **earliest** publication year. This is typically the foundational paper that introduced the tool's core algorithm or first release. Record its title, authors, year, and any available identifiers (DOI, arXiv ID, etc.).
-
-3.  **Obtain an Accessible HTTP Link (Mandatory Step)**:
-    *   You must provide a direct HTTP link for the paper selected above. Follow this priority order:
-        1.  **Direct Link:** If the citation info already includes a full URL, use it directly.
-        2.  **Convert Identifiers:** If a **DOI** is provided (e.g., `10.1093/bioinformatics/btp352`), you must convert it to the format `https://doi.org/10.1093/bioinformatics/btp352`. If an **arXiv ID** is provided (e.g., `arXiv:1303.3997`), you must convert it to `https://arxiv.org/abs/1303.3997`.
-        3.  **Obtain via Search:** If only text information (like the title) is available, you **must** perform an additional search (e.g., `web_searcher(query='"Paper Title"')`) to find an authoritative link (from the journal's website, PubMed, etc.).
-
-4.  **Fallback Plan**:
-    *   If no citation information can be found on the homepage, search directly online using `"[tool_name] paper"`. After finding results, follow the rules in **Step 2.2** and **2.3**.
-
-5.  **Final Handling**:
-    *   If all methods fail to find any paper, you must clearly state "Not found" in the "Foundational Paper" section.
-</Instructions>
-
+-   `name`: The name of the tool
+    -   If the input is a subcommand (e.g., `samtools view`), you must return the parent tool's name (`samtools`).
+    -   If an official abbreviation exists (e.g., `GATK` for `Genome Analysis Toolkit`), you **must** use it.
+    -   Use the exact name from the official source, respecting its case and spelling.
+-   `description`: The description of this tool
+    -   You **must not** summarize or rephrase. Find the official, one-paragraph description from the tool's homepage or the top of its `README.md` and quote it exactly.
+-   `document_url`: Tool documentation page URL
+    -   If a GitHub repository exists, begin your search there. It's the best central point.
+    -   From the repository, check the "About" section, links in the `README.md`, and the github wiki tab to find all potential documentation sites.
+    -   Choose the single best URL. A dedicated documentation site (e.g., `docs.tool.com` or `tool.github.io`) is usually preferable to a `README`, unless the dedicated site is clearly outdated.
+-   `paper_url`: Link to the corresponding paper of the tool
+    -   Look for a "How to Cite," "Citation," or "Publication" section on the tool's official website or GitHub `README.md`.
+    -   If multiple papers are listed, choose the one that originally introduced the tool (usually the oldest).
+    -   Provide a direct URL to the paper, preferably a DOI link (e.g., `https://doi.org/...`).
+    -   You should **not** use `web_reader` on the paper's URL. Verifying the paper's relevance from the search result title and snippet is sufficient.
+    -   **Stop if Not Provided**: If the authors do not provide a citation link on their official sites, or after several searches no usable links were found, leave the field empty. Do not perform a separate web search to find a paper.
+</ToolInfoSchema>
 
 <Example>
-**User Input:** `samtools`
+**Example 1: User input is a command-line tool (with an official abbreviation)**
 
-**Agent's Ideal Internal Thought and Action Process:**
-1.  **Thought:** My task is to find the homepage and the original paper for `samtools`. I will start by searching GitHub.
-2.  **Action:** `web_searcher(query="samtools github")`
-3.  **Thought:** The first result, `github.com/samtools/samtools`, looks official. I need to validate it.
-4.  **Action:** `web_reader(url="https://github.com/samtools/samtools")`
-5.  **Thought:** Reading the README, the description includes "Tools for ... SAM/BAM/CRAM format," which is clearly bioinformatics-related. Validation passed. The homepage is confirmed.
-6.  **Thought:** Now I will look for a "Citing samtools" section in the README. I found it.
-7.  **Thought:** The section lists two papers, one from 2009 and one from 2021. According to the rules, I must choose the earliest one: the 2009 paper, "The Sequence Alignment/Map format and SAMtools".
-8.  **Thought:** The paper provides a DOI: `10.1093/bioinformatics/btp352`. I must convert this into an accessible link: `https://doi.org/10.1093/bioinformatics/btp352`.
-9.  **Thought:** I have all the necessary information. I will now output it in the required format.
+**User Input:**
+"Search about `Genome Analysis Toolkit (GATK)`, and here is used for performing base recalibration on sequencing data"
 
-**Final Result:**
-Homepage: https://github.com/samtools/samtools
-Foundational Paper: https://doi.org/10.1093/bioinformatics/btp352
+**Expected Output:**
+```json
+{{
+  "name": "GATK",
+  "description": "The Genome Analysis Toolkit or GATK is a bioinformatics software package for analyzing next-generation DNA sequencing data. The toolkit offers a wide variety of tools with a primary focus on variant discovery and genotyping.",
+  "document_url": "https://gatk.broadinstitute.org/hc/en-us",
+  "paper_url": "http://biorxiv.org/lookup/doi/10.1101/201178"
+}}
+```
+</Example>
+
+<Example>
+**Example 2: User input is a subcommand**
+
+**User Input:**
+"Search about `samtools view`, and here is used for viewing and converting SAM/BAM files"
+
+**Expected Output:**
+```json
+{{
+  "name": "samtools",
+  "description": "Samtools is a suite of programs for interacting with high-throughput sequencing data. It consists of three separate repositories: samtools, bcftools, htslib.",
+  "document_url": "https://www.htslib.org/doc/samtools.html",
+  "paper_url": "https://doi.org/10.1093/gigascience/giab008"
+}}
+```
 </Example>
 """
 
-SEARCH_IMAGE_SYS = """# Role and Goal
-You are an expert AI assistant responsible for automatically finding, selecting, and saving the most suitable Docker image for a given tool. You must strictly follow a predefined workflow and set of rules to complete this task efficiently and accurately. Your final objective is to call the `pull_and_save_image` tool with all a-required, correctly formatted parameters.
+SEARCH_IMAGE_SYS = """You are an expert agent designed to find the most suitable and available container image for a given software tool.
+Your primary task is to process information about a tool, search for its container image, and return the result in a structured format.
 
-# Available Tools
-- `search_image`: Searches for public Docker images based on a tool's name.
-- `view_image_tags`: Lists all available tags for a specific Docker image.
-- `web_reader`: Reads and understands the content of a webpage, primarily used for accessing the tool's official homepage.
-- `pull_and_save_image`: Pulls a Docker image and saves its metadata to a database.
-- `ask_human`: Requests human intervention when you cannot resolve the problem independently.
 
-# Core Workflow
-You must execute your tasks following this logical sequence:
+<AvailableTools>
+You have access to the following specialized tools to accomplish your task:
+*   `search_image`: Use this tool to search for images within the Biocontainers repository based on the tool's name.
+*   `view_image_tags`: Use this tool to retrieve all available tags for a specific image found in Biocontainers.
+*   `web_reader`: Use this tool to read the content of a given URL, specifically for finding official image information in the tool's documentation.
+*   `ask_human`: When you have used multiple query methods and still haven't found an available mirror, call this tool to request further information from a human.
 
-1.  **Initial Search**: Use the `search_image` tool based on the user-provided tool name.
-2.  **Analyze and Filter Images**:
-    *   **If `search_image` returns multiple results**: **You must first filter them to select the single most credible image** before proceeding. Follow the **[Image Selection Rules]** below to make your decision.
-    *   **If `search_image` returns only one credible result**: Proceed directly to the next step.
-    *   **If `search_image` returns no results**: Switch strategy. Use `web_reader` on the tool's homepage to find an official image URL. If found, treat it as the sole candidate and proceed.
-3.  **View and Select Tag**: Once a single image is identified, use `view_image_tags` to inspect all its available tags. Then, select the most appropriate tag according to the **[Image Tag Selection Rules]**.
-4.  **Gather Information**: After determining the final image and tag, use `web_reader` on the tool's homepage to find the official description for the `description` parameter.
-5.  **Final Execution**:
-    *   **If successful**: Assemble all parameters (`name`, `image_url`, `version`, `description`) and call `pull_and_save_image`.
-    *   **If all methods fail**: Call `ask_human`, clearly explaining the steps you've taken.
+To save tokens, all tools are forbidden from parallel invocation, meaning **you can only call one tool at a time**.
+</AvailableTools>
 
-# Detailed Instructions and Constraints
-You must strictly adhere to the following rules:
 
-**[Image Selection Rules] (For filtering multiple search results)**
-1.  **Prioritize Official or Trusted Sources**: Give precedence to images marked as "Official Image" or from well-known, trusted organizations (e.g., `biocontainers`).
-2.  **Evaluate Name Match and Pull Count**: Among credible candidates, select the one whose name most closely matches the tool's name and has a **significantly higher pull count**. A high pull count is a strong indicator of community trust and widespread use.
-3.  **Make a Final Decision**: Your goal is to narrow down the candidates to **only one** single, most appropriate image before calling `view_image_tags`.
+<ChainOfThought>
+You should follow a structured reasoning process to ensure accuracy and efficiency:
+1.  **Analyze**: Carefully examine the input `<ToolInformation>` (name, description, document_url).
+2.  **Prioritize Biocontainers**: Your first action is always to use `search_image` with the tool's name.
+3.  **Evaluate Search Results**:
+    *   If no results are found, proceed directly to step 6 (Consult Documentation).
+    *   If one result is found, verify its relevance and proceed to step 5 (Get Tags).
+    *   If multiple results are found, apply the **[Image Selection Rules]** to identify the single best match. If no match is satisfactory, proceed to step 6.
+4.  **Get Tags**: Once a suitable image is identified, use `view_image_tags` to fetch all its tags.
+5.  **Select Best Tag**: Apply the **[Image Tag Selection Rules]** to the list of tags to choose the most appropriate one. Once selected, proceed to step 7 (Format Output).
+6.  **Consult Documentation**: This step is a fallback. Use `web_reader` with the `document_url` only if the Biocontainers search was unsuccessful. Look for an officially provided or recommended Docker image. 
+    *   If you find one, attempt to determine its version and best tag, then proceed to step 7.
+    *   If still no suitable result is found, call the `ask_human` tool and make further decisions based on the human feedback.
+7.  **Format Output**: Based on your findings, construct the final JSON object according to the **[Output Structure]**. If at any point you conclude no suitable image exists from either source, ensure the output fields are empty.
+</ChainOfThought>
 
-**[Image Tag Selection Rules] (For filtering multiple tags of a single image)**
-1.  **Latest Version First**: Filter for tags corresponding to the highest version number.
-2.  **Priorities for Same Version**: If the latest version has multiple tags, choose in this order:
-    *   a. **Prefer Base Image**: Select the base image without extra services (e.g., databases).
-    *   b. **Prefer Newer Build Environment**: Choose the newer environment if specified (e.g., `py312` is better than `py39`).
-    *   c. **Prefer Later Publication**: If still tied, choose the most recently published one.
 
-**[`pull_and_save_image` Parameter Details]**
-*   `name`: The tool's name, as provided by the user.
-*   `image_url`: The full image URL (`[registry]/[namespace]/[repository]:tag`), including the specific tag you selected.
-*   `version`: The **clean version number** extracted from the selected image tag (e.g., extract `1.10.3` from `1.10.3--h45fbf2d_5`). This version **must** come from the tag, not the homepage.
-*   `description`: The tool's official description.
-    *   **Must** be obtained using `web_reader` from the tool's homepage.
-    *   **You must quote verbatim the core introductory text about the tool's function. Do not summarize, abbreviate, or rephrase it.**
-    *   This description is about the **tool's purpose**, not your current task.
+<DetailInstructions>
+*   **Biocontainers First**: Always start by searching Biocontainers. Do not use the `web_reader` unless the Biocontainers search yields no relevant results.
+*   **No Image Found**: If you have exhausted both the Biocontainers search and the official documentation via `web_reader` without finding a usable image, you **must** return an empty result. Do not fabricate or guess an image URL.
+*   **Be Decisive**: Your goal is to select one single best image and tag, not to provide a list of options.
+
+### **[Image Selection Rules]** (For filtering multiple search results)
+When `search_image` returns multiple potential images, apply these rules in order to select the single most appropriate one:
+1.  **Name & Description Match**: The image's name and description must have the highest relevance to the tool's name and description from the input.
+2.  **Pull Count**: Prefer the image with a significantly higher number of pulls, as this indicates it is more widely used and trusted.
+3.  **Relevance**: If pull counts are similar or low, re-evaluate the description to ensure it perfectly matches the intended tool.
+
+### **[Image Tag Selection Rules]** (For filtering multiple tags of a single image)
+After selecting an image and retrieving its tags with `view_image_tags`, apply these rules in order to select the single best tag:
+1.  **Latest Tool Version**: Prioritize the tag corresponding to the newest stable version of the tool (e.g., choose `v2.5.1` over `v2.4.0`).
+2.  **Base Image First**: If a single version has multiple builds, prefer the base image. Base images typically have simpler tags and smaller file sizes, avoiding extra dependencies like databases (e.g., prefer `...-py3` over `...-py3-db12`).
+3.  **Newer Build Environment**: If multiple base images exist for the same tool version, choose the one with a more recent build environment (e.g., prefer `...-py12` over `...-py9`).
+4.  **Latest Publication Date**: If all other factors are equal, select the tag that was published most recently.
+</DetailInstructions>
+
+
+<OutputStructure>
+Your final output must be a JSON object that strictly conforms to the `ToolImageOuput` model.
+*   `image_url`: The full Docker image URL for the tool, which must follow the `[registry]/[namespace]/[repository]:tag` format
+    *   Note that images from `docker.io` sometimes omit the registry; you must remember to add it.
+    *   **Example**: `quay.io/biocontainers/samtools:1.22.1--h96c455f_0`
+*   `version`: The tool's own version number(string).
+    *   This version should be extracted from the image tag and must be distinguished from the full tag, which may contain additional build information (like environment, build number, etc.).
+    *   **Example**: For the tag `1.22.1--h96c455f_0`, the corresponding version should be `1.22.1`.
+</OutputStructure>
 """
 
 
-class ToolInfoSchema(BaseModel):
-    homepage: str = Field(description="Tool's homepage, prioritizing the GitHub source code repository")
-    paper_url: Optional[str] = Field(description="Link to the tool's publication, leave blank if not applicable")
+class ToolInfoOuput(BaseModel):
+    name: str = Field(description='The name of the tool')
+    description: str = Field(description='The description of this tool')
+    document_url: Optional[str] = Field(description='Tool documentation page URL', default=None)
+    paper_url: Optional[str] = Field(description='Link to the corresponding paper of the tool', default=None)
+
+
+class ToolImageOuput(BaseModel):
+    image_url: str = Field(
+        description='The Docker image of the tool, in the format `[registry]/[namespace]/[repository]:tag`',
+        default=None,
+    )
+    version: str = Field(description='The version of the tool', default=None)
 
 
 class GetImageAgent:
@@ -194,25 +220,26 @@ class GetImageAgent:
         self.search_info_agent = create_agent(
             model=self.llm,
             tools=[web_searcher, web_reader],
-            system_prompt=SEARCH_HOMEPAGE_SYS,
+            system_prompt=SEARCH_INFO_SYS,
             middleware=[web_summary_middleware],
-            response_format=ToolInfoSchema,
+            response_format=ToolInfoOuput,
         )
         self.search_image_agent = create_agent(
             model=self.llm,
-            tools=[search_image, view_image_tags, web_reader, pull_and_save_image, ask_human],
+            tools=[search_image, view_image_tags, web_reader, ask_human],
             system_prompt=SEARCH_IMAGE_SYS,
-            state_schema=SearchImageState,
             middleware=[
                 SummarizationMiddleware(
                     model=gemini_25_flash(),
-                    max_tokens_before_summary=6000,
+                    max_tokens_before_summary=10000,
                     messages_to_keep=6,
                 )
             ],
+            response_format=ToolImageOuput,
         )
 
-    async def searcher_node(self, state: SearchImageState):
+    async def local_searcher_node(self, state: SearchImageState):
+        """尝试搜索本地数据库，是否已经有保存的镜像"""
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=SEARCHER_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
@@ -225,13 +252,55 @@ class GetImageAgent:
     async def fix_tool_call_node(state):
         return {'messages': [HumanMessage(content='Continue to call tools to complete the task')]}
 
+    async def info_searcher_node(self, state: SearchImageState):
+        response = await self.search_info_agent.ainvoke({'messages': state['messages']})
+        tool_info: ToolInfoOuput = response['structured_response']
+        msg_content = (
+            f'<ToolInformation>\n'
+            f'name: {tool_info.name}\n'
+            f'description: {tool_info.description}\n'
+            f'document_url: {tool_info.document_url}\n'
+            f'</ToolInformation>'
+        )
+        return {
+            'messages': [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                HumanMessage(content=msg_content),
+            ],
+            'name': tool_info.name,
+            'description': tool_info.description,
+            'homepage': tool_info.document_url,
+            'paper_link': tool_info.paper_url,
+        }
+
+    async def image_searcher_node(self, state: SearchImageState):
+        response = await self.search_image_agent.ainvoke({'messages': state['messages']})
+        tool_image: ToolImageOuput = response['structured_response']
+
+        with Session(engine) as session:
+            new_image = ToolImage(
+                name=state['name'],
+                image=ImageConfig.from_str(tool_image.image_url),
+                version=tool_image.version,
+                description=state['description'],
+                homepage=state['homepage'],
+                paper_link=state['paper_link'],
+            )
+            new_image = image_crud.insert(session, new_image)
+            image_uid = new_image.uid
+
+        return {
+            'image_uid': image_uid,
+            'image': new_image.image,
+        }
+
     @staticmethod
-    def searcher_router(state: SearchImageState) -> Literal['search_tool', 'continue_search', '__end__']:
+    def searcher_router(state: SearchImageState) -> Literal['local_search_tool', 'continue_search', '__end__']:
         last_message = state['messages'][-1]
         assert isinstance(last_message, AIMessage)
 
         if last_message.tool_calls:
-            return 'search_tool'
+            return 'local_search_tool'
 
         if 'image_uid' not in state or not state['image_uid']:
             return 'continue_search'
@@ -239,47 +308,27 @@ class GetImageAgent:
         return END
 
     @staticmethod
-    def search_tool_router(state: SearchImageState) -> Literal['searcher', 'homepage_searcher']:
+    def search_tool_router(state: SearchImageState) -> Literal['local_searcher', 'info_searcher']:
         last_message = state['messages'][-1]
 
         if isinstance(last_message, HumanMessage):
-            return 'homepage_searcher'
+            return 'info_searcher'
 
-        return 'searcher'
-
-    async def homepage_searcher_node(self, state: SearchImageState):
-        response = await self.search_info_agent.ainvoke({'messages': state['messages']})
-        return {
-            'messages': [
-                HumanMessage(content=f'The homepage of the tool is {response["structured_response"].homepage}')
-            ],
-            'homepage': response['structured_response'].homepage,
-            'paper_link': response['structured_response'].paper_url,
-        }
-
-    async def image_searcher_node(self, state: SearchImageState):
-        response = await self.search_image_agent.ainvoke(
-            {'messages': state['messages'], 'homepage': state['homepage'], 'paper_link': state['paper_link']}
-        )
-        return {
-            'messages': [response['messages'][-1]],
-            'image_uid': response['image_uid'],
-            'image': response['image'],
-        }
+        return 'local_searcher'
 
     def build(self, visualize: bool = False):
         graph = StateGraph(state_schema=SearchImageState)
-        graph.add_node('searcher', self.searcher_node)
-        graph.add_node('search_tool', self.search_tool_node)
+        graph.add_node('local_searcher', self.local_searcher_node)
+        graph.add_node('local_search_tool', self.search_tool_node)
         graph.add_node('continue_search', self.fix_tool_call_node)
-        graph.add_node('homepage_searcher', self.homepage_searcher_node)
+        graph.add_node('info_searcher', self.info_searcher_node)
         graph.add_node('image_searcher', self.image_searcher_node)
 
-        graph.set_entry_point('searcher')
-        graph.add_conditional_edges('searcher', self.searcher_router)
-        graph.add_conditional_edges('search_tool', self.search_tool_router)
-        graph.add_edge('continue_search', 'searcher')
-        graph.add_edge('homepage_searcher', 'image_searcher')
+        graph.set_entry_point('local_searcher')
+        graph.add_conditional_edges('local_searcher', self.searcher_router)
+        graph.add_conditional_edges('local_search_tool', self.search_tool_router)
+        graph.add_edge('continue_search', 'local_searcher')
+        graph.add_edge('info_searcher', 'image_searcher')
         graph.add_edge('image_searcher', END)
 
         compiled_graph = graph.compile(name='get_image_agent')
@@ -294,7 +343,7 @@ class GetImageAgent:
         return compiled_graph
 
 
-@tool
+@tool(parse_docstring=True)
 def need_new_image(name: str, tool_call_id: Annotated[str, InjectedToolCallId]):
     """Initiate a request to create a new image
 
