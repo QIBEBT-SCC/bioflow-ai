@@ -82,6 +82,11 @@ def get(session: Session, image_uid: str) -> Optional[ToolImage]:
     return session.exec(query).one_or_none()
 
 
+def get_by_name(session: Session, name: str) -> Optional[ToolImage]:
+    query: Select = select(ToolImage).where(ToolImage.name == name)
+    return session.exec(query).one_or_none()
+
+
 def get_counts(session: Session) -> int:
     query: Select = select(func.count()).select_from(ToolImage)
     return session.exec(query).one()

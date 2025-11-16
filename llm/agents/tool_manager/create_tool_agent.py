@@ -2,7 +2,6 @@ import uuid
 from pathlib import Path
 from typing import Literal, Optional
 
-import rich
 from langchain.agents import create_agent
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
@@ -16,6 +15,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -30,6 +30,7 @@ from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
 from llm.agents.tool_manager.generate_tool_config import ToolGenerator
 from llm.agents.tool_manager.image_agent import GetImageAgent
+from llm.agents.tool_manager.search_toolnode_agent import search_exist_tool_agent
 from llm.agents.tool_manager.test_run_agent import test_run_agent
 from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.states import (
@@ -214,7 +215,7 @@ class TempIDClass(BaseModel):
 
 
 class CreateToolAgent:
-    def __init__(self, save_message: bool = False, test_run_id: Optional[str] = None):
+    def __init__(self):
         self.struct_llm = gpt_5(0.2)
         self.think_llm = gpt_5_mini(0.3)
 
@@ -226,28 +227,6 @@ class CreateToolAgent:
             system_prompt=GET_DOC_SYSTEM,
             state_schema=GetDocState,
         )
-        # self.deepwiki_agent = create_agent(
-        #     model=self.think_llm,
-        #     tools=[*deepwiki_tools, web_searcher, web_reader],
-        #     middleware=[
-        #         SummarizationMiddleware(
-        #             model=gpt_5_mini(),
-        #             max_tokens_before_summary=6000,
-        #             messages_to_keep=6,
-        #         )
-        #     ],
-        #     system_prompt=SEARCH_BY_DEEPWIKI,
-        # )
-        # self.web_search_agent = create_agent(
-        #     model=self.think_llm,
-        #     tools=[web_searcher, web_reader],
-        #     middleware=[
-        #         SummarizationMiddleware(
-        #             model=gpt_5_mini(), max_tokens_before_summary=6000, messages_to_keep=6, summary_prompt=SUMMARY_SYS
-        #         )
-        #     ],
-        #     system_prompt=SEARCH_BY_WEB,
-        # )
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, add_group, select_group],
@@ -255,11 +234,6 @@ class CreateToolAgent:
             state_schema=SelectGroupState,
         )
         self.tool_generator = ToolGenerator(llm=self.struct_llm).build()
-
-        # 与保存微调数据有关，日常使用不应修改
-        self.save_message = save_message
-        self.test_run_id = test_run_id
-        self.dataset_file = 'test_run.parquet'
 
     async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
@@ -303,79 +277,56 @@ class CreateToolAgent:
             'doc': doc.content,
         }
 
-    # async def generate_command_node(self, state: CreateToolState):
-    #     """获取到帮助文档之后，就可以生成用于参考的命令"""
-    #     writer = get_stream_writer()
-    #     writer({'info': 'Generating example command...'})
-    #
-    #     class CommandStructure(BaseModel):
-    #         command: str = Field(
-    #             description='Reference commands generated based on requirements and help documentation'
-    #         )
-    #
-    #     prompt = ChatPromptTemplate(
-    #         messages=[SystemMessage(content=GENERATE_COMMAND_SYS), MessagesPlaceholder(variable_name='history')]
-    #     )
-    #     chain = prompt | self.think_llm.with_structured_output(CommandStructure)
-    #     response = await chain.ainvoke({'history': state['messages']})
-    #
-    #     return {
-    #         'messages': [
-    #             AIMessage(
-    #                 content='Great, it would be even better if you could give me an actual command for reference.'
-    #             ),
-    #             HumanMessage(content=response.command),
-    #         ],
-    #         'command': response.command,
-    #     }
+    async def search_exist_tool_node(self, state: CreateToolState) -> Command[Literal['get_report', '__end__']]:
+        writer = get_stream_writer()
+        writer({'info': 'Searching if an available node already exists locally...'})
 
-    # async def deepwiki_node(self, state: CreateToolState):
-    #     """尝试获取工具的输出结果（使用deepwiki）"""
-    #     writer = get_stream_writer()
-    #     writer({'info': 'Getting more information through deepwiki...'})
-    #
-    #     input_message = {
-    #         'messages': [
-    #             HumanMessage(
-    #                 content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
-    #             )
-    #         ]
-    #     }
-    #     response = await self.deepwiki_agent.ainvoke(input_message)
-    #
-    #     return {
-    #         'messages': [
-    #             AIMessage(
-    #                 content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
-    #             ),
-    #             HumanMessage(content=response['messages'][-1].content),
-    #         ]
-    #     }
-    #
-    # async def web_search_node(self, state: CreateToolState):
-    #     """尝试获取工具的输出结果（使用web search）"""
-    #     writer = get_stream_writer()
-    #     writer({'info': 'Getting more information through web search...'})
-    #
-    #     input_message = {
-    #         'messages': [
-    #             HumanMessage(
-    #                 content=f'The tool command to be analyzed is: `{state["command"]}`, the github repo of tool is {state["homepage"]}'
-    #             )
-    #         ]
-    #     }
-    #     response = await self.web_search_agent.ainvoke(input_message)
-    #
-    #     return {
-    #         'messages': [
-    #             AIMessage(
-    #                 content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
-    #             ),
-    #             HumanMessage(content=f'The information I found is as follows:\n{response}'),
-    #         ]
-    #     }
+        pre_search_result = await search_exist_tool_agent.ainvoke(
+            {
+                'messages': state['messages'],
+                'image_uid': state['image_uid'],
+            }
+        )
+        if 'tool_uid' in pre_search_result and pre_search_result['tool_uid']:
+            with Session(engine) as session:
+                tool_data = tool_crud.get(session, pre_search_result['tool_uid'])
 
-    async def get_report_node(self, state: CreateToolState):
+                mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
+                tool_node = ToolNodePublic.model_validate(tool_data.model_dump())
+                tool_info = (
+                    f'<tool>\n'
+                    f'  <name>{tool_node.name}</name>\n'
+                    f'  <description>{tool_node.description}</description>\n'
+                    f'  <input_handles>\n'
+                    f'{handle_formatter(tool_node.input_handles, 4)}\n'
+                    f'  </input_handles>\n'
+                    f'  <output_handles>\n'
+                    f'{handle_formatter(tool_node.output_handles, 4)}\n'
+                    f'  </output_handles>\n'
+                    f'  <data>\n'
+                    f'    <tool_id>{mapper.get_index_by_uid(str(tool_data.uid))}</tool_id>\n'
+                    f'    <args>{tool_node.static_params}<args>\n'
+                    f'  </data>\n'
+                    f'  <command>{tool_node.complete_command}</command>\n'
+                    f'</tool>'
+                )
+            return Command(
+                goto=END,
+                update={
+                    'id_mapper': mapper,
+                    'tool_uid': str(tool_data.uid),
+                    'messages': [
+                        (
+                            'human',
+                            f'Found existing tools: \n\n {tool_info}',
+                        )
+                    ],
+                },
+            )
+
+        return Command(goto='get_report')
+
+    async def get_report_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
         """获取工具的输出结果"""
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
@@ -383,23 +334,23 @@ class CreateToolAgent:
         testrun_input: TestRunState = {'messages': state['messages'], 'tool_image': state['image']}
         response = await test_run_agent.ainvoke(testrun_input)
 
-        if self.save_message:
+        if runtime.context.save_message:
             import polars as pl
 
             message_dicts = [m.model_dump_json() for m in response['messages']]
             new_data = {
                 'question': [state['messages'][0].content],
-                'test_run_id': [self.test_run_id],
-                'messages': [message_dicts],  # Convert to list of dicts
+                'test_run_id': [runtime.context.test_run_id],
+                'messages': [message_dicts],
             }
             df_new = pl.DataFrame(new_data)
 
-            if Path(self.dataset_file).exists():
-                df_existing = pl.read_parquet(self.dataset_file)
+            if Path(runtime.context.dataset_file).exists():
+                df_existing = pl.read_parquet(runtime.context.dataset_file)
                 df_existing = df_existing.vstack(df_new)
-                df_existing.write_parquet(self.dataset_file, compression='snappy')
+                df_existing.write_parquet(runtime.context.dataset_file, compression='snappy')
             else:
-                df_new.write_parquet(self.dataset_file, compression='snappy')
+                df_new.write_parquet(runtime.context.dataset_file, compression='snappy')
 
         return {
             'messages': [
@@ -450,11 +401,10 @@ class CreateToolAgent:
             # 添加描述的向量索引
             embedding_model = qwen3_embedding()
             vectorstore = Milvus(
-                embedding_function=embedding_model,
                 collection_name='ToolCollection',
-                connection_args={'uri': get_settings().persistent.MILVUS_URL},
+                connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+                embedding_function=embedding_model,
                 index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-                search_params={'M': 64, 'efConstruction': 100},
                 consistency_level='Strong',
                 drop_old=False,
                 auto_id=True,
@@ -463,7 +413,11 @@ class CreateToolAgent:
             docs = [
                 Document(
                     page_content=tool_data.description,
-                    metadata={'tool_uid': str(tool_data.uid), 'name': tool_data.name},
+                    metadata={
+                        'image_uid': str(tool_data.image_uid),
+                        'tool_uid': str(tool_data.uid),
+                        'name': tool_data.name,
+                    },
                 ),
             ]
             await vectorstore.aadd_documents(docs)
@@ -491,6 +445,7 @@ class CreateToolAgent:
 
         return {
             'id_mapper': mapper,
+            'tool_uid': str(tool_data.uid),
             'messages': [
                 (
                     'human',
@@ -500,12 +455,14 @@ class CreateToolAgent:
         }
 
     @staticmethod
-    def how_to_get_output(state: CreateToolState) -> Literal['deepwiki', 'web_search']:
-        if homepage := state['homepage']:
-            if 'github.com' in homepage:
-                return 'deepwiki'
+    def whether_local_search(
+        state: CreateToolState, runtime: Runtime[CreateToolContext]
+    ) -> Literal['search_exist_tool', 'get_report']:
+        """如果是以智能体模式运行，需要检查冗余"""
+        if runtime.context.auto_save:
+            return 'search_exist_tool'
 
-        return 'web_search'
+        return 'get_report'
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(
@@ -514,13 +471,14 @@ class CreateToolAgent:
 
         graph.add_node('select_image', self.select_image_node)
         graph.add_node('get_doc', self.get_doc_node)
+        graph.add_node('search_exist_tool', self.search_exist_tool_node)
         graph.add_node('get_report', self.get_report_node)
         graph.add_node('choose_group', self.choose_group_node)
         graph.add_node('generate_tool_config', self.generate_tool_node)
 
         graph.set_entry_point('select_image')
         graph.add_edge('select_image', 'get_doc')
-        graph.add_edge('get_doc', 'get_report')
+        graph.add_conditional_edges('get_doc', self.whether_local_search)
         graph.add_edge('get_report', 'choose_group')
         graph.add_edge('choose_group', 'generate_tool_config')
         graph.add_edge('generate_tool_config', END)

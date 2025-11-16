@@ -25,7 +25,6 @@ You can use the following resources:
 1.  **User Request**: The original instruction specifying the tool to be analyzed.
 2.  **Tool Documentation**: The complete `--help` output of the target tool.
 3.  **Test Data**: A read-only raw test data directory located at `/data/testdata`.
-    * 
 </Context>
 
 
@@ -43,7 +42,8 @@ You can use the following resources:
     b. Formulate a plan. If all input files already exist in `/data/testdata` or can be reused from `/data/output`, proceed directly to the execution phase.
     c. If input files must be generated through new preprocessing, plan the necessary steps:
         *   The core purpose of the system is to analyze the target tool's output behavior, not to perform a complete, scientifically rigorous analysis pipeline. Therefore, when using the `micromamba` container for preprocessing, your goal is to generate the input files required by the target tool in the **simplest, most direct** way possible. Ignore all complex, non-essential steps such as quality control, filtering, or normalization. The goal is simply to produce correctly formatted input files.
-        *   After planning, create and switch to the `micromamba` container to install and run preprocessing tools. Once all required input files are obtained, switch back to the `tool` container.
+        *   After planning, create and switch to the `micromamba` container to install and run preprocessing tools. Install the tools needed to generate intermediate files using a command similar to `micromamba install bioconda::samtools -y`.
+        *   Once all required input files are obtained, switch back to the `tool` container.
 3.  **Execution**:
     a. Create the `/data/00_raw` directory and copy all input file duplicates, following the security regulations in `<ExecutionRules>`.
     b. Record commands according to audit rules.
@@ -81,6 +81,7 @@ You can use the following resources:
 *   **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
 *   **Exceptions**: If the tool supports it, you can add the following two types of parameters in addition to the minimal command:
     *   Add parameters related to threads (set to 16) and memory (set to 32G).
+    *   Add parameters related to the output file name (e.g., `--prefix`, `--name`).
     *   If the tool has built-in logging functionality (e.g., `--log-file`, `-l`), it should be added to the command.
 
 ### 4. Command Execution and Auditing
