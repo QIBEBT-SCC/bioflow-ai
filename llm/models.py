@@ -213,5 +213,9 @@ def qwen3_30b_a3b_think(temperature: float = 0.7, disable_streaming: bool = Fals
 
 @cache_model()
 def qwen3_embedding() -> Qwen3Embeddings:
-    embedding = Qwen3Embeddings(model='Qwen/Qwen3-Embedding-4B', use_modelscope=True, device='cuda:4')
+    embedding = Qwen3Embeddings(
+        model=get_settings().knowledge_base.EMBEDDING_MODEL,
+        use_modelscope=get_settings().knowledge_base.USE_MODELSCOPE,
+        device=get_settings().knowledge_base.EMBEDDING_DEVICE,
+    )
     return embedding

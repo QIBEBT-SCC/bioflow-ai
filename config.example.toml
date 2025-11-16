@@ -22,7 +22,6 @@ use_proxy = false
 [persistent]
 db_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
 checkpoint_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/llm_history"
-milvus_url = "http://localhost:19530"
 monitor_cache = "redis://localhost:6379/1"
 api_cache = "redis://localhost:6379/2"
 storage_path = "./storage"
@@ -83,3 +82,9 @@ api_key = ""
 
 [llm.tools]
 jina_api = ""
+
+[knowledge_base]
+milvus_url = "http://localhost:19530"
+embedding_model = "Qwen/Qwen3-Embedding-4B"
+use_modelscope = false
+embedding_device = "cuda:0"

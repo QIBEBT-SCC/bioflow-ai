@@ -65,7 +65,6 @@ class PersistenceConfig(BaseModel):
 
     DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
     CHECKPOINT_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/llm_history'
-    MILVUS_URL: str = 'http://localhost:19530'
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
     STORAGE_PATH: str = './storage'
@@ -75,6 +74,15 @@ class PersistenceConfig(BaseModel):
     MAX_MEM: str = '4G'
 
     api_storage: StorageConfig = StorageConfig()
+
+
+class KnowledgeBaseConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    MILVUS_URL: str = 'http://localhost:19530'
+    EMBEDDING_MODEL: str = 'Qwen/Qwen3-Embedding-4B'
+    USE_MODELSCOPE: bool = False
+    EMBEDDING_DEVICE: str = 'cuda:0'
 
 
 class LLMApiConfig(BaseModel):
@@ -132,6 +140,7 @@ class Settings(BaseSettings):
     docker: DockerConfig = DockerConfig()
     celery: CeleryConfig = CeleryConfig()
     llm: LLMConfig = LLMConfig()
+    knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
 
     @classmethod
     def settings_customise_sources(
