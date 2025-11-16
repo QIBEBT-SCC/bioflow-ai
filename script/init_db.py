@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_milvus import Milvus
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
 from loguru import logger
 from sqlmodel import Session
 from tqdm import tqdm
@@ -95,17 +96,23 @@ async def init_tools():
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-        agent = CreateToolAgent(save_message=True).build(memory=memory)
+        agent = CreateToolAgent().build(memory=memory)
 
         for row in todo_df.iter_rows(named=True):
             row: dict[str, Any]
 
+            with Session(engine) as session:
+                tool_image = image_crud.get_by_name(session, row['name'])
+                assert tool_image is not None
+
             thread_id = f'tool_{row["index"]}_{row["name"]}'
-            search_input: CreateToolState = {
-                'messages': [HumanMessage(content=f'Using `{row["name"]}` for {row["functions"]}.')]
+            agent_input: CreateToolState = {
+                'messages': [HumanMessage(content=f'Using `{row["name"]}` for {row["functions"]}.')],
+                'image_uid': tool_image.uid,
+                'image': tool_image.image,
             }
             config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
-            context = CreateToolContext(auto_save=True, test_run_id=thread_id)
+            context = CreateToolContext(auto_save=True, save_message=True, test_run_id=thread_id)
             function_df = function_df.with_columns(
                 pl.when(pl.col('index') == row['index'])
                 .then(pl.lit(thread_id))
@@ -115,12 +122,12 @@ async def init_tools():
             function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
             async for namespace, mode, data in agent.astream(
-                search_input, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
+                agent_input, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
             ):
                 if mode == 'custom':
                     logger.info(data)
                 else:
-                    logger.debug(f'{namespace} {data}')
+                    logger.debug(f'{namespace} {data}'[:120])
 
             response = await agent.aget_state(config)
             if response.interrupts:
@@ -130,6 +137,8 @@ async def init_tools():
                     .otherwise(pl.col('interrupt'))
                     .alias('interrupt'),
                 )
+                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+                break
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row['index'])
@@ -137,9 +146,43 @@ async def init_tools():
                     .otherwise(pl.col('tool_node'))
                     .alias('tool_node'),
                 )
-            function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
-            break
+
+async def continue_run(index: int):
+    function_df = pl.read_parquet('tool_functions_gpt5.parquet')
+    tool_info: dict[str, Any] = function_df.row(index=index, named=True)
+
+    async with aiosqlite.connect('checkpoints.db') as conn:
+        memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
+        agent = CreateToolAgent(save_message=True).build(memory=memory)
+
+        thread_id = tool_info['thread_id']
+        continue_input = Command(resume=None)
+        config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
+        context = CreateToolContext(auto_save=True, test_run_id=thread_id)
+
+        async for namespace, mode, data in agent.astream(
+            None, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
+        ):
+            if mode == 'custom':
+                logger.info(data)
+            else:
+                logger.debug(f'{namespace} {data}'[:120])
+
+        response = await agent.aget_state(config)
+        if response.interrupts:
+            function_df = function_df.with_columns(
+                pl.when(pl.col('index') == index).then(pl.lit(True)).otherwise(pl.col('interrupt')).alias('interrupt'),
+            )
+        else:
+            function_df = function_df.with_columns(
+                pl.when(pl.col('index') == index)
+                .then(pl.lit(response.values['tool_uid']))
+                .otherwise(pl.col('tool_node'))
+                .alias('tool_node'),
+            )
+        function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
 
 async def delete_prebuild_tool(index: int):
@@ -166,7 +209,42 @@ async def delete_prebuild_tool(index: int):
     function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
 
+async def rebuild_vector_store():
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='ToolCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding,
+        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        # search_params={'M': 64, 'efConstruction': 100},
+        consistency_level='Strong',
+        drop_old=True,
+        auto_id=True,
+    )
+
+    function_df = pl.read_parquet('tool_functions_gpt5.parquet').filter(pl.col('tool_node').is_not_null())
+    for row in function_df.iter_rows(named=True):
+        row: dict[str, Any]
+
+        with Session(engine) as session:
+            tool_data = tool_crud.get(session, row['tool_node'])
+
+        docs = [
+            Document(
+                page_content=tool_data.description,
+                metadata={
+                    'image_uid': str(tool_data.image_uid),
+                    'tool_uid': str(tool_data.uid),
+                    'name': tool_data.name,
+                },
+            ),
+        ]
+        await vectorstore.aadd_documents(docs)
+
+
 if __name__ == '__main__':
     # init_tag_and_group(True)
-    # asyncio.run(init_images())
-    asyncio.run(delete_prebuild_tool(1))
+    asyncio.run(init_tools())
+    # asyncio.run(continue_run(2))
+    # asyncio.run(delete_prebuild_tool(6))
+    # asyncio.run(rebuild_vector_store())
