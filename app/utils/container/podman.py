@@ -275,7 +275,10 @@ def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = N
         container = client.containers.get(container_id)
         code, result = container.exec_run(['/bin/bash', '-c', command], tty=True, stream=False, workdir=workdir)
         if isinstance(result, bytes):
-            result = result.decode()
+            try:
+                result = result.decode()
+            except UnicodeDecodeError as e:
+                result = f'{e}'
 
         return code, result.strip()
 

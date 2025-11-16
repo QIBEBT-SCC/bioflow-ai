@@ -28,6 +28,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
+from app.utils.container.podman import remove_container
 from llm.agents.tool_manager.generate_tool_config import ToolGenerator
 from llm.agents.tool_manager.image_agent import GetImageAgent
 from llm.agents.tool_manager.search_toolnode_agent import search_exist_tool_agent
@@ -333,6 +334,12 @@ class CreateToolAgent:
 
         testrun_input: TestRunState = {'messages': state['messages'], 'tool_image': state['image']}
         response = await test_run_agent.ainvoke(testrun_input)
+
+        # 清理镜像
+        if 'mamba_container' in response and response['mamba_container']:
+            remove_container(response['mamba_container'])
+        if 'tool_container' in response and response['tool_container']:
+            remove_container(response['tool_container'])
 
         if runtime.context.save_message:
             import polars as pl
