@@ -11,6 +11,27 @@ from app.core.config import get_settings
 from app.models.tools import ImageConfig
 from app.utils.container.podman import create_container, remove_container, run_podman, run_podman_by_id
 
+MAMBA_CONTAINER_HELP = """<How To Use Micromamba>
+To use micromamba to install tools and for analysis, you can refer to the following example.
+Note that the commands given here are all run using the `run_command` tool. 
+Micromamba allows tools within an environment to be called externally without activating the virtual environment, which is perfect for our use case of executing commands once in a container:
+
+**Create a virtual environment**
+```bash
+micromamba create -n test_fastp
+```
+
+**Install tool**
+```bash
+micromamba install bioconda::fastp -y -n test_fastp
+```
+
+**Run tools within the specified environment**
+```bash
+micromamba run -n test_fastp fastp --help
+```
+</How To Use Micromamba>
+"""
 
 class ContainerMount(BaseModel):
     target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
@@ -33,7 +54,7 @@ def build_micromamba_container(mounts: list[ContainerMount], runtime: ToolRuntim
             'mamba_container': container_id,
             'messages': [
                 ToolMessage(
-                    content='The micromamba container has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.',
+                    content=f'The micromamba container has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.\n\n{MAMBA_CONTAINER_HELP}',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -67,8 +88,7 @@ def build_tool_container(mounts: list[ContainerMount], runtime: ToolRuntime):
 @tool('run_command', parse_docstring=True)
 def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Optional[str] = None):
     """Run command, and return it`s output result.
-
-    This tool must be called sequentially; parallel calls within a single response are prohibited.
+    **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
 
     Args:
         command: The command you need to run
@@ -92,11 +112,14 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
     code, out = run_podman_by_id(container_id, command, workdir)
 
     run_status = 'successfully' if code == 0 else 'failed'
-    return_msg = (
-        f'Command ran {run_status}.\n\n......\n{_truncate_output(command, out)}'
-        if out
-        else f'Command ran {run_status}.'
-    )
+    if out.strip():
+        return_msg = (
+            _truncate_output(command, out)
+            if code == 0
+            else f'Command ran {run_status}.\n\n......\n{_truncate_output(command, out)}'
+        )
+    else:
+        return_msg = f'Command ran {run_status}. No other output.'
 
     return Command(
         update={
@@ -159,6 +182,7 @@ def stop_and_rm_container(remove_type: Literal['micromamba', 'tool', 'all'], run
 @tool(parse_docstring=True)
 def run_command(command: str, runtime: ToolRuntime):
     """run command in a container and return the result
+    **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
 
     Args:
         command: the command you need to run
@@ -191,8 +215,6 @@ def _build_container(image: ImageConfig, extra_mount: list[ContainerMount]) -> s
                 'type': 'bind',
                 'target': '/data/output',
                 'source': f'{output_path}',
-                'read_only': False,
-                'relabel': 'z',
             },
         ]
     )
