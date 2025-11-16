@@ -2,6 +2,7 @@ import uuid
 
 from langchain.agents import create_agent
 from langgraph.graph import MessagesState
+from langgraph.graph.state import CompiledStateGraph
 
 from llm.models import gpt_5_mini
 from llm.tools.database import select_tool
@@ -34,7 +35,7 @@ class SearchToolNodeState(MessagesState, total=False):
     tool_uid: str
 
 
-search_exist_tool_agent = create_agent(
+search_exist_tool_agent: CompiledStateGraph = create_agent(
     model=gpt_5_mini(),
     tools=[search_tools_by_function, select_tool],
     system_prompt=SYSTEM_PROMPT,
