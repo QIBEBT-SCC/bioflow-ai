@@ -326,6 +326,28 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
     )
 
 
+@tool(parse_docstring=True)
+def select_tool(tool_id: int, runtime: ToolRuntime):
+    """Select existing tool in the database
+
+    Args:
+        tool_id: selected tool id
+    """
+    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+
+    return Command(
+        update={
+            'tool_uid': mapper.get_uid_by_index(tool_id),
+            'messages': [
+                ToolMessage(
+                    content='The corresponding tool has been found, you can summarize the information and end the task.',
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
 @tool
 def view_groups() -> str:
     """View all existing groups"""

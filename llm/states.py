@@ -32,8 +32,8 @@ class SearchImageState(MessagesState, total=False):
     image_uid: uuid.UUID
     image: ImageConfig
 
-    name:str
-    description:str
+    name: str
+    description: str
     homepage: str
     paper_link: str
 
@@ -56,6 +56,10 @@ class SelectGroupState(MessagesState):
 class CreateToolContext:
     auto_save: bool = True
 
+    save_message: bool = False
+    dataset_file: str = 'test_run.parquet'
+    test_run_id: Optional[str] = None
+
 
 class CreateToolState(MessagesState, total=False):
     id_mapper: BidirectionalMapper
@@ -71,7 +75,7 @@ class CreateToolState(MessagesState, total=False):
     homepage: str
 
     group_id: int
-    tool_uid: uuid.UUID
+    tool_uid: str
 
     json_response: dict[str, Any]
 

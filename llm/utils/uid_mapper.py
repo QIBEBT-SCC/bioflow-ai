@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -5,9 +7,16 @@ class BidirectionalMapper(BaseModel):
     uid_to_idx: dict[str, int] = Field(default_factory=dict)
     idx_to_uid: dict[int, str] = Field(default_factory=dict)
 
-    def __init__(self, datas: list[BaseModel] = None):
+    def __init__(self, datas: list[BaseModel] = None, use_metadata: bool = False, metadata_field: Optional[str] = None):
         super().__init__()
-        if datas is not None:
+
+        assert datas is not None
+
+        if use_metadata:
+            assert metadata_field is not None
+            self.uid_to_idx = {data.metadata[metadata_field]: idx for idx, data in enumerate(datas)}
+            self.idx_to_uid = {idx: data.metadata[metadata_field] for idx, data in enumerate(datas)}
+        else:
             self.uid_to_idx = {str(data.uid): idx for idx, data in enumerate(datas)}
             self.idx_to_uid = {idx: str(data.uid) for idx, data in enumerate(datas)}
 
