@@ -3,15 +3,19 @@ import json
 from typing import Any
 
 import aiosqlite
+import click
 import polars as pl
+import rich
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_milvus import Milvus
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.types import Command
 from loguru import logger
+from openinference.instrumentation import TraceConfig
+from openinference.instrumentation.langchain import LangChainInstrumentor
+from phoenix.otel import register
 from sqlmodel import Session
 from tqdm import tqdm
 
@@ -91,8 +95,19 @@ async def init_images(drop_old: bool = True):
 
 
 async def init_tools():
+    # configure the Phoenix tracer
+    tracer_provider = register(
+        endpoint='http://172.18.19.150:4317',
+        project_name='ai-dev',  # Default is 'default'
+        protocol='grpc',
+        batch=True,
+        auto_instrument=False,  # Auto-instrument your app based on installed OI dependencies
+    )
+    trace_config = TraceConfig(hide_input_images=True, hide_embedding_vectors=True, base64_image_max_length=1000)
+    LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
+
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null())
+    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['bedtools', 'GATK']))
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -138,7 +153,6 @@ async def init_tools():
                     .alias('interrupt'),
                 )
                 function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
-                break
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row['index'])
@@ -149,18 +163,32 @@ async def init_tools():
                 function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
 
+async def read_interrupt(index: int):
+    function_df = pl.read_parquet('tool_functions_gpt5.parquet')
+    tool_info: dict[str, Any] = function_df.row(index=index, named=True)
+
+    async with aiosqlite.connect('checkpoints.db') as conn:
+        memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
+        agent = CreateToolAgent().build(memory=memory)
+
+        thread_id = tool_info['thread_id']
+        config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
+
+        response = await agent.aget_state(config)
+        rich.print(response.interrupts)
+
+
 async def continue_run(index: int):
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
     tool_info: dict[str, Any] = function_df.row(index=index, named=True)
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-        agent = CreateToolAgent(save_message=True).build(memory=memory)
+        agent = CreateToolAgent().build(memory=memory)
 
         thread_id = tool_info['thread_id']
-        continue_input = Command(resume=None)
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
-        context = CreateToolContext(auto_save=True, test_run_id=thread_id)
+        context = CreateToolContext(auto_save=True, save_message=True, test_run_id=thread_id)
 
         async for namespace, mode, data in agent.astream(
             None, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
@@ -242,9 +270,58 @@ async def rebuild_vector_store():
         await vectorstore.aadd_documents(docs)
 
 
-if __name__ == '__main__':
-    # init_tag_and_group(True)
+@click.group()
+def cli():
+    """数据库初始化和管理工具"""
+    pass
+
+
+@cli.command()
+@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据（默认：不删除）')
+def init_tag_and_group_cmd(drop_old: bool):
+    """初始化标签和分组"""
+    init_tag_and_group(drop_old)
+
+
+@cli.command()
+@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据（默认：不删除）')
+def init_images_cmd(drop_old: bool):
+    """初始化镜像数据"""
+    asyncio.run(init_images(drop_old))
+
+
+@cli.command()
+def init_tools_cmd():
+    """初始化工具"""
     asyncio.run(init_tools())
-    # asyncio.run(continue_run(2))
-    # asyncio.run(delete_prebuild_tool(6))
-    # asyncio.run(rebuild_vector_store())
+
+
+@cli.command()
+@click.argument('index', type=int)
+def read_interrupt_cmd(index: int):
+    """读取工具中断信息"""
+    asyncio.run(read_interrupt(index))
+
+
+@cli.command()
+@click.argument('index', type=int)
+def continue_run_cmd(index: int):
+    """继续运行指定索引的工具创建任务"""
+    asyncio.run(continue_run(index))
+
+
+@cli.command()
+@click.argument('index', type=int)
+def delete_prebuild_tool_cmd(index: int):
+    """删除指定索引的预构建工具"""
+    asyncio.run(delete_prebuild_tool(index))
+
+
+@cli.command()
+def rebuild_vector_store_cmd():
+    """重建向量存储"""
+    asyncio.run(rebuild_vector_store())
+
+
+if __name__ == '__main__':
+    cli()
