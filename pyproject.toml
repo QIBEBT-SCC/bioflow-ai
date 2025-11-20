@@ -17,12 +17,12 @@ dependencies = [
     "docker>=7.1.0",
     "fastapi>=0.115.8",
     "httpx[socks]>=0.28.1",
-    "langchain>=1.0.2",
+    "langchain>=1.0.4",
     "langchain-community>=0.4.0",
     "langchain-google-genai>=3.0.0",
     "langchain-mcp-adapters>=0.1.9",
     "langchain-milvus>=0.2.2",
-    "langchain-openai==1.0.1",
+    "langchain-openai>=1.0.1",
     "langchain-postgres>=0.0.15",
     "langchain-qwen3>=0.1.2",
     "langgraph>=1.0.0",
@@ -51,6 +51,13 @@ line-length = 120
 [tool.ruff.format]
 quote-style = "single"
 docstring-code-format = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "llm*"]
+
+[tool.uv]
+package = true
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"

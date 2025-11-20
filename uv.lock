@@ -346,7 +346,7 @@ wheels = [
 [[package]]
 name = "bioflow-ai"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "aiodocker" },
     { name = "aiofiles" },
@@ -411,12 +411,12 @@ requires-dist = [
     { name = "docker", specifier = ">=7.1.0" },
     { name = "fastapi", specifier = ">=0.115.8" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1" },
-    { name = "langchain", specifier = ">=1.0.2" },
+    { name = "langchain", specifier = ">=1.0.4" },
     { name = "langchain-community", specifier = ">=0.4.0" },
     { name = "langchain-google-genai", specifier = ">=3.0.0" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.9" },
     { name = "langchain-milvus", specifier = ">=0.2.2" },
-    { name = "langchain-openai", specifier = "==1.0.1" },
+    { name = "langchain-openai", specifier = ">=1.0.1" },
     { name = "langchain-postgres", specifier = ">=0.0.15" },
     { name = "langchain-qwen3", specifier = ">=0.1.2" },
     { name = "langgraph", specifier = ">=1.0.0" },
