@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 from typing import Literal, Optional
 
 from langchain.agents import create_agent
@@ -16,6 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -30,30 +30,25 @@ from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
 from app.utils.container.podman import remove_container
 from llm.agents.tool_manager.generate_tool_config import ToolGenerator
-from llm.agents.tool_manager.image_agent import GetImageAgent
-from llm.agents.tool_manager.search_toolnode_agent import search_exist_tool_agent
+from llm.agents.tool_manager.searcher.doc import doc_searcher
+from llm.agents.tool_manager.searcher.image import GetImageAgent
+from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
 from llm.agents.tool_manager.test_run_agent import test_run_agent
 from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.states import (
     CreateToolContext,
     CreateToolOutput,
     CreateToolState,
-    GetDocState,
     SearchImageState,
     SelectGroupState,
+    TestRunContext,
     TestRunState,
 )
-from llm.tools.container import run_command
 from llm.tools.database import (
     add_group,
-    list_docs,
-    save_doc,
-    select_doc,
     select_group,
-    view_doc,
     view_groups,
 )
-from llm.tools.human import ask_human
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -222,12 +217,7 @@ class CreateToolAgent:
 
         # sub agents
         self.search_image_agent = GetImageAgent().build()
-        self.get_doc_agent = create_agent(
-            model=self.think_llm,
-            tools=[list_docs, view_doc, select_doc, run_command, save_doc, ask_human],
-            system_prompt=GET_DOC_SYSTEM,
-            state_schema=GetDocState,
-        )
+        self.get_doc_agent = doc_searcher
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, add_group, select_group],
@@ -332,32 +322,20 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
 
-        testrun_input: TestRunState = {'messages': state['messages'], 'tool_image': state['image']}
-        response = await test_run_agent.ainvoke(testrun_input)
+        testrun_input: TestRunState = {'messages': state['messages'], 'image': state['image']}
+        response = await test_run_agent.ainvoke(
+            testrun_input,
+            context=TestRunContext(
+                folder_name=runtime.context.test_run_id,
+                save_message=runtime.context.save_message,
+                test_run_id=runtime.context.test_run_id,
+            ),
+        )
 
         # 清理镜像
-        if 'mamba_container' in response and response['mamba_container']:
-            remove_container(response['mamba_container'])
-        if 'tool_container' in response and response['tool_container']:
-            remove_container(response['tool_container'])
-
-        if runtime.context.save_message:
-            import polars as pl
-
-            message_dicts = [m.model_dump_json() for m in response['messages']]
-            new_data = {
-                'question': [state['messages'][0].content],
-                'test_run_id': [runtime.context.test_run_id],
-                'messages': [message_dicts],
-            }
-            df_new = pl.DataFrame(new_data)
-
-            if Path(runtime.context.dataset_file).exists():
-                df_existing = pl.read_parquet(runtime.context.dataset_file)
-                df_existing = df_existing.vstack(df_new)
-                df_existing.write_parquet(runtime.context.dataset_file, compression='snappy')
-            else:
-                df_new.write_parquet(runtime.context.dataset_file, compression='snappy')
+        if 'container_id' in response and response['container_id']:
+            remove_container(response['container_id'])
+            logger.debug('Cleared residual containers')
 
         return {
             'messages': [

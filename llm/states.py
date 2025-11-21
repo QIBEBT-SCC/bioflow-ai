@@ -1,10 +1,10 @@
 import operator
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Any, NotRequired, Optional
 
-from langchain_core.messages import AnyMessage, BaseMessage
-from langgraph.graph import MessagesState, add_messages
+from langchain_core.messages import BaseMessage
+from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
@@ -89,12 +89,16 @@ class CreateToolOutput(BaseModel):
 
 # =====================test run agent state==========================
 class TestRunState(MessagesState):
-    tool_image: ImageConfig
-
-    mamba_container: NotRequired[str]
-    tool_container: NotRequired[str]
-
+    image: ImageConfig
     container_id: NotRequired[str]
+
+
+@dataclass
+class TestRunContext:
+    folder_name: str
+
+    save_message: bool = False
+    test_run_id: Optional[str] = None
 
 
 # =====================extra workflow state==========================
@@ -164,14 +168,11 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
-@dataclass
-class ReproductionState:
-    messages: Annotated[list[AnyMessage], add_messages] = field(default_factory=list)
+class ReproductionState(MessagesState, total=False):
+    id_mapper: BidirectionalMapper
 
-    id_mapper: Optional[BidirectionalMapper] = field(default=None)
+    exist_nodes: Annotated[list[BuildNode], operator.add]
+    exist_edges: Annotated[list[BuildEdge], operator.add]
 
-    exist_nodes: Annotated[list[BuildNode], operator.add] = field(default_factory=list)
-    exist_edges: Annotated[list[BuildEdge], operator.add] = field(default_factory=list)
-
-    workflow_uid: Optional[uuid.UUID] = field(default=None)
-    price: Annotated[float, operator.add] = 0.0
+    workflow_uid: uuid.UUID
+    price: Annotated[float, operator.add]

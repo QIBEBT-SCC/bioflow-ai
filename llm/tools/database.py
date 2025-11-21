@@ -26,6 +26,7 @@ from llm.utils.uid_mapper import BidirectionalMapper
 @tool(parse_docstring=True)
 def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     """Search the database for images that have already been pulled locally.
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
         query: Search keywords, generally tool name
@@ -268,6 +269,7 @@ def save_doc(
 @tool(parse_docstring=True)
 def search_tool(query: str, runtime: ToolRuntime) -> Command:
     """Search for the corresponding tool node
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
         query: Name of the tool to search for
@@ -423,6 +425,7 @@ def add_group(name: str, parent_id: Optional[int] = None):
 @tool(parse_docstring=True)
 def search_biodb(query: str) -> str:
     """Search for the biological databases used by the tool using its name
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
         query: Keyword for Search

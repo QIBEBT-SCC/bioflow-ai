@@ -36,8 +36,11 @@ class SearchToolNodeState(MessagesState, total=False):
 
 
 search_exist_tool_agent: CompiledStateGraph = create_agent(
-    model=gpt_5_mini(),
-    tools=[search_tools_by_function, select_tool],
+    model=gpt_5_mini(0.3),
+    tools=[
+        search_tools_by_function,
+        select_tool,
+    ],
     system_prompt=SYSTEM_PROMPT,
     state_schema=SearchToolNodeState,
 )

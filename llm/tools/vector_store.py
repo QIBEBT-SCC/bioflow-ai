@@ -17,6 +17,7 @@ from llm.utils.uid_mapper import BidirectionalMapper
 @tool(parse_docstring=True)
 async def search_tools_by_function(query: str, runtime: ToolRuntime):
     """Search existing tools from the vector database based on functionality
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
         query: Functionality of the tool to be searched

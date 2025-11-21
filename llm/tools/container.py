@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -10,28 +10,8 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.models.tools import ImageConfig
 from app.utils.container.podman import create_container, remove_container, run_podman, run_podman_by_id
+from llm.states import TestRunContext
 
-MAMBA_CONTAINER_HELP = """<How To Use Micromamba>
-To use micromamba to install tools and for analysis, you can refer to the following example.
-Note that the commands given here are all run using the `run_command` tool. 
-Micromamba allows tools within an environment to be called externally without activating the virtual environment, which is perfect for our use case of executing commands once in a container:
-
-**Create a virtual environment**
-```bash
-micromamba create -n test_fastp
-```
-
-**Install tool**
-```bash
-micromamba install bioconda::fastp -y -n test_fastp
-```
-
-**Run tools within the specified environment**
-```bash
-micromamba run -n test_fastp fastp --help
-```
-</How To Use Micromamba>
-"""
 
 class ContainerMount(BaseModel):
     target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
@@ -40,44 +20,21 @@ class ContainerMount(BaseModel):
 
 
 @tool(parse_docstring=True)
-def build_micromamba_container(mounts: list[ContainerMount], runtime: ToolRuntime):
-    """Create a new container using the micromamba image
-
-    Args:
-        mounts: Mounted volumes other than /data/testdata and /data/output, such as databases, etc.
-    """
-    image = ImageConfig.from_str('ghcr.io/mamba-org/micromamba:2.3.3-ubuntu22.04')
-    container_id = _build_container(image, mounts)
-
-    return Command(
-        update={
-            'mamba_container': container_id,
-            'messages': [
-                ToolMessage(
-                    content=f'The micromamba container has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.\n\n{MAMBA_CONTAINER_HELP}',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool(parse_docstring=True)
-def build_tool_container(mounts: list[ContainerMount], runtime: ToolRuntime):
+def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunContext]):
     """Create a new container using tool image
 
     Args:
         mounts: Other mounts besides testdata and output folder
     """
-    image = runtime.state.get('tool_image')
-    container_id = _build_container(image, mounts)
+    image: ImageConfig = runtime.state.get('image')
+    container_id = _build_container(image, runtime.context.folder_name, mounts)
 
     return Command(
         update={
-            'tool_container': container_id,
+            'container_id': container_id,
             'messages': [
                 ToolMessage(
-                    content='The tool container has been created. To run commands within this container, use the `use_container` tool to activate the corresponding container.',
+                    content=f'The container based on image `{image.get_image()}` has been created. Now you can use `run_command` to run command in it.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -121,11 +78,12 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
     else:
         return_msg = f'Command ran {run_status}. No other output.'
 
+    image: ImageConfig = runtime.state.get('image')
     return Command(
         update={
             'messages': [
                 ToolMessage(
-                    content=return_msg,
+                    content=f'[Container: {image.get_image()}]\n{return_msg}',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -133,50 +91,22 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
     )
 
 
-@tool('remove_container', parse_docstring=True)
-def stop_and_rm_container(remove_type: Literal['micromamba', 'tool', 'all'], runtime: ToolRuntime):
-    """Stop and remove container
+@tool('remove_container')
+def stop_and_rm_container(runtime: ToolRuntime):
+    """Stop and remove container"""
 
-    Args:
-        remove_type: Which container to remove. If the value is "all", it means delete all containers.
-    """
+    container_id = runtime.state.get('container_id')
+    remove_container(container_id)
 
-    rm_ids = []
-    rm_names = []
-    update_dict = {}
-
-    if remove_type in ('all', 'tool') and 'tool_container' in runtime.state:
-        container_id = runtime.state.get('tool_container')
-        rm_ids.append(container_id)
-        rm_names.append('tool container')
-        update_dict['tool_container'] = None
-
-    if remove_type in ('all', 'micromamba') and 'mamba_container' in runtime.state:
-        container_id = runtime.state.get('mamba_container')
-        rm_ids.append(container_id)
-        rm_names.append('micromamba container')
-        update_dict['mamba_container'] = None
-
-    for container_id in rm_ids:
-        remove_container(container_id)
-
-    # 构建返回消息
-    if len(rm_names) == 1:
-        message = f'The {rm_names[0]} has been deleted.'
-    else:
-        message = f'All containers ({", ".join(rm_names)}) have been deleted.'
-
-    return Command(
-        update={
-            **update_dict,
-            'messages': [
-                ToolMessage(
-                    content=message,
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
+    return {
+        'container_id': None,
+        'messages': [
+            ToolMessage(
+                content='The container has been removed',
+                tool_call_id=runtime.tool_call_id,
+            )
+        ],
+    }
 
 
 @tool(parse_docstring=True)
@@ -195,12 +125,12 @@ def run_command(command: str, runtime: ToolRuntime):
     )
 
 
-def _build_container(image: ImageConfig, extra_mount: list[ContainerMount]) -> str:
+def _build_container(image: ImageConfig, folder_name: str, extra_mount: list[ContainerMount]) -> str:
     podman_mounts = [
         {'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only, 'relabel': 'z'}
         for m in extra_mount
     ]
-    output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun'
+    output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / folder_name
     output_path.mkdir(parents=True, exist_ok=True)
     podman_mounts.extend(
         [
@@ -224,6 +154,6 @@ def _build_container(image: ImageConfig, extra_mount: list[ContainerMount]) -> s
 
 
 def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('ls', 'cat', 'head')) or len(output) <= 3000:
+    if any(k in command for k in ('ls', 'head', 'find', 'grep')) or len(output) <= 3000:
         return output
-    return f'{output[:500]}\n\n{output[-500:]}'
+    return f'{output[:1000]}\n...\n{output[-1000:]}'

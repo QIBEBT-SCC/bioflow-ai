@@ -76,10 +76,10 @@ For each "dynamic_params", the following fields must be included:
 </ParamDefine>
 
 <Naming>
-- For general-purpose tools, use the original tool name directly (can be changed from all lowercase to mixed case).
+- For general-purpose tools, use the original tool name directly.
 - For specific cases, the name should reflect its particular use:
-    - Subcommand: Format as "ToolName(subcommand)", e.g., "samtools(index)".
-    - Specialized use related to input/output files or key parameters: Format as "ToolName(key_identifier)". For example, if the tool outputs DAA files, it would be "DIAMOND(daa)"; if it processes single-cell data, it would be "SPAdes(sc)".
+    - Subcommand: Format as "ToolName subcommand", e.g., "samtools index".
+    - Specialized use related to input/output files or key parameters: Format as "ToolName(key_identifier)". For example, if the tool outputs DAA files, it would be "DIAMOND blastn(daa)"; if it processes single-cell data, it would be "SPAdes(sc)".
 </Naming>
 
 <Example>

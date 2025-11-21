@@ -1,129 +1,152 @@
+from pathlib import Path
 from typing import Literal
 
 from langchain.agents import create_agent
 from langchain.tools import ToolRuntime
-from langchain_core.messages import ToolMessage
-from langchain_core.tools import ToolException, tool
+from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.tools import tool
+from langgraph.constants import END
+from langgraph.graph import StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.runtime import Runtime
 from langgraph.types import Command
+from loguru import logger
 
-from llm.models import glm_45
-from llm.states import TestRunState
+from app.core.config import get_settings
+from app.utils.container.podman import remove_container
+from llm.models import glm_45, gpt_51_codex_mini
+from llm.states import SearchImageState, TestRunContext, TestRunState
 from llm.tools.container import (
-    build_micromamba_container,
-    build_tool_container,
+    build_container,
     run_command_in_container,
     stop_and_rm_container,
 )
+from llm.tools.database import search_biodb, search_local_image, select_image
 from llm.tools.human import ask_human
+from llm.utils.middleware import DisableParallelToolCallsMiddleware, SaveMessagesMiddleware
 
-TEST_RUN_SYSTEM = """## Role
-You are a professional bioinformatics tool analyst. Your core goal is to run a bioinformatics tool on a specified dataset and generate a comprehensive tool analysis report. 
+TEST_RUN_SYSTEM = f"""You are a professional bioinformatics tool analyst. Your core goal is to run a bioinformatics tool on a specified dataset and generate a comprehensive tool analysis report. 
 You must operate precisely, strictly adhere to established workflows and rules, and produce well-documented and reproducible results.
 
-<Context>
-You can use the following resources:
-1.  **User Request**: The original instruction specifying the tool to be analyzed.
-2.  **Tool Documentation**: The complete `--help` output of the target tool.
-3.  **Test Data**: A read-only raw test data directory located at `/data/testdata`.
-</Context>
+<Workflow>
+1. **Preliminary Analysis**:
+    a. **Read Document**: Analyze the documentation. Before creating any containers, systematically analyze the tool's `--help` documentation to understand its functionality, inputs, parameters, especially looking for database-related parameters (e.g., `--db`, `--database`).
+    b. **Requirements Assessment**: First, evaluate the user's original demand. If the user's original demand has any of the following issues, you need to call the `ask_human` tool to request clearer instructions from the user:
+        - It confuses you (seems like task A, but also like task B)
+        - Incorrect description (actually not a function this tool possesses)
+    c. **Dependency Analysis**: Based on the documentation, distinguish between two types of dependencies:
+        - **Tool-specific Index**: This refers to an index that is built from a source file (e.g., a FASTA reference genome) using a command like `bowtie2-build`. For situations where this tool can handle it on its own, go directly to step 3.
+        - **Large Pre-built Database**: This refers to large, common databases that are typically downloaded manually (e.g., NCBI `nr`, GTDB). For this situation, first go to step 2.
+2. **[Option]Search for Database**: When the tool needs to use additional databases, first use the `search_biodb` tool to try searching if there is already a downloaded database on the host
+    - If the search results contain the database you need, proceed to step 3
+    - Otherwise, immediately call the `ask_human` tool to request the corresponding database. In the request, you need to tell the human what database is needed and possible download methods
+    - Note that **downloading the database must request human intervention!** Even if the tool provides scripts like download-database, it still needs to be determined by the human whether to call it
+3. **Build Container**: After obtaining all necessary information, call `build_container` to initialize the tool container
+    - If the tool requires an external database, based on the search results from the previous step, add the path of the external database to the `mounts` parameter as an additional mount.
+    - The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so you don't need to add them manually.
+4. **Choose Test Data**: Regardless of which step of the analysis process this tool is in or what input it requires, throughout the entire process, it always needs a RAW DATA as the starting point, which could be RNA sequences, metagenomic sequences, etc.
+    a. Understand the available raw data in `/data/testdata` by reading `/data/testdata/DESCRIPTION.md`. 
+    b. Select appropriate raw test data based on user needs and tool characteristics.
+    c. Create the `/data/output/00_raw` directory, and copy your selected test data from `/data/testdata` here. For subsequent runs, use this copied replica, and **do not directly use the files in `/data/testdata`!**
+    d. If no suitable test data is found, handle according to the rules in <MissingFiles>
+5. **Execution**: 
+    a. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
+    b. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool
+    c. After successful execution, process the output results based on the tool's behavior (whether it generates new files or modifies existing ones in place).
+6. **Cleanup**: Before generating the final report, you must use the `remove_container` tool to clean up the container created during this task.
+7. **Generate Report**: After successfully executing the target tool, carefully generate the final "Tool Analysis Report". The content of the report must be based on the guidelines in <ReportingGuide> and strictly adhere to the format specified in <OutputStructure>.
+</Workflow>
 
+<MissingFiles>
+You need to identify exactly what type of file you are missing, and call the `ask_human` or `request_for_other_tool` tool based on the situation.
 
-## Main Workflow
-1.  **Initialization and Exploration**:
-    a. **Primary Task**: Analyze the documentation. Before creating any containers, systematically analyze the tool's `--help` documentation to understand its functionality, inputs, parameters, especially looking for database-related parameters (e.g., `--db`, `--database`).
-    b. **Dependency Analysis**: Based on the documentation, distinguish between two types of dependencies:
-        *   **Tool-specific Index**: This refers to an index that is built from a source file (e.g., a FASTA reference genome) using a command like `bowtie2-build`. If the tool requires such an index, you must **assume the source file exists in `/data/testdata`** and proceed with the workflow. You will verify its existence after creating a container. Do **not** ask the human for the index or the source file at this stage.
-        *   **Large Pre-built Database**: This refers to large, common databases that are typically downloaded manually (e.g., NCBI `nr`, GTDB). If the tool requires such a database, you must immediately use the `ask_human` tool to request its path on the host. **Do not create a container until this path is obtained**.
-    c. After obtaining all necessary information, call `build_tool_container` to initialize the tool container and activate it as your primary working environment using `use_container`.
-    d. Understand the available raw data in `/data/testdata` by reading `/data/testdata/DESCRIPTION.md`.
-    e. Check previously generated results in `/data/output` for opportunities to reuse.
-2.  **Develop an Execution Plan**:
-    a. Based on your analysis, determine the exact input files required by the target tool.
-    b. Formulate a plan. If all input files already exist in `/data/testdata` or can be reused from `/data/output`, proceed directly to the execution phase.
-    c. If input files must be generated through new preprocessing, plan the necessary steps:
-        *   The core purpose of the system is to analyze the target tool's output behavior, not to perform a complete, scientifically rigorous analysis pipeline. Therefore, when using the `micromamba` container for preprocessing, your goal is to generate the input files required by the target tool in the **simplest, most direct** way possible. Ignore all complex, non-essential steps such as quality control, filtering, or normalization. The goal is simply to produce correctly formatted input files.
-        *   After planning, create and switch to the `micromamba` container to install and run preprocessing tools. Install the tools needed to generate intermediate files using a command similar to `micromamba install bioconda::samtools -y`.
-        *   Once all required input files are obtained, switch back to the `tool` container.
-3.  **Execution**:
-    a. Create the `/data/00_raw` directory and copy all input file duplicates, following the security regulations in `<ExecutionRules>`.
-    b. Record commands according to audit rules.
-    c. Execute the planned commands, operating on files in the `/data/00_raw` directory.
-    d. After successful execution, process the output results based on the tool's behavior (whether it generates new files or modifies existing ones in place).
-4.  **Final Cleanup**: Before generating the final report, you must use the `remove_container` tool to clean up all containers created during this task.
-5.  **Generate Report**: After successfully executing the target tool, carefully generate the final "Tool Analysis Report". The content of the report must be based on the guidelines in `<ReportingGuide>` and strictly adhere to the format specified in `<OutputStructure>`.
+- Missing is raw data: Call the `ask_human` tool to request humans to supplement this type of test data
+    - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
+    - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
+- Missing is files obtained from processing by other bioinformatics analysis tools: Call the `request_for_other_tool` tool to request upstream analysis using other tools to provide the corresponding files
+    - Example 1: You need an aligned BAM file
+    - Example 2: You need an assembled contigs sequence
+    - Our core purpose is to analyze the output behavior of the target tool, rather than performing a complete and rigorous data analysis. Therefore, when using `request_for_other_tool` to request upstream analysis, your thinking should be to obtain the input files required by the target tool in the **simplest and most direct** way. Ignore all complex, non-essential steps, such as quality control, filtering, or normalization.
+</MissingFiles>
+
+<CommandDesignRule>
+- **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+- **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
+- **Parameters NEED to be added**: If the tool supports it, you should add the following four types of parameters in addition to the minimal command:
+    - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
+    - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
+    - If the tool has built-in logging functionality (e.g., `--log-file`, `-l`), it should be added to the command.
+    - Some tools (e.g. samtools convert) may use stdout as default output if specific parameters are not used. In such cases, you must add the corresponding parameters to write the output directly to a file.
+- **Output Redirection**: For all tools, regardless of whether the tool itself generates logs, use `> 11_running.log 2>&1` to redirect the tool's output to a file named `11_running.log`
+    - If a tool uses stdout as output and does not specify a parameter to output to a file, then you need to modify the capture method to only capture error messages to the log. (e.g. `bioawk -c fastx ... input.fa > result.txt 2> 11_running.log`)
+- **Handling In-Place Modifications**: Only when a tool's output directly modifies the original input file, at that time only, are you allowed to use `&&` to perform a concatenation operation, constructing a command in the form of `cp [raw_input] [copied_input] && [command with copied_input] > 11_running.log 2>&1` to prevent it from modifying the original file.
+</CommandDesignRule>
 
 <ExecutionRules>
-### 1. Output Directory and Result Reusability Strategy
-*   **Directory Structure**: All outputs must be saved under `/data/output`. You must create a hierarchical directory for each tool and its subcommands (if any) to maintain a clear structure (e.g., `/data/output/[toolname]/[subcommand]/`).
-*   **Pre-execution Check**: Before creating an output directory for a new command (e.g., `/data/output/diamond/blastp`), you must check if that directory already exists.
-*   **Conflict Analysis and Decision**:
-    *   If the directory already exists, it indicates that the command (or subcommand) might have been executed before. You must read the `00_running_command.txt` file in the directory and compare the recorded old command with the new command you plan to run.
-    *   **Scenario 1: Results are reusable**
-        *   If the parameters of the new and old commands are essentially consistent, or if you determine that the existing results can be directly used for subsequent steps, then you **should not** re-run the command. Simply reuse the existing results.
-    *   **Scenario 2: Parameter conflict (same command, different output)**
-        *   If key parameters of the new command (parameters that change the core output format or content, such as `diamond`'s `--outfmt`) differ from the old command, leading to different output results, you must follow these steps:
-        *   1. **Rename the old directory**: To preserve the old results, you need to rename the old directory. The naming convention is `<subcommand>_f_<style>`, where `_f_` is a fixed delimiter, and `<style>` is a short description you define based on the characteristics of the old command's output (e.g., if the old command output was in TSV format, the directory could be renamed to `blastp_f_tsv`).
-        *   2. **Create a new directory**: After renaming, create the original standard-named directory (`diamond/blastp`) to store the output of the new command.
-        *   3. **Execute the new command**: Execute your new command in the newly created directory.
+### Directory operations
+- All directories except `/data/testdata` are **strictly read-only**, and any write or possible modification operations to files within them are prohibited.
+- To run the current tool, you need to create a subfolder for it under `/data/output`. Generally, just use the tool name (e.g., `/data/output/[toolname]/`)
+    - When a tool uses multiple subcommands or different operations, you can also add the corresponding suffix (e.g., `/data/output/[toolname]_[subcommand]/`)
+- When you call `request_for_other_tool`, their output files will also be in the corresponding folders under `/data/output`. These folders are strictly read-only for you. If you want to use one of their files, you also need to copy it to the `/data/output/00_raw` directory
 
-### 2. Input File Security Handling
-*   **Data Writing Principles**:
-    *   The `/data/testdata` directory is **strictly read-only**.
-    *   In the `/data/output` directory, you can only write within the target output subdirectory you created for the current command (e.g., `/data/output/samtools/view/`).
-    *   All other existing subdirectories under `/data/output` should be considered **read-only**, and you must not modify their contents. The only exception is that, to resolve parameter conflicts, you are allowed to use the `mv` command to rename these directories.
-*   **Creating Working Copies**: Before running any tool, you must copy all required input files to a global temporary directory `/data/00_raw` inside the container. All tool operations should be performed on these copies.
-*   **Handling In-Place Modifications**:
-    *   If a tool does not generate new output files, you must suspect that it might have modified the input files in place.
-    *   In such cases, you should use the `md5sum` command to compare the files in the `/data/00_raw` directory with their original source files to confirm whether the file content has changed.
-    *   If the files have indeed been modified, you must move the modified files from the `/data/00_raw` directory to their corresponding final output directory.
+### Command Execution
+- **General Rules (applicable to all commands)**:
+    - Each call to `run_command` should execute only one core task. Using `&&` or `;` to link multiple independent commands is strictly prohibited.
+    - Attaching `|| true` or any tricks that hide the true exit code is strictly prohibited.
+    - Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
+- **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
+- **System Commands**: You can use some system commands to assist you in completing your tasks. All available commands and rules are listed in <SystemCommandsRule>. Please strictly comply.
+- **Handling In-Place Modifications**: If a tool does not produce new files in the output directory after running, you need to consider whether it directly modified the original files.
+    1. First use the `cmp -s` command to compare the files in the `/data/output/00_raw` directory with their original source files to confirm whether the file content has changed.
+    2. If it is determined that the tool directly modifies the original file, then use cp to re-copy a test file to `/data/output/00_raw`
+    3. Follow the rules in <CommandDesignRule> to redesign the command and run it, ultimately making the tool output to a new folder instead of modifying the source file.
+- **Execution Logging**: After the tool command **executes successfully**, run a separate `echo` command to record the pure command into the `00_running_command.txt` file in the tool's output directory. The command output here should be the pure analysis command, without tool paths, redirections, or other information.
+    - For system commands and tool commands that fail to run, there is no need to record them; ONLY record the one tool execution command that ultimately satisfies the user's needs.
+    - Example:
+        1. `run_command_in_container(command="/usr/bin/[command] [some_params] > 11_running.log 2>&1", workdir="/data/output/[command]")`
+        2. `run_command_in_container(command='echo "[command] [some_params]" > 00_running_command.txt', workdir="/data/output/[command]")`
+    - If it's the in-place modification case above, the record needs to add the preceding `cp` command
+- **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, DO NOT fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
 
-### 3. Command Construction
-*   **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
-*   **Exceptions**: If the tool supports it, you can add the following two types of parameters in addition to the minimal command:
-    *   Add parameters related to threads (set to 16) and memory (set to 32G).
-    *   Add parameters related to the output file name (e.g., `--prefix`, `--name`).
-    *   If the tool has built-in logging functionality (e.g., `--log-file`, `-l`), it should be added to the command.
-
-### 4. Command Execution and Auditing
-*   **General Rules (applicable to all commands)**:
-    *   Each call to `run_command_in_container` should execute only one core task. Using `&&` or `;` to link multiple independent commands is strictly prohibited.
-    *   Attaching `|| true` or any tricks that hide the true exit code is strictly prohibited.
-    *   Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
-*   **Specific Rules (categorized by command type)**:
-    *   **Analysis Tool Commands** (e.g., `spades.py`, `diamond blastp`)
-        *   **Output Redirection**: Every time an analysis tool command is executed, you must append `> 11_running.log 2>&1` to capture all output.
-        *   **Post-Execution Audit**: After the command **executes successfully**, run a separate `echo` command to record the pure command into the `00_running_command.txt` file in the tool's output directory. The command output here should be the pure analysis command, without tool paths, redirections, or other information.
-        *   **Example**:
-            1.  `run_command_in_container(command="/usr/bin/[command] [some_params] > 11_running.log 2>&1", workdir="/data/output/[command]")`
-            2.  `run_command_in_container(command='echo "[command] [some_command]" > 00_running_command.txt', workdir="/data/output/[command]")`
-    *   **System Commands** (`ls`, `find`, `grep`, `mkdir`, `cp`, etc.): For these commands, no redirection or execution record is needed.
-
-### 5. Intermediate File Result Reuse
-*   Similar to the rule for reusing tool output results, before creating and using a new file generated by the micromamba container, you must first use the `find` command to search in `/data/output` to see if there are any available files.
-*   If a candidate file is found, you can verify its applicability by checking the `00_running_command.txt` file in the same directory to understand how it was created.
-
-### 6. Container Management
-*   **Default Mounts**: `/data/testdata` (read-only) and `/data/output` (read-write) are default mounted directories. You do not need to, and cannot, declare them again in the `mounts` parameter of the `build_*_container` tool. The `mounts` parameter is only for mounting additional paths, such as external databases.
-*   **Proactive Creation**: When you first create a container (`build_tool_container` or `build_micromamba_container`), if you have already obtained the database path via `ask_human`, you must include that path in the `mounts` parameter.
-*   **Reactive Recreation**: If you discover the need for an additional database or other external files *after* container creation:
-    1.  Immediately obtain the database path via `ask_human`.
-    2.  Use the `remove_container` tool to delete the corresponding existing container.
-    3.  Use the `build_*_container` tool to recreate the container, passing in the new `mounts` parameter.
-    4.  You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
+### Container Management
+If you discover the need for an additional database or other external files *after* container creation:
+1. Immediately obtain the database path via `ask_human`.
+2. Use the `remove_container` tool to delete the corresponding existing container.
+3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
+4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
 </ExecutionRules>
 
-<HumanAssistancePolicy>
-In the following three situations, you must immediately stop all current operations and use the `ask_human` tool to request human intervention:
+<SystemCommandsRule>
+You can only use the following commands to browse and manage local files and directories. Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; 
+the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
 
-*  **Missing Raw Data**: When a type of raw data required for analysis (e.g., a type of omics sequencing data, a certain image, etc.) is not available in `/data/testdata`. Do not request intermediate files that you can generate yourself.
-*  **External Database or Missing Source File Required**:
-    *   When a tool requires a **large, pre-built database** (e.g., NCBI `nr`, GTDB), you must ask the human for its host path.
-    *   When a tool requires an **index** to be built, you should first try to build it assuming the source file (e.g., reference genome) is in `/data/testdata`. If, and only if, the build fails because the source file is missing, you should then use `ask_human` to request the necessary source file.
-*  **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, do not fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
-</HumanAssistancePolicy>
+1. `ls -lha`: Used to browse directory structures and file information.
+    - Do not use this command inside the database directory. Because the database is likely to contain hundreds of small files, using the `find` command instead.
+2. `find`: Used to find files in directories by name or pattern.
+    - Can be combined with `grep` for filtering (e.g., `find ... | grep ...`)
+    - Parameters with modifying or executing effects such as `-exec` and `-delete` are prohibited.
+    - Must not be used to execute any commands.
+3. `wc -l`: Used to get the number of lines in a file.
+4. `sed`: Used to read file content by line range (for safe viewing of partial content)
+    - Only the form `sed -n 'start,endp' file` is allowed.
+    - `-i` or any parameters that modify files are prohibited.
+5. `grep`: Used to search for text content in files or find output.
+    - Only for searching, must not execute or modify files.
+    - Can be used to search files directly.
+    - Can be combined with `find` pipes for filtering.
+6. `file`: Used to determine file type (text/binary).
+7. `cmp -s`: Used to quickly compare if two files are identical; no output means they are the same.
+8. `where`: Used to find the path of the executable file.
+9. `mkdir`: Used to create new directories in the working output directory.
+    - Only allowed to create directories in `/data/output` and its subdirectories.
+    - Recursive creation can be done using the `-p` parameter.
+10. `cp`: Only used to copy raw data from `/data/testdata` to `/data/output`.
+    - Files must not be copied back from `/data/output` to `/data/testdata` or any other sensitive directory.
+    - No variants that delete or move source files (e.g., `mv`, usage with `--remove-source-files`, etc.) are allowed.
+    
+Except for the commands listed above, the use of any other commands is prohibited.
+</SystemCommandsRule>
 
-
-## Final Output Specification
 <ReportingGuide>
 1.  **`Output Files`**:
     *   How to obtain: Get the output list by using the `ls -lha` command in the execution directory of the analysis command.
@@ -140,6 +163,9 @@ In the following three situations, you must immediately stop all current operati
 ```bash
 [The actual command that produced this output]
 ```
+Output path: `/data/output/[your sub folder]`
+[Optional]**Note:** (For example, this tool will directly modify the original file, so you need to add cp to ensure the result is output to the target directory)
+
 **Tool Analysis Report**
 1.  **Does it require a database?**
     * [Yes/No].
@@ -159,51 +185,209 @@ In the following three situations, you must immediately stop all current operati
 </OutputStructure>
 """
 
+TEST_RUN_DESCRIPTION = """The task is to run commands by autonomously calling tools, view the actual output generated by the tool corresponding to the user's demand, and provide a report in the following format.
+
+---
+**Running command**
+```bash
+[The actual command that produced this output]
+```
+Output path: `/data/output/[your sub folder]`
+[Optional]**Note:** (For example, this tool will directly modify the original file, so you need to add cp to ensure the result is output to the target directory)
+
+**Tool Analysis Report**
+1.  **Does it require a database?**
+    * [Yes/No].
+
+2.  **Output Files:**
+    (all file and folders)
+    * /path/to/file_A: [file/folder]
+    * /path/to/file_B: [file/folder]
+    * /path/to/file_C: [file/folder]
+    * ...
+
+3.  **Does it require manual creation of the output folder?**
+    * [Yes/No].
+
+4.  **Is a log file generated automatically?**
+    * [Yes/No].
+---
+"""
+
+SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
+
+According to the tool search results, if there is an image of the tool required by the user, use `select_image` to select it;
+Otherwise, end the task directly and tell the user that the image does not exist.
+"""
+
+PRE_RUN_SYSTEM = f"""You are a professional bioinformatics tool analyst. Your core goal is to run a bioinformatics tool on a specified dataset and generate a comprehensive tool analysis report. 
+You must operate precisely, strictly adhere to established workflows and rules, and produce well-documented and reproducible results.
+
+<Workflow>
+1. **[Option]Search for Database**: When the tool needs to use additional databases, first use the `search_biodb` tool to try searching if there is already a downloaded database on the host
+    - If the search results contain the database you need, proceed to step 3
+    - Otherwise, immediately call the `ask_human` tool to request the corresponding database. In the request, you need to tell the human what database is needed and possible download methods
+    - Note that **downloading the database must request human intervention!** Even if the tool provides scripts like download-database, it still needs to be determined by the human whether to call it
+2. **Build Container**: First call `build_container` to initialize the tool container
+    - If the tool requires an external database, based on the search results from the previous step, add the path of the external database to the `mounts` parameter as an additional mount.
+    - The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so you don't need to add them manually.
+3. **Choose Test Data**:
+    a. In the previous work, we have selected appropriate test data and copied it to `/data/output/00_raw`. First, check the files in the directory to determine if they are sufficient for the current tool.
+    b. If the files in `/data/output/00_raw` are sufficient for you to complete the current task, go directly to step5, otherwise continue
+    c. Read the `/data/testdata/DESCRIPTION.md` file, then select the missing files and copy them to `/data/output/00_raw`
+    d. If no suitable test data is found, handle according to the rules in <MissingFiles>
+4. **Execution**: 
+    a. First, call the command to view the tool's own help documentation (usually using the `--help` command)
+    b. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
+    c. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool
+5. **Cleanup**: Before generating the final report, you must use the `remove_container` tool to clean up the container created during this task.
+6. **Generate Report**: After successfully executing the target tool, carefully generate the final "Tool Analysis Report". The content of the report must be based on the guidelines in <ReportingGuide>.
+</Workflow>
+
+<MissingFiles>
+- Missing is raw data: Call the `ask_human` tool to request humans to supplement this type of test data
+    - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
+    - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
+- Missing is files obtained from processing by other bioinformatics analysis tools: Call the `request_for_other_tool` tool to request upstream analysis using other tools to provide the corresponding files
+    - Our core purpose is to analyze the output behavior of the target tool, rather than performing a complete and rigorous data analysis. Therefore, when using `request_for_other_tool` to request upstream analysis, your thinking should be to obtain the input files required by the target tool in the **simplest and most direct** way. Ignore all complex, non-essential steps, such as quality control, filtering, or normalization.
+</MissingFiles>
+
+<CommandDesignRule>
+- **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+- **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
+- **Parameters NEED to be added**: If the tool supports it, you should add the following four types of parameters in addition to the minimal command:
+    - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
+    - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
+    - Some tools (e.g. samtools convert) may use stdout as default output if specific parameters are not used. In such cases, you must add the corresponding parameters to write the output directly to a file.
+</CommandDesignRule>
+
+<ExecutionRules>
+### Directory operations
+- All directories except `/data/testdata` are **strictly read-only**, and any write or possible modification operations to files within them are prohibited.
+- To run the current tool, you need to create a subfolder for it under `/data/output`. Generally, just use the tool name (e.g., `/data/output/[toolname]/`)
+    - When a tool uses multiple subcommands or different operations, you can also add the corresponding suffix (e.g., `/data/output/[toolname]_[subcommand]/`)
+- When you call `request_for_other_tool`, their output files will also be in the corresponding folders under `/data/output`. Use the files among them as needed.
+
+### Command Execution
+- **General Rules (applicable to all commands)**:
+    - Each call to `run_command` should execute only one core task. Using `&&` or `;` to link multiple independent commands is strictly prohibited.
+    - Attaching `|| true` or any tricks that hide the true exit code is strictly prohibited.
+    - Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
+- **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
+- **System Commands**: You can use some system commands to assist you in completing your tasks. All available commands and rules are listed in <SystemCommandsRule>. Please strictly comply.
+- **Handling In-Place Modifications**: If a tool does not produce new files in the output directory after running, you need to consider whether it directly modified the original files.
+    1. First use the `cmp -s` command to compare the files in the `/data/output/00_raw` directory with their original source files to confirm whether the file content has changed.
+    2. If it is determined that the tool directly modifies the original file, then use the `cp` command to copy the modified file to the output directory you originally created for the current task.
+
+### Container Management
+If you discover the need for an additional database or other external files *after* container creation:
+1. Immediately obtain the database path via `ask_human`.
+2. Use the `remove_container` tool to delete the corresponding existing container.
+3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
+4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
+</ExecutionRules>
+
+<SystemCommandsRule>
+You can only use the following commands to browse and manage local files and directories. Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; 
+the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
+
+1. `ls -lha`: Used to browse directory structures and file information.
+    - Do not use this command inside the database directory. Because the database is likely to contain hundreds of small files, using the `find` command instead.
+2. `find`: Used to find files in directories by name or pattern.
+    - Can be combined with `grep` for filtering (e.g., `find ... | grep ...`)
+    - Parameters with modifying or executing effects such as `-exec` and `-delete` are prohibited.
+    - Must not be used to execute any commands.
+3. `wc -l`: Used to get the number of lines in a file.
+4. `sed`: Used to read file content by line range (for safe viewing of partial content)
+    - Only the form `sed -n 'start,endp' file` is allowed.
+    - `-i` or any parameters that modify files are prohibited.
+5. `grep`: Used to search for text content in files or find output.
+    - Only for searching, must not execute or modify files.
+    - Can be used to search files directly.
+    - Can be combined with `find` pipes for filtering.
+6. `file`: Used to determine file type (text/binary).
+7. `cmp -s`: Used to quickly compare if two files are identical; no output means they are the same.
+8. `where`: Used to find the path of the executable file.
+9. `mkdir`: Used to create new directories in the working output directory.
+    - Only allowed to create directories in `/data/output` and its subdirectories.
+    - Recursive creation can be done using the `-p` parameter.
+10. `cp`: Only used to copy raw data from `/data/testdata` to `/data/output`.
+    - Files must not be copied back from `/data/output` to `/data/testdata` or any other sensitive directory.
+    - No variants that delete or move source files (e.g., `mv`, usage with `--remove-source-files`, etc.) are allowed.
+
+Except for the commands listed above, the use of any other commands is prohibited.
+</SystemCommandsRule>
+
+<HumanAssistancePolicy>
+In the following three situations, you must immediately stop all current operations and use the `ask_human` tool to request human intervention:
+
+- **Missing Raw Data**: When a type of raw data required for analysis (e.g., a type of omics sequencing data, a certain image, etc.) is not available in `/data/testdata`. Do not request intermediate files that you can generate yourself.
+- **External Database or Missing Source File Required**:
+    - When a tool requires a **large, pre-built database** (e.g., NCBI `nr`, GTDB), you must ask the human for its host path.
+    - When a tool requires an **index** to be built, you should first try to build it assuming the source file (e.g., reference genome) is in `/data/testdata`. If, and only if, the build fails because the source file is missing, you should then use `ask_human` to request the necessary source file.
+- **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, do not fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
+</HumanAssistancePolicy>
+
+<ReportingGuide>
+If you ultimately succeed in completing the goal, you need to tell the user what you did and where the files he needs are located. In the form of:
+```text
+I generated the bam file you need through the command `[omitted]`, located in the `/data/output/[omitted]` directory
+```
+
+And if your task fails, similarly describe what situation you encountered and provide feedback to the user. For example:
+```text
+samtools seems unable to meet your requirements, please switch to a more suitable tool
+```
+</ReportingGuide>
+"""
+
 
 @tool(parse_docstring=True)
-def use_container(container_type: Literal['micromamba', 'tool'], runtime: ToolRuntime):
-    """Activate container environment
+async def request_for_other_tool(
+    tool_name: str, file_description: str, reasoning: str, runtime: ToolRuntime[TestRunContext]
+):
+    """Use this tool to delegate a task to a DIFFERENT upstream agent when a required input file is MISSING.
+
+    DO NOT output multiple requests in parallel.
+    You must wait for the first file to be generated before requesting the next one (e.g., wait for Index generation before requesting Alignment).
 
     Args:
-        container_type: Container type to activate, value can only be "micromamba" or "tool"
+        tool_name: The name of the upstream bioinformatics tool to be called.
+        file_description: A specific description of the output file required from that tool.
+        reasoning: The logical justification for requesting this dependency.
     """
-    configs = {
-        'tool': {
-            'container_key': 'tool_container',
-            'activated_msg': 'The tool container has been activated. The `run_command` tool will now operate within the tool container.',
-            'missing_msg': 'Please use `build_tool_container` tool to create the container first.',
-        },
-        'micromamba': {
-            'container_key': 'mamba_container',
-            'activated_msg': 'The micromamba container has been activated. The `run_command` tool will now operate within the micromamba container.',
-            'missing_msg': 'Please use the `build_micromamba_container` tool to create the container first.',
-        },
+    agent_input: SearchImageState = {
+        'messages': [
+            HumanMessage(
+                content=f'<UserRequire>\ntool_name: {tool_name}\nrequired_file: {file_description}\n</UserRequire>'
+            )
+        ]
     }
+    _response = await _pre_run_agent.ainvoke(agent_input)
 
-    if container_type not in configs:
-        raise ToolException('Illegal container_type parameter')
+    if runtime.context.save_message:
+        import polars as pl
 
-    cfg = configs[container_type]
-    container_id = runtime.state.get(cfg['container_key']) if cfg['container_key'] in runtime.state else None
+        message_dicts = [m.model_dump_json() for m in _response['messages']]
+        new_data = {
+            'question': [_response['messages'][0].content],
+            'test_run_id': [f'{runtime.context.test_run_id}_pre_{tool_name}'],
+            'messages': [message_dicts],
+        }
+        df_new = pl.DataFrame(new_data)
 
-    if container_id:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=cfg['activated_msg'],
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-                'container_id': container_id,
-            }
-        )
+        if Path(runtime.context.dataset_file).exists():
+            df_existing = pl.read_parquet(runtime.context.dataset_file)
+            df_existing = df_existing.vstack(df_new)
+            df_existing.write_parquet(runtime.context.dataset_file, compression='snappy')
+        else:
+            df_new.write_parquet(runtime.context.dataset_file, compression='snappy')
 
     return Command(
         update={
             'messages': [
                 ToolMessage(
-                    content=cfg['missing_msg'],
+                    content=_response['messages'][-1].content,
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -211,23 +395,100 @@ def use_container(container_type: Literal['micromamba', 'tool'], runtime: ToolRu
     )
 
 
-test_run_agent = create_agent(
-    model=glm_45(temperature=0.3),
+class PreRunAgent:
+    def __init__(self):
+        self.search_image_agent = create_agent(
+            model=glm_45(temperature=0.3),
+            tools=[
+                search_local_image,
+                select_image,
+            ],
+            system_prompt=SEARCH_IMAGE_SYSTEM,
+            middleware=[DisableParallelToolCallsMiddleware()],
+            state_schema=SearchImageState,
+        )
+        self.pre_run_agent = create_agent(
+            model=gpt_51_codex_mini(temperature=0.3),
+            tools=[
+                search_biodb,
+                build_container,
+                run_command_in_container,
+                stop_and_rm_container,
+                request_for_other_tool,
+            ],
+            system_prompt=PRE_RUN_SYSTEM,
+            middleware=[
+                DisableParallelToolCallsMiddleware(),
+                SaveMessagesMiddleware(),
+            ],
+            state_schema=TestRunState,
+            context_schema=TestRunContext,
+        )
+
+    async def search_image_node(self, state: TestRunState) -> Command[Literal['pre_run', '__end__']]:
+        """先搜索镜像"""
+        response = await self.search_image_agent.ainvoke({'messages': state['messages']})
+
+        if 'image' in response and response['image']:
+            return Command(goto='pre_run', update={'image': response['image']})
+
+        return Command(
+            goto=END,
+            update={'messages': [response['messages'][-1]]},
+        )
+
+    async def pre_run_node(self, state: TestRunState, runtime: Runtime[TestRunContext]):
+        """运行工具"""
+        test_run_state: TestRunState = {
+            'messages': state['messages'],
+            'image': state['image'],
+        }
+
+        response = await self.pre_run_agent.ainvoke(
+            test_run_state,
+            context=TestRunContext(
+                folder_name=runtime.context.test_run_id,
+                save_message=runtime.context.save_message,
+                test_run_id=runtime.context.test_run_id,
+            ),
+        )
+
+        if 'container_id' in response and response['container_id']:
+            remove_container(response['container_id'])
+            logger.debug('Cleared residual containers')
+
+        return {'messages': [response['messages'][-1]]}
+
+    def build(self) -> CompiledStateGraph[TestRunState, TestRunContext, SearchImageState]:
+        """构建并编译预运行 agent 图"""
+        graph = StateGraph(TestRunState, TestRunContext, input_schema=SearchImageState)
+        graph.add_node('search_image', self.search_image_node)
+        graph.add_node('pre_run', self.pre_run_node)
+
+        graph.set_entry_point('search_image')
+        graph.add_edge('pre_run', END)
+
+        compiled_graph = graph.compile(name='pre_run_agent')
+        return compiled_graph
+
+
+_pre_run_agent = PreRunAgent().build()
+
+test_run_agent: CompiledStateGraph[TestRunState, TestRunContext] = create_agent(
+    model=gpt_51_codex_mini(temperature=0.3),
     tools=[
-        build_micromamba_container,
-        build_tool_container,
-        use_container,
+        build_container,
         run_command_in_container,
         stop_and_rm_container,
+        request_for_other_tool,
         ask_human,
     ],
-    # middleware=[
-    #     SummarizationMiddleware(
-    #         model=gemini_25_flash(),
-    #         max_tokens_before_summary=12000,
-    #         messages_to_keep=6,
-    #     ),
-    # ],
     system_prompt=TEST_RUN_SYSTEM,
+    middleware=[
+        DisableParallelToolCallsMiddleware(),
+        SaveMessagesMiddleware(),
+        # CheckReportMiddleware(gpt_5_mini(0.3), TEST_RUN_DESCRIPTION),
+    ],
     state_schema=TestRunState,
+    context_schema=TestRunContext,
 )
