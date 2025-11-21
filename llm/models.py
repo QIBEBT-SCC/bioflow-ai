@@ -106,6 +106,31 @@ def gpt_5_mini(temperature: float = 0.7, disable_streaming: bool = False, reason
     return llm
 
 
+def gpt_51_codex_mini(temperature: float = 0.7, disable_streaming: bool = False, reasoning_effort: str = 'low'):
+    if base_url := get_settings().llm.GPT.BASE_URL:
+        provider = get_settings().llm.GPT.PROVIDER
+        llm = ChatOpenAIReasoning(
+            model=f'{provider}/gpt-5.1-codex-mini' if provider else 'gpt-5.1-codex-mini',
+            base_url=base_url,
+            api_key=get_settings().llm.GPT.API_KEY,
+            temperature=temperature,
+            disable_streaming=disable_streaming,
+            reasoning_effort=reasoning_effort,
+            openai_proxy=get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None,
+        )
+    else:
+        llm = ChatOpenAIReasoning(
+            model='gpt-5.1-codex-mini',
+            api_key=get_settings().llm.GPT.API_KEY,
+            temperature=temperature,
+            disable_streaming=disable_streaming,
+            reasoning_effort=reasoning_effort,
+            openai_proxy=get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None,
+        )
+
+    return llm
+
+
 def grok_4_fast_livesearch(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAIReasoning:
     provider = get_settings().llm.GROK.PROVIDER
     llm = ChatOpenAIReasoning(
