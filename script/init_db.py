@@ -107,7 +107,7 @@ async def init_tools():
     LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
 
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['bedtools', 'GATK']))
+    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['GATK']))
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
