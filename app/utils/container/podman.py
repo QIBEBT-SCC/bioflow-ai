@@ -42,16 +42,19 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig):
             )
 
 
-def run_podman(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwargs) -> tuple[int, str]:
+def run_podman(
+    image_cfg: ImageConfig, command: str, mounts: list[Mount], workdir: Optional[str] = None, **kwargs
+) -> tuple[int, str]:
     """在podman容器中运行命令并返回执行结果。
 
     同步运行容器命令，等待命令执行完成后返回退出状态码和输出日志。
     适用于短时间运行的命令，容器会在命令执行完成后自动清理。
 
     Args:
-        image_cfg (ImageConfig): 容器镜像设置
-        command (str): 容器内执行的命令
-        mounts (list[Mount]): 文件挂载列表
+        image_cfg: 容器镜像设置
+        command: 容器内执行的命令
+        mounts: 文件挂载列表
+        workdir: 命令运行的工作目录
         **kwargs: 其他容器参数，如环境变量、端口映射等
 
     Returns:
@@ -82,6 +85,7 @@ def run_podman(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
                 entrypoint=['/bin/bash', '-c'],
                 remove=False,
                 detach=True,
+                workdir=workdir,
                 **kwargs,
             )
             status_code = container.wait()
@@ -93,7 +97,12 @@ def run_podman(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
 
 
 def run_podman_background(
-    image_cfg: ImageConfig, command: str, mounts: list[Mount], interval: float = 1.0, **kwargs
+    image_cfg: ImageConfig,
+    command: str,
+    mounts: list[Mount],
+    interval: float = 1.0,
+    workdir: Optional[str] = None,
+    **kwargs,
 ) -> Generator[dict[str, Any], None, None]:
     """后台运行podman容器，并实时返回容器资源占用信息。
 
@@ -101,10 +110,11 @@ def run_podman_background(
     包括CPU、内存、网络I/O、块I/O等关键指标。
 
     Args:
-        image_cfg (ImageConfig): 容器镜像设置
-        command (str): 容器内执行的命令
-        mounts (list[Mount]): 文件挂载列表
-        interval (float): 资源采样间隔（秒），默认1.0秒
+        image_cfg: 容器镜像设置
+        command: 容器内执行的命令
+        mounts: 文件挂载列表
+        interval: 资源采样间隔（秒），默认1.0秒
+        workdir: 命令运行的工作目录
         **kwargs: 其他容器参数
 
     Yields:
@@ -132,6 +142,7 @@ def run_podman_background(
                 entrypoint=['/bin/bash', '-c'],
                 remove=False,
                 detach=True,
+                workdir=workdir,
                 **kwargs,
             )
 
