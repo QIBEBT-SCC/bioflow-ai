@@ -15,7 +15,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command
-from loguru import logger
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
@@ -28,12 +27,11 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
-from app.utils.container.podman import remove_container
 from llm.agents.tool_manager.generate_tool_config import ToolGenerator
 from llm.agents.tool_manager.searcher.doc import doc_searcher
 from llm.agents.tool_manager.searcher.image import GetImageAgent
 from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
-from llm.agents.tool_manager.test_run_agent import test_run_agent
+from llm.agents.tool_manager.test_run_agent import TestRunReport, test_run_agent
 from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.states import (
     CreateToolContext,
@@ -331,18 +329,28 @@ class CreateToolAgent:
                 test_run_id=runtime.context.test_run_id,
             ),
         )
-
-        # 清理镜像
-        if 'container_id' in response and response['container_id']:
-            remove_container(response['container_id'])
-            logger.debug('Cleared residual containers')
+        run_report: TestRunReport = response['structured_response']
+        _file_list = '\n'.join([f'- {_f.path}: [{_f.type}]{_f.description}' for _f in run_report.output_files])
+        report = (
+            f'## Test Run Command\n'
+            f'{run_report.note}\n'
+            f'```bash\n{run_report.running_command}\n```\n'
+            f'output_dir: `{run_report.output_path}`\n\n'
+            f'## Tool Analysis Report\n'
+            f'1. **Output Files:**\n'
+            f'{_file_list}\n\n'
+            f'2. **Does it require manual creation of the output folder?**\n'
+            f'    {not run_report.auto_create_output_folder}\n'
+            f'3. **Is a log file generated automatically?**\n'
+            f'    {run_report.auto_create_log}\n'
+        )
 
         return {
             'messages': [
                 AIMessage(
                     content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
                 ),
-                HumanMessage(content=f'The information I found is as follows:\n\n{response["messages"][-1].content}'),
+                HumanMessage(content=report),
             ]
         }
 
