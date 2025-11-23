@@ -19,6 +19,7 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
+from app.utils.container.podman import run_podman
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -237,17 +238,19 @@ def save_doc(
     description: str,
     runtime: ToolRuntime,
 ) -> Command:
-    """Save the results from the last run to the database as help documentation records.
+    """Save the results of help_command to the database as help documentation records.
 
     Args:
         help_command: The command corresponding to this help document
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
+    image: ImageConfig = runtime.state.get('image')
+    code, result = run_podman(image, help_command, [])
     with Session(engine) as session:
         new_doc = ToolHelpDoc(
             help_command=help_command,
             description=description,
-            content=runtime.state.get('last_output'),
+            content=result,
             image_uid=runtime.state.get('image_uid'),
         )
         new_doc = doc_crud.insert(session, new_doc)
