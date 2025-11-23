@@ -44,7 +44,6 @@ class GetDocState(MessagesState):
     image_uid: uuid.UUID
     image: ImageConfig
 
-    last_output: NotRequired[str]
     doc_uid: NotRequired[uuid.UUID]
 
 
@@ -91,6 +90,8 @@ class CreateToolOutput(BaseModel):
 class TestRunState(MessagesState):
     image: ImageConfig
     container_id: NotRequired[str]
+
+    checked: NotRequired[bool]
 
 
 @dataclass

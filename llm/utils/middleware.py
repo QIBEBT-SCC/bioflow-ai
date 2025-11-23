@@ -5,13 +5,16 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph import MessagesState
 from langgraph.runtime import Runtime
+from langgraph.types import interrupt
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from llm.states import TestRunContext
+from app.utils.container.podman import remove_container
+from llm.states import TestRunContext, TestRunState
 
 DEFAULT_CHECK = """Based on the task description above and the conversation history below, please judge whether the current task has been completed.
 
@@ -80,6 +83,8 @@ class CheckReportMiddleware(AgentMiddleware):
                     'messages': [HumanMessage(content=self.continue_message)],
                 }
 
+        return None
+
     async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
         last_message = state['messages'][-1]
 
@@ -93,21 +98,42 @@ class CheckReportMiddleware(AgentMiddleware):
                     'messages': [HumanMessage(content=self.continue_message)],
                 }
 
+        return None
+
+
+class TokenLimitMiddleware(AgentMiddleware):
+    def __init__(self, max_token: int = 12000):
+        self.max_token = max_token
+
+    def before_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
+        return {'checked': False}
+
+    def before_model(self, state: TestRunState, runtime: Runtime) -> dict[str, Any] | None:
+        total_tokens = count_tokens_approximately(state['messages'])
+        if not state['checked']:
+            if total_tokens > self.max_token:
+                logger.warning(f'Up to max token {total_tokens}')
+                is_approved = interrupt({'max_token': total_tokens})
+
+                return {'checked': is_approved}
+
+        return None
+
 
 class SaveMessagesMiddleware(AgentMiddleware):
     def __init__(self, dataset_file: str = 'test_run.parquet'):
         self.dataset_file = dataset_file
 
-    def after_agent(self, state: MessagesState, runtime: Runtime[TestRunContext]) -> dict[str, Any] | None:
+    def _save_messages(self, state: MessagesState, run_id: str):
         import polars as pl
 
         message_dicts = [m.model_dump_json() for m in state['messages']]
         new_data = {
-            'question': [state['messages'][0].content],
-            'test_run_id': [runtime.context.test_run_id],
-            'messages': [message_dicts],
+            'question': state['messages'][0].content,
+            'test_run_id': run_id,
+            'messages': message_dicts,
         }
-        df_new = pl.DataFrame(new_data)
+        df_new = pl.DataFrame([new_data])
 
         if Path(self.dataset_file).exists():
             df_existing = pl.read_parquet(self.dataset_file)
@@ -117,23 +143,20 @@ class SaveMessagesMiddleware(AgentMiddleware):
             df_new.write_parquet(self.dataset_file, compression='snappy')
 
         logger.debug(f'Saved new conversation record, containing {len(message_dicts)} conversations.')
+
+    def after_agent(self, state: MessagesState, runtime: Runtime[TestRunContext]) -> dict[str, Any] | None:
+        if runtime.context.save_message:
+            self._save_messages(state, runtime.context.test_run_id)
 
     async def aafter_agent(self, state: MessagesState, runtime: Runtime[TestRunContext]) -> dict[str, Any] | None:
-        import polars as pl
+        return self.after_agent(state, runtime)
 
-        message_dicts = [m.model_dump_json() for m in state['messages']]
-        new_data = {
-            'question': [state['messages'][0].content],
-            'test_run_id': [runtime.context.test_run_id],
-            'messages': [message_dicts],
-        }
-        df_new = pl.DataFrame(new_data)
 
-        if Path(self.dataset_file).exists():
-            df_existing = pl.read_parquet(self.dataset_file)
-            df_existing = df_existing.vstack(df_new)
-            df_existing.write_parquet(self.dataset_file, compression='snappy')
-        else:
-            df_new.write_parquet(self.dataset_file, compression='snappy')
+class ClearContainerMiddleware(AgentMiddleware):
+    def after_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
+        if 'container_id' in state and state['container_id']:
+            remove_container(state['container_id'])
+            logger.debug('Cleare residual containers')
 
-        logger.debug(f'Saved new conversation record, containing {len(message_dicts)} conversations.')
+    async def aafter_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
+        return self.after_agent(state, runtime)
