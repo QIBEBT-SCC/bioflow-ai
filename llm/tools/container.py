@@ -27,7 +27,29 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
         mounts: Other mounts besides testdata and output folder
     """
     image: ImageConfig = runtime.state.get('image')
-    container_id = _build_container(image, runtime.context.folder_name, mounts)
+    podman_mounts = [
+        {'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only, 'relabel': 'z'}
+        for m in mounts
+    ]
+    output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / runtime.context.folder_name
+    output_path.mkdir(parents=True, exist_ok=True)
+    podman_mounts.extend(
+        [
+            {
+                'type': 'bind',
+                'target': '/data/testdata',
+                'source': get_settings().persistent.TEST_DATA_PATH,
+                'read_only': True,
+                'relabel': 'z',
+            },
+            {
+                'type': 'bind',
+                'target': '/data/output',
+                'source': f'{output_path}',
+            },
+        ]
+    )
+    container_id = create_container(image, podman_mounts)
 
     return Command(
         update={
@@ -46,6 +68,36 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
 def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Optional[str] = None):
     """Run command, and return it`s output result.
     **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
+
+    When running system commands, follow these rules:
+    <AvailableSystemCommands>
+    1. `ls -lha`: Used to browse directory structures and file information.
+        - Do not use this command inside the database directory. Because the database is likely to contain hundreds of small files, using the `find` command instead.
+    2. `find`: Used to find files in directories by name or pattern.
+        - Can be combined with `grep` for filtering (e.g., `find ... | grep ...`)
+        - Parameters with modifying or executing effects such as `-exec` and `-delete` are prohibited.
+        - Must not be used to execute any commands.
+    3. `wc -l`: Used to get the number of lines in a file.
+    4. `sed`: Used to read file content by line range (for safe viewing of partial content)
+        - Only the form `sed -n 'start,endp' file` is allowed.
+        - `-i` or any parameters that modify files are prohibited.
+        - When using sed to view a file, the number of lines read at one time must not exceed 5.
+    5. `grep`: Used to search for text content in files or find output.
+        - Only for searching, must not execute or modify files.
+        - Can be used to search files directly.
+        - Can be combined with `find` pipes for filtering.
+    6. `file`: Used to determine file type (text/binary).
+    7. `cmp -s`: Used to quickly compare if two files are identical; no output means they are the same.
+    8. `where`: Used to find the path of the executable file.
+    9. `mkdir`: Used to create new directories in the working output directory.
+        - Only allowed to create directories in `/data/output` and its subdirectories.
+        - Recursive creation can be done using the `-p` parameter.
+    10. `cp`: Only used to copy raw data from `/data/testdata` to `/data/output`.
+        - Files must not be copied back from `/data/output` to `/data/testdata` or any other sensitive directory.
+        - No variants that delete or move source files (e.g., `mv`, usage with `--remove-source-files`, etc.) are allowed.
+
+    Except for the commands listed above, the use of any other system commands is prohibited.
+    </AvailableSystemCommands>
 
     Args:
         command: The command you need to run
@@ -66,6 +118,17 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
         )
 
     runtime.stream_writer({'run': command, 'dir': workdir})
+    if 'cat' in command and 'DESCRIPTION.md' not in command:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='The `cat` command is not allowed. You can only use the commands listed in <AvailableSystemCommands>.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
     code, out = run_podman_by_id(container_id, command, workdir)
 
     run_status = 'successfully' if code == 0 else 'failed'
@@ -91,24 +154,6 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
     )
 
 
-@tool('remove_container')
-def stop_and_rm_container(runtime: ToolRuntime):
-    """Stop and remove container"""
-
-    container_id = runtime.state.get('container_id')
-    remove_container(container_id)
-
-    return {
-        'container_id': None,
-        'messages': [
-            ToolMessage(
-                content='The container has been removed',
-                tool_call_id=runtime.tool_call_id,
-            )
-        ],
-    }
-
-
 @tool(parse_docstring=True)
 def run_command(command: str, runtime: ToolRuntime):
     """run command in a container and return the result
@@ -120,40 +165,30 @@ def run_command(command: str, runtime: ToolRuntime):
     image = runtime.state.get('image')
     code, result = run_podman(image, command, [])
 
+    return f'[Container: {image.get_image()}]\n{result}'
+
+
+@tool('remove_container')
+def stop_and_rm_container(runtime: ToolRuntime):
+    """Stop and remove container"""
+
+    container_id = runtime.state.get('container_id')
+    remove_container(container_id)
+
     return Command(
-        update={'last_output': result, 'messages': [ToolMessage(content=result, tool_call_id=runtime.tool_call_id)]}
+        update={
+            'container_id': None,
+            'messages': [
+                ToolMessage(
+                    content='The container has been removed',
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
     )
-
-
-def _build_container(image: ImageConfig, folder_name: str, extra_mount: list[ContainerMount]) -> str:
-    podman_mounts = [
-        {'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only, 'relabel': 'z'}
-        for m in extra_mount
-    ]
-    output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / folder_name
-    output_path.mkdir(parents=True, exist_ok=True)
-    podman_mounts.extend(
-        [
-            {
-                'type': 'bind',
-                'target': '/data/testdata',
-                'source': get_settings().persistent.TEST_DATA_PATH,
-                'read_only': True,
-                'relabel': 'z',
-            },
-            {
-                'type': 'bind',
-                'target': '/data/output',
-                'source': f'{output_path}',
-            },
-        ]
-    )
-    container_id = create_container(image, podman_mounts)
-
-    return container_id
 
 
 def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('ls', 'head', 'find', 'grep')) or len(output) <= 3000:
+    if any(k in command for k in ('find', 'grep', 'help')) or len(output) <= 3000:
         return output
-    return f'{output[:1000]}\n...\n{output[-1000:]}'
+    return f'{output[:1500]}\n...\n{output[-500:]}'
