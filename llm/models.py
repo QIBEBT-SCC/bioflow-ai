@@ -10,13 +10,6 @@ from llm.utils.cache import cache_model
 
 def gemini_25_flash(temperature: float = 0.7, disable_streaming: bool = False) -> BaseChatModel:
     if base_url := get_settings().llm.GEMINI.BASE_URL:
-        # llm = ChatGoogleGenerativeAI(
-        #     model='gemini-2.5-flash',
-        #     client_options={'api_endpoint': base_url},
-        #     google_api_key=get_settings().llm.GEMINI.API_KEY,
-        #     temperature=temperature,
-        #     transport='rest',
-        # )
         provider = get_settings().llm.GEMINI.PROVIDER
         llm = ChatOpenAIReasoning(
             model=f'{provider}/gemini-2.5-flash' if provider else 'gemini-2.5-flash',
@@ -51,6 +44,25 @@ def gemini_25_pro(temperature: float = 0.7, disable_streaming: bool = False) -> 
     else:
         llm = ChatGoogleGenerativeAI(
             model='gemini-2.5-pro', google_api_key=get_settings().llm.GEMINI.API_KEY, temperature=temperature
+        )
+
+    return llm
+
+
+def gemini_3_pro(temperature: float = 1.0, disable_streaming: bool = False) -> BaseChatModel:
+    if base_url := get_settings().llm.GEMINI.BASE_URL:
+        provider = get_settings().llm.GEMINI.PROVIDER
+        llm = ChatOpenAIReasoning(
+            model=f'{provider}/gemini-3-pro-preview' if provider else 'gemini-3-pro-preview',
+            base_url=base_url,
+            api_key=get_settings().llm.GEMINI.API_KEY,
+            provider='google',
+            temperature=temperature,
+            disable_streaming=disable_streaming,
+        )
+    else:
+        llm = ChatGoogleGenerativeAI(
+            model='gemini-3-pro-preview', google_api_key=get_settings().llm.GEMINI.API_KEY, temperature=temperature
         )
 
     return llm
