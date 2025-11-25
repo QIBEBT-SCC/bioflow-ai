@@ -60,19 +60,19 @@ services:
       - "19530:19530"
       - "9091:9091"
     # Docker GPU配置 (适用于Docker Desktop和Docker Engine)
-    #    deploy:
-    #      resources:
-    #        reservations:
-    #          devices:
-    #            - driver: nvidia
-    #              capabilities: [ "gpu" ]
-    #              device_ids: [ "0" ]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [ "gpu" ]
+              device_ids: [ "0" ]
     
     # Podman GPU配置 (适用于Podman) - 取消注释下面部分并注释上面的deploy部分
-    devices:
-      - /dev/nvidia0:/dev/nvidia0
-      - /dev/nvidiactl:/dev/nvidiactl
-      - /dev/nvidia-uvm:/dev/nvidia-uvm
+    #    devices:
+    #      - /dev/nvidia0:/dev/nvidia0
+    #      - /dev/nvidiactl:/dev/nvidiactl
+    #      - /dev/nvidia-uvm:/dev/nvidia-uvm
     depends_on:
       - "etcd"
       - "minio"

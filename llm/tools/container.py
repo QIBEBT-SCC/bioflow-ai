@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
+from docker.types import Mount
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
@@ -9,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models.tools import ImageConfig
-from app.utils.container.podman import create_container, remove_container, run_podman, run_podman_by_id
 from llm.states import TestRunContext
 
 
@@ -26,30 +26,51 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
     Args:
         mounts: Other mounts besides testdata and output folder
     """
-    image: ImageConfig = runtime.state.get('image')
-    podman_mounts = [
-        {'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only, 'relabel': 'z'}
-        for m in mounts
-    ]
     output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / runtime.context.folder_name
     output_path.mkdir(parents=True, exist_ok=True)
-    podman_mounts.extend(
-        [
-            {
-                'type': 'bind',
-                'target': '/data/testdata',
-                'source': get_settings().persistent.TEST_DATA_PATH,
-                'read_only': True,
-                'relabel': 'z',
-            },
-            {
-                'type': 'bind',
-                'target': '/data/output',
-                'source': f'{output_path}',
-            },
-        ]
-    )
-    container_id = create_container(image, podman_mounts)
+
+    image: ImageConfig = runtime.state.get('image')
+
+    # 基础挂载配置
+    mount_configs = [{'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only} for m in mounts]
+    testdata_mount = {
+        'type': 'bind',
+        'target': '/data/testdata',
+        'source': get_settings().persistent.TEST_DATA_PATH,
+        'read_only': True,
+    }
+    output_mount = {
+        'type': 'bind',
+        'target': '/data/output',
+        'source': f'{output_path}',
+    }
+
+    container_type = get_settings().docker.CONTAINER
+
+    if container_type == 'docker':
+        from app.utils.container.docker import create_container
+
+        final_mounts = []
+        for m in mount_configs + [testdata_mount, output_mount]:
+            final_mounts.append(
+                Mount(
+                    target=m['target'],
+                    source=m['source'],
+                    type=m.get('type', 'bind'),
+                    read_only=m.get('read_only', False),
+                )
+            )
+        container_id = create_container(image, final_mounts)
+    else:
+        from app.utils.container.podman import create_container
+
+        # Podman specific relabeling
+        for m in mount_configs:
+            m['relabel'] = 'z'
+        testdata_mount['relabel'] = 'z'
+
+        final_mounts = mount_configs + [testdata_mount, output_mount]
+        container_id = create_container(image, final_mounts)
 
     return Command(
         update={
@@ -129,7 +150,15 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
                 ],
             }
         )
-    code, out = run_podman_by_id(container_id, command, workdir)
+
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import run_docker_by_id
+
+        code, out = run_docker_by_id(container_id, command, workdir)
+    else:
+        from app.utils.container.podman import run_podman_by_id
+
+        code, out = run_podman_by_id(container_id, command, workdir)
 
     run_status = 'successfully' if code == 0 else 'failed'
     if out.strip():
@@ -163,7 +192,15 @@ def run_command(command: str, runtime: ToolRuntime):
         command: the command you need to run
     """
     image = runtime.state.get('image')
-    code, result = run_podman(image, command, [])
+
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import run_docker
+
+        code, result = run_docker(image, command, [])
+    else:
+        from app.utils.container.podman import run_podman
+
+        code, result = run_podman(image, command, [])
 
     return f'[Container: {image.get_image()}]\n{result}'
 
@@ -173,7 +210,15 @@ def stop_and_rm_container(runtime: ToolRuntime):
     """Stop and remove container"""
 
     container_id = runtime.state.get('container_id')
-    remove_container(container_id)
+
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import remove_container
+
+        remove_container(container_id)
+    else:
+        from app.utils.container.podman import remove_container
+
+        remove_container(container_id)
 
     return Command(
         update={

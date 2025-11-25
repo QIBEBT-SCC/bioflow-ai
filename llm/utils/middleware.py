@@ -13,7 +13,7 @@ from langgraph.types import interrupt
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from app.utils.container.podman import remove_container
+from app.core.config import get_settings
 from llm.states import TestRunContext, TestRunState
 
 DEFAULT_CHECK = """Based on the task description above and the conversation history below, please judge whether the current task has been completed.
@@ -155,8 +155,16 @@ class SaveMessagesMiddleware(AgentMiddleware):
 class ClearContainerMiddleware(AgentMiddleware):
     def after_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
         if 'container_id' in state and state['container_id']:
-            remove_container(state['container_id'])
-            logger.debug('Cleare residual containers')
+            if get_settings().docker.CONTAINER == 'docker':
+                from app.utils.container.docker import remove_container
+
+                remove_container(state['container_id'])
+            else:
+                from app.utils.container.podman import remove_container
+
+                remove_container(state['container_id'])
+
+            logger.debug(f'Remove {get_settings().docker.CONTAINER} containers')
 
     async def aafter_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
         return self.after_agent(state, runtime)

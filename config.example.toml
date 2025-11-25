@@ -38,6 +38,7 @@ allowed_image_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "ima
 allowed_document_types = ["application/pdf", "text/plain", "text/markdown"]
 
 [docker]
+container = "docker"
 username = ""
 password = ""
 

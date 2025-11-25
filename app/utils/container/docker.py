@@ -1,3 +1,4 @@
+import datetime
 import time
 from typing import Any, Optional
 
@@ -31,7 +32,9 @@ def _check_image(client: DockerClient, image_cfg: ImageConfig):
         time.sleep(1)
 
 
-def run_docker(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwargs) -> tuple[int, str]:
+def run_docker(
+    image_cfg: ImageConfig, command: str, mounts: list[Mount], workdir: Optional[str] = None, **kwargs
+) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果。
 
     同步运行容器命令，等待命令执行完成后返回退出状态码和输出日志。
@@ -41,6 +44,7 @@ def run_docker(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
         image_cfg (ImageConfig): 容器镜像设置
         command (str): 容器内执行的命令
         mounts (list[Mount]): 文件挂载列表
+        workdir: 命令运行的工作目录
         **kwargs: 其他容器参数，如环境变量、端口映射等
 
     Returns:
@@ -65,6 +69,7 @@ def run_docker(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
         command,
         stderr=True,
         entrypoint=['/bin/bash', '-c'],
+        working_dir=workdir,
         user=get_current_user_identity(),
         auto_remove=False,
         detach=True,
@@ -81,17 +86,20 @@ def run_docker(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwar
             container.remove(force=True)
 
 
-def run_docker_background(image_cfg: ImageConfig, command: str, mounts: list[Mount], interval: float = 1.0, **kwargs):
+def run_docker_background(
+    image_cfg: ImageConfig, command: str, mounts: list[Mount], working_dir: str, interval: float = 1.0, **kwargs
+):
     """后台运行docker容器，并实时返回容器资源占用信息。
 
     在容器内运行长耗时任务，定期采样并返回容器的资源使用情况，
     包括CPU、内存、网络I/O、块I/O等关键指标。
 
     Args:
-        image_cfg (ImageConfig): 容器镜像设置
-        command (str): 容器内执行的命令
-        mounts (list[Mount]): 文件挂载列表
-        interval (float): 资源采样间隔（秒），默认1.0秒
+        image_cfg: 容器镜像设置
+        command: 容器内执行的命令
+        mounts: 文件挂载列表
+        working_dir: 工作目录
+        interval: 资源采样间隔（秒），默认1.0秒
         **kwargs: 其他容器参数
 
     Yields:
@@ -117,6 +125,7 @@ def run_docker_background(image_cfg: ImageConfig, command: str, mounts: list[Mou
             f'"{command}"',
             mounts=mounts,
             entrypoint=['/bin/bash', '-c'],
+            working_dir=working_dir,
             user=get_current_user_identity(),
             auto_remove=False,
             detach=True,
@@ -131,9 +140,16 @@ def run_docker_background(image_cfg: ImageConfig, command: str, mounts: list[Mou
             yield calculate_container_stats(stats)
             time.sleep(interval)
 
-        # log = container.logs(stderr=True, stream=False).decode('utf-8')
-        # print(log)
     finally:
+        timestamp = datetime.datetime.now(datetime.UTC)
+        yield {
+            'cpu_usage': 0.0,
+            'mem_usage': 0.0,
+            'mem_used': 0.0,
+            'io_in': 0.0,
+            'io_out': 0.0,
+            'time': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f') + '000Z',
+        }
         if container:
             container.remove(force=True)
 
@@ -207,3 +223,71 @@ def calculate_container_stats(stats: dict[str, Any]) -> Optional[dict[str, Any]]
         }
     except KeyError:
         return None
+
+
+def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwargs) -> str:
+    """创建容器并返回其ID
+
+    Args:
+        image_cfg: 所使用的镜像
+        mounts: 外部文件夹挂载
+        **kwargs:
+
+    Returns:
+        容器的ID
+    """
+    client = docker.from_env()
+    _check_image(client, image_cfg)
+
+    container = client.containers.create(
+        image_cfg.get_image(),
+        command='sleep infinity',  # 保证容器常驻
+        mounts=mounts,
+        entrypoint=['/bin/bash', '-c'],
+        detach=True,
+        user=get_current_user_identity(),
+        **kwargs,
+    )
+    container.start()
+    logger.debug(f'create container {container.name}')
+
+    return container.id
+
+
+def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = None) -> tuple[int, str]:
+    """在特定容器中运行命令并返回结果
+
+    Args:
+        container_id: 目标容器ID
+        command: 要运行的指令
+        workdir: 命令执行的工作目录
+
+    Returns:
+        - int: 运行的状态码
+        - str: 日志输出结果
+    """
+    client = docker.from_env()
+    container = client.containers.get(container_id)
+
+    code, result = container.exec_run(['/bin/bash', '-c', command], tty=True, stream=False, workdir=workdir)
+    if isinstance(result, bytes):
+        try:
+            result = result.decode()
+        except UnicodeDecodeError as e:
+            result = f'{e}'
+
+    return code, result.strip()
+
+
+def remove_container(container_id: str):
+    """停止并移除容器
+
+    Args:
+        container_id: 要移除的容器ID
+    """
+    client = docker.from_env()
+    try:
+        container = client.containers.get(container_id)
+        container.remove(force=True)
+    except docker.errors.NotFound:
+        pass

@@ -123,6 +123,7 @@ class CeleryConfig(BaseModel):
 class DockerConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
+    CONTAINER: Literal['docker', 'podman'] = 'docker'
     USERNAME: str = ''
     PASSWORD: SecretStr = ''
 
