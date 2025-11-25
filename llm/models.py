@@ -49,7 +49,7 @@ def gemini_25_pro(temperature: float = 0.7, disable_streaming: bool = False) -> 
     return llm
 
 
-def gemini_3_pro(temperature: float = 1.0, disable_streaming: bool = False) -> BaseChatModel:
+def gemini_3_pro(temperature: float = 1.0, disable_streaming: bool = False) -> ChatOpenAIReasoning:
     if base_url := get_settings().llm.GEMINI.BASE_URL:
         provider = get_settings().llm.GEMINI.PROVIDER
         llm = ChatOpenAIReasoning(
