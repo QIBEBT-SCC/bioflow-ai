@@ -60,8 +60,7 @@ So when you're executing the overall task, you just need to go with the mindset 
     a. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
     b. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool
     c. After successful execution, process the output results based on the tool's behavior (whether it generates new files or modifies existing ones in place).
-6. **Cleanup**: Before generating the final report, you must use the `remove_container` tool to clean up the container created during this task.
-7. **Generate Report**: After obtaining all information, provide the final report on this tool in the required format.
+6. **Generate Report**: After obtaining all the required information, provide the output report as requested in <OutputStructure>.
 </Workflow>
 
 <MissingFiles>
@@ -71,22 +70,21 @@ You need to identify exactly what type of file you are missing, and call the `as
     - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
     - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
 - Missing is files obtained from processing by other bioinformatics analysis tools: Call the `need_upstream_analysis` tool to request upstream analysis using other tools to provide the corresponding files
-    - Example 1: You need an aligned BAM file
-    - Example 2: You need an assembled contigs sequence
-    - Our core purpose is to analyze the output behavior of the target tool, rather than performing a complete and rigorous data analysis. Therefore, when using `need_upstream_analysis` to request upstream analysis, your thinking should be to obtain the input files required by the target tool in the **simplest and most direct** way. Ignore all complex, non-essential steps, such as quality control, filtering, or normalization.
+    - Example 1: You need an aligned BAM file, but only raw fastq file found.
+    - Example 2: You need an assembled contigs sequence, but only raw fastq file found.
 </MissingFiles>
 
 <CommandDesignRule>
 - **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
 - **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
-- **Parameters NEED to be added**: If the tool supports it, you should add the following four types of parameters in addition to the minimal command:
+- **Parameters NEED to be added**: If the tool supports it, you should add the following three types of parameters in addition to the minimal command:
     - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
     - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
     - If the tool has built-in logging functionality (e.g., `--log-file`, `-l`), it should be added to the command.
-    - Some tools (e.g. samtools convert) may use stdout as default output if specific parameters are not used. In such cases, you must add the corresponding parameters to write the output directly to a file.
-- **Output Redirection**: For all tools, regardless of whether the tool itself generates logs, use `> 11_running.log 2>&1` to redirect the tool's output to a file named `11_running.log`
-    - If a tool uses stdout as output and does not specify a parameter to output to a file, then you need to modify the capture method to only capture error messages to the log. (e.g. `bioawk -c fastx ... input.fa > result.txt 2> 11_running.log`)
-- **Handling In-Place Modifications**: Only when a tool's output directly modifies the original input file, at that time only, are you allowed to use `&&` to perform a concatenation operation, constructing a command in the form of `cp [raw_input] [copied_input] && [command with copied_input] > 11_running.log 2>&1` to prevent it from modifying the original file.
+- **Output Redirection**: 
+    - For all tools, regardless of whether the tool itself generates logs, use `> 11_run.log 2>&1` to redirect the tool's output to a file named `11_run.log`
+    - If a tool uses stdout as output and does not specify a parameter to output to a file, then only the error output is redirected, and the result is saved in the corresponding file. (e.g. `bedtools nuc ... > result.tsv 2> 11_run.log`)
+- **Handling In-Place Modifications**: Only when a tool's output directly modifies the original input file, at that time only, are you allowed to use `&&` to perform a concatenation operation, constructing a command in the form of `cp [raw_input] [copied_input] && [command with copied_input]` to prevent it from modifying the original file.
 </CommandDesignRule>
 
 <ExecutionRules>
@@ -109,11 +107,8 @@ You need to identify exactly what type of file you are missing, and call the `as
     1. First use the `cmp -s` command to compare the files in the `/data/output/00_raw` directory with their original source files to confirm whether the file content has changed.
     2. If it is determined that the tool directly modifies the original file, then use cp to re-copy a test file to `/data/output/00_raw`
     3. Follow the rules in <CommandDesignRule> to redesign the command and run it, ultimately making the tool output to a new folder instead of modifying the source file.
-- **Execution Logging**: After the tool command **executes successfully**, run a separate `echo` command to record the pure command into the `00_running_command.txt` file in the tool's output directory. The command output here should be the pure analysis command, without tool paths, redirections, or other information.
+- **Execution Logging**: After the tool command **executes successfully**, run a separate `echo` command to record the pure command into the `00_running_command.txt` file in the tool's output directory.
     - For system commands and tool commands that fail to run, there is no need to record them; ONLY record the one tool execution command that ultimately satisfies the user's needs.
-    - Example:
-        1. `run_command_in_container(command="/usr/bin/[command] [some_params] > 11_running.log 2>&1", workdir="/data/output/[command]")`
-        2. `run_command_in_container(command='echo "[command] [some_params]" > 00_running_command.txt', workdir="/data/output/[command]")`
     - If it's the in-place modification case above, the record needs to add the preceding `cp` command
 - **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, DO NOT fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
 
@@ -124,6 +119,18 @@ If you discover the need for an additional database or other external files *aft
 3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
 4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
 </ExecutionRules>
+
+<OutputStructure>
+After obtaining all the required information, your final output needs to include the following fields:
+- `running_command`: The command that ultimately executed successfully and produced the corresponding output, same as the content of `00_running_command`
+- `output_path`: The workdir you use when running commands, which is also the target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
+- `output_files`: All files and folders (non-recursive) generated by the tool ITSELF in the output directory
+    - The value is a list, each item containing three values: `path`, `type`, and `description`.
+    - Actually, what you need to do is list all files (and folders) except for `00_running_command.txt` based on the result of `ls -lha`.
+- `note`: This is an optional field for noting special circumstances.
+    - Example1: This tool directly modifies the original file, so the `cp` command is prepended.
+    - Example2: This tool uses stdout directly as output, so only stderr is redirected for logging.
+</OutputStructure>
 """
 
 
@@ -165,7 +172,8 @@ So when you're executing the overall task, you just need to go with the mindset 
     - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
     - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
 - Missing is files obtained from processing by other bioinformatics analysis tools: Call the `need_upstream_analysis` tool to request upstream analysis using other tools to provide the corresponding files
-    - 
+    - Example 1: You need an aligned BAM file, but only raw fastq file found.
+    - Example 2: You need an assembled contigs sequence, but only raw fastq file found.
 </MissingFiles>
 
 <CommandDesignRule>
@@ -192,9 +200,6 @@ So when you're executing the overall task, you just need to go with the mindset 
 - **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
 - **System Commands**: You are only allowed to use the system commands listed in the tool description.
     - Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
-- **Handling In-Place Modifications**: If a tool does not produce new files in the output directory after running, you need to consider whether it directly modified the original files.
-    1. First use the `cmp -s` command to compare the files in the `/data/output/00_raw` directory with their original source files to confirm whether the file content has changed.
-    2. If it is determined that the tool directly modifies the original file, then use the `cp` command to copy the modified file to the output directory you originally created for the current task.
 
 ### Container Management
 If you discover the need for an additional database or other external files *after* container creation:
@@ -203,37 +208,6 @@ If you discover the need for an additional database or other external files *aft
 3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
 4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
 </ExecutionRules>
-
-<SystemCommandsRule>
-You can only use the following commands to browse and manage local files and directories. Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; 
-the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
-
-1. `ls -lha`: Used to browse directory structures and file information.
-    - Do not use this command inside the database directory. Because the database is likely to contain hundreds of small files, using the `find` command instead.
-2. `find`: Used to find files in directories by name or pattern.
-    - Can be combined with `grep` for filtering (e.g., `find ... | grep ...`)
-    - Parameters with modifying or executing effects such as `-exec` and `-delete` are prohibited.
-    - Must not be used to execute any commands.
-3. `wc -l`: Used to get the number of lines in a file.
-4. `sed`: Used to read file content by line range (for safe viewing of partial content)
-    - Only the form `sed -n 'start,endp' file` is allowed.
-    - `-i` or any parameters that modify files are prohibited.
-5. `grep`: Used to search for text content in files or find output.
-    - Only for searching, must not execute or modify files.
-    - Can be used to search files directly.
-    - Can be combined with `find` pipes for filtering.
-6. `file`: Used to determine file type (text/binary).
-7. `cmp -s`: Used to quickly compare if two files are identical; no output means they are the same.
-8. `where`: Used to find the path of the executable file.
-9. `mkdir`: Used to create new directories in the working output directory.
-    - Only allowed to create directories in `/data/output` and its subdirectories.
-    - Recursive creation can be done using the `-p` parameter.
-10. `cp`: Only used to copy raw data from `/data/testdata` to `/data/output`.
-    - Files must not be copied back from `/data/output` to `/data/testdata` or any other sensitive directory.
-    - No variants that delete or move source files (e.g., `mv`, usage with `--remove-source-files`, etc.) are allowed.
-
-Except for the commands listed above, the use of any other commands is prohibited.
-</SystemCommandsRule>
 
 <HumanAssistancePolicy>
 In the following three situations, you must immediately stop all current operations and use the `ask_human` tool to request human intervention:
@@ -378,24 +352,11 @@ class FileItem(BaseModel):
 
 
 class TestRunReport(BaseModel):
-    running_command: str = Field(description='The actual command that produced this output')
-    output_path: str = Field(description='e.g. `/data/output/[your sub folder]`')
-    note: Optional[str] = Field(
-        description='For example, this tool will directly modify the original file, so you need to add cp to ensure the result is output to the target directory',
-        default=None,
-    )
+    running_command: str
+    output_path: str
+    note: Optional[str] = Field(default=None)
 
-    output_files: list[FileItem] = Field(
-        description='All files and folders (non-recursive) generated by the tool itself in the output directory, meaning all other files/directories except for `00_running_command.txt` and `11_running.log`.',
-        default_factory=list,
-    )
-    auto_create_output_folder: bool = Field(
-        description='Does the tool itself automatically create the output folder? If you find that the tool cannot run after manually creating the output folder, giving a message similar to "Output folder already exists", then set this option to true.',
-        default=False,
-    )
-    auto_create_log: bool = Field(
-        description='Does the tool itself generate log files (rather than us manually redirecting them)?', default=False
-    )
+    output_files: list[FileItem] = Field(default_factory=list)
 
 
 _pre_run_agent = PreRunAgent().build()
