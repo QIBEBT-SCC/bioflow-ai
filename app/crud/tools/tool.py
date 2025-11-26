@@ -1,8 +1,9 @@
 from typing import Optional
 
 from sqlalchemy import Select, func
-from sqlmodel import Session, select, col
 from sqlalchemy.orm import selectinload
+from sqlmodel import Session, col, select
+
 from app.models.tools import ToolDefine
 
 
@@ -65,6 +66,12 @@ def get_all_by_group(session: Session, group_id: Optional[int], limit: int, offs
         .offset(offset)
         .limit(limit)
     )
+
+    return session.exec(query).all()
+
+
+def get_all_by_image(session: Session, image_uid: str):
+    query: Select = select(ToolDefine).where(ToolDefine.image_uid == image_uid)
 
     return session.exec(query).all()
 

@@ -43,7 +43,6 @@ from llm.states import (
     TestRunState,
 )
 from llm.tools.database import (
-    add_group,
     select_group,
     view_groups,
 )
@@ -111,11 +110,6 @@ Now your task is to **assign an appropriate group** to this tool based on the in
 To complete this task, you can follow these steps:
 1. Call the `view_groups` tool to see the existing groups.
 2. If there is a suitable group, directly call the `select_group` tool to select the corresponding group.
-3. If there is no suitable group, call the `add_group` tool to create a new group. The creation of new groups should follow these principles:
-    - The creation of top-level groups should be extremely cautious, only creating them when it is certain that the tool belongs to a completely new major category.
-    - Sub-groups are generally used for tools that have multiple sub-commands, and the group name is usually the main tool name.
-    - According to the above rules, groups should not be too deep, with a maximum of two to three levels.
-4. After creating a new group, you also need to call the `select_group` tool to select the corresponding group.
 </ThinkingProcess>
 """
 
@@ -139,7 +133,7 @@ class CreateToolAgent:
         self.get_doc_agent = doc_searcher
         self.select_group_agent = create_agent(
             model=self.think_llm,
-            tools=[view_groups, add_group, select_group],
+            tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
             state_schema=SelectGroupState,
         )
@@ -190,6 +184,11 @@ class CreateToolAgent:
     async def search_exist_tool_node(self, state: CreateToolState) -> Command[Literal['get_report', '__end__']]:
         writer = get_stream_writer()
         writer({'info': 'Searching if an available node already exists locally...'})
+
+        with Session(engine) as session:
+            tools = tool_crud.get_all_by_image(session, str(state['image_uid']))
+            if not tools:
+                return Command(goto='get_report')
 
         pre_search_result = await search_exist_tool_agent.ainvoke(
             {

@@ -20,9 +20,8 @@ class ToolGeneratorState(MessagesState, total=False):
     file_mounts: list[FileMount]
     command_template: str
     dynamic_params: list[ParamDefine]
-    static_params: str
-    mkdir_output: bool
-    use_temp_dir: bool
+    immutable_static_params: str
+    modifiable_static_params: str
 
 
 # =====================create tool agent state==========================

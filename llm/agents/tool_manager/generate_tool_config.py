@@ -1,3 +1,4 @@
+from json import JSONDecodeError
 from typing import TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -293,7 +294,7 @@ class ToolGenerator:
         chain = prompt | self.llm.with_structured_output(
             FileMountsResult,
             method='json_schema',
-        ).with_retry(retry_if_exception_type=(ValueError,), stop_after_attempt=3)
+        ).with_retry(retry_if_exception_type=(JSONDecodeError,), stop_after_attempt=3)
 
         response: FileMountsResult = await chain.ainvoke({'history': state['messages']})
 
@@ -315,7 +316,7 @@ class ToolGenerator:
         chain = prompt | self.llm.with_structured_output(
             CommandDesignResult,
             method='json_schema',
-        ).with_retry(retry_if_exception_type=(ValueError,), stop_after_attempt=3)
+        ).with_retry(retry_if_exception_type=(JSONDecodeError,), stop_after_attempt=3)
 
         response: CommandDesignResult = await chain.ainvoke({'history': state['messages']})
 
@@ -337,7 +338,7 @@ class ToolGenerator:
         chain = prompt | self.llm.with_structured_output(
             ToolInfoResult,
             method='json_schema',
-        ).with_retry(retry_if_exception_type=(ValueError,), stop_after_attempt=3)
+        ).with_retry(retry_if_exception_type=(JSONDecodeError,), stop_after_attempt=3)
 
         response: ToolInfoResult = await chain.ainvoke({'history': state['messages']})
 

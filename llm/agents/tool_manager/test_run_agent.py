@@ -69,9 +69,10 @@ You need to identify exactly what type of file you are missing, and call the `as
 - Missing is raw data: Call the `ask_human` tool to request humans to supplement this type of test data
     - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
     - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
-- Missing is files obtained from processing by other bioinformatics analysis tools: Call the `need_upstream_analysis` tool to request upstream analysis using other tools to provide the corresponding files
-    - Example 1: You need an aligned BAM file, but only raw fastq file found.
-    - Example 2: You need an assembled contigs sequence, but only raw fastq file found.
+- Missing is files obtained from processing by other bioinformatics analysis tools:
+    - In `/data/testdata`, we also provide some pre-processed upstream analysis files, located in the `upstream` directory of the corresponding samples. First, check if they can be used directly.
+    - If not, call the `need_upstream_analysis` tool to request upstream analysis using other tools to provide the corresponding files.
+    - Example: You need an assembled contigs sequence, but only raw fastq file found.
 </MissingFiles>
 
 <CommandDesignRule>
@@ -80,6 +81,7 @@ You need to identify exactly what type of file you are missing, and call the `as
 - **Parameters NEED to be added**: If the tool supports it, you should add the following three types of parameters in addition to the minimal command:
     - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
     - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
+    - Add parameter related to force overwriting existing data (e.g., `--rewrite`)
     - If the tool has built-in logging functionality (e.g., `--log-file`, `-l`), it should be added to the command.
 - **Output Redirection**: 
     - For all tools, regardless of whether the tool itself generates logs, use `> 11_run.log 2>&1` to redirect the tool's output to a file named `11_run.log`
@@ -163,17 +165,14 @@ So when you're executing the overall task, you just need to go with the mindset 
     a. First, call the command to view the tool's own help documentation (usually using the `--help` command)
     b. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
     c. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool
-5. **Cleanup**: Before generating the final report, you must use the `remove_container` tool to clean up the container created during this task.
-6. **Generate Report**: After successfully executing the target tool, carefully generate the final "Tool Analysis Report". The content of the report must be based on the guidelines in <ReportingGuide>.
+5. **Generate Report**: After successfully executing the target tool, carefully generate the final "Running Report". The content of the report must be based on the guidelines in <ReportingGuide>.
 </Workflow>
 
 <MissingFiles>
 - Missing is raw data: Call the `ask_human` tool to request humans to supplement this type of test data
     - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
     - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
-- Missing is files obtained from processing by other bioinformatics analysis tools: Call the `need_upstream_analysis` tool to request upstream analysis using other tools to provide the corresponding files
-    - Example 1: You need an aligned BAM file, but only raw fastq file found.
-    - Example 2: You need an assembled contigs sequence, but only raw fastq file found.
+- Missing is files obtained from processing by other bioinformatics analysis tools: Complete as much as you can, then end the task normally and report the situation to the user.
 </MissingFiles>
 
 <CommandDesignRule>
@@ -190,13 +189,9 @@ So when you're executing the overall task, you just need to go with the mindset 
 - All directories except `/data/testdata` are **strictly read-only**, and any write or possible modification operations to files within them are prohibited.
 - To run the current tool, you need to create a subfolder for it under `/data/output`. Generally, just use the tool name (e.g., `/data/output/[toolname]/`)
     - When a tool uses multiple subcommands or different operations, you can also add the corresponding suffix (e.g., `/data/output/[toolname]_[subcommand]/`)
-- When you call `need_upstream_analysis`, their output files will also be in the corresponding folders under `/data/output`. Use the files among them as needed.
 
 ### Command Execution
-- **General Rules (applicable to all commands)**:
-    - Each call to `run_command` should execute only one core task. Using `&&` or `;` to link multiple independent commands is strictly prohibited.
-    - Attaching `|| true` or any tricks that hide the true exit code is strictly prohibited.
-    - Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
+- **General Rules (applicable to all commands)**: Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
 - **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
 - **System Commands**: You are only allowed to use the system commands listed in the tool description.
     - Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
@@ -223,6 +218,11 @@ In the following three situations, you must immediately stop all current operati
 If you ultimately succeed in completing the goal, you need to tell the user what you did and where the files he needs are located. In the form of:
 ```text
 I generated the bam file you need through the command `[omitted]`, located in the `/data/output/[omitted]` directory
+```
+
+Or if you can only meet some of the needs, then tell the user what you did
+```text
+Since I only have the bwa tool, I can only generate SAM files, located at `/data/output/[omitted]`
 ```
 
 And if your task fails, similarly describe what situation you encountered and provide feedback to the user. For example:
@@ -287,7 +287,6 @@ class PreRunAgent:
                 build_container,
                 run_command_in_container,
                 stop_and_rm_container,
-                need_upstream_analysis,
             ],
             system_prompt=PRE_RUN_SYSTEM,
             middleware=[
@@ -371,7 +370,7 @@ test_run_agent: CompiledStateGraph[TestRunState, TestRunContext, TestRunState, T
     ],
     system_prompt=TEST_RUN_SYSTEM,
     middleware=[
-        TokenLimitMiddleware(),
+        TokenLimitMiddleware(max_token=16000),
         DisableParallelToolCallsMiddleware(),
         SaveMessagesMiddleware(),
         ClearContainerMiddleware(),

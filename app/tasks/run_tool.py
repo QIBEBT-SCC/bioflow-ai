@@ -127,7 +127,7 @@ def docker_task(
     formatter = PartialFormatter()
     tool_command = formatter.format(final_template, output_dir='/data/output', sample_name=sample_name, **param_inputs)
 
-    # 编译docker命令
+    # 组合docker命令
     docker_image = ImageConfig.model_validate(tool_config.image.image)
     volume_binds = [
         Mount(type='bind', source=str(host_path), target=container_path)
