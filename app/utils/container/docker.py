@@ -66,7 +66,7 @@ def run_docker(
 
     container = client.containers.run(
         image_cfg.get_image(),
-        command,
+        f'"{command}"',
         stderr=True,
         entrypoint=['/bin/bash', '-c'],
         working_dir=workdir,
@@ -241,7 +241,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
 
     container = client.containers.create(
         image_cfg.get_image(),
-        command='sleep infinity',  # 保证容器常驻
+        command='"sleep infinity"',  # 保证容器常驻
         mounts=mounts,
         entrypoint=['/bin/bash', '-c'],
         detach=True,

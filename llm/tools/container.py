@@ -6,6 +6,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
@@ -17,6 +18,28 @@ class ContainerMount(BaseModel):
     target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
     source: str = Field(description='Source path on host')
     read_only: bool
+
+
+@tool(parse_docstring=True)
+def run_command(command: str, runtime: ToolRuntime):
+    """run command in a container and return the result
+    **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
+
+    Args:
+        command: the command you need to run
+    """
+    image = runtime.state.get('image')
+
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import run_docker
+
+        code, result = run_docker(image, command, [])
+    else:
+        from app.utils.container.podman import run_podman
+
+        code, result = run_podman(image, command, [])
+
+    return f'[Container: {image.get_image()}]\n{result}'
 
 
 @tool(parse_docstring=True)
@@ -45,32 +68,34 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
         'source': f'{output_path}',
     }
 
-    container_type = get_settings().docker.CONTAINER
+    match get_settings().docker.CONTAINER:
+        case 'docker':
+            from app.utils.container.docker import create_container
 
-    if container_type == 'docker':
-        from app.utils.container.docker import create_container
-
-        final_mounts = []
-        for m in mount_configs + [testdata_mount, output_mount]:
-            final_mounts.append(
-                Mount(
-                    target=m['target'],
-                    source=m['source'],
-                    type=m.get('type', 'bind'),
-                    read_only=m.get('read_only', False),
+            final_mounts = []
+            for m in mount_configs + [testdata_mount, output_mount]:
+                final_mounts.append(
+                    Mount(
+                        target=m['target'],
+                        source=m['source'],
+                        type=m.get('type', 'bind'),
+                        read_only=m.get('read_only', False),
+                    )
                 )
-            )
-        container_id = create_container(image, final_mounts)
-    else:
-        from app.utils.container.podman import create_container
+            container_id = create_container(image, final_mounts)
+        case 'podman':
+            from app.utils.container.podman import create_container
 
-        # Podman specific relabeling
-        for m in mount_configs:
-            m['relabel'] = 'z'
-        testdata_mount['relabel'] = 'z'
+            # Podman specific relabeling
+            for m in mount_configs:
+                m['relabel'] = 'z'
+            testdata_mount['relabel'] = 'z'
 
-        final_mounts = mount_configs + [testdata_mount, output_mount]
-        container_id = create_container(image, final_mounts)
+            final_mounts = mount_configs + [testdata_mount, output_mount]
+            container_id = create_container(image, final_mounts)
+        case _:
+            container_id = None
+            logger.error('Incorrect container type')
 
     return Command(
         update={
@@ -181,28 +206,6 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
             ],
         }
     )
-
-
-@tool(parse_docstring=True)
-def run_command(command: str, runtime: ToolRuntime):
-    """run command in a container and return the result
-    **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
-
-    Args:
-        command: the command you need to run
-    """
-    image = runtime.state.get('image')
-
-    if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker
-
-        code, result = run_docker(image, command, [])
-    else:
-        from app.utils.container.podman import run_podman
-
-        code, result = run_podman(image, command, [])
-
-    return f'[Container: {image.get_image()}]\n{result}'
 
 
 @tool('remove_container')
