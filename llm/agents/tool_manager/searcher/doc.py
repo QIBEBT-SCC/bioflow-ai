@@ -37,8 +37,10 @@ Based on your best finding, perform one of the following:
     - `help_command`: The actual command string that produced the output (e.g., `bedtools getfasta --help`).
     - `description`: **Crucial**: Describe the **functionality** of the command/sub-command itself (e.g., "Extracts sequences from a FASTA file based on intervals..."), **NOT** the action of retrieving the help (e.g., DO NOT write "Running help for...").
 
-### Fallback
-If you have tried multiple commands and cannot find relevant documentation, or if the tool appears missing/broken, call `ask_human(question)` to report the specific issue.
+### Breakpoint
+Call `ask_human(question)` to report the specific issue when:
+- you have tried multiple commands and cannot find relevant documentation
+- You find that the user's needs cannot actually be met by this tool.
 </Workflow>
 
 
