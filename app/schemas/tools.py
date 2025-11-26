@@ -51,8 +51,6 @@ class DockerToolCreate(BaseModel):
     dynamic_params: list[ParamDefine]
     static_params: str
     file_mounts: list[FileMount]
-    mkdir_output: bool = True
-    use_temp_dir: bool = False
 
     def to_tool_data(self) -> ToolDefine:
         return ToolDefine(
@@ -64,10 +62,9 @@ class DockerToolCreate(BaseModel):
             help_doc_uid=self.help_doc_uid,
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
-            static_params=self.static_params,
+            immutable_static_params=self.static_params,
+            modifiable_static_params=self.static_params,
             file_mounts=self.file_mounts,
-            mkdir_output=self.mkdir_output,
-            use_temp_dir=self.use_temp_dir,
             tags=self.tags,
         )
 
@@ -91,15 +88,14 @@ class ToolPublic(BaseModel):
     tool_type: ToolType
     group_id: Optional[int]
 
-    command_template: str
-    dynamic_params: list[ParamDefine]
-    static_params: str
     file_mounts: list[FileMount]
 
-    complete_command: Optional[str] = None
+    dynamic_params: list[ParamDefine]
+    immutable_static_params: str
+    modifiable_static_params: str
+    command_template: str
 
-    mkdir_output: bool
-    use_temp_dir: bool
+    complete_command: Optional[str] = None
 
     tags: list['ToolTag']
     help_doc: ToolHelpDoc
@@ -110,7 +106,7 @@ class ToolPublic(BaseModel):
         self.complete_command = build_command_template(
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
-            static_params=self.static_params,
+            static_params=' '.join([self.immutable_static_params, self.modifiable_static_params]),
             file_mounts=self.file_mounts,
         )
         return self
@@ -133,7 +129,8 @@ class ToolNodePublic(BaseModel):
     input_handles: list[Handle] = Field(default_factory=list)
     output_handles: list[Handle] = Field(default_factory=list)
 
-    static_params: str
+    immutable_static_params: str
+    modifiable_static_params: str
     complete_command: Optional[str] = None
 
     @model_validator(mode='after')
@@ -153,7 +150,7 @@ class ToolNodePublic(BaseModel):
         self.complete_command = build_command_template(
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
-            static_params=self.static_params,
+            static_params=' '.join([self.immutable_static_params, self.modifiable_static_params]),
             file_mounts=self.file_mounts,
         )
         return self

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
@@ -13,9 +14,6 @@ from langchain_milvus import Milvus
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from loguru import logger
-from openinference.instrumentation import TraceConfig
-from openinference.instrumentation.langchain import LangChainInstrumentor
-from phoenix.otel import register
 from sqlmodel import Session
 from tqdm import tqdm
 
@@ -74,7 +72,7 @@ async def init_images(drop_old: bool = True):
     vectorstore = Milvus(
         embedding_function=embedding,
         collection_name='ImageCollection',
-        connection_args={'uri': get_settings().persistent.MILVUS_URL},
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
         search_params={'M': 64, 'efConstruction': 100},
         consistency_level='Strong',
@@ -95,10 +93,14 @@ async def init_images(drop_old: bool = True):
 
 
 async def init_tools():
+    from openinference.instrumentation import TraceConfig
+    from openinference.instrumentation.langchain import LangChainInstrumentor
+    from phoenix.otel import register
+
     # configure the Phoenix tracer
     tracer_provider = register(
         endpoint='http://172.18.19.150:4317',
-        project_name='ai-dev',  # Default is 'default'
+        project_name='build-tool',  # Default is 'default'
         protocol='grpc',
         batch=True,
         auto_instrument=False,  # Auto-instrument your app based on installed OI dependencies
@@ -107,7 +109,7 @@ async def init_tools():
     LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
 
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['GATK']))
+    todo_df = function_df.filter(~pl.col('thread_id').is_not_null())
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -152,7 +154,6 @@ async def init_tools():
                     .otherwise(pl.col('interrupt'))
                     .alias('interrupt'),
                 )
-                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row['index'])
@@ -160,7 +161,8 @@ async def init_tools():
                     .otherwise(pl.col('tool_node'))
                     .alias('tool_node'),
                 )
-                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+
+            function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
 
 async def read_interrupt(index: int):
@@ -179,6 +181,21 @@ async def read_interrupt(index: int):
 
 
 async def continue_run(index: int):
+    from openinference.instrumentation import TraceConfig
+    from openinference.instrumentation.langchain import LangChainInstrumentor
+    from phoenix.otel import register
+
+    # configure the Phoenix tracer
+    tracer_provider = register(
+        endpoint='http://172.18.19.150:4317',
+        project_name='build-tool',  # Default is 'default'
+        protocol='grpc',
+        batch=True,
+        auto_instrument=False,  # Auto-instrument your app based on installed OI dependencies
+    )
+    trace_config = TraceConfig(hide_input_images=True, hide_embedding_vectors=True, base64_image_max_length=1000)
+    LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
+
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
     tool_info: dict[str, Any] = function_df.row(index=index, named=True)
 
@@ -228,6 +245,14 @@ async def delete_prebuild_tool(index: int):
             memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
             await memory.adelete_thread(tool_info['thread_id'])
             logger.info('删除了一条智能体记录')
+
+        if Path('test_run.parquet').exists():
+            dataset_df = pl.read_parquet('test_run.parquet')
+            records = dataset_df.filter(pl.col('test_run_id') == tool_info['thread_id']).height
+            if records > 0:
+                dataset_df = dataset_df.filter(pl.col('test_run_id') != tool_info['thread_id'])
+                dataset_df.write_parquet('test_run.parquet', compression='snappy')
+                logger.info(f'删除了 {records} 条保存数据')
 
     function_df = function_df.with_columns(
         pl.when(pl.col('index') == index).then(None).otherwise(pl.col('thread_id')).alias('thread_id'),

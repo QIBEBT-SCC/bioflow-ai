@@ -1,9 +1,8 @@
-import json
 import os
 import string
 from pathlib import Path
 
-from app.models.tools import ParamDefine, FileMount
+from app.models.tools import FileMount, ParamDefine
 from app.schemas.react_flow import TaskNode
 
 
@@ -33,7 +32,7 @@ def build_command_template(
         static_params=static_params,
     )
     final_template = formatter.format(command_template, **{file.name: file.file_path for file in file_mounts})
-
+    final_template = ' '.join(final_template.split())
     return final_template
 
 

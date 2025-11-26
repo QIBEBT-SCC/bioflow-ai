@@ -32,7 +32,7 @@ from llm.agents.tool_manager.searcher.doc import doc_searcher
 from llm.agents.tool_manager.searcher.image import GetImageAgent
 from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
 from llm.agents.tool_manager.test_run_agent import TestRunReport, test_run_agent
-from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
+from llm.models import gemini_3_pro, gpt_5_mini, qwen3_embedding
 from llm.states import (
     CreateToolContext,
     CreateToolOutput,
@@ -102,85 +102,6 @@ When there is no corresponding help document in the database, you need to try ru
 </RunCommand>
 """
 
-GENERATE_COMMAND_SYS = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform. 
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and our current task is to encapsulate a new node.
-To achieve this, you first need to generate an actual command to be used as a reference for node construction.
-
-## Command Construction Rules
-When constructing the command, you must strictly adhere to the following core principles:
-
-### 1. Principle of Minimalism
-The generated command must be the most basic and concise version that fulfills the user's original requirement. Avoid adding any non-essential optional parameters used for fine-tuning.
-
-### 2. Resource and Logging Rules
-Despite the minimalism rule, if the tool supports the following three categories of parameters, you must set them according to these specific rules:
-
-*   **Number of threads/CPU cores**: Set to `8` (e.g., `-t 8`, `-p 8`, `--threads 8`).
-*   **Memory usage**: Set to `16G` (e.g., `--memory 16G`).
-*   **Log output**: If the tool provides a dedicated log file parameter (e.g., `--log`, `-l`), set it to `run.log`. If not, redirect both standard output and standard error to `run.log` by appending `> run.log 2>&1` to the end of the command.
-
-### 3. Adherence to Official Documentation
-Your command construction must be strictly based on the tool's actual help documentation, ensuring all parameters and syntax are valid. If a tool does not support one of the resource parameters mentioned above, simply omit it.
-
----
-
-Now, please construct the command based on the user's requirements and the tool's documentation.
-"""
-
-REPORT_FORMAT = """<OutputFormat>
-Once you have completed all analyses and gathered all the required information, you must stop calling tools and produce a **Final Report**. This report must strictly adhere to the following text format, without any JSON, code blocks, or other extraneous explanatory text.
-
-```text
-**Tool Analysis Report**
-1.  **Does it require a database?**
-      * [Yes/No].
-
-2.  **Output File Composition Analysis:**
-      * /path/to/file_A: [Input for subsequent analysis/Report file/Temporary file/Unknown] - [Briefly describe the file's purpose.]
-      * /path/to/file_B: [Input for subsequent analysis/Report file/Temporary file/Unknown] - [Briefly describe the file's purpose.]
-      * ...
-
-3.  **Does it require manual creation of the output folder?**
-      * [Yes/No].
-
-4.  **Is a log file generated automatically?**
-      * [Yes/No].
-```
-</OutputFormat>
-
-<Rules>
-When writing the report, you must ensure that the path and name of the output file are accurate. Use {output_dir} to represent the output root directory and {sample_name} to represent the base name of the original file.
-Since the analysis run will directly use the file name to find the result file, if you provide incorrect results here, it will directly lead to the analysis results not being found. Therefore, please be cautious and ensure that you have obtained enough information before providing an accurate report.
-</Rules>
-"""
-
-SEARCH_BY_DEEPWIKI = f"""You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
-To achieve this, your task is to **obtain the output structure of the corresponding tool** as the basis for encapsulation.
-
-<ToolCalling>
-To accurately understand the output and other relevant information produced by a tool's commands, we provide you with a series of tools. 
-Toolkits `read_wiki_structure`, `read_wiki_contentsThey` and `ask_question` can read GitHub repositories and ask questions, returning the desired information. 
-Make full use of these tools to get all the information needed for your report.
-
-Toolkits `web_search` and `web_reader` can be used for searching and reading internet information, which is another viable way to obtain the required materials.
-Due to the lower accuracy of online searches, this method should only be used to get information when there are no available GitHub repositories, or when an error is encountered while using the aforementioned tools to query GitHub.
-</ToolCalling>
-
-{REPORT_FORMAT}
-"""
-
-SEARCH_BY_WEB = f"""You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
-To achieve this, your task is to **obtain the output structure of the corresponding tool** as the basis for encapsulation.
-
-<ToolCalling>
-You can use the `web_search` tool to perform internet searches and the `web_reader` to further read specific URLs.
-</ToolCalling>
-
-{REPORT_FORMAT}
-"""
-
 
 SELECT_GROUP_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
@@ -210,7 +131,7 @@ class TempIDClass(BaseModel):
 
 class CreateToolAgent:
     def __init__(self):
-        self.struct_llm = gpt_5(0.2)
+        self.struct_llm = gemini_3_pro(1.0)
         self.think_llm = gpt_5_mini(0.3)
 
         # sub agents
@@ -294,7 +215,7 @@ class CreateToolAgent:
                     f'  </output_handles>\n'
                     f'  <data>\n'
                     f'    <tool_id>{mapper.get_index_by_uid(str(tool_data.uid))}</tool_id>\n'
-                    f'    <args>{tool_node.static_params}<args>\n'
+                    f'    <args>{tool_node.modifiable_static_params}<args>\n'
                     f'  </data>\n'
                     f'  <command>{tool_node.complete_command}</command>\n'
                     f'</tool>'
@@ -332,17 +253,12 @@ class CreateToolAgent:
         run_report: TestRunReport = response['structured_response']
         _file_list = '\n'.join([f'- {_f.path}: [{_f.type}]{_f.description}' for _f in run_report.output_files])
         report = (
-            f'## Test Run Command\n'
+            f'## Test Run Report\n'
             f'{run_report.note}\n'
             f'```bash\n{run_report.running_command}\n```\n'
             f'output_dir: `{run_report.output_path}`\n\n'
-            f'## Tool Analysis Report\n'
-            f'1. **Output Files:**\n'
-            f'{_file_list}\n\n'
-            f'2. **Does it require manual creation of the output folder?**\n'
-            f'    {not run_report.auto_create_output_folder}\n'
-            f'3. **Is a log file generated automatically?**\n'
-            f'    {run_report.auto_create_log}\n'
+            f'**Output Files:**\n'
+            f'{_file_list}'
         )
 
         return {
@@ -430,7 +346,7 @@ class CreateToolAgent:
                 f'  </output_handles>\n'
                 f'  <data>\n'
                 f'    <tool_id>{mapper.get_index_by_uid(str(tool_data.uid))}</tool_id>\n'
-                f'    <args>{tool_node.static_params}<args>\n'
+                f'    <args>{tool_node.modifiable_static_params}<args>\n'
                 f'  </data>\n'
                 f'  <command>{tool_node.complete_command}</command>\n'
                 f'</tool>'

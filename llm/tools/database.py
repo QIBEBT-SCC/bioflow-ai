@@ -12,6 +12,7 @@ import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
+from app.core.config import get_settings
 from app.core.session import engine
 from app.crud import workflow as wf_crud
 from app.models.resource import BioDb
@@ -245,7 +246,15 @@ def save_doc(
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
     image: ImageConfig = runtime.state.get('image')
-    code, result = run_podman(image, help_command, [])
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import run_docker
+
+        code, result = run_docker(image, help_command, [])
+    else:
+        from app.utils.container.podman import run_podman
+
+        code, result = run_podman(image, help_command, [])
+
     with Session(engine) as session:
         new_doc = ToolHelpDoc(
             help_command=help_command,

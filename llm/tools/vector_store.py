@@ -65,7 +65,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
             f'    <Name>{t.name}</Name>\n'
             f'    <Description>{t.description}</Description>\n'
             f'    <Command>{t.complete_command}</Command>\n'
-            f'    <Args>{t.static_params}</Args>\n'
+            f'    <Args>{t.modifiable_static_params}</Args>\n'
             f'  </Tool>'
             for t in tool_nodes
         ]
