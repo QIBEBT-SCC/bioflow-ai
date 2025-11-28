@@ -362,6 +362,7 @@ _pre_run_agent = PreRunAgent().build()
 test_run_agent: CompiledStateGraph[TestRunState, TestRunContext, TestRunState, TestRunReport] = create_agent(
     model=gemini_25_flash(temperature=0.3),
     tools=[
+        search_biodb,
         build_container,
         run_command_in_container,
         stop_and_rm_container,

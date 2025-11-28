@@ -1,7 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import aiosqlite
 import click
@@ -13,6 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_milvus import Milvus
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
 from loguru import logger
 from sqlmodel import Session
 from tqdm import tqdm
@@ -109,7 +110,7 @@ async def init_tools():
     LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
 
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null())
+    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['GATK', 'Picard']))
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -154,6 +155,11 @@ async def init_tools():
                     .otherwise(pl.col('interrupt'))
                     .alias('interrupt'),
                 )
+                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+
+                logger.error(f'{thread_id} interrupted')
+                rich.print(response.interrupts)
+                break
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row['index'])
@@ -161,8 +167,7 @@ async def init_tools():
                     .otherwise(pl.col('tool_node'))
                     .alias('tool_node'),
                 )
-
-            function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
 
 async def read_interrupt(index: int):
@@ -180,7 +185,7 @@ async def read_interrupt(index: int):
         rich.print(response.interrupts)
 
 
-async def continue_run(index: int):
+async def continue_run(index: int, message: Optional[str] = None):
     from openinference.instrumentation import TraceConfig
     from openinference.instrumentation.langchain import LangChainInstrumentor
     from phoenix.otel import register
@@ -207,8 +212,12 @@ async def continue_run(index: int):
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
         context = CreateToolContext(auto_save=True, save_message=True, test_run_id=thread_id)
 
+        if message is None:
+            input_message = None
+        else:
+            input_message = Command(resume=message)
         async for namespace, mode, data in agent.astream(
-            None, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
+            input_message, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
         ):
             if mode == 'custom':
                 logger.info(data)
@@ -220,6 +229,7 @@ async def continue_run(index: int):
             function_df = function_df.with_columns(
                 pl.when(pl.col('index') == index).then(pl.lit(True)).otherwise(pl.col('interrupt')).alias('interrupt'),
             )
+            rich.print(response.interrupts)
         else:
             function_df = function_df.with_columns(
                 pl.when(pl.col('index') == index)
@@ -230,36 +240,45 @@ async def continue_run(index: int):
         function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
 
-async def delete_prebuild_tool(index: int):
+async def delete_prebuild_tool(indices: list[int]):
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    tool_info: dict[str, Any] = function_df.row(index=index, named=True)
-    logger.info(f'要删除的数据: {tool_info}')
+    thread_ids_to_delete: list[str] = []
+    
+    for index in indices:
+        tool_info: dict[str, Any] = function_df.row(index=index, named=True)
+        logger.info(f'要删除的数据 (index={index}): {tool_info}')
 
-    if tool_info['tool_node']:
-        with Session(engine) as session:
-            tool_crud.delete(session, tool_info['tool_node'])
-            logger.info('删除了一条数据库信息')
+        if tool_info['tool_node']:
+            with Session(engine) as session:
+                tool_crud.delete(session, tool_info['tool_node'])
+                logger.info(f'删除了一条数据库信息 (index={index})')
 
-    if tool_info['thread_id']:
-        async with aiosqlite.connect('checkpoints.db') as conn:
-            memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-            await memory.adelete_thread(tool_info['thread_id'])
-            logger.info('删除了一条智能体记录')
+        if tool_info['thread_id']:
+            thread_ids_to_delete.append(tool_info['thread_id'])
+            async with aiosqlite.connect('checkpoints.db') as conn:
+                memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
+                await memory.adelete_thread(tool_info['thread_id'])
+                logger.info(f'删除了一条智能体记录 (index={index})')
 
-        if Path('test_run.parquet').exists():
-            dataset_df = pl.read_parquet('test_run.parquet')
-            records = dataset_df.filter(pl.col('test_run_id') == tool_info['thread_id']).height
-            if records > 0:
-                dataset_df = dataset_df.filter(pl.col('test_run_id') != tool_info['thread_id'])
-                dataset_df.write_parquet('test_run.parquet', compression='snappy')
-                logger.info(f'删除了 {records} 条保存数据')
+    # 批量删除 test_run.parquet 中的记录
+    if thread_ids_to_delete and Path('test_run.parquet').exists():
+        dataset_df = pl.read_parquet('test_run.parquet')
+        original_count = dataset_df.height
+        dataset_df = dataset_df.filter(~pl.col('test_run_id').is_in(thread_ids_to_delete))
+        deleted_count = original_count - dataset_df.height
+        if deleted_count > 0:
+            dataset_df.write_parquet('test_run.parquet', compression='snappy')
+            logger.info(f'从 test_run.parquet 中删除了 {deleted_count} 条保存数据')
 
+    # 批量更新 DataFrame
+    indices_condition = pl.col('index').is_in(indices)
     function_df = function_df.with_columns(
-        pl.when(pl.col('index') == index).then(None).otherwise(pl.col('thread_id')).alias('thread_id'),
-        pl.when(pl.col('index') == index).then(None).otherwise(pl.col('tool_node')).alias('tool_node'),
-        pl.when(pl.col('index') == index).then(False).otherwise(pl.col('interrupt')).alias('interrupt'),
+        pl.when(indices_condition).then(None).otherwise(pl.col('thread_id')).alias('thread_id'),
+        pl.when(indices_condition).then(None).otherwise(pl.col('tool_node')).alias('tool_node'),
+        pl.when(indices_condition).then(False).otherwise(pl.col('interrupt')).alias('interrupt'),
     )
     function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+    logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 
 async def rebuild_vector_store():
@@ -330,16 +349,17 @@ def read_interrupt_cmd(index: int):
 
 @cli.command()
 @click.argument('index', type=int)
-def continue_run_cmd(index: int):
+@click.option('--message', '-m', type=str, default=None, help='继续运行时发送的消息')
+def continue_run_cmd(index: int, message: Optional[str]):
     """继续运行指定索引的工具创建任务"""
-    asyncio.run(continue_run(index))
+    asyncio.run(continue_run(index, message))
 
 
 @cli.command()
-@click.argument('index', type=int)
-def delete_prebuild_tool_cmd(index: int):
-    """删除指定索引的预构建工具"""
-    asyncio.run(delete_prebuild_tool(index))
+@click.argument('indices', type=int, nargs=-1, required=True)
+def delete_prebuild_tool_cmd(indices: tuple[int, ...]):
+    """删除指定索引的预构建工具（可一次删除多个，例如: 61 62 63 65）"""
+    asyncio.run(delete_prebuild_tool(list(indices)))
 
 
 @cli.command()

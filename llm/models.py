@@ -58,6 +58,7 @@ def gemini_3_pro(temperature: float = 1.0, disable_streaming: bool = False) -> C
             api_key=get_settings().llm.GEMINI.API_KEY,
             provider='google',
             temperature=temperature,
+            reasoning_effort='low',
             disable_streaming=disable_streaming,
         )
     else:
@@ -72,7 +73,7 @@ def gpt_5(temperature: float = 0.7, disable_streaming: bool = False, reasoning_e
     if base_url := get_settings().llm.GPT.BASE_URL:
         provider = get_settings().llm.GPT.PROVIDER
         llm = ChatOpenAIReasoning(
-            model=f'{provider}/gpt-5' if provider else 'gpt-5',
+            model=f'{provider}/gpt-5.1' if provider else 'gpt-5.1',
             base_url=base_url,
             api_key=get_settings().llm.GPT.API_KEY,
             temperature=temperature,
@@ -82,7 +83,7 @@ def gpt_5(temperature: float = 0.7, disable_streaming: bool = False, reasoning_e
         )
     else:
         llm = ChatOpenAIReasoning(
-            model='gpt-5',
+            model='gpt-5.1',
             api_key=get_settings().llm.GPT.API_KEY,
             temperature=temperature,
             disable_streaming=disable_streaming,

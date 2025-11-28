@@ -32,7 +32,7 @@ from llm.agents.tool_manager.searcher.doc import doc_searcher
 from llm.agents.tool_manager.searcher.image import GetImageAgent
 from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
 from llm.agents.tool_manager.test_run_agent import TestRunReport, test_run_agent
-from llm.models import gemini_3_pro, gpt_5_mini, qwen3_embedding
+from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
 from llm.states import (
     CreateToolContext,
     CreateToolOutput,
@@ -125,7 +125,7 @@ class TempIDClass(BaseModel):
 
 class CreateToolAgent:
     def __init__(self):
-        self.struct_llm = gemini_3_pro(1.0)
+        self.struct_llm = gpt_5(0.3)
         self.think_llm = gpt_5_mini(0.3)
 
         # sub agents
@@ -175,7 +175,7 @@ class CreateToolAgent:
         return {
             'messages': [
                 AIMessage(content='First I need the help documentation for this tool'),
-                HumanMessage(content=doc.content),
+                HumanMessage(content=f'<Doc command="{doc.help_command}">\n{doc.content}\n<Doc>'),
             ],
             'doc_uid': doc_uid,
             'doc': doc.content,
