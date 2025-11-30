@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.models.tools import ImageConfig
-from app.utils.container.docker import calculate_container_stats
+from app.utils.container._general import _strip_ansi_escape_sequences, calculate_container_stats
 from app.utils.system import get_current_user_identity
 
 
@@ -31,15 +31,10 @@ async def _check_image(client: aiodocker.Docker, image_cfg: ImageConfig):
             }
 
         # aiodocker pull returns a stream of progress
-        await client.images.pull(
-            image_name,
-            auth=auth_config
-        )
+        await client.images.pull(image_name, auth=auth_config)
 
 
-async def run_docker(
-    image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwargs
-) -> tuple[int, str]:
+async def run_docker(image_cfg: ImageConfig, command: str, mounts: list[Mount], **kwargs) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果 (异步)。
 
     Args:
@@ -57,7 +52,7 @@ async def run_docker(
         # Convert Mount objects to bind strings if necessary, or use HostConfig binds
         # aiodocker uses 'HostConfig': {'Binds': [...]} usually
         binds = [f'{mount["source"]}:{mount["target"]}:{mount.get("type", "rw")}' for mount in mounts] if mounts else []
-        
+
         container_config = {
             'Image': image_cfg.get_image(),
             'Cmd': ['/bin/bash', '-c', command],
@@ -66,18 +61,18 @@ async def run_docker(
                 'Binds': binds,
                 'AutoRemove': False,
             },
-            **kwargs
+            **kwargs,
         }
 
         container = await client.containers.create(config=container_config)
 
         try:
             await container.start()
-            
+
             # Wait for container to finish
             result = await container.wait()
             status_code = result.get('StatusCode', 0)
-            
+
             logs = await container.log(stdout=True, stderr=True)
             # logs is a list of strings in aiodocker
             log_str = ''.join(logs).rstrip()
@@ -88,11 +83,7 @@ async def run_docker(
 
 
 async def run_docker_background(
-    image_cfg: ImageConfig,
-    command: str,
-    mounts: list[Mount],
-    interval: float = 1.0,
-    **kwargs
+    image_cfg: ImageConfig, command: str, mounts: list[Mount], interval: float = 1.0, **kwargs
 ) -> AsyncGenerator[dict[str, Any], None]:
     """后台运行docker容器，并实时返回容器资源占用信息 (异步)。
 
@@ -110,7 +101,7 @@ async def run_docker_background(
         await _check_image(client, image_cfg)
 
         binds = [f'{mount["source"]}:{mount["target"]}:{mount.get("type", "rw")}' for mount in mounts] if mounts else []
-        
+
         container_config = {
             'Image': image_cfg.get_image(),
             'Cmd': ['/bin/bash', '-c', command],
@@ -119,7 +110,7 @@ async def run_docker_background(
                 'Binds': binds,
                 'AutoRemove': False,
             },
-            **kwargs
+            **kwargs,
         }
 
         container = await client.containers.create(config=container_config)
@@ -140,13 +131,13 @@ async def run_docker_background(
                 # aiodocker docs say: "Get container stats. Returns a stream if stream parameter is True."
                 # If stream=False, it should return a single dict or list containing it.
                 # Checking source/docs behavior: aiodocker might return list of 1 item.
-                
+
                 stat_data = stats[0] if isinstance(stats, list) else stats
-                
+
                 calculated = calculate_container_stats(stat_data)
                 if calculated:
                     yield calculated
-                
+
                 await asyncio.sleep(interval)
 
         finally:
@@ -157,9 +148,7 @@ async def run_docker_background(
                 pass
 
 
-async def create_container(
-    image_cfg: ImageConfig, mounts: list[Mount | dict], debug: bool = False, **kwargs
-) -> str:
+async def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: bool = False, **kwargs) -> str:
     """创建容器并返回其ID (异步)
 
     Args:
@@ -185,21 +174,19 @@ async def create_container(
             'HostConfig': {
                 'Binds': binds,
             },
-            **kwargs
+            **kwargs,
         }
 
         container = await client.containers.create(config=container_config)
         await container.start()
-        
+
         if debug:
             logger.debug(f'create container {container.id}')
-            
+
         return container.id
 
 
-async def run_docker_by_id(
-    container_id: str, command: str, workdir: Optional[str] = None
-) -> tuple[int, str]:
+async def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = None) -> tuple[int, str]:
     """在特定容器中运行命令并返回结果 (异步)
 
     Args:
@@ -214,7 +201,7 @@ async def run_docker_by_id(
     async with aiodocker.Docker() as client:
         try:
             container = await client.containers.get(container_id)
-            
+
             exec_config = {
                 'Cmd': ['/bin/bash', '-c', command],
                 'AttachStdout': True,
@@ -225,14 +212,14 @@ async def run_docker_by_id(
                 exec_config['WorkingDir'] = workdir
 
             exec_obj = await container.exec(exec_config)
-            
+
             # start() with detach=False returns a BytesStream or similar
             stream = await exec_obj.start(detach=False)
-            
+
             # Read all output
             output_bytes = await stream.read_out()
             # output_bytes might be bytes or list of bytes.
-            
+
             if isinstance(output_bytes, list):
                 output_data = b''.join(output_bytes)
             else:
@@ -241,16 +228,17 @@ async def run_docker_by_id(
             # Get exit code
             inspect_result = await exec_obj.inspect()
             exit_code = inspect_result.get('ExitCode', 0)
-            
+
             try:
                 result_str = output_data.decode('utf-8')
             except UnicodeDecodeError as e:
                 result_str = str(e)
 
-            return exit_code, result_str.strip()
-            
+            result = _strip_ansi_escape_sequences(result_str.strip())
+            return exit_code, result
+
         except aiodocker.exceptions.DockerError as e:
-            logger.error(f"Error running command in container {container_id}: {e}")
+            logger.error(f'Error running command in container {container_id}: {e}')
             return -1, str(e)
 
 

@@ -10,6 +10,7 @@ from podman.errors import ImageNotFound
 
 from app.core.config import get_settings
 from app.models.tools import ImageConfig
+from app.utils.container._general import _strip_ansi_escape_sequences
 from app.utils.system import get_cpu_cores
 
 
@@ -291,7 +292,8 @@ def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = N
             except UnicodeDecodeError as e:
                 result = f'{e}'
 
-        return code, result.strip()
+        result = _strip_ansi_escape_sequences(result.strip())
+        return code, result
 
 
 def remove_container(container_id: str):
