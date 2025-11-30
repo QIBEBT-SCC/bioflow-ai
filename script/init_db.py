@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Optional
 
@@ -202,6 +203,9 @@ async def continue_run(index: int, message: Optional[str] = None):
     LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
 
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
+    function_df = function_df.with_columns(
+        pl.when(pl.col('index') == index).then(pl.lit(False)).otherwise(pl.col('interrupt')).alias('interrupt'),
+    )
     tool_info: dict[str, Any] = function_df.row(index=index, named=True)
 
     async with aiosqlite.connect('checkpoints.db') as conn:
@@ -243,7 +247,7 @@ async def continue_run(index: int, message: Optional[str] = None):
 async def delete_prebuild_tool(indices: list[int]):
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
     thread_ids_to_delete: list[str] = []
-    
+
     for index in indices:
         tool_info: dict[str, Any] = function_df.row(index=index, named=True)
         logger.info(f'要删除的数据 (index={index}): {tool_info}')
@@ -257,6 +261,28 @@ async def delete_prebuild_tool(indices: list[int]):
             thread_ids_to_delete.append(tool_info['thread_id'])
             async with aiosqlite.connect('checkpoints.db') as conn:
                 memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
+                agent = CreateToolAgent().build(memory=memory)
+
+                thread_id = 'tool_65_BLAST'
+                config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
+
+                response = await agent.aget_state(config, subgraphs=True)
+                if (
+                    response.tasks
+                    and 'container_id' in response.tasks[0].state.values
+                    and response.tasks[0].state.values['container_id']
+                ):
+                    # 删除残余容器
+                    if get_settings().docker.CONTAINER == 'docker':
+                        from app.utils.container.docker import remove_container
+
+                        remove_container(response.tasks[0].state.values['container_id'])
+                    else:
+                        from app.utils.container.podman import remove_container
+
+                        remove_container(response.tasks[0].state.values['container_id'])
+                    logger.info('清理了残余容器')
+
                 await memory.adelete_thread(tool_info['thread_id'])
                 logger.info(f'删除了一条智能体记录 (index={index})')
 
@@ -269,6 +295,12 @@ async def delete_prebuild_tool(indices: list[int]):
         if deleted_count > 0:
             dataset_df.write_parquet('test_run.parquet', compression='snappy')
             logger.info(f'从 test_run.parquet 中删除了 {deleted_count} 条保存数据')
+
+    # 删除运行目录
+    for thread_id in thread_ids_to_delete:
+        output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / thread_id
+        if output_path.exists():
+            shutil.rmtree(output_path)
 
     # 批量更新 DataFrame
     indices_condition = pl.col('index').is_in(indices)
