@@ -46,6 +46,8 @@ def run_command(command: str, runtime: ToolRuntime):
 def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunContext]):
     """Create a new container using tool image
 
+    - The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so you don't need to add them manually.
+
     Args:
         mounts: Other mounts besides testdata and output folder
     """
@@ -68,6 +70,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
         'source': f'{output_path}',
     }
 
+    container_id: Optional[str] = None
     match get_settings().docker.CONTAINER:
         case 'docker':
             from app.utils.container.docker import create_container
