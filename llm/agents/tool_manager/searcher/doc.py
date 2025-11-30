@@ -85,5 +85,5 @@ doc_searcher: CompiledStateGraph[GetDocState] = create_agent(
         ask_human,
     ],
     system_prompt=GET_DOC_SYSTEM,
-    state_schema=GetDocState,
+    state_schema=GetDocState,  # type: ignore
 )

@@ -228,7 +228,7 @@ class GetImageAgent:
             model=self.llm,
             tools=[search_image, view_image_tags, web_reader, ask_human],
             system_prompt=SEARCH_IMAGE_SYS,
-            middleware=[
+            middleware=[  # type: ignore
                 SummarizationMiddleware(
                     model=gemini_25_flash(),
                     max_tokens_before_summary=10000,
@@ -253,7 +253,7 @@ class GetImageAgent:
         return {'messages': [HumanMessage(content='Continue to call tools to complete the task')]}
 
     async def info_searcher_node(self, state: SearchImageState):
-        response = await self.search_info_agent.ainvoke({'messages': state['messages']})
+        response = await self.search_info_agent.ainvoke({'messages': state['messages']})  # type: ignore
         tool_info: ToolInfoOuput = response['structured_response']
         msg_content = (
             f'<ToolInformation>\n'
@@ -317,12 +317,12 @@ class GetImageAgent:
         return 'local_searcher'
 
     def build(self, visualize: bool = False):
-        graph = StateGraph(state_schema=SearchImageState)
-        graph.add_node('local_searcher', self.local_searcher_node)
+        graph = StateGraph(state_schema=SearchImageState)  # type: ignore
+        graph.add_node('local_searcher', self.local_searcher_node)  # type: ignore
         graph.add_node('local_search_tool', self.search_tool_node)
         graph.add_node('continue_search', self.fix_tool_call_node)
-        graph.add_node('info_searcher', self.info_searcher_node)
-        graph.add_node('image_searcher', self.image_searcher_node)
+        graph.add_node('info_searcher', self.info_searcher_node)  # type: ignore
+        graph.add_node('image_searcher', self.image_searcher_node)  # type: ignore
 
         graph.set_entry_point('local_searcher')
         graph.add_conditional_edges('local_searcher', self.searcher_router)

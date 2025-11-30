@@ -348,9 +348,9 @@ class ToolGenerator:
         }
 
     def build(self, visualize: bool = False):
-        graph = StateGraph(ToolGeneratorState, output_schema=ToolConfigSchema)
+        graph = StateGraph(ToolGeneratorState, output_schema=ToolConfigSchema)  # type: ignore
         graph.add_sequence(
-            [
+            [  # type: ignore
                 ('mount_file', self.mount_file_node),
                 ('command_design', self.command_design_node),
                 ('info_generate', self.info_generate_node),

@@ -36,21 +36,17 @@ You must operate precisely, strictly adhere to established workflows and rules, 
 So when you're executing the overall task, you just need to go with the mindset of "as long as it runs," without paying too much attention to what the specific file content is, what the quality is like, etc. The format being correct is usually good enough.
 
 1. **Preliminary Analysis**:
-    a. **Read Document**: Analyze the documentation. Before creating any containers, systematically analyze the tool's `--help` documentation to understand its functionality, inputs, parameters, especially looking for database-related parameters (e.g., `--db`, `--database`).
-    b. **Requirements Assessment**: First, evaluate the user's original demand. If the user's original demand has any of the following issues, you need to call the `ask_human` tool to request clearer instructions from the user:
+    a. **Requirements Assessment**: If the user's original demand has any of the following issues, call the `ask_human` tool to request clearer instructions from the user:
         - It confuses you (seems like task A, but also like task B)
         - Incorrect description (actually not a function this tool possesses)
-    c. **Dependency Analysis**: Based on the documentation, distinguish between three types of dependencies:
+    b. **Dependency Analysis**: Based on the documentation, distinguish between three types of dependencies:
         - **Tool-specific Index**: This refers to an index that is built from a source file (e.g., a FASTA reference genome) using a command like `bowtie2-build`. For situations where this tool can handle it on its own, go directly to step 3.
         - **Reference File**: such as reference genomes, annotation files, variant annotations, etc., which can be obtained from `/data/testdata`. Continue to step 3
         - **Large Pre-built Database**: This refers to large, common databases that are typically downloaded manually (e.g., NCBI `nr`, GTDB). For this situation, first go to step 2.
 2. **[Option]Search for Database**: When the tool needs to use additional databases, first use the `search_biodb` tool to try searching if there is already a downloaded database on the host
     - If the search results contain the database you need, proceed to step 3
-    - Otherwise, immediately call the `ask_human` tool to request the corresponding database. In the request, you need to tell the human what database is needed and possible download methods
-    - Note that **downloading the database must request human intervention!** Even if the tool provides scripts like download-database, it still needs to be determined by the human whether to call it
+    - Otherwise, immediately call the `ask_human` tool to tell the human what database is needed and how to download it. DO NOT download database by your self!
 3. **Build Container**: After obtaining all necessary information, call `build_container` to initialize the tool container
-    - If the tool requires an external database, based on the search results from the previous step, add the path of the external database to the `mounts` parameter as an additional mount.
-    - The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so you don't need to add them manually.
 4. **Choose Test Data**: Regardless of which step of the analysis process this tool is in or what input it requires, throughout the entire process, it always needs a RAW DATA as the starting point, which could be RNA sequences, metagenomic sequences, etc.
     a. Understand the available raw data in `/data/testdata` by reading `/data/testdata/DESCRIPTION.md`. 
     b. Select appropriate raw test data based on user needs and tool characteristics.
@@ -76,13 +72,15 @@ You need to identify exactly what type of file you are missing, and call the `as
 </MissingFiles>
 
 <CommandDesignRule>
-- **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+- **Core Principle**: 
+    - The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+    - Explicitly add parameters that restrict search space or output depth to the minimum necessary for a valid result to ensure rapid execution (e.g., set `-max_target_seqs 1` for BLAST).
 - **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
-- **Parameters NEED to be added**: If the tool supports it, you should add the following three types of parameters in addition to the minimal command:
+- **Parameters NEED to be added**:
     - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
     - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
     - Add parameter related to force overwriting existing data (e.g., `--rewrite`)
-    - If the tool has built-in logging functionality (e.g., `--log-file`, `-l`), it should be added to the command.
+    - Add parameter related to built-in logging functionality (e.g., `--log-file`, `-l`)
 - **Output Redirection**: 
     - For all tools, regardless of whether the tool itself generates logs, use `> 11_run.log 2>&1` to redirect the tool's output to a file named `11_run.log`
     - If a tool uses stdout as output and does not specify a parameter to output to a file, then only the error output is redirected, and the result is saved in the corresponding file. (e.g. `bedtools nuc ... > result.tsv 2> 11_run.log`)
@@ -154,8 +152,6 @@ So when you're executing the overall task, you just need to go with the mindset 
     - Otherwise, immediately call the `ask_human` tool to request the corresponding database. In the request, you need to tell the human what database is needed and possible download methods
     - Note that **downloading the database must request human intervention!** Even if the tool provides scripts like download-database, it still needs to be determined by the human whether to call it
 2. **Build Container**: Call `build_container` to initialize the tool container
-    - If the tool requires an external database, based on the search results from the previous step, add the path of the external database to the `mounts` parameter as an additional mount.
-    - The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so you don't need to add them manually.
 3. **Choose Test Data**:
     a. In the previous work, we have selected appropriate test data and copied it to `/data/output/00_raw`. First, check the files in the directory to determine if they are sufficient for the current tool.
     b. If the files in `/data/output/00_raw` are sufficient for you to complete the current task, go directly to step5, otherwise continue
@@ -176,9 +172,11 @@ So when you're executing the overall task, you just need to go with the mindset 
 </MissingFiles>
 
 <CommandDesignRule>
-- **Core Principle**: The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+- **Core Principle**: 
+    - The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+    - Explicitly add parameters that restrict search space or output depth to the minimum necessary for a valid result to ensure rapid execution (e.g., set `-max_target_seqs 1` for BLAST).
 - **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
-- **Parameters NEED to be added**: If the tool supports it, you should add the following four types of parameters in addition to the minimal command:
+- **Parameters NEED to be added**:
     - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
     - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
     - Some tools (e.g. samtools convert) may use stdout as default output if specific parameters are not used. In such cases, you must add the corresponding parameters to write the output directly to a file.
@@ -195,6 +193,7 @@ So when you're executing the overall task, you just need to go with the mindset 
 - **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
 - **System Commands**: You are only allowed to use the system commands listed in the tool description.
     - Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
+- **Unresolvable Execution Error**: When encountering an unsolvable problem, or repeatedly encountering the same error return result, call the `ask_human` tool to request human advice.
 
 ### Container Management
 If you discover the need for an additional database or other external files *after* container creation:
@@ -203,16 +202,6 @@ If you discover the need for an additional database or other external files *aft
 3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
 4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
 </ExecutionRules>
-
-<HumanAssistancePolicy>
-In the following three situations, you must immediately stop all current operations and use the `ask_human` tool to request human intervention:
-
-- **Missing Raw Data**: When a type of raw data required for analysis (e.g., a type of omics sequencing data, a certain image, etc.) is not available in `/data/testdata`. Do not request intermediate files that you can generate yourself.
-- **External Database or Missing Source File Required**:
-    - When a tool requires a **large, pre-built database** (e.g., NCBI `nr`, GTDB), you must ask the human for its host path.
-    - When a tool requires an **index** to be built, you should first try to build it assuming the source file (e.g., reference genome) is in `/data/testdata`. If, and only if, the build fails because the source file is missing, you should then use `ask_human` to request the necessary source file.
-- **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, do not fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
-</HumanAssistancePolicy>
 
 <ReportingGuide>
 If you ultimately succeed in completing the goal, you need to tell the user what you did and where the files he needs are located. In the form of:
@@ -254,7 +243,7 @@ async def need_upstream_analysis(
             )
         ]
     }
-    _response = await _pre_run_agent.ainvoke(agent_input)
+    _response = await _pre_run_agent.ainvoke(agent_input)  # type: ignore
 
     return Command(
         update={
@@ -277,8 +266,8 @@ class PreRunAgent:
                 select_image,
             ],
             system_prompt=SEARCH_IMAGE_SYSTEM,
-            middleware=[DisableParallelToolCallsMiddleware()],
-            state_schema=SearchImageState,
+            middleware=[DisableParallelToolCallsMiddleware()],  # type: ignore
+            state_schema=SearchImageState,  # type: ignore
         )
         self.pre_run_agent = create_agent(
             model=gemini_25_flash(temperature=0.3),
@@ -289,14 +278,14 @@ class PreRunAgent:
                 stop_and_rm_container,
             ],
             system_prompt=PRE_RUN_SYSTEM,
-            middleware=[
+            middleware=[  # type: ignore
                 TokenLimitMiddleware(),
                 DisableParallelToolCallsMiddleware(),
                 SaveMessagesMiddleware(),
                 ClearContainerMiddleware(),
             ],
-            state_schema=TestRunState,
-            context_schema=TestRunContext,
+            state_schema=TestRunState,  # type: ignore
+            context_schema=TestRunContext,  # type: ignore
         )
 
     async def search_image_node(self, state: TestRunState) -> Command[Literal['pre_run', '__end__']]:
@@ -331,9 +320,9 @@ class PreRunAgent:
 
     def build(self) -> CompiledStateGraph[TestRunState, TestRunContext, SearchImageState]:
         """构建并编译预运行 agent 图"""
-        graph = StateGraph(TestRunState, TestRunContext, input_schema=SearchImageState)
-        graph.add_node('search_image', self.search_image_node)
-        graph.add_node('pre_run', self.pre_run_node)
+        graph = StateGraph(TestRunState, TestRunContext, input_schema=SearchImageState)  # type: ignore
+        graph.add_node('search_image', self.search_image_node)  # type: ignore
+        graph.add_node('pre_run', self.pre_run_node)  # type: ignore
 
         graph.set_entry_point('search_image')
         graph.add_edge('pre_run', END)
@@ -370,13 +359,13 @@ test_run_agent: CompiledStateGraph[TestRunState, TestRunContext, TestRunState, T
         ask_human,
     ],
     system_prompt=TEST_RUN_SYSTEM,
-    middleware=[
+    middleware=[  # type: ignore
         TokenLimitMiddleware(max_token=16000),
         DisableParallelToolCallsMiddleware(),
         SaveMessagesMiddleware(),
         ClearContainerMiddleware(),
     ],
     response_format=TestRunReport,
-    state_schema=TestRunState,
-    context_schema=TestRunContext,
+    state_schema=TestRunState,  # type: ignore
+    context_schema=TestRunContext,  # type: ignore
 )

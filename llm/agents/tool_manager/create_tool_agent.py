@@ -135,7 +135,7 @@ class CreateToolAgent:
             model=self.think_llm,
             tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
-            state_schema=SelectGroupState,
+            state_schema=SelectGroupState,  # type: ignore
         )
         self.tool_generator = ToolGenerator(llm=self.struct_llm).build()
 
@@ -165,7 +165,11 @@ class CreateToolAgent:
         writer({'info': "Searching for tool's help document..."})
 
         response = await self.get_doc_agent.ainvoke(
-            {'messages': state['messages'], 'image_uid': state['image_uid'], 'image': state['image']}
+            {  # type: ignore
+                'messages': state['messages'],
+                'image_uid': state['image_uid'],
+                'image': state['image'],
+            }
         )
         doc_uid = response['doc_uid']
 
@@ -191,7 +195,7 @@ class CreateToolAgent:
                 return Command(goto='get_report')
 
         pre_search_result = await search_exist_tool_agent.ainvoke(
-            {
+            {  # type: ignore
                 'messages': state['messages'],
                 'image_uid': state['image_uid'],
             }
@@ -242,8 +246,8 @@ class CreateToolAgent:
 
         testrun_input: TestRunState = {'messages': state['messages'], 'image': state['image']}
         response = await test_run_agent.ainvoke(
-            testrun_input,
-            context=TestRunContext(
+            testrun_input,  # type: ignore
+            context=TestRunContext(  # type: ignore
                 folder_name=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
                 test_run_id=runtime.context.test_run_id,
@@ -374,15 +378,17 @@ class CreateToolAgent:
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
         graph = StateGraph(
-            state_schema=CreateToolState, context_schema=CreateToolContext, output_schema=CreateToolOutput
+            state_schema=CreateToolState,  # type: ignore
+            context_schema=CreateToolContext,  # type: ignore
+            output_schema=CreateToolOutput,  # type: ignore
         )
 
-        graph.add_node('select_image', self.select_image_node)
-        graph.add_node('get_doc', self.get_doc_node)
-        graph.add_node('search_exist_tool', self.search_exist_tool_node)
-        graph.add_node('get_report', self.get_report_node)
-        graph.add_node('choose_group', self.choose_group_node)
-        graph.add_node('generate_tool_config', self.generate_tool_node)
+        graph.add_node('select_image', self.select_image_node)  # type: ignore
+        graph.add_node('get_doc', self.get_doc_node)  # type: ignore
+        graph.add_node('search_exist_tool', self.search_exist_tool_node)  # type: ignore
+        graph.add_node('get_report', self.get_report_node)  # type: ignore
+        graph.add_node('choose_group', self.choose_group_node)  # type: ignore
+        graph.add_node('generate_tool_config', self.generate_tool_node)  # type: ignore
 
         graph.set_entry_point('select_image')
         graph.add_edge('select_image', 'get_doc')

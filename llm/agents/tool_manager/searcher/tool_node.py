@@ -42,5 +42,5 @@ search_exist_tool_agent: CompiledStateGraph = create_agent(
         select_tool,
     ],
     system_prompt=SYSTEM_PROMPT,
-    state_schema=SearchToolNodeState,
+    state_schema=SearchToolNodeState,  # type: ignore
 )
