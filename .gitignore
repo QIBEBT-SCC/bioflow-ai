@@ -167,6 +167,8 @@ test/
 storage/
 log/
 volumes/
+script/*.parquet
+script/*.db
 
 *.docs.yaml
 
