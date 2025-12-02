@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 from langchain_qwen3 import Qwen3Embeddings
 
 from app.core.config import get_settings
-from llm.llm_client import ChatOpenAIReasoning
+from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from llm.utils.cache import cache_model
 
 
@@ -182,10 +182,11 @@ def deepseek_v3(temperature: float = 0.7, disable_streaming: bool = False) -> Ch
 
 def deepseek_r1(temperature: float = 0.7, disable_streaming: bool = False) -> ChatOpenAI:
     provider = get_settings().llm.DEEPSEEK.PROVIDER
-    llm = ChatOpenAIReasoning(
+    llm = ChatDeepseekReasoning(
         model=f'{provider}/deepseek-reasoner' if provider else 'deepseek-reasoner',
         base_url=get_settings().llm.DEEPSEEK.BASE_URL,
         api_key=get_settings().llm.DEEPSEEK.API_KEY,
+        extra_body={'thinking': {'type': 'enabled'}},
         provider='deepseek',
         temperature=temperature,
         disable_streaming=disable_streaming,
