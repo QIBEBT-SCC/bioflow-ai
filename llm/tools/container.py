@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -167,12 +168,12 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
         )
 
     runtime.stream_writer({'run': command, 'dir': workdir})
-    if 'cat' in command and 'DESCRIPTION.md' not in command:
+    if re.search(r'\bcat\b', command) and 'DESCRIPTION.md' not in command:
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content='The `cat` command is not allowed. You can only use the commands listed in <AvailableSystemCommands>.',
+                        content='The `cat` command is not allowed. Using the `sed` or `grep` command to view file.',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ],
