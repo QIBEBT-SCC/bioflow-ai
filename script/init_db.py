@@ -26,9 +26,8 @@ import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolGroup, ToolImage, ToolTag
-from llm.agents.tool_manager.create_tool_agent import CreateToolAgent
+from llm.agents.tool_manager import CreateToolAgent, CreateToolContext, CreateToolState
 from llm.models import qwen3_embedding
-from llm.states import CreateToolContext, CreateToolState
 
 
 def init_tag_and_group(drop_old: bool = True):
@@ -111,7 +110,7 @@ async def init_tools():
     LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
 
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['GATK', 'Picard']))
+    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['Picard']))
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -141,12 +140,13 @@ async def init_tools():
             function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
 
             async for namespace, mode, data in agent.astream(
-                agent_input, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
+                agent_input,  # type: ignore
+                config,
+                context=context,  # type: ignore
+                stream_mode=['custom', 'updates'],
+                subgraphs=True,
             ):
-                if mode == 'custom':
-                    logger.info(data)
-                else:
-                    logger.debug(f'{namespace} {data}'[:120])
+                _log_update(namespace, mode, data)
 
             response = await agent.aget_state(config)
             if response.interrupts:
@@ -221,12 +221,13 @@ async def continue_run(index: int, message: Optional[str] = None):
         else:
             input_message = Command(resume=message)
         async for namespace, mode, data in agent.astream(
-            input_message, config, context=context, stream_mode=['custom', 'updates'], subgraphs=True
+            input_message,
+            config,
+            context=context,  # type: ignore
+            stream_mode=['custom', 'updates'],
+            subgraphs=True,
         ):
-            if mode == 'custom':
-                logger.info(data)
-            else:
-                logger.debug(f'{namespace} {data}'[:120])
+            _log_update(namespace, mode, data)
 
         response = await agent.aget_state(config)
         if response.interrupts:
@@ -344,6 +345,16 @@ async def rebuild_vector_store():
             ),
         ]
         await vectorstore.aadd_documents(docs)
+
+
+def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]):
+    if mode == 'custom':
+        logger.info(data)
+    else:
+        filtered_data = {k: v for k, v in data.items() if v is not None}
+        if filtered_data:
+            running_node = ','.join([n.split(':')[0] for n in namespace])
+            logger.debug(f'({running_node}) {filtered_data}'[:120])
 
 
 @click.group()
