@@ -1,12 +1,12 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, RemoveMessage
 from langchain_core.messages.utils import count_tokens_approximately
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import MessagesState
 from langgraph.runtime import Runtime
 from langgraph.types import interrupt
@@ -15,16 +15,6 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from llm.states import TestRunContext, TestRunState
-
-DEFAULT_CHECK = """Based on the task description above and the conversation history below, please judge whether the current task has been completed.
-
-Consider:
-1. Have all the objectives mentioned in the task system prompt been achieved?
-2. Have all necessary steps been executed?
-3. Has the user's request been fully addressed?
-
-Return True only if the task is completely finished."""
-DEFAULT_CONTINUE = """Please continue to call the tool to complete the task."""
 
 
 class DisableParallelToolCallsMiddleware(AgentMiddleware):
@@ -38,66 +28,49 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
 
 
 class CheckResult(BaseModel):
-    has_end: bool = Field(
-        description='Whether the task has been completed. True indicates the task is completed, False indicates the task is not completed and needs to continue execution'
-    )
+    checked: bool = Field(description='Has the FinalResponse you see passed the format check')
+    reason: str = Field(description='Reasons for Pass/Fail check')
 
 
 class CheckReportMiddleware(AgentMiddleware):
     def __init__(
         self,
         model: BaseChatModel,
-        task_description: str,
-        check_prompt: str = DEFAULT_CHECK,
-        continue_message: str = DEFAULT_CONTINUE,
+        check_prompt: str,
     ) -> None:
         """
         Args:
             model: 用于检查任务完成状态的模型
-            task_description: 主智能体的任务描述
             check_prompt: 检查提示词
-            continue_message: 任务未完成时的提示消息
         """
         super().__init__()
 
-        self.continue_message = continue_message
-
         prompt = ChatPromptTemplate(
             messages=[
-                SystemMessage(content=f'{check_prompt}\n\n<TaskDescription>\n{task_description}\n</TaskDescription>'),
-                MessagesPlaceholder(variable_name='history'),
+                ('system', check_prompt),
+                ('human', '<FinalResponse>\n{final_response}\n</FinalResponse>'),
             ]
         )
         self.check_chain = prompt | model.with_structured_output(CheckResult)
 
     def after_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
-        last_message = state['messages'][-1]
+        last_message = cast(AIMessage, state['messages'][-1])
 
-        if not last_message.tool_calls:
-            response = self.check_chain.invoke({'history': state['messages']})
-            has_end = response.has_end
+        if last_message.tool_calls:
+            return None
 
-            if not has_end:
-                return {
-                    'jump_to': 'model',
-                    'messages': [HumanMessage(content=self.continue_message)],
-                }
+        should_retry = (
+            not last_message.content or not self.check_chain.invoke({'final_response': last_message.content}).checked
+        )
 
-        return None
+        if should_retry:
+            logger.warning('Check failed')
+            return {
+                'jump_to': 'model',
+                'messages': [RemoveMessage(id=last_message.id)],
+            }
 
-    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
-        last_message = state['messages'][-1]
-
-        if not last_message.tool_calls:
-            response = await self.check_chain.ainvoke({'history': state['messages']})
-            has_end = response.has_end
-
-            if not has_end:
-                return {
-                    'jump_to': 'model',
-                    'messages': [HumanMessage(content=self.continue_message)],
-                }
-
+        logger.debug('Check passed')
         return None
 
 

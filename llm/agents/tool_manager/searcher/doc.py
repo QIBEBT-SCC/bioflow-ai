@@ -1,7 +1,7 @@
 from langchain.agents import create_agent
 from langgraph.graph.state import CompiledStateGraph
 
-from llm.models import gpt_5_mini
+from llm.models import deepseek_r1
 from llm.states import GetDocState
 from llm.tools.container import run_command
 from llm.tools.database import list_docs, save_doc, select_doc, view_doc
@@ -75,7 +75,7 @@ Call `ask_human(question)` to report the specific issue when:
 
 
 doc_searcher: CompiledStateGraph[GetDocState] = create_agent(
-    model=gpt_5_mini(0.3),
+    model=deepseek_r1(0.3),
     tools=[
         list_docs,
         view_doc,
