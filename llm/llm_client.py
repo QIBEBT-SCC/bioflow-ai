@@ -1,11 +1,15 @@
 import json
-from typing import Any, Optional, Union
+from typing import Any, Callable, Literal, Optional, Sequence, Union
 
 import openai
 from langchain_core.language_models import LanguageModelInput
-from langchain_core.messages import AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
+from langchain_openai.chat_models.base import _DictOrPydantic, _DictOrPydanticClass
+from loguru import logger
 
 
 class ChatOpenAIReasoning(ChatOpenAI):
@@ -106,3 +110,35 @@ class ChatDeepseekReasoning(ChatOpenAIReasoning):
                 message['content'] = json.dumps(message['content'])
 
         return payload
+
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type | Callable | BaseTool],
+        *,
+        tool_choice: dict | str | bool | None = None,
+        strict: bool | None = None,
+        parallel_tool_calls: bool | None = None,
+        response_format: _DictOrPydanticClass | None = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        tool_choice = 'required' if tool_choice == 'any' else tool_choice
+        return super().bind_tools(
+            tools,
+            tool_choice=tool_choice,
+            strict=strict,
+            parallel_tool_calls=parallel_tool_calls,
+            response_format=response_format,
+            **kwargs,
+        )
+
+    def with_structured_output(
+        self,
+        schema: _DictOrPydanticClass | None = None,
+        *,
+        method: Literal['function_calling', 'json_mode', 'json_schema'] = 'json_schema',
+        include_raw: bool = False,
+        strict: bool | None = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
+        method = 'json_mode' if method == 'json_schema' else method
+        return super().with_structured_output(schema, method=method, include_raw=include_raw, strict=strict, **kwargs)
