@@ -110,7 +110,7 @@ async def init_tools():
     LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
 
     function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('name').is_in(['Picard']))
+    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('image_name').is_in(['Picard']))
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -120,10 +120,10 @@ async def init_tools():
             row: dict[str, Any]
 
             with Session(engine) as session:
-                tool_image = image_crud.get_by_name(session, row['name'])
+                tool_image = image_crud.get_by_name(session, row['image_name'])
                 assert tool_image is not None
 
-            thread_id = f'tool_{row["index"]}_{row["name"]}'
+            thread_id = f'tool_{row["index"]}_{row["image_name"]}'
             agent_input: CreateToolState = {
                 'messages': [HumanMessage(content=f'Using `{row["name"]}` for {row["functions"]}.')],
                 'image_uid': tool_image.uid,

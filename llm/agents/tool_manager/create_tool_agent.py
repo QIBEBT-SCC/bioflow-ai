@@ -173,16 +173,8 @@ class CreateToolAgent:
         )
         doc_uid = response['doc_uid']
 
-        with Session(engine) as session:
-            doc = doc_crud.get(session, str(doc_uid))
-
         return {
-            'messages': [
-                AIMessage(content='First I need the help documentation for this tool'),
-                HumanMessage(content=f'<Doc command="{doc.help_command}">\n{doc.content}\n<Doc>'),
-            ],
             'doc_uid': doc_uid,
-            'doc': doc.content,
         }
 
     async def search_exist_tool_node(self, state: CreateToolState) -> Command[Literal['get_report', '__end__']]:
@@ -244,7 +236,18 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
 
-        testrun_input: TestRunState = {'messages': state['messages'], 'image': state['image']}
+        with Session(engine) as session:
+            doc_uid = state['doc_uid']
+            doc = doc_crud.get(session, str(doc_uid))
+
+        testrun_input: TestRunState = {
+            'messages': [
+                *state['messages'],
+                AIMessage(content='First I need the help documentation for this tool'),
+                HumanMessage(content=f'<Doc command="{doc.help_command}">\n{doc.content}\n<Doc>'),
+            ],
+            'image': state['image'],
+        }
         response = await test_run_agent.ainvoke(
             testrun_input,  # type: ignore
             context=TestRunContext(  # type: ignore
@@ -254,24 +257,8 @@ class CreateToolAgent:
             ),
         )
         run_report = response['messages'][-1].content
-        # _file_list = '\n'.join([f'- {_f.path}: [{_f.type}]{_f.description}' for _f in run_report.output_files])
-        # report = (
-        #     f'## Test Run Report\n'
-        #     f'{run_report.note}\n'
-        #     f'```bash\n{run_report.running_command}\n```\n'
-        #     f'output_dir: `{run_report.output_path}`\n\n'
-        #     f'**Output Files:**\n'
-        #     f'{_file_list}'
-        # )
 
-        return {
-            'messages': [
-                AIMessage(
-                    content='Now, I also need to know about the output structure of the tool and some other information not visible in the documentation.',
-                ),
-                HumanMessage(content=run_report),
-            ]
-        }
+        return {'messages': [HumanMessage(content=run_report)]}
 
     async def choose_group_node(self, state: CreateToolState):
         """最后一步，为工具选择分组"""

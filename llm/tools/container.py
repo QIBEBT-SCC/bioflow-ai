@@ -180,6 +180,18 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
             }
         )
 
+    if re.search(r'\bcd\b', command):
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='The `cd` command is prohibited. To specify the working directory, please use the `workdir` parameter.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
+
     if get_settings().docker.CONTAINER == 'docker':
         from app.utils.container.docker import run_docker_by_id
 
@@ -199,12 +211,11 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
     else:
         return_msg = f'Command ran {run_status}. No other output.'
 
-    image: ImageConfig = runtime.state.get('image')
     return Command(
         update={
             'messages': [
                 ToolMessage(
-                    content=f'[Container: {image.get_image()}]\n{return_msg}',
+                    content=return_msg,
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

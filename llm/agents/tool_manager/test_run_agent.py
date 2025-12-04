@@ -9,7 +9,6 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command
-from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from llm.models import deepseek_r1, gpt_5_mini
@@ -26,6 +25,7 @@ from llm.utils.middleware import (
     ClearContainerMiddleware,
     DisableParallelToolCallsMiddleware,
     SaveMessagesMiddleware,
+    StatusBarMiddleware,
     TokenLimitMiddleware,
 )
 
@@ -36,27 +36,23 @@ You must operate precisely, strictly adhere to established workflows and rules, 
 **Our ultimate goal is simply to design a command that meets user needs, execute it successfully, and see what output it produces, rather than to perform a rigorous analysis.**
 So when you're executing the overall task, you just need to go with the mindset of "as long as it runs," without paying too much attention to what the specific file content is, what the quality is like, etc. The format being correct is usually good enough.
 
-1. **Preliminary Analysis**:
-    a. **Requirements Assessment**: If the user's original demand has any of the following issues, call the `ask_human` tool to request clearer instructions from the user:
-        - It confuses you (seems like task A, but also like task B)
-        - Incorrect description (actually not a function this tool possesses)
-    b. **Dependency Analysis**: Based on the documentation, distinguish between three types of dependencies:
-        - **Tool-specific Index**: This refers to an index that is built from a source file (e.g., a FASTA reference genome) using a command like `bowtie2-build`. Continue to step 3
-        - **Reference File**: such as reference genomes, annotation files, variant annotations, etc., which can be obtained from `/data/testdata`. Continue to step 3
-        - **Large Pre-built Database**: This refers to large, common databases that are typically downloaded manually (e.g., NCBI `nr`, GTDB). First go to step 2
+1. **Requirements Assessment**: If the user's original demand has any of the following issues, call the `ask_human` tool to request clearer instructions from the user:
+    - It confuses you (seems like task A, but also like task B)
+    - Incorrect description (actually not a function this tool possesses)
 2. **[Option]Search for Database**: When the tool needs to use additional databases, first use the `search_biodb` tool to try searching if there is already a downloaded database on the host
     - If the search results contain the database you need, proceed to step 3
     - Otherwise, call the `ask_human` tool to tell the human what database is needed and how to download it. DO NOT download database by your self!
 3. **Build Container**: After obtaining all necessary information, call `build_container` to initialize the tool container
-4. **Choose Test Data**: Regardless of which step of the analysis process this tool is in or what input it requires, throughout the entire process, it always needs a RAW DATA as the starting point, which could be RNA sequences, metagenomic sequences, etc.
+4. **Choose Test Data**:
     a. Understand the available raw data in `/data/testdata` by reading `/data/testdata/DESCRIPTION.md`. 
     b. Select appropriate raw test data based on user needs and tool characteristics.
     c. Create the `/data/output/00_raw` directory, and copy your selected test data from `/data/testdata` here. For subsequent runs, use this copied replica, and **do not directly use the files in `/data/testdata`!**
     d. If no suitable test data is found, handle according to the rules in <MissingFiles>
 5. **Execution**: 
     a. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
-    b. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool
-    c. After successful execution, process the output results based on the tool's behavior (whether it generates new files or modifies existing ones in place).
+    b. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool.
+    c. [Optional] If you need to use a tool DIFFERENT from the current image to generate additional upstream analysis files, call the `need_upstream_analysis` tool.
+    d. After successful execution, process the output results based on the tool's behavior (whether it generates new files or modifies existing ones in place).
 6. **Generate Report**: After obtaining all the required information, provide the output report as requested in <OutputStructure>.
 </Workflow>
 
@@ -125,10 +121,14 @@ If you discover the need for an additional database or other external files *aft
 After obtaining all the required information, your final report should output a markdown string in the following format:
 ```markdown
 ## Test Run Report
+working dir: [working_dir]
 ```bash
 [running_command]
 ```
-working dir: [working_dir]
+
+**Command Explain**
+- [param1]: [description]
+- [param2]: [description]
 
 **Output Files**
 - [path]: [type][description]
@@ -137,15 +137,16 @@ working dir: [working_dir]
 [note(Optional)]
 ```
 
+- `working_dir`: The target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
 - `running_command`: The command that ultimately executed successfully and produced the corresponding output, same as the content of `00_running_command`
-- `working_dir`: The workdir you use when running commands, which is also the target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
+- `command_explain`: According to the document, list the descriptions of the parameters used in the run command.
 - `output_files`: List all files (and folders) except for `00_running_command.txt` based on the result of `ls -lha`.
     - Each item containing three values:
         - `path`: e.g. `/data/output/[your sub folder]/[file/folder name]`
         - `type`: 'file' or 'folder'
         - `description`: A brief description of what this file/folder is. Generally, there's no need to pay too much attention to folders, as they are likely temporary files.
     - Example: `/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
-- `note`: This is an optional field for noting special circumstances.
+- `note`: An optional field for special circumstances.
     - Example1: This tool directly modifies the original file, so the `cp` command is prepended.
     - Example2: This tool uses stdout directly as output, so only stderr is redirected for logging.
 </OutputStructure>
@@ -154,33 +155,35 @@ working dir: [working_dir]
 CHECK_PROMPT = """Check if the last message returned by the system satisfies the following format
 
 <OutputStructure>
-After obtaining all the required information, your final report should output a markdown string in the following format:
-```markdown
 ## Test Run Report
+working dir: [working_dir]
 ```bash
 [running_command]
 ```
-working dir: [working_dir]
+
+**Command Explain**
+- [param1]: [description]
+- [param2]: [description]
 
 **Output Files**
 - [path]: [type][description]
 - [path]: [type][description]
 
 [note(Optional)]
-```
+</OutputStructure>
 
+- `working_dir`: The target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
 - `running_command`: The command that ultimately executed successfully and produced the corresponding output, same as the content of `00_running_command`
-- `working_dir`: The workdir you use when running commands, which is also the target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
+- `command_explain`: According to the document, list the descriptions of the parameters used in the run command.
 - `output_files`: List all files (and folders) except for `00_running_command.txt` based on the result of `ls -lha`.
     - Each item containing three values:
         - `path`: e.g. `/data/output/[your sub folder]/[file/folder name]`
         - `type`: 'file' or 'folder'
         - `description`: A brief description of what this file/folder is. Generally, there's no need to pay too much attention to folders, as they are likely temporary files.
     - Example: `/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
-- `note`: This is an optional field for noting special circumstances.
+- `note`: An optional field for special circumstances.
     - Example1: This tool directly modifies the original file, so the `cp` command is prepended.
     - Example2: This tool uses stdout directly as output, so only stderr is redirected for logging.
-</OutputStructure>
 """
 
 SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
@@ -275,13 +278,13 @@ samtools seems unable to meet your requirements, please switch to a more suitabl
 async def need_upstream_analysis(
     tool_name: str, file_description: str, reasoning: str, runtime: ToolRuntime[TestRunContext]
 ):
-    """Use this tool to delegate a task to a DIFFERENT upstream agent when a required input file is MISSING.
+    """Call this tool when you need to use a tool DIFFERENT from the Current Image to generate upstream analysis files.
 
-    DO NOT output multiple requests in parallel.
+    **This tool prohibits parallel calls!**
     You must wait for the first file to be generated before requesting the next one (e.g., wait for Index generation before requesting Alignment).
 
     Args:
-        tool_name: The name of the upstream bioinformatics tool to be called.
+        tool_name: The name of the upstream bioinformatics tool to be called. Use ONE tool at a time
         file_description: A specific description of the output file required from that tool.
         reasoning: The logical justification for requesting this dependency.
     """
@@ -380,24 +383,8 @@ class PreRunAgent:
         return compiled_graph
 
 
-class FileItem(BaseModel):
-    path: str = Field(description='e.g. `/data/output/[your sub folder]/[file/folder name]')
-    type: Literal['file', 'folder']
-    description: str = Field(
-        description="A brief description of what this file/folder is. Generally, there's no need to pay too much attention to folders, as they are likely temporary files."
-    )
-
-
-class TestRunReport(BaseModel):
-    running_command: str
-    output_path: str
-    note: str = Field(default='')
-
-    output_files: list[FileItem] = Field(default_factory=list)
-
-
 _pre_run_agent = PreRunAgent().build()
-test_run_agent: CompiledStateGraph[TestRunState, TestRunContext, TestRunState, TestRunReport] = create_agent(
+test_run_agent: CompiledStateGraph[TestRunState, TestRunContext] = create_agent(
     model=deepseek_r1(temperature=0.3),
     tools=[
         search_biodb,
@@ -411,11 +398,11 @@ test_run_agent: CompiledStateGraph[TestRunState, TestRunContext, TestRunState, T
     middleware=[  # type: ignore
         TokenLimitMiddleware(max_token=20000),
         DisableParallelToolCallsMiddleware(),
+        StatusBarMiddleware(),
         SaveMessagesMiddleware(),
         ClearContainerMiddleware(),
         CheckReportMiddleware(gpt_5_mini(), CHECK_PROMPT),
     ],
-    # response_format=TestRunReport,
     state_schema=TestRunState,  # type: ignore
     context_schema=TestRunContext,  # type: ignore
 )

@@ -1,10 +1,10 @@
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Awaitable, Callable, cast
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import StateT
+from langchain.agents.middleware.types import ModelCallResult, ModelRequest, ModelResponse, StateT
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import MessagesState
@@ -14,6 +14,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.models.tools import ImageConfig
 from llm.states import TestRunContext, TestRunState
 
 
@@ -24,6 +25,45 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
 
     async def awrap_model_call(self, request, handler):
         request.model_settings['parallel_tool_calls'] = False
+        return await handler(request)
+
+
+class StatusBarMiddleware(AgentMiddleware):
+    @staticmethod
+    def _add_status_to_request(request: ModelRequest) -> ModelRequest:
+        """添加状态信息到请求的最后一条消息中"""
+        status = []
+        image_info: ImageConfig = request.state['image']  # type: ignore
+        status.append(f'Current Image: {image_info.get_image()}')
+        if 'container_id' in request.state and request.state['container_id']:  # type: ignore
+            status.append('Container Activated')
+        else:
+            status.append('No Container')
+
+        if status:
+            last_message = request.messages[-1]
+            new_content = last_message.content + f'\n[{"; ".join(status)}]'
+            new_last_message = last_message.model_copy(update={'content': new_content}, deep=True)
+
+            new_messages = [*request.messages[:-1], new_last_message]
+            request = request.override(messages=new_messages)
+
+        return request
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelCallResult:
+        request = self._add_status_to_request(request)
+        return handler(request)
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelCallResult:
+        request = self._add_status_to_request(request)
         return await handler(request)
 
 
@@ -59,15 +99,19 @@ class CheckReportMiddleware(AgentMiddleware):
         if last_message.tool_calls:
             return None
 
-        should_retry = (
-            not last_message.content or not self.check_chain.invoke({'final_response': last_message.content}).checked
-        )
-
-        if should_retry:
-            logger.warning('Check failed')
+        if not last_message.content:
+            logger.warning('Check failed. Empty message.')
             return {
                 'jump_to': 'model',
                 'messages': [RemoveMessage(id=last_message.id)],
+            }
+
+        check_result = cast(CheckResult, self.check_chain.invoke({'final_response': last_message.content}))
+        if not check_result.checked:
+            logger.warning('Check failed')
+            return {
+                'jump_to': 'model',
+                'messages': [HumanMessage(content=check_result.reason)],
             }
 
         logger.debug('Check passed')

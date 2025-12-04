@@ -80,8 +80,9 @@ def run_docker(
     try:
         status_code = container.wait()['StatusCode']
         result = container.logs(stderr=True)
+        result = result.decode('utf-8').rstrip()
 
-        return status_code, result.decode('utf-8').rstrip()
+        return status_code, _strip_ansi_escape_sequences(result)
     finally:
         if container:
             container.remove(force=True)
