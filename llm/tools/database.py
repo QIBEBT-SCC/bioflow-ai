@@ -440,7 +440,7 @@ def search_biodb(query: str) -> str:
     **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
-        query: Keyword for Search
+        query: Keyword for Search, It can be the tool that uses this database (e.g., Kraken2), or the name of this database (e.g., nr or eggnog).
     """
     with Session(engine) as session:
         exist_dbs: list[BioDb] = db_crud.get_by_name_fuzzy(session, query, 10, offset=0)
