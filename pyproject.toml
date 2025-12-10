@@ -26,6 +26,7 @@ dependencies = [
     "langchain-openai>=1.1.0",
     "langchain-postgres>=0.0.15",
     "langchain-qwen3>=0.1.2",
+    "langchain-redis>=0.2.5",
     "langgraph>=1.0.4",
     "langgraph-checkpoint-postgres>=3.0.1",
     "langgraph-checkpoint-sqlite>=3.0.0",

@@ -67,6 +67,7 @@ class PersistenceConfig(BaseModel):
     CHECKPOINT_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/llm_history'
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
+    LLM_CACHE: str = 'redis://localhost:6379/3'
     STORAGE_PATH: str = './storage'
     GENOME_PATH: str = './storage/genome'
     TEST_DATA_PATH: str = './testdata'
