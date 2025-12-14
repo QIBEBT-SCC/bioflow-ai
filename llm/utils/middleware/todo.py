@@ -11,12 +11,24 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 SYSTEM_PROMPT = """<To-DOList>
-Use `write_todos` tool for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.
-This tool is very helpful for planning complex objectives, and for breaking down these larger complex objectives into smaller steps.
+Use the todo tools for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.
 
-- The `write_todos` tool should never be called multiple times in parallel.
-- It is critical that you mark todos as completed as soon as you are done with a step. Do not batch up multiple steps before marking them as completed.
-- Don't be afraid to revise the To-Do list as you go. New information may reveal new tasks that need to be done, or old tasks that are irrelevant.
+## Available Tools:
+- `add_todos`: Add new tasks to the todo list or insert tasks at a specific position
+  - To append tasks to the end: call with `tasks` parameter only (before=None)
+  - To insert tasks before an existing task: specify the `before` parameter with the target task index
+  - Use this when discovering new sub-tasks or when you need to add prerequisite tasks before an existing task
+
+- `update_todo`: Update the status of a specific task
+  - Use this to mark tasks as 'in_progress' when you start working on them
+  - Mark tasks as 'completed' when finished (this will trigger a context clear to free up memory)
+
+## Guidelines:
+- Use `add_todos` for complex objectives to break down larger tasks into smaller, manageable steps
+- Never call `add_todos` multiple times in parallel
+- Always mark todos as 'completed' immediately after finishing a step - do not batch multiple completions
+- Dynamically adjust the todo list as you go - use the `before` parameter to insert prerequisite tasks when you discover dependencies
+- When you find that a task requires preparation, insert new tasks before it using `add_todos` with the `before` parameter
 </To-DOList>"""
 
 
@@ -33,27 +45,62 @@ class TodoState(AgentState):
 
 
 @tool(parse_docstring=True)
-def add_todos(tasks: list[str], runtime: ToolRuntime):
-    """Add new tasks to the todo list.
+def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
+    """Add or insert new tasks to the todo list.
 
     Use this tool to initialize the plan or add discovered sub-tasks.
 
     Args:
         tasks: A list of task descriptions strings.
+        before: Optional index of the task before which to insert new tasks. If None, tasks are appended to the end.
     """
     current_todos = runtime.state.get('todos', [])
-    next_index = (current_todos[-1].index + 1) if current_todos and current_todos[-1].index is not None else 0
-
-    new_todos = []
-    for i, task in enumerate(tasks):
-        new_todos.append(Todo(index=next_index + i, content=task, status='pending'))
-
-    updated_todos = current_todos + new_todos
+    
+    # If no 'before' parameter, append to the end (original behavior)
+    if before is None:
+        next_index = (current_todos[-1].index + 1) if current_todos and current_todos[-1].index is not None else 0
+        new_todos = []
+        for i, task in enumerate(tasks):
+            new_todos.append(Todo(index=next_index + i, content=task, status='pending'))
+        
+        updated_todos = current_todos + new_todos
+        message = f'Added {len(tasks)} tasks to todo list.'
+    else:
+        # Find the position of the task with the specified index
+        insert_position = None
+        for i, todo in enumerate(current_todos):
+            if todo.index == before:
+                insert_position = i
+                break
+        
+        if insert_position is None:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(f'Error: Todo with index {before} not found.', tool_call_id=runtime.tool_call_id)
+                    ]
+                }
+            )
+        
+        # Create new todos, they will take indices starting from 'before'
+        new_todos = []
+        for i, task in enumerate(tasks):
+            new_todos.append(Todo(index=before + i, content=task, status='pending'))
+        
+        # Insert new todos at the specified position
+        updated_todos = current_todos[:insert_position] + new_todos + current_todos[insert_position:]
+        
+        # Reindex all todos from the insertion point onwards
+        for i in range(insert_position + len(new_todos), len(updated_todos)):
+            updated_todos[i].index = updated_todos[i - 1].index + 1 if updated_todos[i - 1].index is not None else i
+        
+        message = f'Inserted {len(tasks)} tasks before task {before}.'
+    
     return Command(
         update={
             'todos': updated_todos,
             'messages': [
-                ToolMessage(f'Added {len(tasks)} tasks to todo list.', tool_call_id=runtime.tool_call_id),
+                ToolMessage(message, tool_call_id=runtime.tool_call_id),
             ],
         }
     )

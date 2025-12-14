@@ -3,6 +3,7 @@ from typing import Awaitable, Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 
+from app.models.tools import ImageConfig
 from llm.utils.middleware.todo import Todo
 
 
@@ -11,11 +12,16 @@ class StatusBarMiddleware(AgentMiddleware):
     def _add_status_to_request(request: ModelRequest) -> ModelRequest:
         """添加状态信息到请求的最后一条消息中"""
         status = []
+
+        if 'image' in request.state and request.state['image']:  # type: ignore
+            image_info: ImageConfig = request.state['image']  # type: ignore
+            status.append(f'Current Image: {image_info.get_image()}')
+
         if 'todos' in request.state and request.state['todos']:  # type: ignore
             for todo in request.state['todos']:  # type: ignore
                 todo: Todo
-                if todo['status'] == 'in_progress':
-                    status.append(f'Current To-DO: {todo["content"]}')
+                if todo.status == 'in_progress':
+                    status.append(f'Current To-DO: {todo.content}')
                     break
 
         if status:
