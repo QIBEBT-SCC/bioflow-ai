@@ -55,14 +55,14 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
         before: Optional index of the task before which to insert new tasks. If None, tasks are appended to the end.
     """
     current_todos = runtime.state.get('todos', [])
-    
+
     # If no 'before' parameter, append to the end (original behavior)
     if before is None:
         next_index = (current_todos[-1].index + 1) if current_todos and current_todos[-1].index is not None else 0
         new_todos = []
         for i, task in enumerate(tasks):
             new_todos.append(Todo(index=next_index + i, content=task, status='pending'))
-        
+
         updated_todos = current_todos + new_todos
         message = f'Added {len(tasks)} tasks to todo list.'
     else:
@@ -72,7 +72,7 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
             if todo.index == before:
                 insert_position = i
                 break
-        
+
         if insert_position is None:
             return Command(
                 update={
@@ -81,21 +81,21 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
                     ]
                 }
             )
-        
+
         # Create new todos, they will take indices starting from 'before'
         new_todos = []
         for i, task in enumerate(tasks):
             new_todos.append(Todo(index=before + i, content=task, status='pending'))
-        
+
         # Insert new todos at the specified position
         updated_todos = current_todos[:insert_position] + new_todos + current_todos[insert_position:]
-        
+
         # Reindex all todos from the insertion point onwards
         for i in range(insert_position + len(new_todos), len(updated_todos)):
             updated_todos[i].index = updated_todos[i - 1].index + 1 if updated_todos[i - 1].index is not None else i
-        
+
         message = f'Inserted {len(tasks)} tasks before task {before}.'
-    
+
     return Command(
         update={
             'todos': updated_todos,
