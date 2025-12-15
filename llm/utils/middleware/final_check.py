@@ -6,7 +6,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.runtime import Runtime
-from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -76,7 +75,7 @@ class CheckReportMiddleware(AgentMiddleware):
                 'messages': [RemoveMessage(id=last_message.id)],
             }
 
-        check_result = await self.check_chain.invoke({'final_response': last_message.content})
+        check_result = await self.check_chain.ainvoke({'final_response': last_message.content})
         if not check_result.checked:
             logger.warning('Check failed')
             return {
