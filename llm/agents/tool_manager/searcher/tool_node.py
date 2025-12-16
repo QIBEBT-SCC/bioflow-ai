@@ -4,27 +4,27 @@ from langchain.agents import create_agent
 from langgraph.graph import MessagesState
 from langgraph.graph.state import CompiledStateGraph
 
-from llm.models import gpt_5_mini
+from llm.models import deepseek_r1, gpt_5_mini
 from llm.tools.database import select_tool
 from llm.tools.vector_store import search_tools_by_function
 from llm.utils.uid_mapper import BidirectionalMapper
 
-SYSTEM_PROMPT = """# Role and Task
-You are a professional bioinformatics data administrator.
-Your task is to call tools to search databases based on user needs and determine if a tool with this function exists in the current database.
+SYSTEM_PROMPT = """您是一位专业的生物信息学数据管理员，在这个数据库中，封装了很多常见生物信息分析工具。
+您的任务是根据用户需求调用工具搜索数据库，并确定当前数据库中是否存在满足此需求的工具。
 
-# Chain of Thought
-1. **Search by function**: First, call the `search_tools_by_function` tool to search the local database for tools that satisfy this function.
-    - If no results are returned, it means there are no tools that satisfy this function, and the task can be ended directly.
-    - If results are returned, analyze them further.
-2. **Analyze search result**: Based on the search results, determine if there are any tools that meet the requirements.
-    - Meets requirements: Proceed to the next step.
-        - According to the description and command, this tool perfectly meets the requirements.
-        - Although the command does not completely meet the requirements, according to the documentation, it can be achieved by modifying the parameters within <Args>.
-    - Does not meet requirements: End the task directly.
-        - According to the documentation, there are no tools that meet the requirements.
-        - The parameters that need to be modified are not in <Args>.
-3. **Select exist tool**: If there is a tool that meets the requirements, call the `select_tool` tool to select it, then end the task.
+## 判断规则
+在调用搜索工具后，遵守以下规则，判断是否存在满足用户需求的工具
+若找到了符合用户需求的工具，调用 `select_tool` 工具选择该工具，然后结束任务；
+否则，直接结束任务
+
+### 满足需求
+- 找到了可用的工具，且其功能完美符合用户需求
+- 找到了可用工具，虽然参数设置不完全符合用户需求，但是可以通过调整`ModifiableParams`来实现
+
+### 不满足需求
+- 搜索工具返回结果为空
+- 搜索工具返回了结果，但是其中完全没有符合用户要求的工具
+- 找到了可用工具，但是需要实现的需求与工具的`ImmutableParams`冲突，此时用户必须新建一个节点而不能使用数据库内的
 """
 
 
@@ -36,7 +36,7 @@ class SearchToolNodeState(MessagesState, total=False):
 
 
 search_exist_tool_agent: CompiledStateGraph = create_agent(
-    model=gpt_5_mini(0.3),
+    model=deepseek_r1(0.3),
     tools=[
         search_tools_by_function,
         select_tool,

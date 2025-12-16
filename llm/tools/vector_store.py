@@ -3,6 +3,7 @@ from langchain_core.tools import tool
 from langchain_milvus import Milvus
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 import app.crud.tools.tool as tool_crud
@@ -13,15 +14,24 @@ from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
 from llm.utils.uid_mapper import BidirectionalMapper
 
+TOOL_DESCRIPTION = """Search existing tools from the vector database based on functionality
+**This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
-@tool(parse_docstring=True)
+## Return Results
+The search results will include the tool node information encapsulated in the database. In addition to the name and description of the node's function, it also includes the following information:
+- Command: The actual command-line instruction corresponding to this node, where some variables are templates to be filled.
+- ImmutableParams: Parameters in the tool execution command that users **cannot modify**, which generally directly change the tool's working mode or output results.
+- ModifiableParams: Users can modify or add parameters by editing this field, but they cannot conflict with `ImmutableParams`.
+"""
+
+
+class SearchToolArgsSchema(BaseModel):
+    query: str = Field(description='Briefly describe the tool or function to be searched for')
+
+
+@tool(description=TOOL_DESCRIPTION, args_schema=SearchToolArgsSchema)
 async def search_tools_by_function(query: str, runtime: ToolRuntime):
-    """Search existing tools from the vector database based on functionality
-    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
-
-    Args:
-        query: Functionality of the tool to be searched
-    """
+    """Search existing tools from the vector database based on functionality"""
 
     embedding = qwen3_embedding()
     vectorstore = Milvus(
@@ -45,7 +55,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
             update={
                 'messages': [
                     ToolMessage(
-                        content='No tool was found locally that satisfies this function, it seems a new one needs to be created.',
+                        content='Based on your search query, no corresponding results found',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ],
@@ -65,7 +75,8 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
             f'    <Name>{t.name}</Name>\n'
             f'    <Description>{t.description}</Description>\n'
             f'    <Command>{t.complete_command}</Command>\n'
-            f'    <Args>{t.modifiable_static_params}</Args>\n'
+            f'    <ImmutableParams>{t.immutable_static_params}</ImmutableParams>\n'
+            f'    <ModifiableParams>{t.modifiable_static_params}</ModifiableParams>\n'
             f'  </Tool>'
             for t in tool_nodes
         ]
