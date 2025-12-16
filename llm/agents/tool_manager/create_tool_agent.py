@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from langchain.agents import create_agent
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
 from langchain_core.tools import tool
 from langchain_milvus import Milvus
@@ -20,7 +20,6 @@ from sqlmodel import Session
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
-import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
@@ -145,7 +144,7 @@ class CreateToolAgent:
             # 我们认为数据库中的镜像信息就是完全的
             with Session(engine) as session:
                 tool_image = image_crud.get(session, str(state['image_uid']))
-                return {'image': tool_image.image, 'homepage': tool_image.homepage}
+                return {'image': tool_image.image}
         else:
             writer = get_stream_writer()
             writer({'info': 'Searching for docker image...'})
@@ -156,26 +155,28 @@ class CreateToolAgent:
             return {
                 'image_uid': response['image_uid'],
                 'image': response['image'],
-                'homepage': response['homepage'],
             }
 
     async def get_doc_node(self, state: CreateToolState):
         """然后尝试获取指令对应的帮助文档"""
-        writer = get_stream_writer()
-        writer({'info': "Searching for tool's help document..."})
+        if 'doc_uid' in state and state['doc_uid']:
+            return None
+        else:
+            writer = get_stream_writer()
+            writer({'info': "Searching for tool's help document..."})
 
-        response = await self.get_doc_agent.ainvoke(
-            {  # type: ignore
-                'messages': state['messages'],
-                'image_uid': state['image_uid'],
-                'image': state['image'],
+            response = await self.get_doc_agent.ainvoke(
+                {  # type: ignore
+                    'messages': state['messages'],
+                    'image_uid': state['image_uid'],
+                    'image': state['image'],
+                }
+            )
+            doc_uid = response['doc_uid']
+
+            return {
+                'doc_uid': doc_uid,
             }
-        )
-        doc_uid = response['doc_uid']
-
-        return {
-            'doc_uid': doc_uid,
-        }
 
     async def search_exist_tool_node(self, state: CreateToolState) -> Command[Literal['get_report', '__end__']]:
         writer = get_stream_writer()
@@ -236,16 +237,8 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
 
-        with Session(engine) as session:
-            doc_uid = state['doc_uid']
-            doc = doc_crud.get(session, str(doc_uid))
-
         testrun_input: TestRunState = {
-            'messages': [
-                *state['messages'],
-                AIMessage(content='First I need the help documentation for this tool'),
-                HumanMessage(content=f'<Doc command="{doc.help_command}">\n{doc.content}\n<Doc>'),
-            ],
+            'messages': state['messages'],
             'image': state['image'],
         }
         response = await test_run_agent.ainvoke(

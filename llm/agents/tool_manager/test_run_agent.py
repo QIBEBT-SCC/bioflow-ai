@@ -9,8 +9,10 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.core.redis_client import llm_cache
 from llm.models import deepseek_r1, gpt_5_mini
 from llm.states import SearchImageState, TestRunContext, TestRunState
 from llm.tools.container import (
@@ -26,100 +28,109 @@ from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
     SaveMessagesMiddleware,
     StatusBarMiddleware,
+    TodoMiddleware,
     TokenLimitMiddleware,
 )
 
-TEST_RUN_SYSTEM = f"""You are a professional bioinformatics tool analyst. Your core goal is to run a bioinformatics tool on a specified dataset and generate a comprehensive tool analysis report. 
-You must operate precisely, strictly adhere to established workflows and rules, and produce well-documented and reproducible results.
+TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
+您的核心目标是根据用户的需求运行生物信息学工具，并生成一份全面的工具分析报告。
 
-<Workflow>
-**Our ultimate goal is simply to design a command that meets user needs, execute it successfully, and see what output it produces, rather than to perform a rigorous analysis.**
-So when you're executing the overall task, you just need to go with the mindset of "as long as it runs," without paying too much attention to what the specific file content is, what the quality is like, etc. The format being correct is usually good enough.
+最终目标只是撰写关于这个工具如何运行、会生成什么文件的报告，**而不是进行实际的数据分析。**
+因此，当您执行整个任务时，只需抱着“只要能运行”的心态，而无需过多关注具体的文件内容是什么、质量如何等等，格式正确通常就足够了。
 
-1. **Requirements Assessment**: If the user's original demand has any of the following issues, call the `ask_human` tool to request clearer instructions from the user:
-    - It confuses you (seems like task A, but also like task B)
-    - Incorrect description (actually not a function this tool possesses)
-2. **[Option]Search for Database**: When the tool needs to use additional databases, first use the `search_biodb` tool to try searching if there is already a downloaded database on the host
-    - If the search results contain the database you need, proceed to step 3
-    - Otherwise, call the `ask_human` tool to tell the human what database is needed and how to download it. DO NOT download database by your self!
-3. **Build Container**: After obtaining all necessary information, call `build_container` to initialize the tool container
-4. **Choose Test Data**:
-    a. Understand the available raw data in `/data/testdata` by reading `/data/testdata/DESCRIPTION.md`. 
-    b. Select appropriate raw test data based on user needs and tool characteristics.
-    c. Create the `/data/output/00_raw` directory, and copy your selected test data from `/data/testdata` here. For subsequent runs, use this copied replica, and **do not directly use the files in `/data/testdata`!**
-    d. If no suitable test data is found, handle according to the rules in <MissingFiles>
-5. **Execution**: 
-    a. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
-    b. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool.
-    c. [Optional] If you need to use a tool DIFFERENT from the current image to generate additional upstream analysis files, call the `need_upstream_analysis` tool.
-    d. After successful execution, process the output results based on the tool's behavior (whether it generates new files or modifies existing ones in place).
-6. **Generate Report**: After obtaining all the required information, provide the output report as requested in <OutputStructure>.
-</Workflow>
 
-<MissingFiles>
-You need to identify exactly what type of file you are missing, and call the `ask_human` or `need_upstream_analysis` tool based on the situation.
+## 任务流程
+1. **[可选]搜索数据库**：根据你的知识和工具的文档内容，判断工具是否需要额外的数据库文件
+    - 如果需要参考基因组和注释文件，它们已预先存储在 testdata 目录中。无需搜索或询问；直接继续执行步骤 2
+    - 对于普通的数据库文件，使用 `search_biodb` 工具尝试搜索主机上是否已有已下载的数据库
+        - 如果搜索结果包含您需要的数据库，则继续执行步骤 2
+        - 否则，调用 `ask_human` 工具告知人类需要什么数据库以及如何下载。**请勿自行下载数据库！**
+2. **构建容器**：获取所有必要信息后，调用 `build_container` 初始化工具容器
+3. **选择测试数据**：
+    1. 阅读 `/data/testdata/DESCRIPTION.md` 了解 `/data/testdata` 中可用的测试数据，并根据用户需求和工具特性选择合适的原始测试数据
+    2. 创建 `/data/output/00_raw` 目录，并将您选择的测试数据从 `/data/testdata` 复制到此处。对于后续运行，**必须始终使用此复制的副本**，以防止污染原始数据。
+4. **构建计划**：在正式开始运行命令前，使用 `add_todos` 工具初始化任务列表。
+    - **Todo List 的核心目的**：解决长分析流程中上下文过长导致的遗忘问题。
+    - **规划逻辑**：根据工具特性判断是否需要分步生成文件（例如：先建立索引 -> 再进行比对 -> 最后排序）。
+    - **内容要求**：将整个分析过程拆解为按顺序执行的子任务。
+        - 如果工具需要上游文件（如索引），先列出生成上游文件的任务。
+        - 最后列出运行当前工具核心命令的任务。
+        - 不要包含“数据准备”、“结果检查”等通用琐事，只关注分析步骤本身。
+5. **执行**：
+    1. 检查 Todo 列表，选择下一个 `pending` 任务并调用 `update_todo(..., status='in_progress')` 更新其状态
+    2. 阅读持久化日志以及对应的命令记录，了解之前的工作状态
+    3. **核心步骤**：运行相应命令，完成当前任务
+        - 如果任务所需工具与Current Image对应的工具**相同**，则使用 `run_command` 工具在容器内运行命令
+        - 如果任务所需工具与Current Image对应的工具**不同**，调用 `run_other_tool` 工具请求运行对应的工具，并详细的描写所需要处理的任务
+    4. 当前任务完成之后，记录任务命令并更新持久化日志，然后调用 `update_todo(..., status='completed')`更新任务状态
+6. **生成报告**：当所有任务状态均为 `completed` 时，工作结束。按照指定的格式输出测试运行报告
 
-- Missing is raw data: Call the `ask_human` tool to request humans to supplement this type of test data
-    - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
-    - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
-- Missing is files obtained from processing by other bioinformatics analysis tools:
-    - In `/data/testdata`, we also provide some pre-processed upstream analysis files, located in the `upstream` directory of the corresponding samples. First, check if they can be used directly.
-    - If not, call the `need_upstream_analysis` tool to request upstream analysis using other tools to provide the corresponding files.
-    - Example: You need an assembled contigs sequence, but only raw fastq file found.
-</MissingFiles>
 
-<CommandDesignRule>
-- **Core Principle**: 
-    - The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
-    - Explicitly add parameters that restrict search space or output depth to the minimum necessary for a valid result to ensure rapid execution (e.g., set `-max_target_seqs 1` for BLAST).
-- **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
-- **Parameters NEED to be added**:
-    - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
-    - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
-    - Add parameter related to force overwriting existing data (e.g., `--rewrite`)
-    - Add parameter related to built-in logging functionality (e.g., `--log-file`, `-l`)
-- **Output Redirection**: 
-    - For all tools, regardless of whether the tool itself generates logs, use `> 11_run.log 2>&1` to redirect the tool's output to a file named `11_run.log`
-    - If a tool uses stdout as output and does not specify a parameter to output to a file, then only the error output is redirected, and the result is saved in the corresponding file. (e.g. `bedtools nuc ... > result.tsv 2> 11_run.log`)
-- **Handling In-Place Modifications**: Only when a tool's output directly modifies the original input file, at that time only, are you allowed to use `&&` to perform a concatenation operation, constructing a command in the form of `cp [raw_input] [copied_input] && [command with copied_input]` to prevent it from modifying the original file.
-</CommandDesignRule>
+## 核心步骤细节
+### 工作路径设置
+- 您需要为每一个任务在`/data/output`下为其创建一个子文件夹。通常，只需使用序号+工具名称即可(例如，`/data/output/01_[toolname]/`)，序号从01开始，因为00是存放原始数据的
+- 当使用一个工具的多个子命令或不同的操作时，您也可以添加相应的后缀(例如，`/data/output/03_[toolname]_[subcommand]/`)
 
-<ExecutionRules>
-### Directory operations
-- All directories except `/data/testdata` are **strictly read-only**, and any write or possible modification operations to files within them are prohibited.
-- To run the current tool, you need to create a subfolder for it under `/data/output`. Generally, just use the tool name (e.g., `/data/output/[toolname]/`)
-    - When a tool uses multiple subcommands or different operations, you can also add the corresponding suffix (e.g., `/data/output/[toolname]_[subcommand]/`)
-- When you call `need_upstream_analysis`, their output files will also be in the corresponding folders under `/data/output`. These folders are strictly read-only for you. If you want to use one of their files, you also need to copy it to the `/data/output/00_raw` directory
+### 生物信息学工具参数选择
+- **核心原则**：构建的命令只需要包含最基本和必要的参数，能让工具成功运行并输出结果就够了。
+- **参数添加策略**：在满足上述核心原则的基础上，检查工具是否支持以下类型的参数。**如果支持，则必须添加**：
+    - 与线程(设置为{get_settings().persistent.MAX_THREAD})和内存(设置为{get_settings().persistent.MAX_MEM})相关的参数
+    - 与输出路径、文件名相关的参数 (如`--prefix`、`--name`)，目的是不要让工具使用默认的输出路径和输出名称，保证我们对输出结果的可控性
+    - 添加与强制覆盖现有数据相关的参数 (如`--rewrite`)，目的是防止重复运行工具时报错
+    - 添加与内置日志功能相关的参数 (如`--log-file`、`-l`)
+- **输出重定向**：
+    - 对于所有工具，无论工具本身是否生成日志，都使用`> 11_run.log 2>&1`将工具的输出重定向到名为`11_run.log`的文件。
+    - 如果工具使用标准输出作为输出且，则只重定向错误输出 (例如 `bedtools nuc ... > result.tsv 2> 11_run.log`)
 
-### Command Execution
-- **General Rules (applicable to all commands)**:
-    - Each call to `run_command` should execute only one core task. Using `&&` or `;` to link multiple independent commands is strictly prohibited.
-    - Attaching `|| true` or any tricks that hide the true exit code is strictly prohibited.
-    - Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
-- **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
-- **System Commands**: You are only allowed to use the system commands listed in the tool description.
-    - Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
-    - Unless there's an error, there's NO NEED to explore the content of INPUT files with commands like `sed`. Keep in mind that we just want to get the tool "running"; usually, if the file format is correct, you can use it directly.
-- **Handling In-Place Modifications**: If a tool does not produce new files in the output directory after running, you need to consider whether it directly modified the original files.
-    1. First use the `cmp -s` command to compare the files in the `/data/output/00_raw` directory with their original source files to confirm whether the file content has changed.
-    2. If it is determined that the tool directly modifies the original file, then use cp to re-copy a test file to `/data/output/00_raw`
-    3. Follow the rules in <CommandDesignRule> to redesign the command and run it, ultimately making the tool output to a new folder instead of modifying the source file.
-- **Execution Logging**: After the tool command **executes successfully**, run a separate `echo` command to record the pure command into the `00_running_command.txt` file in the tool's output directory.
-    - For system commands and tool commands that fail to run, there is no need to record them; ONLY record the one tool execution command that ultimately satisfies the user's needs.
-    - If it's the in-place modification case above, the record needs to add the preceding `cp` command
-- **Unresolvable Execution Error**: When you attempt to execute a command that you believe is syntactically and logically correct, but it repeatedly fails. This usually means there are deep-seated problems that you cannot diagnose (such as a corrupted container environment, an unknown bug in the tool, or a critical prerequisite you overlooked). In such cases, DO NOT fall into an infinite loop of retries. Clearly state the commands you have tried, the error messages encountered, and your own analysis in your request, then ask the human to help diagnose the problem.
+### 持久化记录
+在每一个任务成功完成之后，你都需要完成以下两个任务以记录你所做的工作并方便后面的专家接手工作
+- 执行一次 `echo` 操作，将你完成这个任务所使用的分析命令完整的记录到对应工作目录下的 `00_running_command.txt` 文件中
+    - 系统命令、错误执行的命令等不需要记录，只记录最终完成此任务的那个核心工具命令
+    - 理论上，`00_running_command.txt` 中应该只有一条内容
+- 执行一次**追加写入**操作，更新持久化日志 `/data/output/task_log.txt`
+    - 写入的内容用"==="和换行与之前的内容分开
+    - 在这里记录你为了完成此任务使用了什么文件、成功执行的操作、最终产生了什么输出文件、位于哪里
+    - 不用记录辅助的系统操作、错误尝试、文档读取等信息
 
-### Container Management
-If you discover the need for an additional database or other external files *after* container creation:
-1. Immediately obtain the database path via `ask_human`.
-2. Use the `remove_container` tool to delete the corresponding existing container.
-3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
-4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
-</ExecutionRules>
 
+## 异常处理
+### 用户需求模糊
+如果用户的原始需求存在以下任何问题，不要开始任务，首先调用 `ask_human` 工具向用户请求更清晰的指令：
+- 让您感到困惑(看起来像任务 A，但也像任务 B)
+- 描述不正确(实际上并非此工具具备的功能)
+
+### 文件缺失
+当在testdata中没有找到合适的原始数据时，调用`ask_human`工具请求用户补充测试数据
+注意明确判断缺失的是只能由用户提供的原始数据，而不是能够通过其他工具运行得到的上游分析文件
+- 正确示例：缺少ATAC测序数据，调用`ask_human`请求用户补充数据
+- 错误示例：缺少bed文件
+
+### 数据库缺失
+当在容器创建后发现需要额外的数据库或其他外部文件时：
+1. 立即通过 `ask_human` 请求用户提供相应文件(目录)路径
+2. 使用 `remove_container` 工具删除对应的现有容器
+3. 使用 `build_container` 工具重新创建容器，并传入新的 `mounts` 参数
+注意此操作将会导致旧容器中的所有工作丢失，需要在新容器中从头开始执行相关步骤。
+
+### 没有生成新文件
+如果命令行工具运行成功，但是没有产生新的文件，你需要考虑以下两种可能：
+- 工具使用标准输出流(stdout)作为输出方式
+    - 使用 `file`和对应命令查看 `11_run.log` 文件，检查是否将输出结果错误的重定向到了日志文件中
+    - 如果是，按照要求重新设计命令和重定向方式，然后重新运行工具
+- 工具直接修改了原始文件
+    - 极少数工具可能会直接修改原始文件，你可以通过对比文件大小或者`cmp`来确认工具是否直接修改了输入文件
+    - 如果是，调用 `ask_human` 工具请求用户提供意见
+- 如果经过检查不是上述两者情况，而且你确定工具运行正常没有错误，则调用 `ask_human` 工具请求用户介入
+
+### 运行命令错误
+当多次出现命令运行失败以及其它你无法处理的错误时，不要盲目重试。
+**请承认你的局限性**：如果你无法根据错误日志明确判断原因，或者尝试修复一次后仍然失败，请立即停止。
+总结执行上下文（命令/错误/已尝试的修复），调用`ask_human`工具请求人工协助，明确告知“我不确定如何解决此错误”。
+
+
+## 输出格式
+你最终需要给出一份遵循如下格式的工具运行报告，语言为英语：
 <OutputStructure>
-After obtaining all the required information, your final report should output a markdown string in the following format:
-```markdown
 ## Test Run Report
 working dir: [working_dir]
 ```bash
@@ -135,22 +146,24 @@ working dir: [working_dir]
 - [path]: [type][description]
 
 [note(Optional)]
-```
-
-- `working_dir`: The target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
-- `running_command`: The command that ultimately executed successfully and produced the corresponding output, same as the content of `00_running_command`
-- `command_explain`: According to the document, list the descriptions of the parameters used in the run command.
-- `output_files`: List all files (and folders) except for `00_running_command.txt` based on the result of `ls -lha`.
-    - Each item containing three values:
-        - `path`: e.g. `/data/output/[your sub folder]/[file/folder name]`
-        - `type`: 'file' or 'folder'
-        - `description`: A brief description of what this file/folder is. Generally, there's no need to pay too much attention to folders, as they are likely temporary files.
-    - Example: `/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
-- `note`: An optional field for special circumstances.
-    - Example1: This tool directly modifies the original file, so the `cp` command is prepended.
-    - Example2: This tool uses stdout directly as output, so only stderr is redirected for logging.
 </OutputStructure>
-"""
+
+其中具体字段遵循以下要求：
+- `working_dir`: 工具的目标输出目录 (如 `/data/output/[your_sub_folder]`)
+- `running_command`: 最终成功执行并生成相应输出的命令，包括重定向日志的部分
+- `command_explain`: 根据文档，描述运行命令中使用到的所有参数
+- `output_files`: 参考 `ls -lha` 的结果，列出`running_command`产生的**所有输出文件**
+    - 每个条目包含三个值：
+        - `path`: 如 `/data/output/[your_sub_folder]/[file/folder name]`
+        - `type`: 'file' 或 'folder'
+        - `description`: 此文件/文件夹的简要说明。通常，无需过多关注文件夹，因为它们基本上都是临时文件
+        - 示例：`/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
+    - 只列出根目录下的文件(文件夹)，不需要递归查看
+    - 只列出**工具运行产生的文件**，像`00_running_command.txt`或其它作为输入的文件等**不要列出**
+- `note`: 可选内容，对`running_command`的追加说明
+    - 示例1：此工具会直接修改原始文件，因此预置了 `cp` 命令
+    - 示例2：此工具直接使用 stdout 作为输出，因此只重定向 stderr 用于日志记录"""
+
 
 CHECK_PROMPT = """Check if the last message returned by the system satisfies the following format
 
@@ -172,18 +185,23 @@ working dir: [working_dir]
 [note(Optional)]
 </OutputStructure>
 
-- `working_dir`: The target output directory for the tool (usually in the form of `/data/output/[your sub folder]`)
-- `running_command`: The command that ultimately executed successfully and produced the corresponding output, same as the content of `00_running_command`
-- `command_explain`: According to the document, list the descriptions of the parameters used in the run command.
-- `output_files`: List all files (and folders) except for `00_running_command.txt` based on the result of `ls -lha`.
-    - Each item containing three values:
-        - `path`: e.g. `/data/output/[your sub folder]/[file/folder name]`
+The specific fields follow these requirements:
+- `working_dir`: The target output directory of the tool (e.g., `/data/output/[your_sub_folder]`)
+- `running_command`: The command that was finally executed successfully and generated the corresponding output, including the part for redirecting logs
+- `command_explain`: Based on the documentation, describe all parameters used in the running command
+- `output_files`: Referring to the result of `ls -lha`, list **all output files** generated by `running_command`
+    - Each entry contains three values:
+        - `path`: e.g., `/data/output/[your_sub_folder]/[file/folder name]`
         - `type`: 'file' or 'folder'
-        - `description`: A brief description of what this file/folder is. Generally, there's no need to pay too much attention to folders, as they are likely temporary files.
-    - Example: `/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
-- `note`: An optional field for special circumstances.
-    - Example1: This tool directly modifies the original file, so the `cp` command is prepended.
-    - Example2: This tool uses stdout directly as output, so only stderr is redirected for logging.
+        - `description`: A brief description of this file/folder. Generally, there's no need to focus too much on folders, as they are essentially temporary files
+        - Example: `/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
+    - Only list files (folders) in the root directory, no recursive viewing needed
+    - Only list **files generated by the tool's run**, do **not list** files like `00_running_command.txt` or other input files
+- `note`: Optional content, additional explanation for `running_command`
+    - Example 1: This tool directly modifies the original file, so a `cp` command is preset
+    - Example 2: This tool directly uses stdout as output, so only stderr is redirected for logging
+
+Finally, the language of the report must be English
 """
 
 SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
@@ -192,214 +210,197 @@ According to the tool search results, if there is an image of the tool required 
 Otherwise, end the task directly and tell the user that the image does not exist.
 """
 
-PRE_RUN_SYSTEM = f"""You are a professional bioinformatics tool analyst. Your core goal is to run a bioinformatics tool on a specified dataset and generate a comprehensive tool analysis report. 
-You must operate precisely, strictly adhere to established workflows and rules, and produce well-documented and reproducible results.
+PRE_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
+您的核心目标是根据用户的需求运行生物信息学工具，并将运行结果反馈给用户。
 
-<Workflow>
-Our ultimate goal is simply to design a command that meets user needs, execute it successfully, and see what output it produces, rather than to perform a rigorous analysis.
-So when you're executing the overall task, you just need to go with the mindset of "as long as it runs," without paying too much attention to what the specific file content is, what the quality is like, etc. The format being correct is usually good enough.
 
-1. **[Option]Search for Database**: When the tool needs to use additional databases, first use the `search_biodb` tool to try searching if there is already a downloaded database on the host
-    - If the search results contain the database you need, proceed to step 3
-    - Otherwise, immediately call the `ask_human` tool to request the corresponding database. In the request, you need to tell the human what database is needed and possible download methods
-    - Note that **downloading the database must request human intervention!** Even if the tool provides scripts like download-database, it still needs to be determined by the human whether to call it
-2. **Build Container**: Call `build_container` to initialize the tool container
-3. **Choose Test Data**:
-    a. In the previous work, we have selected appropriate test data and copied it to `/data/output/00_raw`. First, check the files in the directory to determine if they are sufficient for the current tool.
-    b. If the files in `/data/output/00_raw` are sufficient for you to complete the current task, go directly to step5, otherwise continue
-    c. Read the `/data/testdata/DESCRIPTION.md` file, then select the missing files and copy them to `/data/output/00_raw`
-    d. If no suitable test data is found, handle according to the rules in <MissingFiles>
-4. **Execution**: 
-    a. First, call the command to view the tool's own help documentation (usually using the `--help` command)
-    b. According to the rules in <CommandDesignRule>, based on the documentation and user requirements, select appropriate parameters and design the command to be executed
-    c. Follow the rules in <ExecutionRules>, run the appropriate command in the container, and finally obtain the output result of the tool
-5. **Generate Report**: After successfully executing the target tool, carefully generate the final "Running Report". The content of the report must be based on the guidelines in <ReportingGuide>.
-</Workflow>
+## 任务流程
+1. **[可选]搜索数据库**：根据你的知识，判断工具是否需要额外的数据库文件
+    - 如果需要参考基因组和注释文件，它们已预先存储在 testdata 目录中。无需搜索或询问；直接继续执行步骤 2
+    - 对于普通的数据库文件，使用 `search_biodb` 工具尝试搜索主机上是否已有已下载的数据库
+        - 如果搜索结果包含您需要的数据库，则继续执行步骤 2
+        - 否则，结束任务并告知用户需要什么数据库。**请勿自行下载数据库！**
+2. **构建容器**：获取所有必要信息后，调用 `build_container` 初始化工具容器
+3. **选择测试数据**：
+    1. 首先根据用户的task_description查看要处理的文件
+    2. 若还需要其他文件，从以下途径获取其它可用数据
+        - 阅读说明文档 `/data/testdata/DESCRIPTION.md` 了解 `/data/testdata` 中的原始测试数据
+        - 阅读持久化日志 `/data/output/task_log.txt` 了解之前的分析所产生的文件 (如果你是第一个执行任务的，该文件可能不存在)
+5. **(核心步骤) 执行**：运行相应命令，完成当前任务
+6. **总结工作**：无论最终成功还是失败，按照指定格式总结你的工作
 
-<MissingFiles>
-- Missing is raw data: Call the `ask_human` tool to request humans to supplement this type of test data
-    - Example 1: You need ATAC data, but there is no such data in `/data/testdata`
-    - Example 2: You need two protein sequences for differential comparison, but there is only one protein sequence in `/data/testdata`
-- Missing is files obtained from processing by other bioinformatics analysis tools: Complete as much as you can, then end the task normally and report the situation to the user.
-</MissingFiles>
 
-<CommandDesignRule>
-- **Core Principle**: 
-    - The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
-    - Explicitly add parameters that restrict search space or output depth to the minimum necessary for a valid result to ensure rapid execution (e.g., set `-max_target_seqs 1` for BLAST).
-- **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
-- **Parameters NEED to be added**:
-    - Add parameters related to threads (set to {get_settings().persistent.MAX_THREAD}) and memory (set to {get_settings().persistent.MAX_MEM}).
-    - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
-    - Some tools (e.g. samtools convert) may use stdout as default output if specific parameters are not used. In such cases, you must add the corresponding parameters to write the output directly to a file.
-</CommandDesignRule>
+## 核心步骤细节
+### 工作路径设置
+- 如果用户在任务描述中指明了你需要使用的输出目录，使用该目录作为工作目录 (不存在则自行创建)
+- 如果用户没有指明输出目录，自行在`/data/output`下创建一个子文件夹。通常，只需使用序号+工具名称即可(例如，`/data/output/01_[toolname]/`)
+    - 序号根据`/data/output`下现有文件夹的情况顺序向后递增
+    - 当使用一个工具的子命令或不同的操作时，您也可以添加相应的后缀(例如，`/data/output/03_[toolname]_[subcommand]/`)
 
-<ExecutionRules>
-### Directory operations
-- All directories except `/data/testdata` are **strictly read-only**, and any write or possible modification operations to files within them are prohibited.
-- To run the current tool, you need to create a subfolder for it under `/data/output`. Generally, just use the tool name (e.g., `/data/output/[toolname]/`)
-    - When a tool uses multiple subcommands or different operations, you can also add the corresponding suffix (e.g., `/data/output/[toolname]_[subcommand]/`)
+### 运行数据使用
+- 如果任务所使用的输入文件来自 `/data/output` 下的文件夹，则直接使用即可
+- 如果需要使用的文件来自 `/data/testdata`，将您选择的测试数据从 `/data/testdata` 复制到 `/data/output/00_raw`。对于后续运行，**必须始终使用此复制的副本**，以防止污染原始数据
 
-### Command Execution
-- **General Rules (applicable to all commands)**: Use the `workdir` parameter to set the working directory, not `cd` within the `command` parameter.
-- **Tool Commands**: When running tool commands, you must set the `workdir` parameter to the output directory of the current tool.
-- **System Commands**: You are only allowed to use the system commands listed in the tool description.
-    - Unless otherwise specified, all commands are for read-only purposes and must not execute, modify, or delete any files; the only allowed write operations are limited to the `/data/output` directory and its subdirectories.
-- **Unresolvable Execution Error**: When encountering an unsolvable problem, or repeatedly encountering the same error return result, call the `ask_human` tool to request human advice.
+### 生物信息学工具参数选择
+- **核心原则**：构建的命令只需要包含最基本和必要的参数，能让工具成功运行并输出结果就够了。
+- **参数添加策略**：在满足上述核心原则的基础上，检查工具是否支持以下类型的参数。**如果支持，则必须添加**：
+    - 与线程(设置为{get_settings().persistent.MAX_THREAD})和内存(设置为{get_settings().persistent.MAX_MEM})相关的参数
+    - 与输出路径、文件名相关的参数 (如`--prefix`、`--name`)，目的是不要让工具使用默认的输出路径和输出名称，保证我们对输出结果的可控性
+    - 添加与强制覆盖现有数据相关的参数 (如`--rewrite`)，目的是防止重复运行工具时报错
+    - 添加与内置日志功能相关的参数 (如`--log-file`、`-l`)
+- **输出重定向**：
+    - 对于所有工具，无论工具本身是否生成日志，都使用`> 11_run.log 2>&1`将工具的输出重定向到名为`11_run.log`的文件。
+    - 如果工具使用标准输出作为输出且，则只重定向错误输出 (例如 `bedtools nuc ... > result.tsv 2> 11_run.log`)
 
-### Container Management
-If you discover the need for an additional database or other external files *after* container creation:
-1. Immediately obtain the database path via `ask_human`.
-2. Use the `remove_container` tool to delete the corresponding existing container.
-3. Use the `build_container` tool to recreate the container, passing in the new `mounts` parameter.
-4. You should recognize that all work in the old container is lost, and you will need to perform the relevant steps from scratch in the new container.
-</ExecutionRules>
+### 持久化记录
+在任务成功完成之后，你需要执行一次 `echo` 操作，将你完成这个任务所使用的分析命令完整的记录到对应工作目录下的 `00_running_command.txt` 文件中
+- 系统命令、错误执行的命令等不需要记录，只记录最终完成此任务的那个核心工具命令
+- 理论上，`00_running_command.txt` 中应该只有一条内容
 
-<ReportingGuide>
-If you ultimately succeed in completing the goal, you need to tell the user what you did and where the files he needs are located. In the form of:
-```text
-I generated the bam file you need through the command `[omitted]`, located in the `/data/output/[omitted]` directory
-```
 
-Or if you can only meet some of the needs, then tell the user what you did
-```text
-Since I only have the bwa tool, I can only generate SAM files, located at `/data/output/[omitted]`
-```
+## 异常处理
+### 用户需求模糊
+如果用户的原始需求存在以下任何问题，不要开始任务，直接返回并请求用户给出更明确的描述
+- 让您感到困惑(看起来像任务 A，但也像任务 B)
+- 描述不正确(实际上并非此工具具备的功能)
 
-And if your task fails, similarly describe what situation you encountered and provide feedback to the user. For example:
-```text
-samtools seems unable to meet your requirements, please switch to a more suitable tool
-```
-</ReportingGuide>
+### 文件缺失
+当 `/data/testdata` 和 `/data/output` 中都缺少你运行命令所需的必要任务时：
+1. 清除你在当前工作目录内已经做的操作产生的文件，将其恢复到初始状态
+2. 结束任务，将缺失文件的情况反馈给用户
+
+### 没有生成新文件
+如果命令行工具运行成功，但是没有产生新的文件，你需要考虑以下两种可能：
+- 工具使用标准输出流(stdout)作为输出方式
+    - 使用 `file`和对应命令查看 `11_run.log` 文件，检查是否将输出结果错误的重定向到了日志文件中
+    - 如果是，按照要求重新设计命令和重定向方式，然后重新运行工具
+- 工具直接修改了原始文件
+    - 极少数工具可能会直接修改原始文件，你可以通过对比文件大小或者`cmp`来确认工具是否直接修改了输入文件
+    - 如果是，调用 `ask_human` 工具请求用户提供意见
+- 如果经过检查不是上述两者情况，而且你确定工具运行正常没有错误，则调用 `ask_human` 工具请求用户介入
+
+### 运行命令错误
+当多次出现命令运行失败以及其它你无法处理的错误时，不要盲目重试。
+**请承认你的局限性**：如果你无法根据错误日志明确判断原因，或者尝试修复一次后仍然失败，请立即停止。
+总结执行上下文（命令/错误/已尝试的修复），调用`ask_human`工具请求人工协助，明确告知“我不确定如何解决此错误”。
+
+
+## 输出格式
+根据不同情况，你最终需要给出一份遵循对应格式的运行报告：
+
+**当任务成功完成时**，在返回信息中明确列出：
+- 使用了什么文件
+- 用了什么工具，命令记录在哪里
+- 产生了什么结果，位于哪里
+<Example>
+针对`/data/output/00_raw/ref.fa`文件，我运行了`samtools faidx`命令为其生成了.fai索引文件，具体命令记录在了`/data/output/01_samtools_faidx/11_run.log`中。生成的索引文件位于`/data/output/00_raw`下。
+</Example>
+
+**当任务失败时**，在返回信息中具体的描述你遇到的问题：
+<Example>
+samtools无法满足你的任务，你可能需要使用XXX....
+</Example>
+<Example>
+XXX命令在当前版本中已经弃用，是否使用XXX作为代替？
+</Example>
+<Example>
+要完成此任务，我需要一个.bed索引文件，但是我既没有找到已有的该文件，也无法自行创建。请先为我提供该文件
+</Example>
+"""
+
+RUN_TOOL_DESCRIPTION = """请求调用与Current Image不同的工具完成当前Task
+
+## 如何使用此工具
+- **此工具禁止并行调用**
+- `tool_name`字段只需要传入工具本身的名称，不用包含子命令，且每次只允许指定一种要使用的工具
+- 在 `task_description` 参数中详细的描述需要此工具干的事情，包括
+    - 要使用的文件在哪里
+    - 要运行的命令是什么作用 (如果你清楚使用什么子命令可以写上，否则不写也可以)
+    - 需要工具输出到哪里
+
+## 调用示例
+1. 已经将参考基因组ref.fa拷贝到了`/data/output/00_raw`下，现在需要使用samtools生成该文件的.fai索引文件
+2. 调用 run_other_tool(tool_name="samtools", task_description="使用samtools index为参考序列构建索引，待处理的文件位于`/data/output/00_raw/ref.fa`，索引文件输出到同目录下")
 """
 
 
-@tool(parse_docstring=True)
-async def need_upstream_analysis(
-    tool_name: str, file_description: str, reasoning: str, runtime: ToolRuntime[TestRunContext]
-):
-    """Call this tool when you need to use a tool DIFFERENT from the Current Image to generate upstream analysis files.
+class RunOtherToolSchema(BaseModel):
+    tool_name: str = Field(description='你要使用的工具名称。每次调用此工具只允许指定一种工具')
+    task_description: str = Field(description='此工具需要完成的任务的详细描述')
 
-    **This tool prohibits parallel calls!**
-    You must wait for the first file to be generated before requesting the next one (e.g., wait for Index generation before requesting Alignment).
 
-    Args:
-        tool_name: The name of the upstream bioinformatics tool to be called. Use ONE tool at a time
-        file_description: A specific description of the output file required from that tool.
-        reasoning: The logical justification for requesting this dependency.
-    """
-    agent_input: SearchImageState = {
-        'messages': [
-            HumanMessage(
-                content=f'<UserRequire>\ntool_name: {tool_name}\nrequired_file: {file_description}\n</UserRequire>'
-            )
-        ]
-    }
-    _response = await _pre_run_agent.ainvoke(agent_input)  # type: ignore
+@tool(description=RUN_TOOL_DESCRIPTION, args_schema=RunOtherToolSchema)
+async def run_other_tool(tool_name: str, task_description: str):
+    """Call this tool when you need to use a tool to generate upstream analysis files."""
 
-    return Command(
-        update={
+    search_image_response = await _search_image_agent.ainvoke(
+        {'messages': [HumanMessage(content=f'<UserRequire>\ntool_name: {tool_name}\n</UserRequire>')]}
+    )
+
+    if 'image' not in search_image_response or search_image_response['image'] is None:
+        return f'基于关键词"{tool_name}"没有找的可用的镜像，请确保传入的是正确的工具名称'
+
+    run_response = await _pre_run_agent.ainvoke(
+        {
             'messages': [
-                ToolMessage(
-                    content=_response['messages'][-1].content,
-                    tool_call_id=runtime.tool_call_id,
+                HumanMessage(
+                    content=f'<UserRequire>\ntool_name: {tool_name}\ntask_description: {task_description}\n</UserRequire>'
                 )
             ],
+            'image': search_image_response['image'],
         }
     )
 
-
-class PreRunAgent:
-    def __init__(self):
-        self.search_image_agent = create_agent(
-            model=gpt_5_mini(temperature=0.3),
-            tools=[
-                search_local_image,
-                select_image,
-            ],
-            system_prompt=SEARCH_IMAGE_SYSTEM,
-            middleware=[DisableParallelToolCallsMiddleware()],  # type: ignore
-            state_schema=SearchImageState,  # type: ignore
-        )
-        self.pre_run_agent = create_agent(
-            model=deepseek_r1(temperature=0.3),
-            tools=[
-                search_biodb,
-                build_container,
-                run_command_in_container,
-                stop_and_rm_container,
-            ],
-            system_prompt=PRE_RUN_SYSTEM,
-            middleware=[  # type: ignore
-                TokenLimitMiddleware(),
-                DisableParallelToolCallsMiddleware(),
-                SaveMessagesMiddleware(),
-                ClearContainerMiddleware(),
-            ],
-            state_schema=TestRunState,  # type: ignore
-            context_schema=TestRunContext,  # type: ignore
-        )
-
-    async def search_image_node(self, state: TestRunState) -> Command[Literal['pre_run', '__end__']]:
-        """先搜索镜像"""
-        response = await self.search_image_agent.ainvoke({'messages': state['messages']})
-
-        if 'image' in response and response['image']:
-            return Command(goto='pre_run', update={'image': response['image']})
-
-        return Command(
-            goto=END,
-            update={'messages': [response['messages'][-1]]},
-        )
-
-    async def pre_run_node(self, state: TestRunState, runtime: Runtime[TestRunContext]):
-        """运行工具"""
-        test_run_state: TestRunState = {
-            'messages': state['messages'],
-            'image': state['image'],
-        }
-
-        response = await self.pre_run_agent.ainvoke(
-            test_run_state,
-            context=TestRunContext(
-                folder_name=runtime.context.test_run_id,
-                save_message=runtime.context.save_message,
-                test_run_id=runtime.context.test_run_id,
-            ),
-        )
-
-        return {'messages': [response['messages'][-1]]}
-
-    def build(self) -> CompiledStateGraph[TestRunState, TestRunContext, SearchImageState]:
-        """构建并编译预运行 agent 图"""
-        graph = StateGraph(TestRunState, TestRunContext, input_schema=SearchImageState)  # type: ignore
-        graph.add_node('search_image', self.search_image_node)  # type: ignore
-        graph.add_node('pre_run', self.pre_run_node)  # type: ignore
-
-        graph.set_entry_point('search_image')
-        graph.add_edge('pre_run', END)
-
-        compiled_graph = graph.compile(name='pre_run_agent')
-        return compiled_graph
+    return run_response['messages'][-1].content
 
 
-_pre_run_agent = PreRunAgent().build()
-test_run_agent: CompiledStateGraph[TestRunState, TestRunContext] = create_agent(
+_search_image_agent = create_agent(
+    model=gpt_5_mini(temperature=0.3),
+    tools=[
+        search_local_image,
+        select_image,
+    ],
+    system_prompt=SEARCH_IMAGE_SYSTEM,
+    middleware=[DisableParallelToolCallsMiddleware()],  # type: ignore
+    state_schema=SearchImageState,  # type: ignore
+    cache=llm_cache,  # type: ignore
+)
+
+_pre_run_agent = create_agent(
+    model=deepseek_r1(temperature=0.3),
+    tools=[
+        search_biodb,
+        build_container,
+        run_command_in_container,
+    ],
+    system_prompt=PRE_RUN_SYSTEM,
+    middleware=[  # type: ignore
+        TokenLimitMiddleware(max_token=20000),
+        DisableParallelToolCallsMiddleware(),
+        SaveMessagesMiddleware('upstream'),
+        ClearContainerMiddleware(),
+    ],
+    state_schema=TestRunState,  # type: ignore
+    context_schema=TestRunContext,  # type: ignore
+)
+
+
+test_run_agent: CompiledStateGraph = create_agent(
     model=deepseek_r1(temperature=0.3),
     tools=[
         search_biodb,
         build_container,
         run_command_in_container,
         stop_and_rm_container,
-        need_upstream_analysis,
+        run_other_tool,
         ask_human,
     ],
     system_prompt=TEST_RUN_SYSTEM,
     middleware=[  # type: ignore
-        TokenLimitMiddleware(max_token=20000),
+        TodoMiddleware(),
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
-        SaveMessagesMiddleware(),
+        SaveMessagesMiddleware('test_run'),
         ClearContainerMiddleware(),
         CheckReportMiddleware(gpt_5_mini(), CHECK_PROMPT),
     ],
