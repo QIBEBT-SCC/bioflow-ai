@@ -1,8 +1,10 @@
+from langchain_redis import RedisCache
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
 
 monitor_redis_client = Redis.from_url(get_settings().persistent.MONITOR_CACHE)
+llm_cache = RedisCache(redis_url=get_settings().persistent.LLM_CACHE)
 
 
 async def setup_cache_redis() -> Redis:
