@@ -156,7 +156,7 @@ def list_docs(runtime: ToolRuntime) -> Command:
     image_uid = runtime.state.get('image_uid')
 
     with Session(engine) as session:
-        docs: list[ToolHelpDoc] = doc_crud.get_image_docs(session, str(image_uid))
+        docs: list[ToolHelpDoc] = doc_crud.get_by_image(session, str(image_uid))
         mappers = BidirectionalMapper(datas=docs)
 
     if docs:

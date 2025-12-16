@@ -1,5 +1,7 @@
+from typing import Optional
+
 from sqlalchemy import Select
-from sqlmodel import Session, select, col
+from sqlmodel import Session, col, select
 
 from app.models.tools import ToolHelpDoc
 
@@ -34,13 +36,19 @@ def get_all(session: Session, limit: int, offset: int):
     return session.exec(query).all()
 
 
-def get_image_docs(session: Session, image_uid: str):
+def get(session: Session, doc_uid: str) -> ToolHelpDoc:
+    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.uid == doc_uid)
+
+    return session.exec(query).one()
+
+
+def get_by_image(session: Session, image_uid: str):
     query: Select = select(ToolHelpDoc).where(ToolHelpDoc.image_uid == image_uid)
 
     return session.exec(query).all()
 
 
-def get(session: Session, doc_uid: str) -> ToolHelpDoc:
-    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.uid == doc_uid)
+def get_by_command(session: Session, help_command: str) -> Optional[ToolHelpDoc]:
+    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.help_command == help_command)
 
-    return session.exec(query).one()
+    return session.exec(query).one_or_none()
