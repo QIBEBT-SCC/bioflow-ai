@@ -1,5 +1,10 @@
+from typing import Optional
+
 from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import ToolRuntime
 
 from llm.models import deepseek_r1
 from llm.states import GetDocState
@@ -73,6 +78,41 @@ Call `ask_human(question)` to report the specific issue when:
 </Example>
 """
 
+DOC_READER_SYSTEM = """You are a professional technical documentation reading assistant.
+Your core task is to read the help document of the tool in the current environment and provide the user with actionable command-line usage instructions based on their specific goals.
+
+<Workflow>
+1. **Analyze Intent**:
+    - Understand what the user wants to achieve (e.g., "align paired-end reads", "sort a bam file", "call variants").
+    - Identify if they need a full command structure or just specific parameters.
+
+2. **Acquire Documentation**:
+    - **[Prioritize]** If the user provides a specific help command (e.g., `samtools sort --help`), verify it and run it directly using `run_command`.
+    - Otherwise, guess the help command (usually `[tool] --help` or `[tool] -h`).
+    - **Subcommands**: If the user's goal requires a specific subcommand (e.g., `samtools sort`), run the help for that subcommand (e.g., `samtools sort --help`).
+
+3. **Synthesize & Answer**:
+    - Carefully read the command output.
+    - **Construct the Command**: Based on the docs, tell the user exactly how to construct the command for their goal.
+    - **Explain Parameters**: List the *essential* parameters they need (e.g., input/output flags, threads, critical options).
+    - **Contextualize**: If the docs show multiple modes, select the one relevant to the user's description.
+    - **Be Concise**: Do NOT output the full help text. Provide a clear, summarized answer.
+    - **Report Help Command**: At the end of your answer, explicitly state which help command you used to get this information, in the format: `Help Command Used: [command]`.
+</Workflow>
+
+<CommandDesignRule>
+- **Core Principle**:
+    - The commands you construct must only contain the most basic and essential parameters sufficient for the tool to run successfully and achieve the analysis objective.
+    - Explicitly add parameters that restrict search space or output depth to the minimum necessary for a valid result to ensure rapid execution (e.g., set `-max_target_seqs 1` for BLAST).
+- **Parameters NOT to be added**: Parameters that command can run successfully even without it, generally like setting thresholds or other advanced parameters
+- **Parameters NEED to be added**:
+    - Add parameters related to threads/cpu (if available).
+    - Add parameters related to the output file name (e.g., `--prefix`, `--name`).
+    - Add parameter related to force overwriting existing data (e.g., `--rewrite`, `-f`)
+    - Add parameter related to built-in logging functionality (e.g., `--log-file`, `-l`)
+</CommandDesignRule>
+"""
+
 
 doc_searcher: CompiledStateGraph[GetDocState] = create_agent(
     model=deepseek_r1(0.3),
@@ -87,3 +127,39 @@ doc_searcher: CompiledStateGraph[GetDocState] = create_agent(
     system_prompt=GET_DOC_SYSTEM,
     state_schema=GetDocState,  # type: ignore
 )
+
+
+doc_reader: CompiledStateGraph[GetDocState] = create_agent(
+    model=deepseek_r1(),
+    tools=[run_command],
+    system_prompt=DOC_READER_SYSTEM,
+    state_schema=GetDocState,  # type: ignore
+)
+
+
+@tool(parse_docstring=True)
+async def read_doc(
+    query: str, runtime: ToolRuntime[None, GetDocState], help_command: Optional[str] = None
+):
+    """Consult the tool's manual to get command usage instructions.
+
+    Use this tool to get advice on how to construct commands for specific tasks.
+    Instead of just asking about a single parameter, describe your full intent!
+
+    Args:
+        query: A description of your task or question.
+               e.g. "I need to align paired-end fastq files using bwa mem. How do I write the command and what are the thread/output params?"
+        help_command: If known, the specific help command to run (e.g. "samtools sort --help").
+    """
+    content = query
+    if help_command:
+        content = f'Help Command: {help_command}\nUser Question: {query}'
+
+    search_input: GetDocState = {
+        'messages': [HumanMessage(content=content)],
+        'image': runtime.state['image'],
+        'image_uid': runtime.state['image_uid'],
+    }
+    result = await doc_reader.ainvoke(search_input)  # type: ignore
+
+    return result['messages'][-1].content
