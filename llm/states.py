@@ -66,15 +66,10 @@ class CreateToolState(MessagesState, total=False):
     image: ImageConfig
 
     doc_uid: uuid.UUID
-    doc: str
-
-    command: str
-
-    homepage: str
 
     group_id: int
-    tool_uid: str
 
+    tool_uid: str
     json_response: dict[str, Any]
 
 
