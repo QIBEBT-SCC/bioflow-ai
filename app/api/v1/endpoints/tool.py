@@ -95,7 +95,7 @@ def get_images_by_name(session: SessionDep, name: str, offset: int = 0, limit: A
 
 @image_router.get('/{uid}/documents', response_model=list[SimpleToolDoc])
 async def get_image_docs(session: SessionDep, uid: str):
-    return doc_crud.get_image_docs(session, uid)
+    return doc_crud.get_by_image(session, uid)
 
 
 @image_router.post('/{uid}')
