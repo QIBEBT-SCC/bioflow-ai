@@ -20,19 +20,15 @@ dependencies = [
     "langchain>=1.0.4",
     "langchain-community>=0.4.0",
     "langchain-google-genai>=4.0.0",
-    "langchain-mcp-adapters>=0.1.9",
     "langchain-milvus>=0.2.2",
     "langchain-model-profiles>=0.0.5",
     "langchain-openai>=1.1.0",
-    "langchain-postgres>=0.0.15",
     "langchain-qwen3>=0.1.2",
     "langchain-redis>=0.2.5",
     "langgraph>=1.0.4",
     "langgraph-checkpoint-postgres>=3.0.1",
-    "langgraph-checkpoint-sqlite>=3.0.0",
     "loguru>=0.7.3",
     "passlib[bcrypt]>=1.7.4",
-    "podman>=5.6.0",
     "polars>=1.33.1",
     "psycopg2-binary>=2.9.10",
     "psycopg[binary,pool]>=3.2.9",
@@ -45,6 +41,11 @@ dependencies = [
     "tomli-w>=1.2.0",
     "uuid7>=0.1.0",
     "uvicorn>=0.34.0",
+]
+
+[project.optional-dependencies]
+podman = [
+    "podman>=5.6.0",
 ]
 
 [tool.ruff]
@@ -102,6 +103,7 @@ pyupgrade.keep-runtime-typing = true
 dev = [
     "arize-phoenix-otel>=0.13.1",
     "celery-types>=0.23.0",
+    "langgraph-checkpoint-sqlite>=3.0.0",
     "openinference-instrumentation-langchain>=0.1.53",
     "pyppeteer>=0.0.25",
     "rich>=14.0.0"
