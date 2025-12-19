@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional
 
 from langchain_core.messages import ToolMessage
@@ -20,7 +21,7 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
-from app.utils.container.podman import run_podman
+from llm.states import ReproductionContext
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -467,7 +468,7 @@ def search_biodb(query: str) -> str:
 
 
 @tool(parse_docstring=True)
-def save_workflow(name: str, runtime: ToolRuntime):
+def save_workflow(name: str, runtime: ToolRuntime[ReproductionContext]):
     """Save the completed workflow into the database
 
     Args:
@@ -501,9 +502,14 @@ def save_workflow(name: str, runtime: ToolRuntime):
 
     workflow_define = WorkflowDefinition(nodes=nodes, edges=edges)
 
+    now = datetime.datetime.now()
     with Session(engine) as session:
         workflow = Workflow(
-            name=f'{name}(AI)', owner_id=1, wf_type=WorkflowType.TEMPLATE, workflow=workflow_define, public=True
+            name=f'{now.strftime("%y%m%d")}_{name}(AI)',
+            owner_id=runtime.context.user_id,
+            wf_type=WorkflowType.TEMPLATE,
+            workflow=workflow_define,
+            public=True,
         )
 
         workflow = wf_crud.insert(session, workflow)

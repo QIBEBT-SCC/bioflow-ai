@@ -171,3 +171,8 @@ class ReproductionState(MessagesState, total=False):
 
     workflow_uid: uuid.UUID
     price: Annotated[float, operator.add]
+
+
+@dataclass
+class ReproductionContext:
+    user_id: int
