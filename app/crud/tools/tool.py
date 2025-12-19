@@ -94,6 +94,6 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int):
     return session.exec(query).all()
 
 
-def get(session: Session, tool_uid: str):
+def get(session: Session, tool_uid: str) -> Optional[ToolDefine]:
     query: Select = select(ToolDefine).where(ToolDefine.uid == tool_uid)
-    return session.exec(query).one()
+    return session.exec(query).one_or_none()
