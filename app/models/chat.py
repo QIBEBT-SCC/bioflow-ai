@@ -1,8 +1,10 @@
 import uuid
-from datetime import datetime, UTC
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any, Optional
 
 import uuid_extensions
+from sqlalchemy import Column
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.user import User
@@ -20,3 +22,11 @@ class ChatSessions(SQLModel, table=True):
     update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
+
+
+class ChatMessages(SQLModel, table=True):
+    __tablename__ = 'chat_messages'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str
+    message: dict[str, Any] = Field(sa_column=Column(JSONB))
