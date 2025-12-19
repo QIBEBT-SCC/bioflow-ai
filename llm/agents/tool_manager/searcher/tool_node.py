@@ -4,7 +4,7 @@ from langchain.agents import create_agent
 from langgraph.graph import MessagesState
 from langgraph.graph.state import CompiledStateGraph
 
-from llm.models import deepseek_r1, gpt_5_mini
+from llm.models import deepseek_r1
 from llm.tools.database import select_tool
 from llm.tools.vector_store import search_tools_by_function
 from llm.utils.uid_mapper import BidirectionalMapper

@@ -138,9 +138,7 @@ doc_reader: CompiledStateGraph[GetDocState] = create_agent(
 
 
 @tool(parse_docstring=True)
-async def read_doc(
-    query: str, runtime: ToolRuntime[None, GetDocState], help_command: Optional[str] = None
-):
+async def read_doc(query: str, runtime: ToolRuntime[None, GetDocState], help_command: Optional[str] = None):
     """Consult the tool's manual to get command usage instructions.
 
     Use this tool to get advice on how to construct commands for specific tasks.
