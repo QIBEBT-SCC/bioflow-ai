@@ -42,38 +42,18 @@ class NetworkConfig(BaseModel):
         return f'{self.PROXY_TYPE}://{self.PROXY_HOST}:{self.PROXY_PORT}'
 
 
-class StorageConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    UPLOAD_DIR: str = './storage/uploads'
-    MAX_IMAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    MAX_DOCUMENT_SIZE: int = 50 * 1024 * 1024  # 50MB
-    ALLOWED_IMAGE_TYPES: list[str] = [
-        'image/jpeg',
-        'image/jpg',
-        'image/png',
-        'image/gif',
-        'image/bmp',
-        'image/webp',
-        'image/tiff',
-    ]
-    ALLOWED_DOCUMENT_TYPES: list[str] = ['application/pdf', 'text/plain', 'text/markdown']
-
-
 class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
-    MONITOR_CACHE: str = 'redis://localhost:6379/1'
+    LLM_CACHE: str = 'redis://localhost:6379/0'
+    MONITOR_CACHE: str = 'redis://localhost:6379/2'
     API_CACHE: str = 'redis://localhost:6379/2'
-    LLM_CACHE: str = 'redis://localhost:6379/3'
     STORAGE_PATH: str = './storage'
     GENOME_PATH: str = './storage/genome'
     TEST_DATA_PATH: str = './testdata'
     MAX_THREAD: int = 8
     MAX_MEM: str = '4G'
-
-    api_storage: StorageConfig = StorageConfig()
 
 
 class KnowledgeBaseConfig(BaseModel):
@@ -117,7 +97,7 @@ class CeleryConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     BROKER: str = 'amqp://bioflow_ai:123456@localhost:5672//'
-    BACKEND: str = 'redis://localhost:6379/0'
+    BACKEND: str = 'redis://localhost:6379/1'
 
 
 class DockerConfig(BaseModel):
