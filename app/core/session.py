@@ -1,8 +1,7 @@
 from typing import Annotated, TypeAlias
 
-import psycopg
 from fastapi import Depends
-from langchain_postgres import PostgresChatMessageHistory
+from langgraph.checkpoint.redis import RedisSaver
 from loguru import logger
 from sqlalchemy import MetaData, create_engine
 from sqlmodel import Session, SQLModel
@@ -16,8 +15,8 @@ engine = create_engine(get_settings().persistent.DB_URL)
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
-    sync_connection = psycopg.connect(get_settings().persistent.CHECKPOINT_URL)
-    PostgresChatMessageHistory.create_tables(sync_connection, 'simple_history')
+    with RedisSaver.from_conn_string(get_settings().persistent.LLM_CACHE) as checkpoint:
+        checkpoint.setup()
 
 
 def drop_table(table_name: str):

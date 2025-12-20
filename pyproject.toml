@@ -26,7 +26,7 @@ dependencies = [
     "langchain-qwen3>=0.1.2",
     "langchain-redis>=0.2.5",
     "langgraph>=1.0.4",
-    "langgraph-checkpoint-postgres>=3.0.1",
+    "langgraph-checkpoint-redis>=0.3.1",
     "loguru>=0.7.3",
     "passlib[bcrypt]>=1.7.4",
     "polars>=1.33.1",
@@ -51,13 +51,13 @@ podman = [
 [tool.ruff]
 line-length = 120
 
-[tool.ruff.format]
-quote-style = "single"
-docstring-code-format = true
-
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[tool.ruff.format]
+quote-style = "single"
+docstring-code-format = true
 
 [tool.setuptools.packages.find]
 where = ["."]

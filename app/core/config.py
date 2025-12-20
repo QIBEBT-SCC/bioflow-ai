@@ -64,7 +64,6 @@ class PersistenceConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
     DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
-    CHECKPOINT_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/llm_history'
     MONITOR_CACHE: str = 'redis://localhost:6379/1'
     API_CACHE: str = 'redis://localhost:6379/2'
     LLM_CACHE: str = 'redis://localhost:6379/3'

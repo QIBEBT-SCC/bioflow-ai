@@ -345,7 +345,7 @@ dependencies = [
     { name = "langchain-qwen3" },
     { name = "langchain-redis" },
     { name = "langgraph" },
-    { name = "langgraph-checkpoint-postgres" },
+    { name = "langgraph-checkpoint-redis" },
     { name = "loguru" },
     { name = "passlib", extra = ["bcrypt"] },
     { name = "polars" },
@@ -400,7 +400,7 @@ requires-dist = [
     { name = "langchain-qwen3", specifier = ">=0.1.2" },
     { name = "langchain-redis", specifier = ">=0.2.5" },
     { name = "langgraph", specifier = ">=1.0.4" },
-    { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.1" },
+    { name = "langgraph-checkpoint-redis", specifier = ">=0.3.1" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
     { name = "podman", marker = "extra == 'podman'", specifier = ">=5.6.0" },
@@ -1766,18 +1766,18 @@ wheels = [
 ]
 
 [[package]]
-name = "langgraph-checkpoint-postgres"
-version = "3.0.2"
+name = "langgraph-checkpoint-redis"
+version = "0.3.1"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "langgraph-checkpoint" },
     { name = "orjson" },
-    { name = "psycopg" },
-    { name = "psycopg-pool" },
+    { name = "redis" },
+    { name = "redisvl" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/68/4e/ffea5b0d667e10d408b3b2d6dd967ea79e208eef73fe6ee5622625496238/langgraph_checkpoint_postgres-3.0.2.tar.gz", hash = "sha256:448cb8ec245b6fe10171a0f90e9aa047e24a9d3febba6a914644b0c1323da158", size = 127766, upload-time = "2025-12-09T23:15:31.223Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/76/65/53b1138e7f0d3a2d64881d23fef928e4ed722608909eb3744079e50ce9c6/langgraph_checkpoint_redis-0.3.1.tar.gz", hash = "sha256:7439cf0024a4a34075eb00b7734f73bc1b7e0d4ec7a0cb722bfddd630d0ea99c", size = 86985, upload-time = "2025-12-20T02:35:19.405Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ac/e4/b4248e10289b6e2c2d33586c87c5eb421e566ef5f336ee45269223cc3b92/langgraph_checkpoint_postgres-3.0.2-py3-none-any.whl", hash = "sha256:15c0fb638edfbc54d496f1758d0327d1a081e0ef94dda8f0c91d4b307d6d8545", size = 42710, upload-time = "2025-12-09T23:15:29.895Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/05/5e/3dbecc1e459b297edf813f9395464c6a092620b2c48acf11601d38ec46ac/langgraph_checkpoint_redis-0.3.1-py3-none-any.whl", hash = "sha256:6085b781e24f4a35f1110b52e29e759ff260a2661e086fe1df4c5b09ef0b015d", size = 92193, upload-time = "2025-12-20T02:35:18.117Z" },
 ]
 
 [[package]]
