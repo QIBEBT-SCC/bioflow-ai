@@ -25,6 +25,35 @@ CREATE TABLE IF NOT EXISTS chat_sessions
     FOREIGN KEY (owner_id) REFERENCES users
 );
 
+-- 设置相关
+CREATE TYPE providertype AS ENUM ('OPENAI', 'ANTHROPIC', 'GOOGLE');
+CREATE TABLE IF NOT EXISTS llm_providers
+(
+    id            SERIAL,
+    name          VARCHAR      NOT NULL,
+    provider_type providertype NOT NULL,
+    base_url      VARCHAR,
+    api_key       VARCHAR,
+    use_proxy     BOOLEAN      NOT NULL,
+    is_active     BOOLEAN      NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (name)
+);
+
+CREATE TABLE IF NOT EXISTS llm_models
+(
+    id               SERIAL,
+    provider_id      INTEGER,
+    name             VARCHAR          NOT NULL,
+    input_price      DOUBLE PRECISION NOT NULL,
+    output_price     DOUBLE PRECISION NOT NULL,
+    cache_read_price DOUBLE PRECISION NOT NULL,
+    extra_body       jsonb,
+    is_active        BOOLEAN          NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY (provider_id) REFERENCES llm_providers
+);
+
 
 -- 项目相关
 CREATE TABLE IF NOT EXISTS projects
