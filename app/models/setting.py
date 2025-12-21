@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Any, Optional
 
+from pydantic import SecretStr
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
@@ -41,3 +42,12 @@ class LLMModel(SQLModel, table=True):
     is_active: bool = Field(default=True)
 
     provider: Optional['LLMProvider'] = Relationship(back_populates='models')
+
+
+class LLMSetting(SQLModel, table=True):
+    __tablename__ = 'llm_settings'
+
+    key: str = Field(primary_key=True)
+    model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+
+    model: Optional['LLMModel'] = Relationship()

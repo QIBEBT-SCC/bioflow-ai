@@ -1,11 +1,114 @@
+from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_qwen3 import Qwen3Embeddings
+from pydantic import SecretStr
+from sqlmodel import Session
 
+import app.crud.setting.llm_model as model_crud
+import app.crud.setting.llm_setting as setting_crud
 from app.core.config import get_settings
+from app.core.session import engine
+from app.models.setting import ProviderType
 from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from llm.utils.cache import cache_model
+
+
+def _get_model_from_db(model_id: int) -> BaseChatModel:
+    with Session(engine) as session:
+        model_config = model_crud.get(session, model_id)
+        assert model_config.provider.api_key is not None, 'No available api_key has been set yet!'
+        proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
+
+        match model_config.provider.provider_type:
+            case ProviderType.ANTHROPIC:
+                model = ChatAnthropic(
+                    model=model_config.name,
+                    api_key=SecretStr(model_config.provider.api_key),
+                    anthropic_proxy=proxy,
+                )
+            case ProviderType.GOOGLE:
+                client_args = {'proxy': proxy} if proxy else None
+                model = ChatGoogleGenerativeAI(
+                    model=model_config.name,
+                    api_key=SecretStr(model_config.provider.api_key),
+                    client_args=client_args,
+                )
+            case ProviderType.OPENAI:
+                if model_config.provider.base_url is None:
+                    model = ChatOpenAI(
+                        model=model_config.name,
+                        api_key=SecretStr(model_config.provider.api_key),
+                        openai_proxy=proxy,
+                    )
+                else:
+                    if 'deepseek' in model_config.name.lower():
+                        model = ChatDeepseekReasoning(
+                            model=model_config.name,
+                            base_url=model_config.provider.base_url,
+                            api_key=SecretStr(model_config.provider.api_key),
+                            openai_proxy=proxy,
+                        )
+                    else:
+                        model = ChatOpenAIReasoning(
+                            model=model_config.name,
+                            base_url=model_config.provider.base_url,
+                            api_key=SecretStr(model_config.provider.api_key),
+                            openai_proxy=proxy,
+                        )
+            case _:
+                raise ValueError('invalid provider type')
+
+        return model
+
+
+def get_agent_model() -> BaseChatModel:
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'agent_model')
+        model_id = setting.model_id
+
+    return _get_model_from_db(model_id)
+
+
+def get_chat_model() -> BaseChatModel:
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'chat_model')
+        model_id = setting.model_id
+
+    return _get_model_from_db(model_id)
+
+
+def get_vision_model() -> BaseChatModel:
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'vision_model')
+        model_id = setting.model_id
+
+    return _get_model_from_db(model_id)
+
+
+def get_coding_model() -> BaseChatModel:
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'coding_model')
+        model_id = setting.model_id
+
+    return _get_model_from_db(model_id)
+
+
+def get_long_context_model():
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'long_context_model')
+        model_id = setting.model_id
+
+    return _get_model_from_db(model_id)
+
+
+def get_high_performance_model():
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'high_performance_model')
+        model_id = setting.model_id
+
+    return _get_model_from_db(model_id)
 
 
 def gemini_25_flash(temperature: float = 0.7, disable_streaming: bool = False) -> BaseChatModel:

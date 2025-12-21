@@ -97,3 +97,16 @@ VALUES (39, 7, 'deepseek-v3.2', 0.3, 0.45, 0.03, '{}', TRUE);
 INSERT INTO public.llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
 VALUES (40, 7, 'deepseek-v3.2-think', 0.3, 0.45, 0.03, '{}', TRUE);
 
+-- init model setting
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('chat_model', 13);
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('vision_model', 27);
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('agent_model', 13);
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('coding_model', 20);
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('long_context_model', 13);
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('high_performance_model', 25);

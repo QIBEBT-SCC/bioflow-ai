@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS llm_models
     FOREIGN KEY (provider_id) REFERENCES llm_providers
 );
 
+CREATE TABLE IF NOT EXISTS llm_settings
+(
+    key      VARCHAR NOT NULL,
+    model_id INTEGER NOT NULL,
+    PRIMARY KEY (key),
+    FOREIGN KEY (model_id) REFERENCES llm_models
+);
+
 
 -- 项目相关
 CREATE TABLE IF NOT EXISTS projects
