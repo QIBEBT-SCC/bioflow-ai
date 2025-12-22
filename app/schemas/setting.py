@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel
@@ -38,7 +39,6 @@ class LLMModelCreate(BaseModel):
     name: str
     input_price: float
     output_price: float
-    cache_write_price: float
     cache_read_price: float
     extra_body: dict[str, Any] = {}
     is_active: bool = True
@@ -48,7 +48,6 @@ class LLMModelUpdate(BaseModel):
     name: Optional[str] = None
     input_price: Optional[float] = None
     output_price: Optional[float] = None
-    cache_write_price: Optional[float] = None
     cache_read_price: Optional[float] = None
     extra_body: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None
@@ -60,7 +59,19 @@ class LLMModelPublic(BaseModel):
     name: str
     input_price: float
     output_price: float
-    cache_write_price: float
     cache_read_price: float
     extra_body: dict[str, Any]
     is_active: bool
+
+
+# ==================== LLMStatistic Schemas ====================
+class LLMStatisticPublic(BaseModel):
+    id: int
+    agent_name: str
+    model_id: Optional[int] = None
+    setting_key: Optional[str] = None
+    input_tokens: int
+    output_tokens: int
+    cache_read: Optional[int] = 0
+    price: float
+    time: datetime

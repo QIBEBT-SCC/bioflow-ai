@@ -1,7 +1,7 @@
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import SecretStr
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
@@ -51,3 +51,19 @@ class LLMSetting(SQLModel, table=True):
     model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
 
     model: Optional['LLMModel'] = Relationship()
+
+
+class LLMStatistic(SQLModel, table=True):
+    __tablename__ = 'llm_statistics'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    agent_name: str
+    model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    setting_key: Optional[str] = Field(default=None, foreign_key='llm_settings.key')
+
+    input_tokens: int
+    output_tokens: int
+    cache_read: Optional[int] = Field(default=0)
+
+    price: float
+    time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))

@@ -1,5 +1,5 @@
 from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models import BaseChatModel, ModelProfile
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_qwen3 import Qwen3Embeddings
@@ -60,6 +60,12 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
             case _:
                 raise ValueError('invalid provider type')
 
+        model.metadata = {
+            'model_id': model_id,
+            'input_price': model_config.input_price,
+            'output_price': model_config.output_price,
+            'cache_read_price': model_config.cache_read_price,
+        }
         return model
 
 
@@ -68,7 +74,9 @@ def get_agent_model() -> BaseChatModel:
         setting = setting_crud.get(session, 'agent_model')
         model_id = setting.model_id
 
-    return _get_model_from_db(model_id)
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'agent_model'
+    return model
 
 
 def get_chat_model() -> BaseChatModel:
@@ -76,7 +84,9 @@ def get_chat_model() -> BaseChatModel:
         setting = setting_crud.get(session, 'chat_model')
         model_id = setting.model_id
 
-    return _get_model_from_db(model_id)
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'chat_model'
+    return model
 
 
 def get_vision_model() -> BaseChatModel:
@@ -84,7 +94,9 @@ def get_vision_model() -> BaseChatModel:
         setting = setting_crud.get(session, 'vision_model')
         model_id = setting.model_id
 
-    return _get_model_from_db(model_id)
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'vision_model'
+    return model
 
 
 def get_coding_model() -> BaseChatModel:
@@ -92,23 +104,29 @@ def get_coding_model() -> BaseChatModel:
         setting = setting_crud.get(session, 'coding_model')
         model_id = setting.model_id
 
-    return _get_model_from_db(model_id)
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'coding_model'
+    return model
 
 
-def get_long_context_model():
+def get_long_context_model() -> BaseChatModel:
     with Session(engine) as session:
         setting = setting_crud.get(session, 'long_context_model')
         model_id = setting.model_id
 
-    return _get_model_from_db(model_id)
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'long_context_model'
+    return model
 
 
-def get_high_performance_model():
+def get_high_performance_model() -> BaseChatModel:
     with Session(engine) as session:
         setting = setting_crud.get(session, 'high_performance_model')
         model_id = setting.model_id
 
-    return _get_model_from_db(model_id)
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'high_performance_model'
+    return model
 
 
 def gemini_25_flash(temperature: float = 0.7, disable_streaming: bool = False) -> BaseChatModel:

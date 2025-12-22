@@ -1,9 +1,11 @@
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_provider as provider_crud
+import app.crud.setting.llm_statistic as statistic_crud
 from app.core.session import SessionDep
 from app.models.setting import LLMModel, LLMProvider
 from app.schemas.setting import (
@@ -13,6 +15,7 @@ from app.schemas.setting import (
     LLMProviderCreate,
     LLMProviderPublic,
     LLMProviderUpdate,
+    LLMStatisticPublic,
 )
 from app.utils.security import AdminDep
 
@@ -108,3 +111,21 @@ async def delete_llm_model(model_id: int, session: SessionDep, current_user: Adm
     if not success:
         raise HTTPException(status_code=404, detail='Model not found')
     return {'message': 'Model deleted successfully'}
+
+# ==================== LLM Statistic Endpoints ====================
+@router.get('/statistics', response_model=List[LLMStatisticPublic])
+async def get_llm_statistics(
+    session: SessionDep,
+    current_user: AdminDep,
+    start_date: Optional[datetime] = Query(None, description='开始日期（包含），格式：YYYY-MM-DDTHH:MM:SS'),
+    end_date: Optional[datetime] = Query(None, description='结束日期（包含），格式：YYYY-MM-DDTHH:MM:SS'),
+):
+    """
+    根据时间范围查询 LLM 使用统计数据
+    
+    - **start_date**: 可选，查询起始时间，如果不提供则不限制开始时间
+    - **end_date**: 可选，查询结束时间，如果不提供则不限制结束时间
+    - 如果两个参数都不提供，则返回所有统计数据
+    """
+    statistics = statistic_crud.get_all_by_date(session, start_date, end_date)
+    return statistics
