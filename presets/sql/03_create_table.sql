@@ -44,12 +44,12 @@ CREATE TABLE IF NOT EXISTS llm_models
 (
     id               SERIAL,
     provider_id      INTEGER,
-    name             VARCHAR          NOT NULL,
-    input_price      DOUBLE PRECISION NOT NULL,
-    output_price     DOUBLE PRECISION NOT NULL,
-    cache_read_price DOUBLE PRECISION NOT NULL,
+    name             VARCHAR NOT NULL,
+    input_price      NUMERIC NOT NULL,
+    output_price     NUMERIC NOT NULL,
+    cache_read_price NUMERIC NOT NULL,
     extra_body       jsonb,
-    is_active        BOOLEAN          NOT NULL,
+    is_active        BOOLEAN NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (provider_id) REFERENCES llm_providers
 );
@@ -57,9 +57,25 @@ CREATE TABLE IF NOT EXISTS llm_models
 CREATE TABLE IF NOT EXISTS llm_settings
 (
     key      VARCHAR NOT NULL,
-    model_id INTEGER NOT NULL,
+    model_id INTEGER,
     PRIMARY KEY (key),
     FOREIGN KEY (model_id) REFERENCES llm_models
+);
+
+CREATE TABLE IF NOT EXISTS llm_statistics
+(
+    id            SERIAL,
+    agent_name    VARCHAR NOT NULL,
+    model_id      INTEGER,
+    setting_key   VARCHAR,
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_read    INTEGER,
+    price         NUMERIC NOT NULL,
+    time          TIMESTAMP,
+    PRIMARY KEY (id),
+    FOREIGN KEY (model_id) REFERENCES llm_models,
+    FOREIGN KEY (setting_key) REFERENCES llm_settings
 );
 
 

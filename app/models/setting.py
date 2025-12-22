@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, Optional
 
@@ -34,14 +35,15 @@ class LLMModel(SQLModel, table=True):
     provider_id: Optional[int] = Field(default=None, foreign_key='llm_providers.id')
     name: str
 
-    input_price: float
-    output_price: float
-    cache_read_price: float
+    input_price: Decimal
+    output_price: Decimal
+    cache_read_price: Decimal
 
     extra_body: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     is_active: bool = Field(default=True)
 
     provider: Optional['LLMProvider'] = Relationship(back_populates='models')
+    prices: list['LLMStatistic'] = Relationship(back_populates='model')
 
 
 class LLMSetting(SQLModel, table=True):
@@ -65,5 +67,7 @@ class LLMStatistic(SQLModel, table=True):
     output_tokens: int
     cache_read: Optional[int] = Field(default=0)
 
-    price: float
+    price: Decimal
     time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+
+    model: Optional['LLMModel'] = Relationship()

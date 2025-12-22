@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -11,15 +12,15 @@ from app.core.session import engine
 from app.models.setting import LLMStatistic
 
 
-class TokenStatistic(AgentMiddleware):
+class TokenStatisticMiddleware(AgentMiddleware):
     def __init__(
         self,
         agent_name: str,
         model_id: int,
         setting_key: str,
-        input_price: float,
-        output_price: float,
-        cache_read_price: float,
+        input_price: Decimal,
+        output_price: Decimal,
+        cache_read_price: Decimal,
     ):
         self.agent_name = agent_name
         self.model_id = model_id
@@ -37,7 +38,7 @@ class TokenStatistic(AgentMiddleware):
             (input_tokens - cache_read) * self.input_price
             + cache_read * self.cache_read_price
             + output_tokens * self.output_price
-        ) / 1000000
+        ) / Decimal(1000000)
 
         statistic_data = LLMStatistic(
             agent_name=self.agent_name,
