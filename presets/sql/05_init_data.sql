@@ -110,3 +110,5 @@ INSERT INTO public.llm_settings (key, model_id)
 VALUES ('long_context_model', 13);
 INSERT INTO public.llm_settings (key, model_id)
 VALUES ('high_performance_model', 25);
+INSERT INTO public.llm_settings (key, model_id)
+VALUES ('simple_model', 26);

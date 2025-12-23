@@ -109,6 +109,16 @@ def get_coding_model() -> BaseChatModel:
     return model
 
 
+def get_simple_model() -> BaseChatModel:
+    with Session(engine) as session:
+        setting = setting_crud.get(session, 'simple_model')
+        model_id = setting.model_id
+
+    model = _get_model_from_db(model_id)
+    model.metadata['setting_key'] = 'simple_model'
+    return model
+
+
 def get_long_context_model() -> BaseChatModel:
     with Session(engine) as session:
         setting = setting_crud.get(session, 'long_context_model')
