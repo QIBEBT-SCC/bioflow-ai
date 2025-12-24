@@ -2,11 +2,12 @@ import uuid
 
 from langchain.agents import create_agent
 from langgraph.graph import MessagesState
-from langgraph.graph.state import CompiledStateGraph
 
-from llm.models import deepseek_r1
+from llm.models import get_agent_model
+from llm.states import UserContext
 from llm.tools.database import select_tool
 from llm.tools.vector_store import search_tools_by_function
+from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
 
 SYSTEM_PROMPT = """您是一位专业的生物信息学数据管理员，在这个数据库中，封装了很多常见生物信息分析工具。
@@ -35,12 +36,16 @@ class SearchToolNodeState(MessagesState, total=False):
     tool_uid: str
 
 
-search_exist_tool_agent: CompiledStateGraph = create_agent(
-    model=deepseek_r1(0.3),
+search_exist_tool_agent = create_agent(
+    model=get_agent_model(),
     tools=[
         search_tools_by_function,
         select_tool,
     ],
     system_prompt=SYSTEM_PROMPT,
+    middleware=[  # type: ignore
+        TokenStatisticMiddleware(agent_name='search_exist_node', **get_agent_model().metadata),
+    ],
     state_schema=SearchToolNodeState,  # type: ignore
+    context_schema=UserContext,  # type: ignore
 )

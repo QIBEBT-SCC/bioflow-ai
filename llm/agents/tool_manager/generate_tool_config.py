@@ -4,12 +4,14 @@ from typing import TypedDict
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
+from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
 from app.models.tools import FileMount, ParamDefine
-from llm.states import ToolGeneratorState
+from llm.models import get_high_performance_model
+from llm.states import StructuredResponse, ToolGeneratorState, UserContext
+from llm.utils.token import store_token_usage
 
 SYSTEM_PROMPT = """You are a bioinformatics engineer
 
@@ -280,10 +282,11 @@ class ToolInfoResult(BaseModel):
 
 
 class ToolGenerator:
-    def __init__(self, llm: ChatOpenAI):
-        self.llm = llm
+    def __init__(self):
+        self.agent_name = 'tool_generator'
+        self.llm = get_high_performance_model()
 
-    async def mount_file_node(self, state: ToolGeneratorState):
+    async def mount_file_node(self, state: ToolGeneratorState, runtime: Runtime[UserContext]):
         prompt = ChatPromptTemplate(
             messages=[
                 SystemMessage(content=SYSTEM_PROMPT),
@@ -292,21 +295,26 @@ class ToolGenerator:
             ]
         )
         chain = prompt | self.llm.with_structured_output(
-            FileMountsResult,
-            method='json_schema',
+            FileMountsResult, method='json_schema', include_raw=True
         ).with_retry(retry_if_exception_type=(JSONDecodeError,), stop_after_attempt=3)
 
-        response: FileMountsResult = await chain.ainvoke({'history': state['messages']})
+        response: StructuredResponse[FileMountsResult] = await chain.ainvoke({'history': state['messages']})  # type: ignore
+        store_token_usage(
+            self.agent_name,
+            token_usage=response['raw'].usage_metadata,
+            user_id=runtime.context.user_id,
+            **self.llm.metadata,
+        )
 
         return {
-            'file_mounts': response.file_mounts,
+            'file_mounts': response['parsed'].file_mounts,
             'messages': [
-                AIMessage(content=response.model_dump_json(ensure_ascii=True)),
+                AIMessage(content=response['parsed'].model_dump_json(ensure_ascii=True)),
                 HumanMessage(content='Okay, next, please design the parameters and command template.'),
             ],
         }
 
-    async def command_design_node(self, state: ToolGeneratorState):
+    async def command_design_node(self, state: ToolGeneratorState, runtime: Runtime[UserContext]):
         prompt = ChatPromptTemplate(
             messages=[
                 SystemMessage(content=SYSTEM_PROMPT),
@@ -314,41 +322,51 @@ class ToolGenerator:
             ]
         )
         chain = prompt | self.llm.with_structured_output(
-            CommandDesignResult,
-            method='json_schema',
+            CommandDesignResult, method='json_schema', include_raw=True
         ).with_retry(retry_if_exception_type=(JSONDecodeError,), stop_after_attempt=3)
 
-        response: CommandDesignResult = await chain.ainvoke({'history': state['messages']})
+        response: StructuredResponse[CommandDesignResult] = await chain.ainvoke({'history': state['messages']})  # type: ignore
+        store_token_usage(
+            self.agent_name,
+            token_usage=response['raw'].usage_metadata,
+            user_id=runtime.context.user_id,
+            **self.llm.metadata,
+        )
 
         return {
-            'command_template': response.command_template,
-            'dynamic_params': response.dynamic_params,
-            'immutable_static_params': response.immutable_static_params,
-            'modifiable_static_params': response.modifiable_static_params,
+            'command_template': response['parsed'].command_template,
+            'dynamic_params': response['parsed'].dynamic_params,
+            'immutable_static_params': response['parsed'].immutable_static_params,
+            'modifiable_static_params': response['parsed'].modifiable_static_params,
             'messages': [
-                AIMessage(content=response.model_dump_json(ensure_ascii=True)),
+                AIMessage(content=response['parsed'].model_dump_json(ensure_ascii=True)),
                 ('human', "Great, let's complete the remaining information."),
             ],
         }
 
-    async def info_generate_node(self, state: ToolGeneratorState):
+    async def info_generate_node(self, state: ToolGeneratorState, runtime: Runtime[UserContext]):
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=SYSTEM_PROMPT), MessagesPlaceholder(variable_name='history')]
         )
         chain = prompt | self.llm.with_structured_output(
-            ToolInfoResult,
-            method='json_schema',
+            ToolInfoResult, method='json_schema', include_raw=True
         ).with_retry(retry_if_exception_type=(JSONDecodeError,), stop_after_attempt=3)
 
-        response: ToolInfoResult = await chain.ainvoke({'history': state['messages']})
+        response: StructuredResponse[ToolInfoResult] = await chain.ainvoke({'history': state['messages']})  # type: ignore
+        store_token_usage(
+            self.agent_name,
+            token_usage=response['raw'].usage_metadata,
+            user_id=runtime.context.user_id,
+            **self.llm.metadata,
+        )
 
         return {
-            'name': response.name,
-            'description': response.description,
+            'name': response['parsed'].name,
+            'description': response['parsed'].description,
         }
 
     def build(self, visualize: bool = False):
-        graph = StateGraph(ToolGeneratorState, output_schema=ToolConfigSchema)  # type: ignore
+        graph = StateGraph(ToolGeneratorState, UserContext, output_schema=ToolConfigSchema)  # type: ignore
         graph.add_sequence(
             [  # type: ignore
                 ('mount_file', self.mount_file_node),

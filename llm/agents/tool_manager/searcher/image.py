@@ -15,14 +15,16 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 import app.crud.tools.image as image_crud
+from app.core.redis_client import llm_cache
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolImage
-from llm.models import gemini_25_flash, gpt_5_mini
+from llm.models import gemini_25_flash, get_agent_model
 from llm.states import SearchImageState
 from llm.tools.database import search_local_image, select_image
 from llm.tools.human import ask_human
 from llm.tools.images import search_image, view_image_tags
 from llm.tools.web_search import web_reader, web_searcher, web_summary_middleware
+from llm.utils.middleware import DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
 
 SEARCHER_SYSTEM = """## Role Definition
 你是一个专业的“工具镜像检索智能体”。你的唯一核心目标是根据用户的任务描述，精准地找到并选择本地数据库中已存在的对应工具镜像。只有在确认本地绝对无法提供所需镜像时，才向系统申请新建镜像。
@@ -193,15 +195,21 @@ Your final output must be a JSON object that strictly conforms to the `ToolImage
 </OutputStructure>
 """
 
+SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
 
-class ToolInfoOuput(BaseModel):
+According to the tool search results, if there is an image of the tool required by the user, use `select_image` to select it;
+Otherwise, end the task directly and tell the user that the image does not exist.
+"""
+
+
+class ToolInfoOutput(BaseModel):
     name: str = Field(description='The name of the tool')
     description: str = Field(description='The description of this tool')
     document_url: Optional[str] = Field(description='Tool documentation page URL', default=None)
     paper_url: Optional[str] = Field(description='Link to the corresponding paper of the tool', default=None)
 
 
-class ToolImageOuput(BaseModel):
+class ToolImageOutput(BaseModel):
     image_url: str = Field(
         description='The Docker image of the tool, in the format `[registry]/[namespace]/[repository]:tag`',
         default=None,
@@ -211,7 +219,7 @@ class ToolImageOuput(BaseModel):
 
 class GetImageAgent:
     def __init__(self):
-        self.llm = gpt_5_mini(temperature=0.3)
+        self.llm = get_agent_model()
 
         self.tools = [search_local_image, select_image, web_searcher, web_reader, need_new_image]
         self.search_tool_node = ToolNode(self.tools)
@@ -221,8 +229,11 @@ class GetImageAgent:
             model=self.llm,
             tools=[web_searcher, web_reader],
             system_prompt=SEARCH_INFO_SYS,
-            middleware=[web_summary_middleware],
-            response_format=ToolInfoOuput,
+            middleware=[
+                web_summary_middleware,
+                TokenStatisticMiddleware(agent_name='search_info', **self.llm.metadata),
+            ],
+            response_format=ToolInfoOutput,
         )
         self.search_image_agent = create_agent(
             model=self.llm,
@@ -235,7 +246,7 @@ class GetImageAgent:
                     messages_to_keep=6,
                 )
             ],
-            response_format=ToolImageOuput,
+            response_format=ToolImageOutput,
         )
 
     async def local_searcher_node(self, state: SearchImageState):
@@ -254,7 +265,7 @@ class GetImageAgent:
 
     async def info_searcher_node(self, state: SearchImageState):
         response = await self.search_info_agent.ainvoke({'messages': state['messages']})  # type: ignore
-        tool_info: ToolInfoOuput = response['structured_response']
+        tool_info: ToolInfoOutput = response['structured_response']
         msg_content = (
             f'<ToolInformation>\n'
             f'name: {tool_info.name}\n'
@@ -275,7 +286,7 @@ class GetImageAgent:
 
     async def image_searcher_node(self, state: SearchImageState):
         response = await self.search_image_agent.ainvoke({'messages': state['messages']})
-        tool_image: ToolImageOuput = response['structured_response']
+        tool_image: ToolImageOutput = response['structured_response']
 
         with Session(engine) as session:
             new_image = ToolImage(
@@ -360,3 +371,19 @@ def need_new_image(name: str, tool_call_id: Annotated[str, InjectedToolCallId]):
             ]
         },
     )
+
+
+search_image_agent = create_agent(
+    model=get_agent_model(),
+    tools=[
+        search_local_image,
+        select_image,
+    ],
+    system_prompt=SEARCH_IMAGE_SYSTEM,
+    middleware=[  # type: ignore
+        DisableParallelToolCallsMiddleware(),
+        TokenStatisticMiddleware(agent_name='search_image', **get_agent_model().metadata),
+    ],
+    state_schema=SearchImageState,  # type: ignore
+    cache=llm_cache,  # type: ignore
+)

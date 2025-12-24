@@ -3,14 +3,14 @@ from typing import Optional
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
-from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 
-from llm.models import deepseek_r1
-from llm.states import GetDocState
+from llm.models import get_long_context_model
+from llm.states import GetDocState, UserContext
 from llm.tools.container import run_command
 from llm.tools.database import list_docs, save_doc, select_doc, view_doc
 from llm.tools.human import ask_human
+from llm.utils.middleware import TokenStatisticMiddleware
 
 GET_DOC_SYSTEM = """You are an expert Command Line Interface (CLI) tool documentation assistant. 
 Your goal is to locate the help document that matches the user's request most "closely." This document may already exist in the database, or you may need to acquire it by running commands in real-time.
@@ -114,8 +114,8 @@ Your core task is to read the help document of the tool in the current environme
 """
 
 
-doc_searcher: CompiledStateGraph[GetDocState] = create_agent(
-    model=deepseek_r1(0.3),
+doc_searcher = create_agent(
+    model=get_long_context_model(),
     tools=[
         list_docs,
         view_doc,
@@ -125,12 +125,14 @@ doc_searcher: CompiledStateGraph[GetDocState] = create_agent(
         ask_human,
     ],
     system_prompt=GET_DOC_SYSTEM,
+    middleware=[TokenStatisticMiddleware('doc_searcher', **get_long_context_model().metadata)],  # type: ignore
     state_schema=GetDocState,  # type: ignore
+    context_schema=UserContext,  # type: ignore
 )
 
 
-doc_reader: CompiledStateGraph[GetDocState] = create_agent(
-    model=deepseek_r1(),
+doc_reader = create_agent(
+    model=get_long_context_model(),
     tools=[run_command],
     system_prompt=DOC_READER_SYSTEM,
     state_schema=GetDocState,  # type: ignore

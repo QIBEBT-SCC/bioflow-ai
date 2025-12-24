@@ -5,14 +5,12 @@ from langchain.agents import create_agent
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
-from langchain_core.tools import tool
 from langchain_milvus import Milvus
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -31,7 +29,7 @@ from llm.agents.tool_manager.searcher.doc import doc_searcher
 from llm.agents.tool_manager.searcher.image import GetImageAgent
 from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
 from llm.agents.tool_manager.test_run_agent import test_run_agent
-from llm.models import gpt_5, gpt_5_mini, qwen3_embedding
+from llm.models import get_agent_model, get_high_performance_model, qwen3_embedding
 from llm.states import (
     CreateToolContext,
     CreateToolOutput,
@@ -40,12 +38,14 @@ from llm.states import (
     SelectGroupState,
     TestRunContext,
     TestRunState,
+    UserContext,
 )
 from llm.tools.database import (
     select_group,
     view_groups,
 )
 from llm.utils.formatters import handle_formatter
+from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
 
 SUMMARY_SYS = """You are an expert summarizer creating a concise log of previously completed web research to prevent redundant work.
@@ -124,19 +124,20 @@ class TempIDClass(BaseModel):
 
 class CreateToolAgent:
     def __init__(self):
-        self.struct_llm = gpt_5(0.3)
-        self.think_llm = gpt_5_mini(0.3)
+        self.struct_llm = get_high_performance_model()
+        self.think_llm = get_agent_model()
 
         # sub agents
         self.search_image_agent = GetImageAgent().build()
-        self.get_doc_agent = doc_searcher
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
+            middleware=[TokenStatisticMiddleware(agent_name='select_group', **self.think_llm.metadata)],  # type: ignore
             state_schema=SelectGroupState,  # type: ignore
+            context_schema=UserContext,  # type: ignore
         )
-        self.tool_generator = ToolGenerator(llm=self.struct_llm).build()
+        self.tool_generator = ToolGenerator().build()
 
     async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
@@ -146,6 +147,7 @@ class CreateToolAgent:
                 tool_image = image_crud.get(session, str(state['image_uid']))
                 return {'image': tool_image.image}
         else:
+            # TODO 重写镜像搜索
             writer = get_stream_writer()
             writer({'info': 'Searching for docker image...'})
 
@@ -157,7 +159,7 @@ class CreateToolAgent:
                 'image': response['image'],
             }
 
-    async def get_doc_node(self, state: CreateToolState):
+    async def get_doc_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
         """然后尝试获取指令对应的帮助文档"""
         if 'doc_uid' in state and state['doc_uid']:
             return None
@@ -165,12 +167,13 @@ class CreateToolAgent:
             writer = get_stream_writer()
             writer({'info': "Searching for tool's help document..."})
 
-            response = await self.get_doc_agent.ainvoke(
+            response = await doc_searcher.ainvoke(
                 {  # type: ignore
                     'messages': state['messages'],
                     'image_uid': state['image_uid'],
                     'image': state['image'],
-                }
+                },
+                context=UserContext(user_id=runtime.context.user_id),
             )
             doc_uid = response['doc_uid']
 
@@ -178,7 +181,9 @@ class CreateToolAgent:
                 'doc_uid': doc_uid,
             }
 
-    async def search_exist_tool_node(self, state: CreateToolState) -> Command[Literal['get_report', '__end__']]:
+    async def search_exist_tool_node(
+        self, state: CreateToolState, runtime: Runtime[CreateToolContext]
+    ) -> Command[Literal['get_report', '__end__']]:
         writer = get_stream_writer()
         writer({'info': 'Searching if an available node already exists locally...'})
 
@@ -191,7 +196,8 @@ class CreateToolAgent:
             {  # type: ignore
                 'messages': state['messages'],
                 'image_uid': state['image_uid'],
-            }
+            },
+            context=UserContext(user_id=runtime.context.user_id),
         )
         if 'tool_uid' in pre_search_result and pre_search_result['tool_uid']:
             with Session(engine) as session:
@@ -244,6 +250,7 @@ class CreateToolAgent:
         response = await test_run_agent.ainvoke(
             testrun_input,  # type: ignore
             context=TestRunContext(  # type: ignore
+                user_id=runtime.context.user_id,
                 folder_name=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
                 test_run_id=runtime.context.test_run_id,
@@ -253,13 +260,15 @@ class CreateToolAgent:
 
         return {'messages': [HumanMessage(content=run_report)]}
 
-    async def choose_group_node(self, state: CreateToolState):
+    async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
         """最后一步，为工具选择分组"""
         writer = get_stream_writer()
         writer({'info': 'Assigning groups to tools...'})
 
-        group_choose_input: SelectGroupState = {'messages': state['messages']}
-        response = await self.select_group_agent.ainvoke(group_choose_input)
+        response = await self.select_group_agent.ainvoke(
+            {'messages': state['messages']},
+            context=UserContext(user_id=runtime.context.user_id),
+        )
 
         # 不更新消息
         return {'group_id': response['group_id']}
@@ -269,7 +278,10 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
-        result = await self.tool_generator.ainvoke({'messages': state['messages']})
+        result = await self.tool_generator.ainvoke(
+            {'messages': state['messages']},
+            context=UserContext(user_id=runtime.context.user_id),
+        )
 
         with Session(engine) as session:
             group = group_crud.get(session, state['group_id'])
@@ -390,18 +402,3 @@ class CreateToolAgent:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
         return compiled_graph
-
-
-@tool
-def view_output(direction: Literal['begin', 'end'], runtime: ToolRuntime, lines: int = 20):
-    """View the output of the last tool run in segments
-
-    Args:
-        direction: Reading order, begin means reading the first N lines, end means reading the last N lines
-        lines: See how many lines, not too large, default is 20
-    """
-    content: str = runtime.state.get('last_output', '')
-    if direction == 'begin':
-        return '\n'.join(content.splitlines()[:lines])
-    else:
-        return '\n'.join(content.splitlines()[lines:])

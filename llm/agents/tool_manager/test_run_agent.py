@@ -5,15 +5,15 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.core.redis_client import llm_cache
-from llm.models import deepseek_r1, gpt_5_mini
-from llm.states import SearchImageState, TestRunContext, TestRunState
+from llm.agents.tool_manager.searcher.image import search_image_agent
+from llm.models import get_long_context_model, get_simple_model
+from llm.states import TestRunContext, TestRunState
 from llm.tools.container import (
     build_container,
     run_command_in_container,
     stop_and_rm_container,
 )
-from llm.tools.database import search_biodb, search_local_image, select_image
+from llm.tools.database import search_biodb
 from llm.tools.human import ask_human
 from llm.utils.middleware import (
     CheckReportMiddleware,
@@ -24,6 +24,7 @@ from llm.utils.middleware import (
     TodoMiddleware,
     TokenLimitMiddleware,
 )
+from llm.utils.middleware.statistic import TokenStatisticMiddleware
 
 TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 您的核心目标是根据用户的需求运行生物信息学工具，并生成一份全面的工具分析报告。
@@ -197,11 +198,6 @@ The specific fields follow these requirements:
 Finally, the language of the report must be English
 """
 
-SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
-
-According to the tool search results, if there is an image of the tool required by the user, use `select_image` to select it;
-Otherwise, end the task directly and tell the user that the image does not exist.
-"""
 
 PRE_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 您的核心目标是根据用户的需求运行生物信息学工具，并将运行结果反馈给用户。
@@ -326,7 +322,7 @@ class RunOtherToolSchema(BaseModel):
 async def run_other_tool(tool_name: str, task_description: str):
     """Call this tool when you need to use a tool to generate upstream analysis files."""
 
-    search_image_response = await _search_image_agent.ainvoke(
+    search_image_response = await search_image_agent.ainvoke(
         {'messages': [HumanMessage(content=f'<UserRequire>\ntool_name: {tool_name}\n</UserRequire>')]}
     )
 
@@ -347,20 +343,11 @@ async def run_other_tool(tool_name: str, task_description: str):
     return run_response['messages'][-1].content
 
 
-_search_image_agent = create_agent(
-    model=gpt_5_mini(temperature=0.3),
-    tools=[
-        search_local_image,
-        select_image,
-    ],
-    system_prompt=SEARCH_IMAGE_SYSTEM,
-    middleware=[DisableParallelToolCallsMiddleware()],  # type: ignore
-    state_schema=SearchImageState,  # type: ignore
-    cache=llm_cache,  # type: ignore
-)
+_run_model = get_long_context_model()
+
 
 _pre_run_agent = create_agent(
-    model=deepseek_r1(temperature=0.3),
+    model=_run_model,
     tools=[
         search_biodb,
         build_container,
@@ -370,6 +357,7 @@ _pre_run_agent = create_agent(
     middleware=[  # type: ignore
         TokenLimitMiddleware(max_token=20000),
         DisableParallelToolCallsMiddleware(),
+        TokenStatisticMiddleware(agent_name='pre_run', **_run_model.metadata),
         SaveMessagesMiddleware('upstream'),
         ClearContainerMiddleware(),
     ],
@@ -379,7 +367,7 @@ _pre_run_agent = create_agent(
 
 
 test_run_agent: CompiledStateGraph = create_agent(
-    model=deepseek_r1(temperature=0.3),
+    model=_run_model,
     tools=[
         search_biodb,
         build_container,
@@ -395,7 +383,8 @@ test_run_agent: CompiledStateGraph = create_agent(
         StatusBarMiddleware(),
         SaveMessagesMiddleware('test_run'),
         ClearContainerMiddleware(),
-        CheckReportMiddleware(gpt_5_mini(), CHECK_PROMPT),
+        CheckReportMiddleware(get_simple_model(), CHECK_PROMPT),
+        TokenStatisticMiddleware(agent_name='test_run', **_run_model.metadata),
     ],
     state_schema=TestRunState,  # type: ignore
     context_schema=TestRunContext,  # type: ignore
