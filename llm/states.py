@@ -1,9 +1,9 @@
 import operator
 import uuid
 from dataclasses import dataclass
-from typing import Annotated, Any, NotRequired, Optional
+from typing import Annotated, Any, Generic, NotRequired, Optional, TypedDict, TypeVar
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,19 @@ from app.models.tools import FileMount, ImageConfig, ParamDefine
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
 from llm.utils.uid_mapper import BidirectionalMapper
+
+ParsedT = TypeVar('ParsedT', bound=BaseModel | None, default=None)
+
+
+class StructuredResponse(TypedDict, Generic[ParsedT]):
+    raw: AIMessage
+    parsed: ParsedT
+    parsing_error: NotRequired[Any]
+
+
+@dataclass
+class UserContext:
+    user_id: int
 
 
 # =====================tool generator state==========================
@@ -51,7 +64,7 @@ class SelectGroupState(MessagesState):
 
 
 @dataclass
-class CreateToolContext:
+class CreateToolContext(UserContext):
     auto_save: bool = True
 
     save_message: bool = False
@@ -89,7 +102,7 @@ class TestRunState(MessagesState):
 
 
 @dataclass
-class TestRunContext:
+class TestRunContext(UserContext):
     folder_name: str
 
     save_message: bool = False
@@ -171,8 +184,3 @@ class ReproductionState(MessagesState, total=False):
 
     workflow_uid: uuid.UUID
     price: Annotated[float, operator.add]
-
-
-@dataclass
-class ReproductionContext:
-    user_id: int

@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from pydantic import BaseModel
@@ -65,13 +66,40 @@ class LLMModelPublic(BaseModel):
 
 
 # ==================== LLMStatistic Schemas ====================
-class LLMStatisticPublic(BaseModel):
+class LLMStatisticSummary(BaseModel):
+    total_input_tokens: int
+    total_output_tokens: int
+    total_cache_read: int
+    total_price: Decimal
+
+
+class LLMStatisticByAgent(LLMStatisticSummary):
+    count: int
+    agent_name: str
+
+
+class LLMStatisticByModel(LLMStatisticSummary):
+    count: int
+    model_name: str
+
+
+class LLMStatisticByType(LLMStatisticSummary):
+    count: int
+    setting_key: str
+
+
+class LLMStatisticByUser(LLMStatisticSummary):
+    count: int
+    user_name: str
+
+
+class LLMStatisticDetail(BaseModel):
     id: int
     agent_name: str
-    model_id: Optional[int] = None
+    model_name: Optional[str] = None
     setting_key: Optional[str] = None
     input_tokens: int
     output_tokens: int
-    cache_read: Optional[int] = 0
-    price: float
+    cache_read: int
+    price: Decimal
     time: datetime
