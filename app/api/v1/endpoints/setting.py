@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_provider as provider_crud
+import app.crud.setting.llm_setting as setting_crud
 import app.crud.setting.llm_statistic as statistic_crud
 from app.core.session import SessionDep
 from app.models.setting import LLMModel, LLMProvider
@@ -15,7 +16,10 @@ from app.schemas.setting import (
     LLMProviderCreate,
     LLMProviderPublic,
     LLMProviderUpdate,
-    LLMStatisticPublic,
+    LLMSettingPublic,
+    LLMSettingUpdate,
+    LLMStatisticDetailsResponse,
+    LLMStatisticOverview,
 )
 from app.utils.security import AdminDep
 
@@ -25,7 +29,7 @@ router = APIRouter()
 # ==================== LLM Provider Endpoints ====================
 @router.post('/providers', response_model=LLMProviderPublic)
 async def create_llm_provider(provider_data: LLMProviderCreate, session: SessionDep, current_user: AdminDep):
-    provider = LLMProvider(**provider_data.model_dump())
+    provider = LLMProvider.model_validate(provider_data.model_dump())
     result = provider_crud.insert(session, provider)
     return result
 
@@ -112,20 +116,76 @@ async def delete_llm_model(model_id: int, session: SessionDep, current_user: Adm
         raise HTTPException(status_code=404, detail='Model not found')
     return {'message': 'Model deleted successfully'}
 
+
+# ==================== LLM Setting Endpoints ====================
+@router.get('/settings', response_model=LLMSettingPublic)
+async def get_llm_settings(session: SessionDep, current_user: AdminDep):
+    """
+    获取所有 LLM 设置
+
+    返回所有设置项，每个设置包含 model_id、model_name 和 provider_name
+    """
+    settings = setting_crud.get_all_with_details(session)
+    return settings
+
+
+@router.put('/settings', response_model=dict)
+async def update_llm_setting(setting_data: LLMSettingUpdate, session: SessionDep, current_user: AdminDep):
+    """
+    更新 LLM 设置
+
+    更新指定 key 的设置，将其关联到新的 model_id
+
+    - **key**: 设置的 key（如 chat_model, agent_model 等）
+    - **model_id**: 要关联的模型 ID
+    """
+    # 验证 model 是否存在
+    model = model_crud.get(session, setting_data.model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail='Model not found')
+
+    setting_crud.update(session, setting_data.key, setting_data.model_id)
+    return {'message': f'Setting {setting_data.key} updated successfully'}
+
+
 # ==================== LLM Statistic Endpoints ====================
-@router.get('/statistics', response_model=List[LLMStatisticPublic])
-async def get_llm_statistics(
+@router.get('/statistics/overview', response_model=LLMStatisticOverview)
+async def get_llm_statistics_overview(
     session: SessionDep,
     current_user: AdminDep,
     start_date: Optional[datetime] = Query(None, description='开始日期（包含），格式：YYYY-MM-DDTHH:MM:SS'),
     end_date: Optional[datetime] = Query(None, description='结束日期（包含），格式：YYYY-MM-DDTHH:MM:SS'),
 ):
     """
-    根据时间范围查询 LLM 使用统计数据
-    
+    获取 LLM 使用统计概览
+
+    包含总体统计和按不同维度（Agent、Model、Type、User）的分组统计
+
     - **start_date**: 可选，查询起始时间，如果不提供则不限制开始时间
     - **end_date**: 可选，查询结束时间，如果不提供则不限制结束时间
-    - 如果两个参数都不提供，则返回所有统计数据
     """
-    statistics = statistic_crud.get_all_by_date(session, start_date, end_date)
-    return statistics
+    summary = statistic_crud.get_summary(session, start_date, end_date)
+    return summary
+
+
+@router.get('/statistics/details', response_model=LLMStatisticDetailsResponse)
+async def get_llm_statistics_details(
+    session: SessionDep,
+    current_user: AdminDep,
+    start_date: Optional[datetime] = Query(None, description='开始日期（包含），格式：YYYY-MM-DDTHH:MM:SS'),
+    end_date: Optional[datetime] = Query(None, description='结束日期（包含），格式：YYYY-MM-DDTHH:MM:SS'),
+    limit: int = Query(100, ge=1, le=1000, description='每页记录数'),
+    offset: int = Query(0, ge=0, description='偏移量'),
+):
+    """
+    获取 LLM 使用详细记录列表
+
+    返回详细记录列表，包含 model name（从 model_id JOIN 获取）
+
+    - **start_date**: 可选，查询起始时间，如果不提供则不限制开始时间
+    - **end_date**: 可选，查询结束时间，如果不提供则不限制结束时间
+    - **limit**: 每页记录数，默认 100，最大 1000
+    - **offset**: 偏移量，用于分页
+    """
+    result = statistic_crud.get_details(session, start_date, end_date, limit, offset)
+    return result

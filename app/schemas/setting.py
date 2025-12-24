@@ -1,23 +1,25 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
-from app.models.setting import LLMModel
+from app.models.setting import LLMModel, ProviderType
 
 
 # ==================== LLMProvider Schemas ====================
 class LLMProviderCreate(BaseModel):
     name: str
-    base_url: str
+    provider_type: ProviderType
+    base_url: Optional[str] = None
     api_key: str
-    use_proxy: bool
+    use_proxy: bool = False
     is_active: bool = True
 
 
 class LLMProviderUpdate(BaseModel):
     name: Optional[str] = None
+    provider_type: Optional[ProviderType] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     use_proxy: Optional[bool] = None
@@ -27,6 +29,7 @@ class LLMProviderUpdate(BaseModel):
 class LLMProviderPublic(BaseModel):
     id: int
     name: str
+    provider_type: ProviderType
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     use_proxy: bool
@@ -65,6 +68,36 @@ class LLMModelPublic(BaseModel):
     is_active: bool
 
 
+# ==================== LLMSetting Schemas ====================
+class LLMSettingItem(BaseModel):
+    model_id: int
+    model_name: str
+    provider_name: str
+
+
+class LLMSettingPublic(BaseModel):
+    chat_model: LLMSettingItem
+    vision_model: LLMSettingItem
+    agent_model: LLMSettingItem
+    coding_model: LLMSettingItem
+    simple_model: LLMSettingItem
+    long_context_model: LLMSettingItem
+    high_performance_model: LLMSettingItem
+
+
+class LLMSettingUpdate(BaseModel):
+    key: Literal[
+        'chat_model',
+        'vision_model',
+        'agent_model',
+        'coding_model',
+        'simple_model',
+        'long_context_model',
+        'high_performance_model',
+    ]
+    model_id: int
+
+
 # ==================== LLMStatistic Schemas ====================
 class LLMStatisticSummary(BaseModel):
     total_input_tokens: int
@@ -93,6 +126,16 @@ class LLMStatisticByUser(LLMStatisticSummary):
     user_name: str
 
 
+class LLMStatisticOverview(BaseModel):
+    """LLM 使用统计概览，包含总体统计和各维度分组"""
+
+    total: LLMStatisticSummary
+    by_agent: list[LLMStatisticByAgent]
+    by_model: list[LLMStatisticByModel]
+    by_type: list[LLMStatisticByType]
+    by_user: list[LLMStatisticByUser]
+
+
 class LLMStatisticDetail(BaseModel):
     id: int
     agent_name: str
@@ -103,3 +146,10 @@ class LLMStatisticDetail(BaseModel):
     cache_read: int
     price: Decimal
     time: datetime
+
+
+class LLMStatisticDetailsResponse(BaseModel):
+    """LLM 使用详细记录响应"""
+
+    total: int
+    items: list[LLMStatisticDetail]
