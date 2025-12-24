@@ -1,15 +1,7 @@
 from typing import Annotated, Optional, Sequence
 
 from fastapi import APIRouter, Form, HTTPException, Query
-from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from loguru import logger
-from starlette.responses import StreamingResponse
 from starlette.status import HTTP_404_NOT_FOUND
-from uuid_extensions import uuid7str
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
@@ -19,7 +11,6 @@ import app.crud.tools.tool_tag as tag_crud
 from app.core.session import SessionDep
 from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
-    AiGenRequest,
     DockerToolCreate,
     SimpleToolDoc,
     SimpleToolPublic,
@@ -30,9 +21,7 @@ from app.schemas.tools import (
 )
 from app.utils.container.podman import run_podman
 from app.utils.security import AdminDep, MemberDep
-from llm.agents.tool_manager.create_tool_agent import CreateToolAgent
 from llm.models import qwen3_embedding
-from llm.states import CreateToolContext, CreateToolState
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -158,55 +147,13 @@ def get_tools_by_name(
     return tool_crud.get_by_name_fuzzy(session, name, limit, offset)
 
 
-@router.post('/generate')
-async def gen_tool_config(prop: Annotated[AiGenRequest, Form()], current_user: AdminDep):
-    thread_id = uuid7str()
-    # thread_id = '1'
-
-    async def generator():
-        memory = InMemorySaver(serde=JsonPlusSerializer(pickle_fallback=True))
-        client = MultiServerMCPClient(
-            {
-                'deepwiki': {
-                    'transport': 'streamable_http',  # HTTP-based remote server
-                    'url': 'https://mcp.deepwiki.com/mcp',
-                },
-            }
-        )
-        deepwiki_tools = await client.get_tools()
-        agent = CreateToolAgent(deepwiki_tools=deepwiki_tools).build(memory=memory, visualize=True)
-        search_input: CreateToolState = {
-            'messages': [
-                HumanMessage(
-                    content=f'The node to be encapsulated is named **{prop.name}**, and its function is {prop.description}'
-                )
-            ],
-            'image_uid': prop.image_uid,
-        }
-        config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 50}
-        context = CreateToolContext(auto_save=False)
-
-        async for namespace, chunk in agent.astream(
-            search_input, config, context=context, stream_mode='custom', subgraphs=True
-        ):
-            logger.debug(chunk)
-            yield chunk
-
-        response = await agent.aget_state(config)
-        yield response.values['json_response']
-
-        await memory.adelete_thread(thread_id)
-
-    return StreamingResponse(generator(), media_type='text/event-stream')
-
-
 @router.get('/{tool_uid}', response_model=ToolPublic)
-async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
+async def get_tool_detail(session: SessionDep, tool_uid: str):
     return tool_crud.get(session, tool_uid)
 
 
 @router.get('/{tool_uid}/args', response_model=ToolNodePublic)
-async def get_tool_args(session: SessionDep, tool_uid: str) -> ToolNodePublic:
+async def get_tool_args(session: SessionDep, tool_uid: str):
     return tool_crud.get(session, tool_uid)
 
 
