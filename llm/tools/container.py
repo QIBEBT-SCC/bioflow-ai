@@ -204,7 +204,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
     testdata_mount = {
         'type': 'bind',
         'target': '/data/testdata',
-        'source': Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve(),
+        'source': f'{Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve()}',
         'read_only': True,
     }
     output_mount = {
