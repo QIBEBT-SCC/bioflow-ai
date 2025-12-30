@@ -22,6 +22,7 @@ from app.api.v1.endpoints import (
     workflow,
 )
 from app.core.config import get_settings
+from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
 from app.utils.logger import init_logging
 
@@ -31,6 +32,7 @@ init_logging()
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):
     create_db_and_tables()
+    init_bucket()
     yield
 
     logger.info('server stop')
