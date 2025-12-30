@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Optional
@@ -21,13 +23,19 @@ from tqdm import tqdm
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
+import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ImageConfig, ToolGroup, ToolImage, ToolTag
+from app.models.tools import ImageConfig, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from app.utils.container.docker import run_docker
 from llm.agents.tool_manager import CreateToolAgent, CreateToolContext, CreateToolState
 from llm.models import qwen3_embedding
+
+# 禁用 crawl4ai 导致的 httpx 日志输出
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 
 def init_tag_and_group(drop_old: bool = True):
@@ -81,7 +89,7 @@ async def init_images(drop_old: bool = True):
         auto_id=True,
     )
 
-    batch_size = 100
+    batch_size = 50
 
     for i in tqdm(range(0, len(images), batch_size)):
         batch_images = images[i : i + batch_size]
@@ -93,51 +101,71 @@ async def init_images(drop_old: bool = True):
         await vectorstore.aadd_documents(docs)
 
 
-async def init_tools():
-    from openinference.instrumentation import TraceConfig
-    from openinference.instrumentation.langchain import LangChainInstrumentor
-    from phoenix.otel import register
+async def init_tools(index: Optional[int] = None):
+    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+    if index is not None:
+        os.environ['LANGCHAIN_PROJECT'] = 'ai-dev'
+    else:
+        os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
-    # configure the Phoenix tracer
-    tracer_provider = register(
-        endpoint='http://172.18.19.150:4317',
-        project_name='build-tool',  # Default is 'default'
-        protocol='grpc',
-        batch=True,
-        auto_instrument=False,  # Auto-instrument your app based on installed OI dependencies
-    )
-    trace_config = TraceConfig(hide_input_images=True, hide_embedding_vectors=True, base64_image_max_length=1000)
-    LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
+    skip_tools = ['MACS2']
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet').filter(~pl.col('tool_name').is_in(skip_tools))
 
-    function_df = pl.read_parquet('tool_functions_gpt5.parquet')
-    todo_df = function_df.filter(~pl.col('thread_id').is_not_null()).filter(~pl.col('image_name').is_in(['Picard']))
+    # 如果指定了 index，只处理该索引的数据；否则处理所有未完成的数据
+    if index is not None:
+        todo_df = function_df.filter(pl.col('index') == index)
+        if todo_df.height == 0:
+            logger.error(f'未找到索引为 {index} 的数据')
+            return
+    else:
+        todo_df = function_df.filter(~pl.col('thread').is_not_null())
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
         for row in todo_df.iter_rows(named=True):
+            # Schema({'index': UInt32, 'tool_name': String, 'function_description': String, 'help_command': String, 'tool_node': Null, 'thread': Null, 'interrupted': Boolean})
             row: dict[str, Any]
+            row_index: int = row['index']
+            tool_name: str = row['tool_name']
+            function: str = row['function_description']
+            help_command: str = row['help_command'].strip()
 
             with Session(engine) as session:
-                tool_image = image_crud.get_by_name(session, row['image_name'])
+                tool_image = image_crud.get_by_name(session, tool_name)
                 assert tool_image is not None
 
-            thread_id = f'tool_{row["index"]}_{row["image_name"]}'
-            agent_input: CreateToolState = {
-                'messages': [HumanMessage(content=f'Using `{row["name"]}` for {row["functions"]}.')],
-                'image_uid': tool_image.uid,
-                'image': tool_image.image,
-            }
+                tool_doc = doc_crud.get_by_command(session, help_command)
+                if tool_doc is None:
+                    code, result = run_docker(tool_image.image, help_command, [])
+                    tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
+                    tool_doc = doc_crud.insert(session, tool_doc)
+
+                agent_input: CreateToolState = {
+                    'messages': [
+                        HumanMessage(
+                            content=f'<Require>\n'
+                            f'tool_name: {tool_name}\n'
+                            f'function: {function}\nhelp_command: `{help_command}`\n'
+                            f'</Require>'
+                        )
+                    ],
+                    'image_uid': tool_image.uid,
+                    'image': tool_image.image,
+                    'doc_uid': tool_doc.uid,
+                }
+
+            thread_id = f'tool_{row_index}_{tool_name}'
             config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
-            context = CreateToolContext(auto_save=True, save_message=True, test_run_id=thread_id)
+            context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
             function_df = function_df.with_columns(
-                pl.when(pl.col('index') == row['index'])
+                pl.when(pl.col('index') == row_index)
                 .then(pl.lit(thread_id))
-                .otherwise(pl.col('thread_id'))
-                .alias('thread_id')
+                .otherwise(pl.col('thread'))
+                .alias('thread')
             )
-            function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+            function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
             async for namespace, mode, data in agent.astream(
                 agent_input,  # type: ignore
@@ -151,75 +179,62 @@ async def init_tools():
             response = await agent.aget_state(config)
             if response.interrupts:
                 function_df = function_df.with_columns(
-                    pl.when(pl.col('index') == row['index'])
+                    pl.when(pl.col('index') == row_index)
                     .then(pl.lit(True))
-                    .otherwise(pl.col('interrupt'))
-                    .alias('interrupt'),
+                    .otherwise(pl.col('interrupted'))
+                    .alias('interrupted'),
                 )
-                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+                function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
                 break
             else:
                 function_df = function_df.with_columns(
-                    pl.when(pl.col('index') == row['index'])
+                    pl.when(pl.col('index') == row_index)
                     .then(pl.lit(response.values['tool_uid']))
                     .otherwise(pl.col('tool_node'))
                     .alias('tool_node'),
                 )
-                function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+                function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
 
 async def read_interrupt(index: int):
-    function_df = pl.read_parquet('tool_functions_gpt5.parquet')
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     tool_info: dict[str, Any] = function_df.row(index=index, named=True)
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
-        thread_id = tool_info['thread_id']
+        thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
 
         response = await agent.aget_state(config)
         rich.print(response.interrupts)
 
 
-async def continue_run(index: int, message: Optional[str] = None):
-    from openinference.instrumentation import TraceConfig
-    from openinference.instrumentation.langchain import LangChainInstrumentor
-    from phoenix.otel import register
-
-    # configure the Phoenix tracer
-    tracer_provider = register(
-        endpoint='http://172.18.19.150:4317',
-        project_name='build-tool',  # Default is 'default'
-        protocol='grpc',
-        batch=True,
-        auto_instrument=False,  # Auto-instrument your app based on installed OI dependencies
-    )
-    trace_config = TraceConfig(hide_input_images=True, hide_embedding_vectors=True, base64_image_max_length=1000)
-    LangChainInstrumentor(tracer_provider=tracer_provider).instrument(skip_dep_check=True, config=trace_config)
-
-    function_df = pl.read_parquet('tool_functions_gpt5.parquet')
+async def continue_run(index: int, message: Optional[str] = None, approve: bool = False):
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     function_df = function_df.with_columns(
-        pl.when(pl.col('index') == index).then(pl.lit(False)).otherwise(pl.col('interrupt')).alias('interrupt'),
+        pl.when(pl.col('index') == index).then(pl.lit(False)).otherwise(pl.col('interrupted')).alias('interrupted'),
     )
-    tool_info: dict[str, Any] = function_df.row(index=index, named=True)
+    tool_info: dict[str, Any] = function_df.filter(pl.col('index') == index).row(index=0, named=True)
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
-        thread_id = tool_info['thread_id']
+        thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
-        context = CreateToolContext(auto_save=True, save_message=True, test_run_id=thread_id)
+        context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
 
-        if message is None:
-            input_message = None
-        else:
+        if approve:
+            input_message = Command(resume=True)
+        elif message is not None:
             input_message = Command(resume=message)
+        else:
+            input_message = None
         async for namespace, mode, data in agent.astream(
             input_message,
             config,
@@ -232,7 +247,10 @@ async def continue_run(index: int, message: Optional[str] = None):
         response = await agent.aget_state(config)
         if response.interrupts:
             function_df = function_df.with_columns(
-                pl.when(pl.col('index') == index).then(pl.lit(True)).otherwise(pl.col('interrupt')).alias('interrupt'),
+                pl.when(pl.col('index') == index)
+                .then(pl.lit(True))
+                .otherwise(pl.col('interrupted'))
+                .alias('interrupted'),
             )
             rich.print(response.interrupts)
         else:
@@ -242,15 +260,15 @@ async def continue_run(index: int, message: Optional[str] = None):
                 .otherwise(pl.col('tool_node'))
                 .alias('tool_node'),
             )
-        function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+        function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
 
 async def delete_prebuild_tool(indices: list[int]):
-    function_df = pl.read_parquet('tool_functions_gpt5.parquet')
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     thread_ids_to_delete: list[str] = []
 
     for index in indices:
-        tool_info: dict[str, Any] = function_df.row(index=index, named=True)
+        tool_info: dict[str, Any] = function_df.filter(pl.col('index') == index).row(index=0, named=True)
         logger.info(f'要删除的数据 (index={index}): {tool_info}')
 
         if tool_info['tool_node']:
@@ -258,18 +276,18 @@ async def delete_prebuild_tool(indices: list[int]):
                 tool_crud.delete(session, tool_info['tool_node'])
                 logger.info(f'删除了一条数据库信息 (index={index})')
 
-        if tool_info['thread_id']:
-            thread_ids_to_delete.append(tool_info['thread_id'])
+        if tool_info['thread']:
+            thread_ids_to_delete.append(tool_info['thread'])
             async with aiosqlite.connect('checkpoints.db') as conn:
                 memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
                 agent = CreateToolAgent().build(memory=memory)
 
-                thread_id = 'tool_65_BLAST'
-                config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
+                config: RunnableConfig = {'configurable': {'thread_id': tool_info['thread']}, 'recursion_limit': 500}
 
                 response = await agent.aget_state(config, subgraphs=True)
                 if (
                     response.tasks
+                    and response.tasks[0].state
                     and 'container_id' in response.tasks[0].state.values
                     and response.tasks[0].state.values['container_id']
                 ):
@@ -284,7 +302,7 @@ async def delete_prebuild_tool(indices: list[int]):
                         remove_container(response.tasks[0].state.values['container_id'])
                     logger.info('清理了残余容器')
 
-                await memory.adelete_thread(tool_info['thread_id'])
+                await memory.adelete_thread(tool_info['thread'])
                 logger.info(f'删除了一条智能体记录 (index={index})')
 
     # 批量删除 test_run.parquet 中的记录
@@ -306,11 +324,11 @@ async def delete_prebuild_tool(indices: list[int]):
     # 批量更新 DataFrame
     indices_condition = pl.col('index').is_in(indices)
     function_df = function_df.with_columns(
-        pl.when(indices_condition).then(None).otherwise(pl.col('thread_id')).alias('thread_id'),
+        pl.when(indices_condition).then(None).otherwise(pl.col('thread')).alias('thread'),
         pl.when(indices_condition).then(None).otherwise(pl.col('tool_node')).alias('tool_node'),
-        pl.when(indices_condition).then(False).otherwise(pl.col('interrupt')).alias('interrupt'),
+        pl.when(indices_condition).then(False).otherwise(pl.col('interrupted')).alias('interrupted'),
     )
-    function_df.write_parquet('tool_functions_gpt5.parquet', compression='snappy')
+    function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
     logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 
@@ -327,7 +345,7 @@ async def rebuild_vector_store():
         auto_id=True,
     )
 
-    function_df = pl.read_parquet('tool_functions_gpt5.parquet').filter(pl.col('tool_node').is_not_null())
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet').filter(pl.col('tool_node').is_not_null())
     for row in function_df.iter_rows(named=True):
         row: dict[str, Any]
 
@@ -378,9 +396,10 @@ def init_images_cmd(drop_old: bool):
 
 
 @cli.command()
-def init_tools_cmd():
+@click.option('--index', type=int, default=None, help='指定要处理的数据索引（如果不指定则处理所有未完成的数据）')
+def init_tools_cmd(index: Optional[int]):
     """初始化工具"""
-    asyncio.run(init_tools())
+    asyncio.run(init_tools(index))
 
 
 @cli.command()
@@ -393,9 +412,10 @@ def read_interrupt_cmd(index: int):
 @cli.command()
 @click.argument('index', type=int)
 @click.option('--message', '-m', type=str, default=None, help='继续运行时发送的消息')
-def continue_run_cmd(index: int, message: Optional[str]):
+@click.option('--approve', is_flag=True, default=False, help='批准标志')
+def continue_run_cmd(index: int, message: Optional[str], approve: bool):
     """继续运行指定索引的工具创建任务"""
-    asyncio.run(continue_run(index, message))
+    asyncio.run(continue_run(index, message, approve))
 
 
 @cli.command()
