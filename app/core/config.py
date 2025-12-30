@@ -56,41 +56,12 @@ class PersistenceConfig(BaseModel):
     MAX_MEM: str = '4G'
 
 
-class KnowledgeBaseConfig(BaseModel):
+class DockerConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    MILVUS_URL: str = 'http://localhost:19530'
-    EMBEDDING_MODEL: str = 'Qwen/Qwen3-Embedding-4B'
-    USE_MODELSCOPE: bool = False
-    EMBEDDING_DEVICE: str = 'cuda:0'
-
-
-class LLMApiConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    PROVIDER: str = ''
-    BASE_URL: str = ''
-    API_KEY: SecretStr = ''
-
-
-class LLMToolConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    JINA_API: SecretStr = ''
-
-
-class LLMConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
-
-    GEMINI: LLMApiConfig = LLMApiConfig()
-    GPT: LLMApiConfig = LLMApiConfig()
-    CLAUDE: LLMApiConfig = LLMApiConfig()
-    GROK: LLMApiConfig = LLMApiConfig()
-    DEEPSEEK: LLMApiConfig = LLMApiConfig()
-    GLM: LLMApiConfig = LLMApiConfig()
-    VLLM: LLMApiConfig = LLMApiConfig()
-
-    tools: LLMToolConfig = LLMToolConfig()
+    CONTAINER: Literal['docker', 'podman'] = 'docker'
+    USERNAME: str = ''
+    PASSWORD: SecretStr = ''
 
 
 class CeleryConfig(BaseModel):
@@ -100,12 +71,13 @@ class CeleryConfig(BaseModel):
     BACKEND: str = 'redis://localhost:6379/1'
 
 
-class DockerConfig(BaseModel):
+class KnowledgeBaseConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
-    CONTAINER: Literal['docker', 'podman'] = 'docker'
-    USERNAME: str = ''
-    PASSWORD: SecretStr = ''
+    MILVUS_URL: str = 'http://localhost:19530'
+    EMBEDDING_MODEL: str = 'Qwen/Qwen3-Embedding-4B'
+    USE_MODELSCOPE: bool = False
+    EMBEDDING_DEVICE: str = 'cuda:0'
 
 
 class Settings(BaseSettings):
@@ -120,7 +92,6 @@ class Settings(BaseSettings):
     persistent: PersistenceConfig = PersistenceConfig()
     docker: DockerConfig = DockerConfig()
     celery: CeleryConfig = CeleryConfig()
-    llm: LLMConfig = LLMConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
 
     @classmethod

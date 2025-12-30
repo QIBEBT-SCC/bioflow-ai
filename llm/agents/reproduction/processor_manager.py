@@ -9,7 +9,7 @@ from loguru import logger
 
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
-from llm.models import gpt_5_mini
+from llm.models import get_agent_model
 from llm.states import BuildEdge, BuildNode, ReproductionState
 from llm.tools.human import ask_human
 from llm.utils.formatters import node_formatter
@@ -27,14 +27,13 @@ class ProcessorManager:
             ask_human,
         ]
 
-        self.llm = gpt_5_mini(temperature=0.2).bind_tools(self.tools, tool_choice='auto')
+        self.llm = get_agent_model().bind_tools(self.tools, tool_choice='auto')
 
     def build(self):
         graph = StateGraph(state_schema=ReproductionState)
 
         compiled_graph = graph.compile(name=self.name)
         return compiled_graph
-
 
 
 @tool
@@ -96,6 +95,7 @@ async def add_data_process_node(
             ],
         }
     )
+
 
 @tool
 async def need_other_node(node_type: Literal['tool', 'resource', 'code', 'note'], requirement: str):

@@ -46,44 +46,6 @@ password = ""
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/1"
 
-[llm.gemini]
-provider = ""
-base_url = ""
-api_key = ""
-
-[llm.gpt]
-provider = ""
-base_url = ""
-api_key = ""
-
-[llm.claude]
-provider = ""
-base_url = ""
-api_key = ""
-
-[llm.grok]
-provider = ""
-base_url = ""
-api_key = ""
-
-[llm.deepseek]
-provider = ""
-base_url = "https://api.deepseek.com/v1"
-api_key = ""
-
-[llm.glm]
-provider = ""
-base_url = "https://open.bigmodel.cn/api/coding/paas/v4"
-api_key = ""
-
-[llm.vllm]
-provider = ""
-base_url = ""
-api_key = ""
-
-[llm.tools]
-jina_api = ""
-
 [knowledge_base]
 milvus_url = "http://localhost:19530"
 embedding_model = "Qwen/Qwen3-Embedding-4B"

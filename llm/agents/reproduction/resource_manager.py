@@ -12,7 +12,7 @@ from app.crud.resource import bio_db as db_crud
 from app.models.resource import BioDb
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
-from llm.models import gpt_5_mini
+from llm.models import get_agent_model
 from llm.states import BuildEdge, BuildNode, ReproductionState
 from llm.tools.database import search_biodb
 from llm.tools.human import ask_human
@@ -31,7 +31,7 @@ class ResourceManager:
             ask_human,
         ]
 
-        self.llm = gpt_5_mini(temperature=0.2).bind_tools(self.tools, tool_choice='auto')
+        self.llm = get_agent_model().bind_tools(self.tools, tool_choice='auto')
 
     def build(self):
         graph = StateGraph(state_schema=ReproductionState)

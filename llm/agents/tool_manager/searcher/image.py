@@ -18,7 +18,7 @@ import app.crud.tools.image as image_crud
 from app.core.redis_client import llm_cache
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolImage
-from llm.models import gemini_25_flash, get_agent_model
+from llm.models import get_agent_model, get_long_context_model
 from llm.states import SearchImageState
 from llm.tools.database import search_local_image, select_image
 from llm.tools.human import ask_human
@@ -241,7 +241,7 @@ class GetImageAgent:
             system_prompt=SEARCH_IMAGE_SYS,
             middleware=[  # type: ignore
                 SummarizationMiddleware(
-                    model=gemini_25_flash(),
+                    model=get_long_context_model(),
                     max_tokens_before_summary=10000,
                     messages_to_keep=6,
                 )

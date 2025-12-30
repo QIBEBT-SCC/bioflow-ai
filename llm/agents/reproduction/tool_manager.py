@@ -12,8 +12,8 @@ from app.core.session import engine
 from app.crud.tools import tool as tool_crud
 from app.schemas.react_flow import NodeData
 from app.schemas.tools import ToolNodePublic
-from llm.models import gpt_5_mini
 from llm.agents.tool_manager.create_tool_agent import CreateToolAgent
+from llm.models import get_agent_model
 from llm.states import BuildEdge, BuildNode, CreateToolState, ReproductionState
 from llm.tools.database import search_tool
 from llm.tools.human import ask_human
@@ -33,7 +33,7 @@ class ToolManager:
             ask_human,
         ]
 
-        self.llm = gpt_5_mini(temperature=0.2).bind_tools(self.tools, tool_choice='auto')
+        self.llm = get_agent_model().bind_tools(self.tools, tool_choice='auto')
 
     def build(self):
         graph = StateGraph(state_schema=ReproductionState)

@@ -4,7 +4,7 @@ from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.tools import tool
 
 from app.core.config import get_settings
-from llm.models import gemini_25_flash
+from llm.models import get_long_context_model
 
 _SUMMARY_SYS = """# Role: Context Compression Engine
 You are an AI assistant specializing in compressing conversation histories. Your core mission is to precisely and efficiently distill key information from long dialogues, generating a structured summary that is easy for a subsequent AI to understand and use.
@@ -98,5 +98,5 @@ async def web_reader(url: str):
 
 
 web_summary_middleware = SummarizationMiddleware(
-    model=gemini_25_flash(), max_tokens_before_summary=10000, messages_to_keep=4, summary_prompt=_SUMMARY_SYS
+    model=get_long_context_model(), max_tokens_before_summary=10000, messages_to_keep=4, summary_prompt=_SUMMARY_SYS
 )
