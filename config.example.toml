@@ -51,3 +51,15 @@ milvus_url = "http://localhost:19530"
 embedding_model = "Qwen/Qwen3-Embedding-4B"
 use_modelscope = false
 embedding_device = "cuda:0"
+
+[pdf_parser]
+engine = "open_mineru"
+
+[pdf_parser.mineru]
+api_url = "https://api.mineru.app"
+api_key = ""
+timeout = 600
+
+[pdf_parser.open_mineru]
+api_url = "http://localhost:8000"
+timeout = 600

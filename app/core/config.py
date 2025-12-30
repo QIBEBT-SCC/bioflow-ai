@@ -71,6 +71,30 @@ class CeleryConfig(BaseModel):
     BACKEND: str = 'redis://localhost:6379/1'
 
 
+class MinerUConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    API_URL: str = 'https://api.mineru.app'
+    API_KEY: SecretStr = ''
+    TIMEOUT: int = 600  # 秒
+
+
+class OpenMinerUConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    API_URL: str = 'http://localhost:8000'
+    TIMEOUT: int = 600  # 秒
+
+
+class PDFParserConfig(BaseModel):
+    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
+
+    ENGINE: Literal['mineru', 'doc2x', 'grobid', 'open_mineru', 'local'] = 'local'
+
+    mineru: MinerUConfig = MinerUConfig()
+    open_mineru: OpenMinerUConfig = OpenMinerUConfig()
+
+
 class KnowledgeBaseConfig(BaseModel):
     model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower())
 
@@ -93,6 +117,7 @@ class Settings(BaseSettings):
     docker: DockerConfig = DockerConfig()
     celery: CeleryConfig = CeleryConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
+    pdf_parser: PDFParserConfig = PDFParserConfig()
 
     @classmethod
     def settings_customise_sources(
