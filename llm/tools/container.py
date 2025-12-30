@@ -190,7 +190,11 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
     Args:
         mounts: Other mounts besides testdata and output folder
     """
-    output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / runtime.context.folder_name
+    output_path = (
+        Path(get_settings().persistent.storage.STORAGE_PATH).expanduser().resolve()
+        / 'testrun'
+        / runtime.context.folder_name
+    )
     output_path.mkdir(parents=True, exist_ok=True)
 
     image: ImageConfig = runtime.state.get('image')
@@ -200,7 +204,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
     testdata_mount = {
         'type': 'bind',
         'target': '/data/testdata',
-        'source': get_settings().persistent.TEST_DATA_PATH,
+        'source': Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve(),
         'read_only': True,
     }
     output_mount = {
@@ -220,7 +224,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
                     Mount(
                         target=m['target'],
                         source=m['source'],
-                        type=m.get('type', 'bind'),
+                        type='bind',
                         read_only=m.get('read_only', False),
                     )
                 )
@@ -281,6 +285,6 @@ def stop_and_rm_container(runtime: ToolRuntime):
 
 
 def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('find', 'grep', 'help')) or len(output) <= 3000:
+    if any(k in command for k in ('find', 'grep', 'help', 'DESCRIPTION.md')) or len(output) <= 3000:
         return output
     return f'{output[:1500]}\n...\n{output[-500:]}'

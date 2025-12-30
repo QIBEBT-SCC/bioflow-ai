@@ -71,3 +71,13 @@ class ReferenceGenomes(SQLModel, table=True):
     hisat2_index: Optional[str]
     star_index: Optional[str]
     minimap2_index: Optional[str]
+
+
+class File(SQLModel, table=True):
+    __tablename__ = 'files'
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    sha256: str = Field(unique=True)
+    file_name: str
+    s3_path: int
+    upload_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
