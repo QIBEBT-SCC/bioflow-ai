@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 import aiosqlite
 import click
+import docker
 import polars as pl
 import rich
 from langchain_core.documents import Document
@@ -36,6 +37,14 @@ from llm.models import qwen3_embedding
 # 禁用 crawl4ai 导致的 httpx 日志输出
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
+
+
+def _clear_container():
+    client = docker.from_env()
+    for container in client.containers.list():
+        image_name = ''.join(container.image.tags)
+        if 'biocontainers' in image_name:
+            container.remove(force=True)
 
 
 def init_tag_and_group(drop_old: bool = True):
@@ -188,7 +197,8 @@ async def init_tools(index: Optional[int] = None):
 
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
-                break
+                _clear_container()
+                # break
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row_index)
