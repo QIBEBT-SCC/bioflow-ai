@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import httpx
+import uuid_extensions
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -44,8 +45,8 @@ def _get_async_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout)
 
 
-async def parse_pdf(file_path: str | Path, output_dir: str | Path) -> dict[str, list[str] | str]:
-    """调用 MinerU 解析 PDF，返回保存的 Markdown 路径和图片路径列表"""
+async def parse(file_path: str | Path, output_dir: str | Path) -> dict[str, list[str] | str]:
+    """调用 MinerU 解析 PDF，返回保存后的 Markdown 路径和重命名的图片路径列表"""
 
     pdf_path = Path(file_path).expanduser().resolve()
     if not pdf_path.exists():
@@ -68,14 +69,14 @@ async def parse_pdf(file_path: str | Path, output_dir: str | Path) -> dict[str, 
     response.raise_for_status()
     content_type = response.headers.get('content-type', '')
     if 'application/zip' not in content_type and 'application/octet-stream' not in content_type:
-        raise ValueError(f'期望 ZIP 响应，实际为 {content_type}: {response.text[:200]}')
+        raise ValueError(f'Incorrect response type {content_type}')
 
     md_path: Optional[Path] = None
-    image_paths: list[str] = []
+    image_paths: list[Path] = []
+    name_map: dict[str, str] = {}
 
     with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
         names = zf.namelist()
-        logger.info(f'MinerU ZIP entries: {names}')
 
         for name in names:
             target = out_dir / name
@@ -87,12 +88,27 @@ async def parse_pdf(file_path: str | Path, output_dir: str | Path) -> dict[str, 
             if lower.endswith(('.md', '.markdown')):
                 md_path = target
             if lower.endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp')):
-                image_paths.append(str(target))
+                image_paths.append(target)
 
     if md_path is None:
-        raise ValueError(f'ZIP 中未找到 Markdown 文件: {names}')
+        raise ValueError('The parsing result is empty')
 
-    return {'markdown': str(md_path), 'images': image_paths}
+    # 重命名图片为 UUID
+    new_image_paths: list[str] = []
+    for img_path in image_paths:
+        img_uid = uuid_extensions.uuid7str()
+        new_path = img_path.with_stem(img_uid)
+        name_map[img_path.name] = new_path.name
+        img_path.rename(new_path)
+        new_image_paths.append(str(new_path))
+
+    # 更新 Markdown 中的图片引用
+    md_text = md_path.read_text(encoding='utf-8')
+    for old_name, new_name in name_map.items():
+        md_text = md_text.replace(f'images/{old_name}', new_name)
+    md_path.write_text(md_text, encoding='utf-8')
+
+    return {'markdown': str(md_path), 'images': new_image_paths}
 
 
-__all__ = ['MineruParseOptions', 'parse_pdf']
+__all__ = ['MineruParseOptions', 'parse']
