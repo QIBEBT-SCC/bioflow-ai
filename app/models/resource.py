@@ -79,5 +79,5 @@ class File(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     sha256: str = Field(unique=True)
     file_name: str
-    s3_path: int
+    s3_path: str
     upload_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
