@@ -21,7 +21,7 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
-from llm.states import ReproductionContext
+from llm.states import UserContext
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -468,7 +468,7 @@ def search_biodb(query: str) -> str:
 
 
 @tool(parse_docstring=True)
-def save_workflow(name: str, runtime: ToolRuntime[ReproductionContext]):
+def save_workflow(name: str, runtime: ToolRuntime[UserContext]):
     """Save the completed workflow into the database
 
     Args:
