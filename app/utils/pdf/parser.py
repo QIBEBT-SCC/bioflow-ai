@@ -48,19 +48,25 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
             case 'open_mineru':
                 # 调用本地部署 MinerU 解析
                 parse_output_dir = tmp_path / 'parsed'
-                parse_result = await open_mineru.parse(pdf_path, parse_output_dir)
+                parse_result: open_mineru.OpenMinerUParseResult = await open_mineru.parse(pdf_path, parse_output_dir)
 
-                md_path = Path(parse_result['markdown'])
-                image_paths = [Path(p) for p in parse_result['images']]
+                md_path = Path(parse_result.markdown)
+                img_mappers = parse_result.images
 
             case _:
                 raise ValueError(f'不支持的解析引擎: {engine}')
 
         # 上传文件到对象存储（所有文件使用 PDF 的 hash 来生成路径，确保在同一目录下）
-        pdf_key = storage.upload_file(pdf_path, pdf_hash, prefix='documents/')
-        storage.upload_file(md_path, pdf_hash, prefix='documents/')
-        for img_path in image_paths:
-            storage.upload_file(img_path, pdf_hash, prefix='documents/')
+        # 同时更新markdown中的图片引用路径
+        pdf_key = storage.upload_file(pdf_path, pdf_hash, prefix='documents')
+
+        md_text = md_path.read_text(encoding='utf-8')
+        for mapper in img_mappers:
+            img_key = storage.upload_file(mapper.file_path, pdf_hash, prefix='documents')
+            md_text = md_text.replace(mapper.old_name, img_key)
+
+        md_path.write_text(md_text, encoding='utf-8')
+        storage.upload_file(md_path, pdf_hash, prefix='documents')
 
         # 保存到数据库
         with Session(engine) as session:

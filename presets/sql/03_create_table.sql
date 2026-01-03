@@ -179,6 +179,17 @@ CREATE TABLE IF NOT EXISTS sample_files
     FOREIGN KEY (sample_uid) REFERENCES samples
 );
 
+CREATE TABLE IF NOT EXISTS files
+(
+    id          SERIAL    NOT NULL,
+    sha256      VARCHAR   NOT NULL,
+    file_name   VARCHAR   NOT NULL,
+    s3_path     VARCHAR   NOT NULL,
+    upload_time TIMESTAMP NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (sha256)
+);
+
 -- 工具相关
 CREATE TABLE IF NOT EXISTS images
 (
