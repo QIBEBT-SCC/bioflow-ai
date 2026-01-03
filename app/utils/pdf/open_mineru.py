@@ -4,11 +4,21 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import httpx
-import uuid_extensions
+import nanoid
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+
+
+class ImageMap(BaseModel):
+    old_name: str
+    file_path: str
+
+
+class OpenMinerUParseResult(BaseModel):
+    markdown: str
+    images: list[ImageMap] = Field(default_factory=list)
 
 
 class MineruParseOptions(BaseModel):
@@ -45,7 +55,7 @@ def _get_async_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout)
 
 
-async def parse(file_path: str | Path, output_dir: str | Path) -> dict[str, list[str] | str]:
+async def parse(file_path: str | Path, output_dir: str | Path) -> OpenMinerUParseResult:
     """调用 MinerU 解析 PDF，返回保存后的 Markdown 路径和重命名的图片路径列表"""
 
     pdf_path = Path(file_path).expanduser().resolve()
@@ -93,22 +103,15 @@ async def parse(file_path: str | Path, output_dir: str | Path) -> dict[str, list
     if md_path is None:
         raise ValueError('The parsing result is empty')
 
-    # 重命名图片为 UUID
-    new_image_paths: list[str] = []
+    # 重命名图片为 nanoid
+    image_mapper: list[ImageMap] = []
     for img_path in image_paths:
-        img_uid = uuid_extensions.uuid7str()
+        img_uid = nanoid.generate(size=8)
         new_path = img_path.with_stem(img_uid)
-        name_map[img_path.name] = new_path.name
+        image_mapper.append(ImageMap(old_name=f'images/{img_path.name}', file_path=str(new_path)))
         img_path.rename(new_path)
-        new_image_paths.append(str(new_path))
 
-    # 更新 Markdown 中的图片引用
-    md_text = md_path.read_text(encoding='utf-8')
-    for old_name, new_name in name_map.items():
-        md_text = md_text.replace(f'images/{old_name}', new_name)
-    md_path.write_text(md_text, encoding='utf-8')
-
-    return {'markdown': str(md_path), 'images': new_image_paths}
+    return OpenMinerUParseResult(markdown=str(md_path), images=image_mapper)
 
 
-__all__ = ['MineruParseOptions', 'parse']
+__all__ = ['MineruParseOptions', 'OpenMinerUParseResult', 'parse']
