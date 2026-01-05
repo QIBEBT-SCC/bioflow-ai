@@ -94,6 +94,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
     )
 
 
+@tool
 async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
     """Get relevant paper snippets from the vector database based on the query"""
 
@@ -106,4 +107,15 @@ async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
         consistency_level='Strong',
     )
 
-    paper_id = runtime.state.get('')
+    paper_id = runtime.state.get('paper_id', None)
+
+    task = 'Provide a search query to search for relevant paper snippets'
+    query = embedding.get_detailed_instruct(task, query)
+
+    results = await vectorstore.amax_marginal_relevance_search(query, k=8, expr=f'doc_id == "{str(paper_id)}"')
+
+    if not results:
+        return 'Based on your query, no relevant paper snippets were found.'
+
+    snippets_content = '\n\n'.join([f'<Snippet>\n{t.page_content}\n<Snippet>' for t in results])
+    return f'Relevant paper snippets based on your query:\n{snippets_content}'
