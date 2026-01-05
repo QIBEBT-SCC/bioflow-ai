@@ -92,3 +92,18 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
             ],
         }
     )
+
+
+async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
+    """Get relevant paper snippets from the vector database based on the query"""
+
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='Papers',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding,
+        search_params={'M': 64, 'efConstruction': 100},
+        consistency_level='Strong',
+    )
+
+    paper_id = runtime.state.get('')

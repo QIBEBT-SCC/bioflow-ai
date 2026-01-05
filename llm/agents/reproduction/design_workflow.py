@@ -1,6 +1,5 @@
 from typing import Literal, Optional
 
-import rich
 from langchain.agents import create_agent
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -13,11 +12,17 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
 
+from app.core.redis_client import llm_cache
 from llm.agents.reproduction.reproduction import build_workflow_agent
 from llm.models import get_agent_model, get_long_context_model, get_simple_model
-from llm.states import BuildSchema, DesignState, StructuredResponse, UserContext
+from llm.states import DesignState, StructuredResponse, UserContext
 from llm.tools.storage import view_pdf
-from llm.utils.middleware import TokenStatisticMiddleware
+from llm.utils.middleware import (
+    DisableParallelToolCallsMiddleware,
+    StatusBarMiddleware,
+    TodoMiddleware,
+    TokenStatisticMiddleware,
+)
 from llm.utils.token import store_token_usage
 
 INTENT_RECOGNITION_SYSTEM = """You are a user requirements analyst. You need to classify the current user's requirement into one of the following three categories based on a conversation context:
@@ -53,6 +58,16 @@ In simple terms, imagine you are writing bash scripts or nextflow scripts, where
 Avoid vague workflow divisions like "integrated analysis" or "multi-omics joint analysis."
 However, do not over-split workflows, for example, separating quality control and alignment into two workflows, as this would lead to workflow fragmentation and hinder engineering implementation.
 
+# Operational Procedures
+1. Call appropriate tools to obtain the full text of the literature and read it
+2. Call the `add_todos` tool to decompose the workflow according to the logic above and write a task list
+    - For each workflow, first add a task named "Initialize Workflow #n XXX Design"
+    - Continue adding detailed tasks, where each task corresponds to a specific analysis step in the original text, until all workflows included in the current work are covered
+    - For each workflow, finally add a task named “Save Workflow #n XXX” as the conclusion of the current workflow design
+3. There is no need to complete the entire task list at once; refine it progressively in multiple steps as needed
+4. After completing the task list, summarize the results of the workflow decomposition and end the task
+
+**Important**: Note that your current task is only to write a task list, so you are only allowed to use the `add_todos` and `view_todos` tool. The `update_todo` tool is for subsequent workflow design; please do not use it.
 
 # Output Format
 Please answer directly according to the following structure, without superfluous content:
@@ -99,12 +114,19 @@ class WorkflowDesigner:
             system_prompt=SUMMARY_PAPER_SYSTEM,
             middleware=[TokenStatisticMiddleware(agent_name=self.name, **self.summary_llm.metadata)],  # type: ignore
             state_schema=DesignState,  # type: ignore
+            cache=llm_cache,
         )
+
         self.split_workflow_agent = create_agent(
             self.summary_llm,
             [view_pdf],
             system_prompt=SPLIT_WORKFLOW_SYSTEM,
-            middleware=[TokenStatisticMiddleware(agent_name=self.name, **self.summary_llm.metadata)],  # type: ignore
+            middleware=[  # type: ignore
+                TodoMiddleware(),
+                DisableParallelToolCallsMiddleware(),
+                StatusBarMiddleware(),
+                TokenStatisticMiddleware(agent_name=self.name, **self.summary_llm.metadata),
+            ],
             state_schema=DesignState,  # type: ignore
         )
 
@@ -148,7 +170,13 @@ class WorkflowDesigner:
         )
         await self.history.aadd_messages([response['messages'][-1]])
 
-        return {'paper_id': response['paper_id']}
+        # Mocked response for demonstration
+        # response = {
+        #     'paper_id': 'sample_paper_id',
+        #     'messages': [HumanMessage(content='This is a sample paper summary.')],
+        # }
+
+        return {'paper_id': response['paper_id'], 'paper_summary': response['messages'][-1].content}
 
     async def split_workflow_node(self, state: DesignState, runtime: Runtime[UserContext]):  # type: ignore
         """文献复现Step2 - 工作流拆解"""
@@ -159,7 +187,7 @@ class WorkflowDesigner:
         )
         await self.history.aadd_messages([response['messages'][-1]])
 
-        return {'messages': [response['messages'][-1]]}
+        return {'messages': [response['messages'][-1]], 'todos': response['todos']}
 
     async def plan_confirmation_node(self, state: DesignState):
         """文献复现Step3 - 方案确认"""
@@ -173,13 +201,14 @@ class WorkflowDesigner:
     async def generate_workflow_node(self, state: DesignState, runtime: Runtime[UserContext]):
         """文献复现Step4 - 工作流生成"""
 
-        build_input: BuildSchema = {
+        build_input = {
             'paper_id': state['paper_id'],
             'messages': [
                 HumanMessage(
                     content=f'The following workflows are available in the literature, please build them:\n{state["workflow_description"]}'
                 )
             ],
+            'todos': state['todos'],
         }
         response = await build_workflow_agent.ainvoke(
             build_input,  # type: ignore
@@ -187,6 +216,7 @@ class WorkflowDesigner:
         )
 
         return {'workflow_uids': response['workflow_uids']}
+        # return
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False):
         graph = StateGraph(DesignState, UserContext)  # type: ignore

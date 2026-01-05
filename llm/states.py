@@ -1,7 +1,7 @@
 import operator
 import uuid
 from dataclasses import dataclass
-from typing import Annotated, Any, Generic, NotRequired, Optional, TypedDict, TypeVar
+from typing import Annotated, Any, Generic, Literal, NotRequired, Optional, TypedDict, TypeVar
 
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph import MessagesState
@@ -110,10 +110,18 @@ class TestRunContext(UserContext):
 
 
 # =====================extra workflow state==========================
+class Todo(BaseModel):
+    index: Optional[int] = None
+    content: str
+    status: Literal['pending', 'in_progress', 'completed']
+
+
 class DesignState(MessagesState, total=False):
     task: str
     paper_id: str
 
+    paper_summary: str
+    todos: list[Todo]
     workflow_description: str
 
     workflow_uids: list[uuid.UUID]
@@ -141,12 +149,19 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
-class BuildSchema(MessagesState, total=False):
+class ManagerSchema(MessagesState, total=False):
     paper_id: str
 
     id_mapper: BidirectionalMapper
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
 
+
+class BuildSchema(MessagesState, total=False):
+    paper_id: str
+
+    id_mapper: BidirectionalMapper
+    exist_nodes: list[BuildNode]
+    exist_edges: list[BuildEdge]
+
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
-    price: Annotated[float, operator.add]

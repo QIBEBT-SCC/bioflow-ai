@@ -21,7 +21,7 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
-from llm.states import UserContext
+from llm.states import BuildSchema, UserContext
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -468,7 +468,7 @@ def search_biodb(query: str) -> str:
 
 
 @tool(parse_docstring=True)
-def save_workflow(name: str, runtime: ToolRuntime[UserContext]):
+def save_workflow(name: str, runtime: ToolRuntime[UserContext, BuildSchema]):
     """Save the completed workflow into the database
 
     Args:
@@ -514,11 +514,14 @@ def save_workflow(name: str, runtime: ToolRuntime[UserContext]):
 
         workflow = wf_crud.insert(session, workflow)
 
+    # 更新工作流列表并清空面板
     return Command(
         update={
-            'workflow_uid': workflow.uid,
+            'workflow_uid': [workflow.uid],
             'messages': [
                 ToolMessage(content='The workflow has been saved to the database.', tool_call_id=runtime.tool_call_id)
             ],
+            'exist_nodes': [],
+            'exist_edges': [],
         }
     )
