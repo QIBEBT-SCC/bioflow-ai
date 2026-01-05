@@ -1,10 +1,10 @@
 import logging
 import sys
+from datetime import datetime
 from types import FrameType
 from typing import cast
 
 from loguru import logger
-from datetime import datetime
 
 from app.core.config import get_settings
 
@@ -174,6 +174,8 @@ def init_logging():
     prefect_logger.propagate = False
 
     # httpx日志重定向
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
     httpx_logger = logging.getLogger('httpx')
     # httpx_logger.handlers = [IgnoreHandler()]
     httpx_logger.handlers = [InterceptHandler(logger_type='httpx')]
