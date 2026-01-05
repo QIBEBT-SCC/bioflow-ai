@@ -110,48 +110,13 @@ class TestRunContext(UserContext):
 
 
 # =====================extra workflow state==========================
-class ExtractOutput1(BaseModel):
-    """A brief summary of the literature (requirements) and the extraction of tools mentioned in the text"""
+class DesignState(MessagesState, total=False):
+    task: str
+    paper_id: str
 
-    overall_summary: str = Field(
-        description='The main conclusions/findings and general analytical direction/methods of this literature.'
-    )
-    major_finding: str = Field(
-        description='Summary of the main findings/conclusions of the literature. Leave blank if it is not a complete research paper'
-    )
-    tools: list[str] = Field(description='All tools used in the paper', default_factory=list)
-    r_packages: list[str] = Field(description='All R packages used in the analysis', default_factory=list)
-    python_packages: list[str] = Field(description='All Python libraries used in the analysis', default_factory=list)
-    unknown: list[str] = Field(description='')
+    workflow_description: str
 
-
-class PaperWorkflow(BaseModel):
-    """Details of each workflow"""
-
-    name: str = Field(description='Name for this workflow')
-    workflow_summary: str = Field(description='A brief description of the bioinformatics role of this workflow')
-    conclusion_support: Optional[str] = Field(
-        description='(Only for complete articles) How do the results of this workflow support the final conclusions of the article?',
-        default=None,
-    )
-    workflow_detail: str = Field(description='Detailed workflow described in a list format')
-    mermaid_code: str = Field(description="Workflow's Mermaid flowchart code. The flowchart's layout is LR")
-
-
-class ExtractOutput2(BaseModel):
-    """The workflows described in the user-provided materials"""
-
-    workflows: list[PaperWorkflow] = Field(description='Workflow List', default_factory=list)
-
-
-class ExtraWorkflowState(MessagesState):
-    analyse_step: Annotated[int, operator.add]
-    formatted_msg: Optional[str]
-
-    tools: list[str]
-    r_packages: list[str]
-    python_packages: list[str]
-    unknown: list[str]
+    workflow_uids: list[uuid.UUID]
 
 
 # =====================reproduction agent state==========================
@@ -176,11 +141,12 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
-class ReproductionState(MessagesState, total=False):
-    id_mapper: BidirectionalMapper
+class BuildSchema(MessagesState, total=False):
+    paper_id: str
 
+    id_mapper: BidirectionalMapper
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
 
-    workflow_uid: uuid.UUID
+    workflow_uids: Annotated[list[uuid.UUID], operator.add]
     price: Annotated[float, operator.add]
