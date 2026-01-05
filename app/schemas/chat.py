@@ -1,35 +1,17 @@
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
-class ContentType(str, Enum):
-    """消息内容类型枚举"""
-
-    TEXT = 'text'
-    IMAGE = 'image'
-    FILE = 'file'
-    DOCUMENT = 'document'
-
-
-class FileUploadResponse(BaseModel):
-    """文件上传响应模型"""
-
-    file_id: str = Field(description='文件唯一标识')
-    filename: str = Field(description='原始文件名')
-    file_path: str = Field(description='文件存储路径')
-    file_size: int = Field(description='文件大小（字节）')
-    mime_type: str = Field(description='文件MIME类型')
-    upload_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    content_type: ContentType = Field(description='内容类型')
+from llm.utils.ai_sdk.ui_message import UIMessage
 
 
 class ChatSessionUpdate(BaseModel):
-    uid: str
+    uid: uuid.UUID
     description: Optional[str] = None
+    checkpoint_uid: Optional[uuid.UUID] = None
+    interrupted: Optional[bool] = None
     update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -44,7 +26,17 @@ class ChatSessionPublic(BaseModel):
 
 class ChatResponse(BaseModel):
     id: str
-    messages: list[dict[str, Any]]
-    model: str
-    webSearch: bool
-    trigger: str
+    messages: list[UIMessage]
+    rebuild: bool
+    resume: bool = False
+    approved: bool = False
+
+
+class PaginatedChatSessions(BaseModel):
+    """分页的聊天会话响应"""
+
+    total: int = Field(description='总记录数')
+    offset: int = Field(description='当前偏移量')
+    limit: int = Field(description='每页数量')
+    has_more: bool = Field(description='是否还有更多数据')
+    data: list[ChatSessionPublic] = Field(description='聊天会话列表')

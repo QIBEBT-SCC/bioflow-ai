@@ -1,5 +1,6 @@
 from typing import Optional
-from sqlmodel import Session, select, col
+
+from sqlmodel import Session, col, func, select
 
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatSessionUpdate
@@ -41,6 +42,12 @@ def get_all(session: Session, owner_id: int, offset: int = 0, limit: int = 10):
         .order_by(col(ChatSessions.update_time).desc())
     )
     return session.exec(query).all()
+
+
+def count_all(session: Session, owner_id: int) -> int:
+    """获取用户的聊天会话总数"""
+    query = select(func.count(ChatSessions.uid)).where(ChatSessions.owner_id == owner_id)
+    return session.exec(query).one()
 
 
 def get(session: Session, uid: str) -> Optional[ChatSessions]:

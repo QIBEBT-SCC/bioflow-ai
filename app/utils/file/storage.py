@@ -3,13 +3,14 @@
 import base64
 import io
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from botocore.exceptions import ClientError
 from loguru import logger
 
 from app.core.config import get_settings
 from app.core.s3_client import s3_client
+from app.utils.file.hash import calculate_base64_sha256, calculate_file_sha256
 
 
 class ObjectStorageError(Exception):
@@ -249,6 +250,58 @@ def download_file_as_base64(key: str) -> str:
         raise ObjectStorageError(error_msg) from e
     except Exception as e:
         error_msg = f'Error occurred while downloading file as base64: {e}'
+        logger.error(error_msg)
+        raise ObjectStorageError(error_msg) from e
+
+
+def read_text_file(key: str, encoding: str = 'utf-8') -> str:
+    """
+    Read text file content from object storage
+
+    Args:
+        key: Object storage key
+        encoding: Text encoding, defaults to 'utf-8'
+
+    Returns:
+        Text file content as string
+
+    Raises:
+        ObjectStorageError: Raised when download or decoding fails
+
+    Example:
+        >>> content = read_text_file('documents/3f/8a/64/report.txt')
+        >>> print(content)
+    """
+    try:
+        bucket = _get_bucket()
+        obj = bucket.Object(key)
+
+        # Download file to memory
+        logger.debug(f'Reading text file: {key}')
+        buffer = io.BytesIO()
+        obj.download_fileobj(buffer)
+        buffer.seek(0)
+        file_bytes = buffer.read()
+
+        # Decode as text
+        try:
+            text_content = file_bytes.decode(encoding)
+        except UnicodeDecodeError as e:
+            raise ObjectStorageError(f'Failed to decode file as {encoding}: {e}')
+
+        logger.success(f'Text file read successfully: {key} ({len(file_bytes)} bytes, {len(text_content)} chars)')
+        return text_content
+
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        if error_code == '404' or error_code == 'NoSuchKey':
+            error_msg = f'File does not exist: {key}'
+        else:
+            error_msg = f'Failed to read text file: {e}'
+        logger.error(error_msg)
+        raise ObjectStorageError(error_msg) from e
+    except Exception as e:
+        error_msg = f'Error occurred while reading text file: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
 
