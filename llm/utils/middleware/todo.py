@@ -22,6 +22,11 @@ Use the todo tools for complex objectives to ensure that you are tracking each n
 - `update_todo`: Update the status of a specific task
   - Use this to mark tasks as 'in_progress' when you start working on them
   - Mark tasks as 'completed' when finished (this will trigger a context clear to free up memory)
+  
+- `view_todos`: View the current todo list and their statuses
+    - Generally, you can see the current to-do list directly from the status bar; call this tool ONLY when you need to review it or require the full task list for other reasons.
+
+**Note**: Depending on user settings, the above tools may not all be available. Please use them according to the actual situation.
 
 ## Guidelines:
 - Use `add_todos` for complex objectives to break down larger tasks into smaller, manageable steps
@@ -54,6 +59,9 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
         tasks: A list of task descriptions strings.
         before: Optional index of the task before which to insert new tasks. If None, tasks are appended to the end.
     """
+    writer = runtime.stream_writer
+    writer('Update task list')
+
     current_todos = runtime.state.get('todos', [])
 
     # If no 'before' parameter, append to the end (original behavior)
@@ -117,6 +125,9 @@ def update_todo(index: int, status: Literal['pending', 'in_progress', 'completed
         index: The index of the task to update.
         status: The new status.
     """
+    writer = runtime.stream_writer
+    writer('Update task list')
+
     current_todos = runtime.state.get('todos', [])
 
     # Find todo by index
@@ -187,9 +198,24 @@ def update_todo(index: int, status: Literal['pending', 'in_progress', 'completed
     return Command(update={'todos': updated_todos, 'messages': update_messages})
 
 
+@tool
+def view_todos(runtime: ToolRuntime):
+    """View the current todo list."""
+    current_todos = runtime.state.get('todos', [])
+    if not current_todos:
+        content = 'The todo list is currently empty.'
+    else:
+        todo_list_str = '\n'.join(
+            [f'  <todo index={t.index} content="{t.content}" status={t.status}>' for t in current_todos]
+        )
+        content = f'<TODOs>\n{todo_list_str}\n</TODOs>'
+
+    return content
+
+
 class TodoMiddleware(AgentMiddleware):
     state_schema = TodoState
-    tools = [add_todos, update_todo]
+    tools = [add_todos, update_todo, view_todos]
 
     def wrap_model_call(
         self,
