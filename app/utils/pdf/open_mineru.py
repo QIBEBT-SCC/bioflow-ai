@@ -30,7 +30,7 @@ class MineruParseOptions(BaseModel):
         'vlm-lmdeploy-engine',
         'vlm-http-client',
     ] = Field(
-        'pipeline',
+        'vlm-http-client',
         description='解析后端，pipeline / vlm-transformers / vlm-mlx-engine / vlm-vllm-async-engine / vlm-lmdeploy-engine / vlm-http-client',
     )
     parse_method: str = Field('auto', description='解析方式，auto / txt / ocr，仅 pipeline 后端有效')
@@ -66,7 +66,11 @@ async def parse(file_path: str | Path, output_dir: str | Path) -> OpenMinerUPars
     out_dir.mkdir(parents=True, exist_ok=True)
 
     options = MineruParseOptions(
-        backend='vlm-vllm-async-engine', return_md=True, return_images=True, response_format_zip=True
+        backend='vlm-http-client',
+        return_md=True,
+        return_images=True,
+        response_format_zip=True,
+        server_url=get_settings().pdf_parser.open_mineru.SERVER_URL,
     )
     endpoint = f'{get_settings().pdf_parser.open_mineru.API_URL}/file_parse'
 

@@ -135,6 +135,7 @@ class MinerUConfig(BaseSectionConfig):
 
 class OpenMinerUConfig(BaseSectionConfig):
     API_URL: str = 'http://localhost:8000'
+    SERVER_URL: str = 'http://localhost:30000'
     TIMEOUT: int = 600  # 秒
 
 

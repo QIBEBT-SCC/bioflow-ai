@@ -71,4 +71,5 @@ timeout = 600
 
 [pdf_parser.open_mineru]
 api_url = "http://localhost:8000"
+server_url = "http://localhost:30000"
 timeout = 600

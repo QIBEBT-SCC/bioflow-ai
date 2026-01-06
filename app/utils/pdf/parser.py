@@ -77,6 +77,8 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
         md_docs = markdown_splitter.split_text(md_text)
         for doc in md_docs:
             doc.metadata['doc_id'] = pdf_key
+            doc.metadata['Title'] = doc.metadata['Title'] if 'Title' in doc.metadata else ''
+            doc.metadata['Section'] = doc.metadata['Section'] if 'Section' in doc.metadata else ''
 
         embedding_model = qwen3_embedding()
         vectorstore = Milvus(
