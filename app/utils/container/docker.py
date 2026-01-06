@@ -200,7 +200,7 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
     client = docker.from_env()
     container = client.containers.get(container_id)
 
-    code, result = container.exec_run(['/bin/bash', '-c', command], tty=True, stream=False, workdir=workdir)
+    code, result = container.exec_run(['/bin/bash', '-c', command], tty=False, stream=False, workdir=workdir)
     if isinstance(result, bytes):
         try:
             result = result.decode()
