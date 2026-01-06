@@ -12,6 +12,7 @@ from app.core.session import SessionDep
 from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
     DockerToolCreate,
+    DockerToolUpdate,
     SimpleToolDoc,
     SimpleToolPublic,
     ToolGroupPublic,
@@ -150,6 +151,15 @@ def get_tools_by_name(
 @router.get('/{tool_uid}', response_model=ToolPublic)
 async def get_tool_detail(session: SessionDep, tool_uid: str):
     return tool_crud.get(session, tool_uid)
+
+
+@router.patch('/{tool_uid}', response_model=SimpleToolPublic)
+async def update_tool(tool_uid: str, tool_update: DockerToolUpdate, session: SessionDep, current_user: AdminDep):
+    """更新工具配置"""
+    tool = tool_crud.update_partial(session, tool_uid, tool_update)
+    if tool is None:
+        raise HTTPException(status_code=404, detail='Tool not found')
+    return tool
 
 
 @router.get('/{tool_uid}/args', response_model=ToolNodePublic)

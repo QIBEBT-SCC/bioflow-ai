@@ -49,7 +49,8 @@ class DockerToolCreate(BaseModel):
 
     command_template: str
     dynamic_params: list[ParamDefine]
-    static_params: str
+    immutable_static_params: str
+    modifiable_static_params: str
     file_mounts: list[FileMount]
 
     def to_tool_data(self) -> ToolDefine:
@@ -62,11 +63,29 @@ class DockerToolCreate(BaseModel):
             help_doc_uid=self.help_doc_uid,
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
-            immutable_static_params=self.static_params,
-            modifiable_static_params=self.static_params,
+            immutable_static_params=self.immutable_static_params,
+            modifiable_static_params=self.modifiable_static_params,
             file_mounts=self.file_mounts,
             tags=self.tags,
         )
+
+
+class DockerToolUpdate(BaseModel):
+    """更新Docker工具的请求模型"""
+
+    name: Optional[str] = None
+    image_uid: Optional[uuid.UUID] = None
+    description: Optional[str] = None
+    help_doc_uid: Optional[uuid.UUID] = None
+
+    group_id: Optional[int] = None
+    tags: Optional[list[ToolTag]] = None
+
+    command_template: Optional[str] = None
+    dynamic_params: Optional[list[ParamDefine]] = None
+    immutable_static_params: Optional[str] = None
+    modifiable_static_params: Optional[str] = None
+    file_mounts: Optional[list[FileMount]] = None
 
 
 class SimpleToolPublic(BaseModel):
