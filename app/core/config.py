@@ -140,6 +140,7 @@ class OpenMinerUConfig(BaseSectionConfig):
 
 class PDFParserConfig(BaseSectionConfig):
     ENGINE: Literal['mineru', 'doc2x', 'grobid', 'open_mineru', 'local'] = 'local'
+    BATCH_SIZE: int = 5
 
     mineru: MinerUConfig = MinerUConfig()
     open_mineru: OpenMinerUConfig = OpenMinerUConfig()

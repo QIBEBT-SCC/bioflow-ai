@@ -88,7 +88,7 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
             drop_old=False,
             auto_id=True,
         )
-        batch_size = 5
+        batch_size = get_settings().pdf_parser.BATCH_SIZE
         for i in range(0, len(md_docs), batch_size):
             batch = md_docs[i : i + batch_size]
             await vectorstore.aadd_documents(batch)

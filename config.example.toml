@@ -62,6 +62,7 @@ embedding_device = "cuda:0"
 
 [pdf_parser]
 engine = "open_mineru"
+batch_size = 5
 
 [pdf_parser.mineru]
 api_url = "https://api.mineru.app"
