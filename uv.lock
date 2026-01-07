@@ -396,6 +396,7 @@ dev = [
     { name = "celery-types" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "openinference-instrumentation-langchain" },
+    { name = "opentelemetry-sdk" },
     { name = "pyppeteer" },
     { name = "rich" },
 ]
@@ -452,6 +453,7 @@ dev = [
     { name = "celery-types", specifier = ">=0.23.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.0" },
     { name = "openinference-instrumentation-langchain", specifier = ">=0.1.53" },
+    { name = "opentelemetry-sdk", specifier = ">=1.38.0" },
     { name = "pyppeteer", specifier = ">=0.0.25" },
     { name = "rich", specifier = ">=14.0.0" },
 ]
@@ -2568,7 +2570,7 @@ wheels = [
 
 [[package]]
 name = "openinference-instrumentation-langchain"
-version = "0.1.55"
+version = "0.1.58"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "openinference-instrumentation" },
@@ -2578,9 +2580,9 @@ dependencies = [
     { name = "opentelemetry-semantic-conventions" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/2c/18/0242af5d7ea1170287b4d1e89aa9a3bcd545788cf748b5494a19b9499b18/openinference_instrumentation_langchain-0.1.55.tar.gz", hash = "sha256:57a2875ca845950f944700d9352efb080c8b20049253408e7739d960c43f34e8", size = 68602, upload-time = "2025-11-10T21:45:29.899Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/7b/f7/ed82c3d146ca6f1b62dabb2e01fbee782a75245d694b23bc90232366dac7/openinference_instrumentation_langchain-0.1.58.tar.gz", hash = "sha256:36a1b1ad162c4e356bd28257173ee3171ad7788a96089553512c6288fa9a0f1c", size = 75239, upload-time = "2026-01-06T23:50:16.243Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/22/5a/55a99fd64cc1c8c21b1c47211c7389af5a9cd98f75d83a21c8b97e6c1d33/openinference_instrumentation_langchain-0.1.55-py3-none-any.whl", hash = "sha256:3f755950254fdf7741e0327a585cb0609c6c5553109a2b52929c29ce2a02c2d3", size = 22195, upload-time = "2025-11-10T21:45:28.147Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e2/10/df4805c99e9b17fdd4496b080788340dd09ebc436dd5073e54a1c2633a04/openinference_instrumentation_langchain-0.1.58-py3-none-any.whl", hash = "sha256:9dd2e0b201131e53d9e520624ef4eea6268c08faab1dc10d64b52c60b5169d91", size = 24396, upload-time = "2026-01-06T23:50:14.022Z" },
 ]
 
 [[package]]
