@@ -119,3 +119,40 @@ async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
 
     snippets_content = '\n\n'.join([f'<Snippet>\n{t.page_content}\n<Snippet>' for t in results])
     return f'Relevant paper snippets based on your query:\n{snippets_content}'
+
+
+@tool(parse_docstring=True)
+async def search_processors(query: str) -> str:
+    """Search for the processor node corresponding to the function
+
+    Args:
+        query: Briefly describe the processor or function to be searched for
+    """
+
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='ProcessorCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding,
+        search_params={'M': 64, 'efConstruction': 100},
+        consistency_level='Strong',
+    )
+
+    task = 'Provide a search query to search for data processors with relevant functions'
+    query = embedding.get_detailed_instruct(task, query)
+
+    results = await vectorstore.amax_marginal_relevance_search(query, k=10)
+
+    if not results:
+        return 'Based on your search query, no corresponding results found'
+
+    processors_content = '\n'.join(
+        [
+            f'  <Processor>\n'
+            f'    <Name>{t.metadata["name"]}</Name>\n'
+            f'    <Description>{t.page_content}</Description>\n'
+            f'  </Processor>'
+            for t in results
+        ]
+    )
+    return f'<Processors>\n{processors_content}\n</Processors>'

@@ -130,6 +130,7 @@ class DesignState(MessagesState, total=False):
 # =====================reproduction agent state==========================
 class BuildNode(BaseModel):
     id: str
+    name: str
     type: str
     input_handles: list[Handle]
     output_handles: list[Handle]
@@ -149,6 +150,11 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
+class GlobalMarker(BaseModel):
+    mark_name: str
+    description: str
+
+
 class ManagerSchema(MessagesState, total=False):
     paper_id: str
 
@@ -156,12 +162,15 @@ class ManagerSchema(MessagesState, total=False):
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
 
+    global_marks: Annotated[list[GlobalMarker], operator.add]
+
 
 class BuildSchema(MessagesState, total=False):
     paper_id: str
 
-    id_mapper: BidirectionalMapper
     exist_nodes: list[BuildNode]
     exist_edges: list[BuildEdge]
+
+    global_marks: list[GlobalMarker]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
