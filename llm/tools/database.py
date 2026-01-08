@@ -306,7 +306,8 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
                 f'    </output_handles>\n'
                 f'    <data>\n'
                 f'      <tool_id>{mappers.get_index_by_uid(str(t.uid))}</tool_id>\n'
-                f'      <args>{t.static_params}<args>\n'
+                f'      <args editable=False>{t.immutable_static_params}</args>\n'
+                f'      <args editable=True>{t.modifiable_static_params}</args>\n'
                 f'    </data>\n'
                 f'    <command>{t.complete_command}</command>'
                 f'  </tool>'
@@ -464,64 +465,4 @@ def search_biodb(query: str) -> str:
     return (
         'Based on the keywords you provided, no results found. '
         'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.'
-    )
-
-
-@tool(parse_docstring=True)
-def save_workflow(name: str, runtime: ToolRuntime[UserContext, BuildSchema]):
-    """Save the completed workflow into the database
-
-    Args:
-        name: Workflow name, brief description of this workflow's tasks
-    """
-    nodes = []
-    for n in runtime.state.get('exist_nodes', []):
-        node = Node(
-            id=n.id,
-            type=n.type,
-            data=n.data,
-            position=Position(x=n.x * 500, y=n.y * 400),
-            dragHandle='.nodeDragable',
-            zIndex=-10 if n.type == 'note' else 20,
-        )
-        nodes.append(node)
-
-    edges = []
-    for e in runtime.state.get('exist_edges', []):
-        source_handle = f'{e.source_node}-out-{e.source_handle}'
-        target_handle = f'{e.target_node}-in-{e.target_handle}'
-        edge = Edge(
-            id=f'xy-edge__{source_handle}-{target_handle}',
-            animated=True,
-            source=e.source_node,
-            target=e.target_node,
-            sourceHandle=source_handle,
-            targetHandle=target_handle,
-        )
-        edges.append(edge)
-
-    workflow_define = WorkflowDefinition(nodes=nodes, edges=edges)
-
-    now = datetime.datetime.now()
-    with Session(engine) as session:
-        workflow = Workflow(
-            name=f'{now.strftime("%y%m%d")}_{name}(AI)',
-            owner_id=runtime.context.user_id,
-            wf_type=WorkflowType.TEMPLATE,
-            workflow=workflow_define,
-            public=True,
-        )
-
-        workflow = wf_crud.insert(session, workflow)
-
-    # 更新工作流列表并清空面板
-    return Command(
-        update={
-            'workflow_uid': [workflow.uid],
-            'messages': [
-                ToolMessage(content='The workflow has been saved to the database.', tool_call_id=runtime.tool_call_id)
-            ],
-            'exist_nodes': [],
-            'exist_edges': [],
-        }
     )
