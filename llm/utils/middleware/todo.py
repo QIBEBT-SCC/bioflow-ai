@@ -236,3 +236,27 @@ class TodoMiddleware(AgentMiddleware):
             request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
         )
         return await handler(request)
+
+
+class InitedTodoMiddleware(AgentMiddleware):
+    tools = [add_todos, update_todo, view_todos]
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelCallResult:
+        request.system_prompt = (
+            request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
+        )
+        return handler(request)
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelCallResult:
+        request.system_prompt = (
+            request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
+        )
+        return await handler(request)

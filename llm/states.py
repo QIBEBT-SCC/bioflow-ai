@@ -168,6 +168,8 @@ class ManagerSchema(MessagesState, total=False):
 class BuildSchema(MessagesState, total=False):
     paper_id: str
 
+    todos: list[Todo]
+
     exist_nodes: list[BuildNode]
     exist_edges: list[BuildEdge]
 
