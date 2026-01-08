@@ -2,8 +2,6 @@ import base64
 import tempfile
 from pathlib import Path
 
-from langchain_milvus import Milvus
-from langchain_text_splitters import MarkdownHeaderTextSplitter
 from loguru import logger
 from sqlmodel import Session
 
@@ -14,7 +12,7 @@ from app.models.resource import File
 from app.utils.file import storage
 from app.utils.file.hash import calculate_base64_sha256
 from app.utils.pdf import open_mineru
-from llm.models import qwen3_embedding
+from llm.utils.retrievers import insert_documents
 
 
 async def parse_pdf(base64_data: str, file_name: str) -> str:
@@ -71,29 +69,8 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
         md_path.write_text(md_text, encoding='utf-8')
         storage.upload_file(md_path, pdf_hash, prefix='documents')
 
-        # 将文件存入向量数据库
-        headers_to_split_on = [('#', 'Title'), ('##', 'Section')]
-        markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on, strip_headers=False)
-        md_docs = markdown_splitter.split_text(md_text)
-        for doc in md_docs:
-            doc.metadata['doc_id'] = pdf_key
-            doc.metadata['Title'] = doc.metadata['Title'] if 'Title' in doc.metadata else ''
-            doc.metadata['Section'] = doc.metadata['Section'] if 'Section' in doc.metadata else ''
-
-        embedding_model = qwen3_embedding()
-        vectorstore = Milvus(
-            collection_name='Papers',
-            connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
-            embedding_function=embedding_model,
-            index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-            consistency_level='Strong',
-            drop_old=False,
-            auto_id=True,
-        )
-        batch_size = get_settings().pdf_parser.BATCH_SIZE
-        for i in range(0, len(md_docs), batch_size):
-            batch = md_docs[i : i + batch_size]
-            await vectorstore.aadd_documents(batch)
+        # 将文件存入向量数据库（父文档存数据库，子文档存 Milvus）
+        insert_documents(md_text, pdf_key)
 
         # 保存到数据库
         with Session(engine) as session:

@@ -328,3 +328,16 @@ CREATE TABLE IF NOT EXISTS task_monitor_logs
     PRIMARY KEY (id),
     FOREIGN KEY (task_uid) REFERENCES task_instances
 );
+
+-- 文档相关
+CREATE TABLE IF NOT EXISTS parent_documents
+(
+    uid         uuid      NOT NULL,
+    doc_id      VARCHAR   NOT NULL,
+    content     TEXT      NOT NULL,
+    title       VARCHAR,
+    section     VARCHAR,
+    create_time TIMESTAMP NOT NULL,
+    PRIMARY KEY (uid)
+);
+
