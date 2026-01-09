@@ -43,6 +43,7 @@ TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 3. **选择测试数据**：
     1. 阅读 `/data/testdata/DESCRIPTION.md` 了解 `/data/testdata` 中可用的测试数据，并根据用户需求和工具特性选择合适的原始测试数据
     2. 创建 `/data/output/00_raw` 目录，并将您选择的测试数据从 `/data/testdata` 复制到此处。对于后续运行，**必须始终使用此复制的副本**，以防止污染原始数据。
+    3. **重要**：如果你要进行的是一个计算开销较大的任务(如比对、回归分析等)，注意`/data/testdata`中的原始数据可能过大，你需要自行进行数据下采样。牢记，你的目标只是测试工具能否运行成功并给出报告，而不是进行实际的数据分析。
 4. **构建计划**：在正式开始运行命令前，使用 `add_todos` 工具初始化任务列表。
     - **Todo List 的核心目的**：解决长分析流程中上下文过长导致的遗忘问题。
     - **规划逻辑**：根据工具特性判断是否需要分步生成文件（例如：先建立索引 -> 再进行比对 -> 最后排序）。
@@ -158,7 +159,7 @@ working dir: [working_dir]
     - 示例2：此工具直接使用 stdout 作为输出，因此只重定向 stderr 用于日志记录"""
 
 
-CHECK_PROMPT = """Check if the last message returned by the system satisfies the following format
+CHECK_PROMPT = """Check if the last message returned by the system satisfies the following format within <OutputStructure>.
 
 <OutputStructure>
 ## Test Run Report
