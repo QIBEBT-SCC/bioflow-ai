@@ -13,21 +13,6 @@ from pydantic import BaseModel, Field
 SYSTEM_PROMPT = """<To-DOList>
 Use the todo tools for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.
 
-## Available Tools:
-- `add_todos`: Add new tasks to the todo list or insert tasks at a specific position
-  - To append tasks to the end: call with `tasks` parameter only (before=None)
-  - To insert tasks before an existing task: specify the `before` parameter with the target task index
-  - Use this when discovering new sub-tasks or when you need to add prerequisite tasks before an existing task
-
-- `update_todo`: Update the status of a specific task
-  - Use this to mark tasks as 'in_progress' when you start working on them
-  - Mark tasks as 'completed' when finished (this will trigger a context clear to free up memory)
-  
-- `view_todos`: View the current todo list and their statuses
-    - Generally, you can see the current to-do list directly from the status bar; call this tool ONLY when you need to review it or require the full task list for other reasons.
-
-**Note**: Depending on user settings, the above tools may not all be available. Please use them according to the actual situation.
-
 ## Guidelines:
 - Use `add_todos` for complex objectives to break down larger tasks into smaller, manageable steps
 - Never call `add_todos` multiple times in parallel
@@ -51,9 +36,11 @@ class TodoState(AgentState):
 
 @tool(parse_docstring=True)
 def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
-    """Add or insert new tasks to the todo list.
+    """Add new tasks to the todo list or insert tasks at a specific position
 
-    Use this tool to initialize the plan or add discovered sub-tasks.
+    - To append tasks to the end: call with `tasks` parameter only (before=None)
+    - To insert tasks before an existing task: specify the `before` parameter with the target task index
+    - Use this when discovering new sub-tasks or when you need to add prerequisite tasks before an existing task
 
     Args:
         tasks: A list of task descriptions strings.
@@ -114,11 +101,12 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
     )
 
 
-@tool(parse_docstring=True)
-def update_todo(index: int, status: Literal['pending', 'in_progress', 'completed'], runtime: ToolRuntime):
+@tool('update_todo', parse_docstring=True)
+def update_todo_state(index: int, status: Literal['pending', 'in_progress', 'completed'], runtime: ToolRuntime):
     """Update the status of a specific todo item.
 
-    Use this to mark tasks as 'in_progress' or 'completed'.
+    - Use this to mark tasks as 'in_progress' when you start working on them
+    - Mark tasks as 'completed' when finished
     CRITICAL: Setting status to 'completed' will trigger a conversation history clear to free up context.
 
     Args:
@@ -198,9 +186,123 @@ def update_todo(index: int, status: Literal['pending', 'in_progress', 'completed
     return Command(update={'todos': updated_todos, 'messages': update_messages})
 
 
+@tool('update_todo', parse_docstring=True)
+def update_todo_content(index: int, content: str, runtime: ToolRuntime):
+    """Update the content of a specific todo item.
+
+    Use this to modify the description or content of an existing task.
+
+    Args:
+        index: The index of the task to update.
+        content: The new content/description for the todo item.
+    """
+    writer = runtime.stream_writer
+    writer('Update task list')
+
+    current_todos = runtime.state.get('todos', [])
+
+    # Find todo by index
+    target_todo = next((t for t in current_todos if t.index == index), None)
+    if not target_todo:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(f'Error: Todo with index {index} not found.', tool_call_id=runtime.tool_call_id)
+                ]
+            }
+        )
+
+    # Store old content for message
+    old_content = target_todo.content
+
+    updated_todos = list(current_todos)
+    for todo in updated_todos:
+        if todo.index == index:
+            todo.content = content
+            break
+
+    return Command(
+        update={
+            'todos': updated_todos,
+            'messages': [
+                ToolMessage(
+                    f'Task {index} content updated from "{old_content}" to "{content}".',
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+@tool(parse_docstring=True)
+def delete_todo(indexs: list[int], runtime: ToolRuntime):
+    """Delete specific todo items.
+
+    Use this to remove existing tasks from the todo list.
+    Deleting todos will cause all remaining task indices to be reassigned sequentially starting from 0.
+
+    Args:
+        indexs: A list of task indices to delete.
+    """
+    writer = runtime.stream_writer
+    writer('Update task list')
+
+    current_todos = runtime.state.get('todos', [])
+
+    if not current_todos:
+        return Command(
+            update={'messages': [ToolMessage('Error: Todo list is empty.', tool_call_id=runtime.tool_call_id)]}
+        )
+
+    # Find todos to delete
+    deleted_contents = []
+    not_found_indices = []
+
+    for idx in indexs:
+        target_todo = next((t for t in current_todos if t.index == idx), None)
+        if target_todo:
+            deleted_contents.append(f'Task {idx}: "{target_todo.content}"')
+        else:
+            not_found_indices.append(idx)
+
+    # If some indices were not found, return error
+    if not_found_indices:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        f'Error: Todo(s) with index {", ".join(map(str, not_found_indices))} not found.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    # Remove todos with specified indices
+    updated_todos = [t for t in current_todos if t.index not in indexs]
+
+    # Reassign indices sequentially starting from 0
+    for i, todo in enumerate(updated_todos):
+        todo.index = i
+
+    # Create success message
+    deleted_list = '\n'.join(deleted_contents)
+    message = f'Deleted {len(indexs)} task(s):\n{deleted_list}\n\nAll remaining tasks have been reindexed.'
+
+    return Command(
+        update={
+            'todos': updated_todos,
+            'messages': [ToolMessage(message, tool_call_id=runtime.tool_call_id)],
+        }
+    )
+
+
 @tool
 def view_todos(runtime: ToolRuntime):
-    """View the current todo list."""
+    """View the current todo list.
+
+    Generally, you can see the current to-do list directly from the status bar; call this tool ONLY when you need to review it or require the full task list for other reasons.
+    """
     current_todos = runtime.state.get('todos', [])
     if not current_todos:
         content = 'The todo list is currently empty.'
@@ -215,7 +317,7 @@ def view_todos(runtime: ToolRuntime):
 
 class TodoMiddleware(AgentMiddleware):
     state_schema = TodoState
-    tools = [add_todos, update_todo, view_todos]
+    tools = [add_todos, update_todo_state, view_todos]
 
     def wrap_model_call(
         self,
@@ -238,8 +340,13 @@ class TodoMiddleware(AgentMiddleware):
         return await handler(request)
 
 
+class BuildTodoMiddleware(AgentMiddleware):
+    state_schema = TodoState
+    tools = [add_todos, update_todo_content, delete_todo, view_todos]
+
+
 class InitedTodoMiddleware(AgentMiddleware):
-    tools = [add_todos, update_todo, view_todos]
+    tools = [update_todo_state, view_todos]
 
     def wrap_model_call(
         self,
