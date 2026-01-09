@@ -1,5 +1,6 @@
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy import Select, func
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
@@ -43,33 +44,25 @@ def update(session: Session, tool: ToolDefine):
 def update_partial(session: Session, tool_uid: str, tool_update):
     """部分更新工具配置"""
     from app.crud.tools import tool_tag as tag_crud
-    
+
     db_tool = get(session, tool_uid)
     if not db_tool:
         return None
-    
+
     # 准备更新数据
     update_data = tool_update.model_dump(exclude_unset=True)
-    
+    db_tool.sqlmodel_update(update_data)
+
     # 处理标签更新
     if tool_update.tags is not None:
-        tags_to_add = [ToolTag(name=tag.name) for tag in tool_update.tags if tag.id == -1]
         exist_ids: list[int] = [tag.id for tag in tool_update.tags if tag.id != -1]
-        
-        if tags_to_add:
-            tags_to_add = tag_crud.insert_all(session, tags_to_add)
-            exist_ids.extend([tag.id for tag in tags_to_add])
-        
         tags = tag_crud.get_all_by_id(session, exist_ids)
-        update_data['tags'] = tags
-    
-    # 使用 sqlmodel_update 方法更新字段
-    db_tool.sqlmodel_update(update_data)
-    
+        db_tool.tags = tags
+
     session.add(db_tool)
     session.commit()
     session.refresh(db_tool)
-    
+
     return db_tool
 
 

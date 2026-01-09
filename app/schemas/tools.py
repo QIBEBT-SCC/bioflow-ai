@@ -110,8 +110,8 @@ class ToolPublic(BaseModel):
     file_mounts: list[FileMount]
 
     dynamic_params: list[ParamDefine]
-    immutable_static_params: str
-    modifiable_static_params: str
+    immutable_static_params: Optional[str]
+    modifiable_static_params: Optional[str]
     command_template: str
 
     complete_command: Optional[str] = None
@@ -122,10 +122,12 @@ class ToolPublic(BaseModel):
 
     @model_validator(mode='after')
     def build_command(self):
+        immutable_static_params = self.immutable_static_params if self.immutable_static_params else ''
+        modifiable_static_params = self.modifiable_static_params if self.modifiable_static_params else ''
         self.complete_command = build_command_template(
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
-            static_params=' '.join([self.immutable_static_params, self.modifiable_static_params]),
+            static_params=' '.join([immutable_static_params, modifiable_static_params]),
             file_mounts=self.file_mounts,
         )
         return self
