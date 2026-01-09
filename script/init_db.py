@@ -117,8 +117,11 @@ async def init_tools(index: Optional[int] = None):
     else:
         os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
-    skip_tools = ['MACS2']
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet').filter(~pl.col('tool_name').is_in(skip_tools))
+    # 读取完整数据集
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
+    
+    # 需要跳过的工具（不处理，但保留在数据集中）
+    skip_tools = ['MACS2', 'RSEM']
 
     # 如果指定了 index，只处理该索引的数据；否则处理所有未完成的数据
     if index is not None:
@@ -127,7 +130,10 @@ async def init_tools(index: Optional[int] = None):
             logger.error(f'未找到索引为 {index} 的数据')
             return
     else:
-        todo_df = function_df.filter(~pl.col('thread').is_not_null())
+        # 过滤掉跳过的工具和已完成的任务
+        todo_df = function_df.filter(
+            ~pl.col('tool_name').is_in(skip_tools) & ~pl.col('thread').is_not_null()
+        )
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -168,6 +174,8 @@ async def init_tools(index: Optional[int] = None):
             thread_id = f'tool_{row_index}_{tool_name}'
             config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
             context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
+            
+            # 更新处理后的数据
             function_df = function_df.with_columns(
                 pl.when(pl.col('index') == row_index)
                 .then(pl.lit(thread_id))
@@ -302,15 +310,18 @@ async def delete_prebuild_tool(indices: list[int]):
                     and response.tasks[0].state.values['container_id']
                 ):
                     # 删除残余容器
-                    if get_settings().docker.CONTAINER == 'docker':
-                        from app.utils.container.docker import remove_container
+                    try:
+                        if get_settings().docker.CONTAINER == 'docker':
+                            from app.utils.container.docker import remove_container
 
-                        remove_container(response.tasks[0].state.values['container_id'])
-                    else:
-                        from app.utils.container.podman import remove_container
+                            remove_container(response.tasks[0].state.values['container_id'])
+                        else:
+                            from app.utils.container.podman import remove_container
 
-                        remove_container(response.tasks[0].state.values['container_id'])
-                    logger.info('清理了残余容器')
+                            remove_container(response.tasks[0].state.values['container_id'])
+                        logger.info('清理了残余容器')
+                    except Exception as e:
+                        logger.warning(e)
 
                 await memory.adelete_thread(tool_info['thread'])
                 logger.info(f'删除了一条智能体记录 (index={index})')
