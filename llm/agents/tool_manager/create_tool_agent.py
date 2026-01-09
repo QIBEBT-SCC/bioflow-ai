@@ -287,7 +287,7 @@ class CreateToolAgent:
             group = group_crud.get(session, state['group_id'])
             assert group is not None
 
-            tag = tag_crud.get_by_name(session, 'AI Checked')
+            tag = tag_crud.get_by_name(session, 'AI Unchecked')
 
             tool_data = ToolDefine(
                 tool_type=ToolType.DOCKER,
