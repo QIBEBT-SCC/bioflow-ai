@@ -13,7 +13,8 @@ from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
     DockerToolCreate,
     DockerToolUpdate,
-    SimpleToolDoc,
+    ImagePublic,
+    ImageUpdate,
     SimpleToolPublic,
     ToolGroupPublic,
     ToolNodePublic,
@@ -83,9 +84,28 @@ def get_images_by_name(session: SessionDep, name: str, offset: int = 0, limit: A
     return image_crud.get_by_name_fuzzy(session, name, limit, offset)
 
 
-@image_router.get('/{uid}/documents', response_model=list[SimpleToolDoc])
-async def get_image_docs(session: SessionDep, uid: str):
-    return doc_crud.get_by_image(session, uid)
+@image_router.get('/{uid}', response_model=ImagePublic)
+async def get_image(session: SessionDep, uid: str):
+    return image_crud.get(session, uid)
+
+
+# @image_router.get('/{uid}/documents', response_model=list[SimpleToolDoc])
+# async def get_image_docs(session: SessionDep, uid: str):
+#     return doc_crud.get_by_image(session, uid)
+#
+#
+# @image_router.get('/{uid}/tools', response_model=list[SimpleToolPublic])
+# async def get_image_tools(session: SessionDep, uid: str):
+#     return tool_crud.get_by_image(session, uid)
+
+
+@image_router.patch('/{uid}', response_model=ToolImage)
+async def update_image(uid: str, image_update: ImageUpdate, session: SessionDep, current_user: AdminDep):
+    """更新镜像信息"""
+    updated_image = image_crud.update(session, uid, image_update)
+    if updated_image is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Image not found')
+    return updated_image
 
 
 @image_router.post('/{uid}')

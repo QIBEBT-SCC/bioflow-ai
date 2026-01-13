@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.tools import FileMount, ParamDefine, ToolDefine, ToolHelpDoc, ToolImage, ToolTag, ToolType
+from app.models.tools import FileMount, ImageConfig, ParamDefine, ToolDefine, ToolHelpDoc, ToolImage, ToolTag, ToolType
 from app.utils.input_format import build_command_template
 
 
@@ -17,11 +17,27 @@ class ToolGroupPublic(BaseModel):
     tool_count: int
 
 
-class ImageUpdate(BaseModel):
+class ImagePublic(BaseModel):
     uid: uuid.UUID
+    name: str
+    version: Optional[str]
+    description: Optional[str]
+    homepage: Optional[str]
+    paper_link: Optional[str]
+    image: ImageConfig
+
+    tools: list['SimpleToolPublic']
+
+
+class ImageUpdate(BaseModel):
+    """更新镜像的请求模型"""
+
+    name: Optional[str] = None
+    version: Optional[str] = None
     description: Optional[str] = None
     homepage: Optional[str] = None
     paper_link: Optional[str] = None
+    image: Optional[ImageConfig] = None
 
 
 class SimpleToolDoc(BaseModel):

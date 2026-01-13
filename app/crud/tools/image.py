@@ -46,10 +46,11 @@ def drop_all(session: Session) -> int:
     return count
 
 
-def update(session: Session, image_update: ImageUpdate):
-    db_image = get(session, image_update.uid)
+def update(session: Session, image_uid: str, image_update: ImageUpdate):
+    """部分更新镜像信息"""
+    db_image = get(session, image_uid)
     if not db_image:
-        raise ValueError(f'Image with uid {image_update.uid} not found')
+        return None
 
     update_data = image_update.model_dump(exclude_unset=True)
     db_image.sqlmodel_update(update_data)
