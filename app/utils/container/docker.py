@@ -3,7 +3,6 @@ import time
 from typing import Optional
 
 import docker
-from docker import DockerClient
 from docker.errors import ImageNotFound
 from docker.types import Mount
 from loguru import logger
@@ -13,8 +12,10 @@ from app.models.tools import ImageConfig
 from app.utils.container._general import _strip_ansi_escape_sequences, calculate_container_stats
 from app.utils.system import get_current_user_identity
 
+client = docker.from_env()
 
-def _check_image(client: DockerClient, image_cfg: ImageConfig):
+
+def _check_image(image_cfg: ImageConfig):
     try:
         client.images.get(image_cfg.get_image())
     except ImageNotFound:
@@ -62,14 +63,13 @@ def run_docker(
         >>> print(f'Status: {status}, Output: {output}')
         Status: 0, Output: Hello World
     """
-    client = docker.from_env()
-    _check_image(client, image_cfg)
+    _check_image(image_cfg)
 
     container = client.containers.run(
         image_cfg.get_image(),
         f'"{command}"',
         stderr=True,
-        entrypoint=['/bin/bash', '-c'],
+        entrypoint=['/bin/sh', '-c'],
         working_dir=workdir,
         user=get_current_user_identity(),
         auto_remove=False,
@@ -116,9 +116,7 @@ def run_docker_background(
         >>> for docker_stats in run_docker_background(image_cfg, 'sleep 10', mounts, interval=1.5):
         >>>     rich.print(docker_stats)
     """
-    client = docker.from_env()
-    _check_image(client, image_cfg)
-
+    _check_image(image_cfg)
     container = None
 
     try:
@@ -126,7 +124,7 @@ def run_docker_background(
             image_cfg.get_image(),
             f'"{command}"',
             mounts=mounts,
-            entrypoint=['/bin/bash', '-c'],
+            entrypoint=['/bin/sh', '-c'],
             working_dir=working_dir,
             user=get_current_user_identity(),
             auto_remove=False,
@@ -166,20 +164,33 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
 
     Returns:
         容器的ID
+
+    Raises:
+        RuntimeError: 容器启动失败时抛出
     """
-    client = docker.from_env()
-    _check_image(client, image_cfg)
+
+    _check_image(image_cfg)
 
     container = client.containers.create(
         image_cfg.get_image(),
-        command='"sleep infinity"',  # 保证容器常驻
+        command='"tail -f /dev/null"',  # 保证容器常驻
         mounts=mounts,
-        entrypoint=['/bin/bash', '-c'],
+        entrypoint=['/bin/sh', '-c'],
         detach=True,
         user=get_current_user_identity(),
         **kwargs,
     )
     container.start()
+
+    # 等待容器稳定并检查状态
+    time.sleep(0.5)
+    container.reload()
+
+    if container.status != 'running':
+        logs = container.logs().decode('utf-8', errors='replace')
+        container.remove(force=True)
+        raise RuntimeError(f'容器启动失败，状态: {container.status}，镜像: {image_cfg.get_image()}，日志: {logs}')
+
     logger.debug(f'create container {container.name}')
 
     return container.id
@@ -197,10 +208,9 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
         - int: 运行的状态码
         - str: 日志输出结果（已去除 ANSI 转义序列）
     """
-    client = docker.from_env()
     container = client.containers.get(container_id)
 
-    code, result = container.exec_run(['/bin/bash', '-c', command], tty=False, stream=False, workdir=workdir)
+    code, result = container.exec_run(['/bin/sh', '-c', command], tty=False, stream=False, workdir=workdir)
     if isinstance(result, bytes):
         try:
             result = result.decode()
@@ -217,7 +227,6 @@ def remove_container(container_id: str):
     Args:
         container_id: 要移除的容器ID
     """
-    client = docker.from_env()
     try:
         container = client.containers.get(container_id)
         container.remove(force=True)

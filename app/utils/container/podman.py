@@ -83,7 +83,7 @@ def run_podman(
                 image_cfg.get_image(),
                 command,
                 mounts=mounts,
-                entrypoint=['/bin/bash', '-c'],
+                entrypoint=['/bin/sh', '-c'],
                 remove=False,
                 detach=True,
                 workdir=workdir,
@@ -140,7 +140,7 @@ def run_podman_background(
                 image_cfg.get_image(),
                 command,
                 mounts=mounts,
-                entrypoint=['/bin/bash', '-c'],
+                entrypoint=['/bin/sh', '-c'],
                 remove=False,
                 detach=True,
                 workdir=workdir,
@@ -255,9 +255,9 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: 
         _check_image(client, image_cfg)
         container = client.containers.create(
             image_cfg.get_image(),
-            command='sleep infinity',  # 保证容器常驻
+            command='tail -f /dev/null',  # 保证容器常驻
             mounts=mounts,
-            entrypoint=['/bin/bash', '-c'],
+            entrypoint=['/bin/sh', '-c'],
             remove=False,
             detach=True,
             **kwargs,
@@ -285,7 +285,7 @@ def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = N
         assert client.ping()
 
         container = client.containers.get(container_id)
-        code, result = container.exec_run(['/bin/bash', '-c', command], tty=True, stream=False, workdir=workdir)
+        code, result = container.exec_run(['/bin/sh', '-c', command], tty=False, stream=False, workdir=workdir)
         if isinstance(result, bytes):
             try:
                 result = result.decode()
