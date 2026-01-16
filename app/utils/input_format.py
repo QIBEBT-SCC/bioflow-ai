@@ -1,6 +1,7 @@
 import os
 import string
 from pathlib import Path
+from typing import Optional
 
 from app.models.tools import FileMount, ParamDefine
 from app.schemas.react_flow import TaskNode
@@ -15,7 +16,11 @@ class PartialFormatter(string.Formatter):
 
 
 def build_command_template(
-    command_template: str, dynamic_params: list[ParamDefine], static_params: str, file_mounts: list[FileMount]
+    command_template: str,
+    dynamic_params: list[ParamDefine],
+    immutable_static_params: Optional[str],
+    modifiable_static_params: Optional[str],
+    file_mounts: list[FileMount],
 ) -> str:
     """构建到最后一级的指令模板字符串"""
 
@@ -23,6 +28,10 @@ def build_command_template(
         [param for param in dynamic_params if param.is_position], key=lambda x: x.index
     )
     dynamic_params = [param.command for param in dynamic_params if not param.is_position]
+
+    immutable_static_params = immutable_static_params if immutable_static_params else ''
+    modifiable_static_params = modifiable_static_params if modifiable_static_params else ''
+    static_params = ' '.join([immutable_static_params, modifiable_static_params])
 
     formatter = PartialFormatter()
     command_template = formatter.format(

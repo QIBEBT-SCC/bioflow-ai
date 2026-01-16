@@ -121,7 +121,8 @@ def docker_task(
     final_template = build_command_template(
         command_template=tool_config.command_template,
         dynamic_params=tool_config.dynamic_params,
-        static_params=params,
+        immutable_static_params=tool_config.immutable_static_params,
+        modifiable_static_params=params,
         file_mounts=tool_config.file_mounts,
     )
     formatter = PartialFormatter()
