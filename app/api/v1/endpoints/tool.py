@@ -182,6 +182,17 @@ async def update_tool(tool_uid: str, tool_update: DockerToolUpdate, session: Ses
     return tool
 
 
+@router.delete('/{tool_uid}')
+async def delete_tool(tool_uid: str, session: SessionDep, current_user: AdminDep):
+    """删除指定工具"""
+    tool = tool_crud.get(session, tool_uid)
+    if tool is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Tool not found')
+    
+    tool_crud.delete(session, tool_uid)
+    return {'message': 'Tool deleted successfully', 'uid': tool_uid}
+
+
 @router.get('/{tool_uid}/args', response_model=ToolNodePublic)
 async def get_tool_args(session: SessionDep, tool_uid: str):
     return tool_crud.get(session, tool_uid)
