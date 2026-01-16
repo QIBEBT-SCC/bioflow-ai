@@ -1,5 +1,5 @@
 from app.schemas.tools import Handle
-from llm.states import BuildEdge, BuildNode
+from llm.states import BuildEdge, BuildNode, GlobalMarker
 
 
 def handle_formatter(handles: list[Handle], space: int = 6) -> str:
@@ -55,3 +55,17 @@ def simple_node_formatter(node: BuildNode) -> str:
 
 def edge_formatter(edge: BuildEdge) -> str:
     return f'<Edge source_node="{edge.source_node}" source_handle="{edge.source_handle}" target_node="{edge.target_node}" target_handle="{edge.target_handle}"/>'
+
+
+def global_mark_formatter(markers: list[GlobalMarker]) -> str:
+    if not markers:
+        return 'No Global Marks In Workflow.'
+    return '\n'.join(
+        [
+            f'<GlobalMark>\n'
+            f'  <mark_name>{m.mark_name}</mark_name>\n'
+            f'  <description>{m.description}</description>\n'
+            f'</GlobalMark>'
+            for m in markers
+        ]
+    )
