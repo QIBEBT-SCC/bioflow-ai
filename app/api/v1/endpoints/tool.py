@@ -188,7 +188,7 @@ async def delete_tool(tool_uid: str, session: SessionDep, current_user: AdminDep
     tool = tool_crud.get(session, tool_uid)
     if tool is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Tool not found')
-    
+
     tool_crud.delete(session, tool_uid)
     return {'message': 'Tool deleted successfully', 'uid': tool_uid}
 
