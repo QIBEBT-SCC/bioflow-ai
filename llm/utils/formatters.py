@@ -1,5 +1,35 @@
 from app.schemas.tools import Handle
-from llm.states import BuildEdge, BuildNode, GlobalMarker
+from app.utils.input_format import build_command_template
+from llm.states import BuildEdge, BuildNode, GlobalMarker, ToolGeneratorState
+
+
+def tool_config_formatter(state: ToolGeneratorState) -> str:
+    complete_command = build_command_template(
+        command_template=state['command_template'],
+        dynamic_params=state['dynamic_params'],
+        immutable_static_params=state['immutable_static_params'],
+        modifiable_static_params=state['modifiable_static_params'],
+        file_mounts=state['file_mounts'],
+    )
+
+    input_files = '\n'.join([f'- `{f.name}`: {f.description}' for f in state['file_mounts'] if f.file_type == 'INPUT'])
+    output_files = '\n'.join(
+        [f'- {f.name}: {f.file_path}. {f.description}' for f in state['file_mounts'] if f.file_type == 'OUTPUT']
+    )
+
+    return (
+        f'## Info\n'
+        f'name: {state["name"]}\n'
+        f'description: {state["description"]}\n\n'
+        f'## Command\n'
+        f'```bash\n'
+        f'{complete_command.replace("{", "{{").replace("}", "}}")}\n'
+        f'```\n\n'
+        f'## Input Files\n'
+        f'{input_files.replace("{", "{{").replace("}", "}}")}\n\n'
+        f'## Output Files\n'
+        f'{output_files.replace("{", "{{").replace("}", "}}")}'
+    )
 
 
 def handle_formatter(handles: list[Handle], space: int = 6) -> str:

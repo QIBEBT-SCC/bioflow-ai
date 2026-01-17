@@ -24,7 +24,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
-from llm.agents.tool_manager.generate_tool_config import ToolGenerator
+from llm.agents.tool_manager.generate_tool_config import tool_generator_agent
 from llm.agents.tool_manager.searcher.doc import doc_searcher
 from llm.agents.tool_manager.searcher.image import GetImageAgent
 from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
@@ -137,7 +137,6 @@ class CreateToolAgent:
             state_schema=SelectGroupState,  # type: ignore
             context_schema=UserContext,  # type: ignore
         )
-        self.tool_generator = ToolGenerator().build()
 
     async def select_image_node(self, state: CreateToolState):
         """首先搜索得到此工具的对应镜像"""
@@ -278,7 +277,7 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
-        result = await self.tool_generator.ainvoke(
+        result = await tool_generator_agent.ainvoke(
             {'messages': state['messages']},
             context=UserContext(user_id=runtime.context.user_id),
         )
