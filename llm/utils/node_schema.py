@@ -18,6 +18,14 @@ class GlobalMarkSchema(BaseModel):
     description: str
 
 
+class SelectFileInFolderSchema(BaseModel):
+    file_name: str
+
+
+class RenameFileSchema(BaseModel):
+    new_file_name: str
+
+
 class SequenceResourceSchema(BaseModel):
     pass
 
@@ -49,7 +57,21 @@ PROCESSORS: dict[str, NodeSchema] = {
         'args': GlobalMarkSchema,
         'input_handles': [Handle(name='file', description='Files to be marked for cross-workflow use')],
         'output_handles': [],
-    }
+    },
+    'select_file_in_folder': {
+        'name': 'Select File in Folder',
+        'description': 'This node is used to select a specific file from a folder. Connect the input handle of this node to the output handle representing the folder. Use the `file_name` parameter to specify the name of the file you want to select within the folder. The output handle of this node will provide the path to the selected file.',
+        'args': SelectFileInFolderSchema,
+        'input_handles': [Handle(name='folder_path', description='Folder path')],
+        'output_handles': [Handle(name='file_path', description='Selected file path')],
+    },
+    'rename_file': {
+        'name': 'Rename File',
+        'description': 'This node is used to rename a file. Connect the input handle of this node to the output handle representing the file you want to rename. Use the `new_file_name` parameter to specify the new name for the file. The output handle of this node will provide the path to the renamed file.',
+        'args': RenameFileSchema,
+        'input_handles': [Handle(name='old_file', description='Old file to be renamed')],
+        'output_handles': [Handle(name='renamed_file', description='Renamed file')],
+    },
 }
 
 RESOURCES: dict[str, NodeSchema] = {
@@ -86,7 +108,7 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'genome': {
         'name': 'NCBI Reference Genome',
-        'description': 'This node is used to load a standard reference genome from NCBI. It requires a preceding string variable node input to specify the species name or TaxID of the reference genome to be used. Note that if the reference genome is not from an NCBI source, use the file node to add it, and add a note node for explanation.',
+        'description': 'This node is used to load a standard reference genome from NCBI. It requires a preceding string variable node input to specify the species name or TaxID of the reference genome to be used. Meanwhile, this node provides not only the reference genome and annotation but also pre-built indexes for commonly used alignment tools; in most cases, you can directly use the index files provided by this node. Note that if the reference genome is not from an NCBI source, you need to use the file node to load the reference genome file and manually build the index, and add a note node for explanation.',
         'args': GenomeResourceSchema,
         'input_handles': [
             Handle(
@@ -101,6 +123,7 @@ RESOURCES: dict[str, NodeSchema] = {
         'output_handles': [
             Handle(name='genome_fasta', description='Gene fasta file of the reference genome'),
             Handle(name='annotation_gff', description='GFF annotation file of the reference genome'),
+            Handle(name='annotation_gtf', description='GTF annotation file of the reference genome'),
             Handle(name='bowtie2_index', description='Bowtie2 index of the reference genome'),
             Handle(name='bwa_index', description='BWA index of the reference genome'),
             Handle(name='hisat2_index', description='HISAT2 index of the reference genome'),
