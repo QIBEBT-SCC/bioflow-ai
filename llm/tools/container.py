@@ -200,11 +200,28 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
     image: ImageConfig = runtime.state.get('image')
 
     # 基础挂载配置
+
+    test_data_path = Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve()
+    for m in mounts:
+        source_path = Path(m.source).expanduser().resolve()
+        if source_path.is_relative_to(test_data_path):
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'你在试图挂载 `{m.source}`，但是测试数据{test_data_path}已经被默认挂载到容器的/data/testdata目录下，无需手动挂载。',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ],
+                }
+            )
+
     mount_configs = [{'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only} for m in mounts]
+
     testdata_mount = {
         'type': 'bind',
         'target': '/data/testdata',
-        'source': f'{Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve()}',
+        'source': f'{test_data_path}',
         'read_only': True,
     }
     output_mount = {
