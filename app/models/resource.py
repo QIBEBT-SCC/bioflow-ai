@@ -14,8 +14,9 @@ from app.models.user import User
 class SampleFileType(IntEnum):
     SEQUENCING_R1 = 0
     SEQUENCING_R2 = 1
-    SPECTRUM = 2
-    IMAGE = 3
+    SEQUENCING = 2
+    SPECTRUM = 3
+    IMAGE = 4
 
 
 class Sample(SQLModel, table=True):
@@ -29,19 +30,22 @@ class Sample(SQLModel, table=True):
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
+    sample_files: list['SampleFiles'] = Relationship(back_populates='sample')
 
 
 class SampleFiles(SQLModel, table=True):
     __tablename__ = 'sample_files'
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    sample_uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, foreign_key='samples.uid')
+    sample_uid: uuid.UUID = Field(foreign_key='samples.uid')
     data_type: SampleFileType
     file_path: str
     file_format: str
     file_size: int
     md5_checksum: str
     uploaded_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    sample: Optional['Sample'] = Relationship(back_populates='sample_files')
 
 
 class BioDb(SQLModel, table=True):

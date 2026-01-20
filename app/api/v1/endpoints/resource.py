@@ -1,18 +1,31 @@
+import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.resource.bio_db as db_crud
+import app.crud.resource.sample as sample_crud
 from app.core.session import SessionDep
-from app.models.resource import BioDb, ReferenceGenomes
-from app.schemas.resource import BioDbCreate, BioDbSimple
+from app.models.resource import BioDb, ReferenceGenomes, Sample, SampleFiles
+from app.models.user import User
+from app.schemas.resource import (
+    BioDbCreate,
+    BioDbSimple,
+    SampleCreate,
+    SampleFileCreate,
+    SampleFilePublic,
+    SampleListItem,
+    SamplePublic,
+    SampleUpdate,
+)
+from app.utils.security import AdminDep, UserDep, get_current_active_user
 from app.utils.system import get_folder_size_du
-from app.utils.security import AdminDep, UserDep
 
 db_router = APIRouter()
 reference_router = APIRouter()
+sample_router = APIRouter()
 
 
 @db_router.post('', response_model=BioDb)
@@ -68,3 +81,24 @@ async def new_reference(bio_db_prop: BioDbCreate, session: SessionDep, current_u
 @reference_router.get('/{ref_id}', response_model=ReferenceGenomes)
 async def get_reference_by_id(ref_id: int, session: SessionDep, current_user: AdminDep):
     pass
+
+
+# Sample 全局统计端点（放在 /api/v1/samples 下）
+@sample_router.get('/count')
+async def get_total_sample_count(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> int:
+    """获取用户的样本总数"""
+    return sample_crud.get_count_by_user(session, current_user.id)
+
+
+@sample_router.get('', response_model=list[SampleListItem])
+async def get_all_user_samples(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    offset: int = 0,
+    limit: Annotated[int, Query(le=100)] = 20,
+) -> list[SampleListItem]:
+    """获取用户的所有样本（跨项目）"""
+    return sample_crud.get_all_by_user(session, current_user.id, limit, offset)

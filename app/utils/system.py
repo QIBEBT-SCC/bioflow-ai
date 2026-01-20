@@ -1,6 +1,7 @@
 import os
 import subprocess
 from functools import lru_cache
+from pathlib import Path
 
 
 @lru_cache
@@ -16,6 +17,21 @@ def format_size(size_bytes: int) -> str:
             return f'{size:.2f} {unit}'
         size /= 1024
     return ''
+
+
+def get_file_size(file_path: str | Path) -> int:
+    """获取文件大小（字节）
+
+    Args:
+        file_path: 文件路径
+
+    Returns:
+        文件大小（字节），如果文件不存在返回 0
+    """
+    try:
+        return Path(file_path).stat().st_size
+    except (FileNotFoundError, OSError):
+        return 0
 
 
 def get_folder_size_du(path: str) -> str:
