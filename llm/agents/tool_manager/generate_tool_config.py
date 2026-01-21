@@ -5,7 +5,7 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from app.models.tools import FileMount, ParamDefine
-from llm.models import get_high_performance_model, get_simple_model
+from llm.models import get_high_performance_model
 from llm.states import ToolGeneratorState, UserContext
 from llm.utils.middleware import DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckGenerateMiddleware
@@ -388,7 +388,7 @@ tool_generator_agent = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[  # type: ignore
         DisableParallelToolCallsMiddleware(),
-        CheckGenerateMiddleware(get_simple_model(), CHECK_PROMPT),
+        CheckGenerateMiddleware(2),
         TokenStatisticMiddleware('tool_generator', **get_high_performance_model().metadata),
     ],
     state_schema=ToolGeneratorState,  # type: ignore
