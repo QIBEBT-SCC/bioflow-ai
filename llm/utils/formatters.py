@@ -23,12 +23,12 @@ def tool_config_formatter(state: ToolGeneratorState) -> str:
         f'description: {state["description"]}\n\n'
         f'## Command\n'
         f'```bash\n'
-        f'{complete_command.replace("{", "{{").replace("}", "}}")}\n'
+        f'{complete_command}\n'
         f'```\n\n'
         f'## Input Files\n'
-        f'{input_files.replace("{", "{{").replace("}", "}}")}\n\n'
+        f'{input_files}\n\n'
         f'## Output Files\n'
-        f'{output_files.replace("{", "{{").replace("}", "}}")}'
+        f'{output_files}'
     )
 
 

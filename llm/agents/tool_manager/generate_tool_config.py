@@ -244,7 +244,7 @@ You must construct a `command_template` string using specific variables:
    - **Exception (Direct File Reference)**:
         - For tools using **stdout** for output, or for **positional file arguments** (e.g., input files), you are allowed to directly use the **name** value from `<FileMounts>` (e.g., `{input_file}`, `> {output_file}`) in the template.
         - In these cases, these files do NOT need to be defined in `dynamic_params`.
-   - Ensure the order of variables matches the tool's required syntax.
+   - Ensure the order of variables matches the tool's required syntax. 
 """
 
 INFO_DESCRIPTION = """Set the tool info for the tool.
@@ -263,20 +263,28 @@ In the description field, you need to briefly describe:
 """
 
 CHECK_PROMPT = """You are a bioinformatician, and your task is to review the tool abstraction encapsulation and actual execution report provided by the user, verify whether the encapsulation is correct, and provide feedback.
+You will see four pieces of information: the original encapsulation requirements, the actual execution results report for these requirements, the AI-generated encapsulation configuration <ToolConfig>, and the structured output <TemplateOutput> formatted based on this configuration.
 
 ## Check Criteria
+Check <TemplateOutput>, and evaluate whether the current formatted result meets the requirements from the following aspects:
 - Command:
     - Whether the command template after encapsulation is consistent with the command in the actual execution report, without missing parameters and with correct parameter types
     - The variables used in the encapsulated command template are allowed to be only the following values; check whether any other variables are used
         - `{{output_dir}}`
         - `{{sample_name}}`
         - Variable names of input files
-- Input Files: Whether the input files listed in the <ToolConfig> consistent with those required in the Test Run Report?
+- Input Files: Whether the input files listed in the <TemplateOutput> consistent with those required in the Test Run Report?
 - Output Files:
-    - If the tool's output consists of only a few files, check whether all output files are listed in <ToolConfig>.
-    - If the tool's output files are complex (e.g., including intermediate files generated during execution, temporary folders, etc.), check whether the main results potentially used for general downstream analysis are listed in <ToolConfig>
+    - If the tool's output consists of only a few files, check whether all output files are listed in <TemplateOutput>.
+    - If the tool's output files are complex (e.g., including intermediate files generated during execution, temporary folders, etc.), check whether the main results potentially used for general downstream analysis are listed in <TemplateOutput>
     - It doesn't necessarily have to be a file or folder; depending on how it's used, it can also be a path prefix (e.g., a multi-file index built).
     - The naming format and other details do not need to strictly match those in the test execution report; as long as the files are correct, it's fine.
+
+    
+## Response format
+If the check passes, return `checked` as `true` directly without writing `reason`; if the check does not pass, provide different feedback in the `reason` field according to the situation:
+- Input Files and Output Files: generally, necessary files are missing; simply indicate in the `reason` which files are missing.
+- Command: If the command check fails, you only need to include the fixed sentence: "The final command has missing or incorrect parameters; please check `command_template` and parameters to ensure they were generated according to specifications, and review the errors yourself." This is because the encapsulated content of the tool differs from the final template you see; conveying your judgment criteria back would only cause interference.
 """
 
 
