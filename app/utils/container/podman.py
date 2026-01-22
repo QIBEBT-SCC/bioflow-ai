@@ -157,7 +157,7 @@ def run_podman_background(
                     break
 
                 stat = container.stats(stream=False, decode=True)
-                yield formate_container_stats(stat, start_time, pid)
+                yield calculate_podman_stats(stat, start_time, pid)
                 time.sleep(interval)
         finally:
             timestamp = datetime.datetime.now(datetime.UTC)
@@ -171,71 +171,6 @@ def run_podman_background(
             }
             if container:
                 container.remove()
-
-
-def formate_container_stats(stats: dict[str, Any], start_time: datetime.datetime, pid: int) -> Optional[dict[str, Any]]:
-    """提取容器日志中的监控内容
-
-    从 Podman stats 输出中提取关键的监控指标，包括CPU利用率、内存利用率、
-    实际内存占用、网络I/O状态、块I/O状态等。
-
-    Args:
-        stats (dict[str, Any]): Podman stats 原始输出数据
-        start_time: 容器开始时间
-        pid: 容器的宿主机pid
-
-    Returns:
-        dict[str, float]: 格式化后的监控指标
-            - cpu_usage: CPU 使用百分比
-            - mem_usage: 内存使用百分比
-            - mem_used: 内存使用量 (MB)
-            - io_in: 输入统计
-            - io_out: 输出统计
-            - uptime_seconds: 日志时间戳
-
-    Raises:
-        KeyError: 当 stats 数据结构不符合预期时抛出
-        ValueError: 当数值转换失败时抛出
-    """
-    try:
-        if 'Stats' not in stats or not stats['Stats']:
-            raise KeyError("Stats data is empty or missing 'Stats' key")
-
-        container_stats: dict[str, Any] = stats['Stats'][0]
-
-        # CPU 相关指标
-        cpu_percent = container_stats.get('CPU', 0.0) / get_cpu_cores()
-
-        # 内存相关指标
-        mem_percent = container_stats.get('MemPerc', 0.0) * 100
-        mem_used_mb = container_stats.get('MemUsage', 0.0) / (1024 * 1024)
-
-        # IO 相关指标
-        try:
-            p = psutil.Process(pid)
-
-            io_in = sum([sub_p.io_counters().read_bytes for sub_p in p.children()])
-            io_out = sum([sub_p.io_counters().write_bytes for sub_p in p.children()])
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            # logger.error(f'PID {pid} not found, skipping.')
-            io_in = 0
-            io_out = 0
-
-        # 运行时间
-        timestamp = start_time + datetime.timedelta(milliseconds=container_stats.get('Duration', 0.0) / 1000_000)
-
-        return {
-            'cpu_usage': cpu_percent,
-            'mem_usage': mem_percent,
-            'mem_used': mem_used_mb,
-            'io_in': io_in / (1024 * 1024),
-            'io_out': io_out / (1024 * 1024),
-            'time': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f') + '000Z',
-        }
-
-    except (KeyError, ValueError, TypeError) as e:
-        logger.error(f'Failed to format container stats: {e}')
-        return None
 
 
 def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: bool = False, **kwargs) -> str:
@@ -307,3 +242,68 @@ def remove_container(container_id: str):
 
         container = client.containers.get(container_id)
         container.remove(force=True)
+
+
+def calculate_podman_stats(stats: dict[str, Any], start_time: datetime.datetime, pid: int) -> Optional[dict[str, Any]]:
+    """提取容器日志中的监控内容
+
+    从 Podman stats 输出中提取关键的监控指标，包括CPU利用率、内存利用率、
+    实际内存占用、网络I/O状态、块I/O状态等。
+
+    Args:
+        stats (dict[str, Any]): Podman stats 原始输出数据
+        start_time: 容器开始时间
+        pid: 容器的宿主机pid
+
+    Returns:
+        dict[str, float]: 格式化后的监控指标
+            - cpu_usage: CPU 使用百分比
+            - mem_usage: 内存使用百分比
+            - mem_used: 内存使用量 (MB)
+            - io_in: 输入统计
+            - io_out: 输出统计
+            - uptime_seconds: 日志时间戳
+
+    Raises:
+        KeyError: 当 stats 数据结构不符合预期时抛出
+        ValueError: 当数值转换失败时抛出
+    """
+    try:
+        if 'Stats' not in stats or not stats['Stats']:
+            raise KeyError("Stats data is empty or missing 'Stats' key")
+
+        container_stats: dict[str, Any] = stats['Stats'][0]
+
+        # CPU 相关指标
+        cpu_percent = container_stats.get('CPU', 0.0) / get_cpu_cores()
+
+        # 内存相关指标
+        mem_percent = container_stats.get('MemPerc', 0.0) * 100
+        mem_used_mb = container_stats.get('MemUsage', 0.0) / (1024 * 1024)
+
+        # IO 相关指标
+        try:
+            p = psutil.Process(pid)
+
+            io_in = sum([sub_p.io_counters().read_bytes for sub_p in p.children()])
+            io_out = sum([sub_p.io_counters().write_bytes for sub_p in p.children()])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            # logger.error(f'PID {pid} not found, skipping.')
+            io_in = 0
+            io_out = 0
+
+        # 运行时间
+        timestamp = start_time + datetime.timedelta(milliseconds=container_stats.get('Duration', 0.0) / 1000_000)
+
+        return {
+            'cpu_usage': cpu_percent,
+            'mem_usage': mem_percent,
+            'mem_used': mem_used_mb,
+            'io_in': io_in / (1024 * 1024),
+            'io_out': io_out / (1024 * 1024),
+            'time': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f') + '000Z',
+        }
+
+    except (KeyError, ValueError, TypeError) as e:
+        logger.error(f'Failed to format container stats: {e}')
+        return None
