@@ -20,14 +20,14 @@ from app.utils.system import get_file_size
 
 def _update_project_time(session: Session, project_id: int) -> None:
     """更新项目的 update_time
-    
+
     Args:
         session: 数据库会话
         project_id: 项目 ID
     """
     project_query: Select = select(Project).where(Project.id == project_id)
     project = session.exec(project_query).one_or_none()
-    
+
     if project:
         project.update_time = datetime.now(UTC)
         session.add(project)
@@ -35,13 +35,13 @@ def _update_project_time(session: Session, project_id: int) -> None:
 
 def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
     """计算文件信息
-    
+
     Args:
         file_path: 文件路径
-    
+
     Returns:
         (file_format, file_size, md5_checksum) 元组
-    
+
     Examples:
         >>> _calculate_file_info('/data/sample.fq.gz')
         ('fq.gz', 1024000, 'abc123...')
@@ -49,10 +49,10 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
         ('tar.bz2', 2048000, 'def456...')
     """
     path = Path(file_path)
-    
+
     # 提取文件格式，处理压缩文件（.gz, .bz2, .xz 等）
     compression_suffixes = {'.gz', '.bz2', '.xz', '.bz', '.zip'}
-    
+
     if path.suffix.lower() in compression_suffixes and len(path.suffixes) >= 2:
         # 对于压缩文件，取最后两个后缀，如 .fq.gz, .tar.bz2
         file_format = ''.join(path.suffixes[-2:]).lstrip('.')
@@ -62,13 +62,13 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
     else:
         # 无后缀
         file_format = 'unknown'
-    
+
     # 计算文件大小
     file_size = get_file_size(file_path)
-    
+
     # 计算 MD5
     md5_checksum = calculate_file_md5(file_path)
-    
+
     return file_format, file_size, md5_checksum
 
 
@@ -109,7 +109,7 @@ def delete(session: Session, sample_uid: uuid.UUID) -> None:
         session.delete(file)
 
     session.delete(sample)
-    
+
     # 更新项目的 update_time
     _update_project_time(session, project_id)
     session.commit()
@@ -126,7 +126,7 @@ def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate)
         setattr(sample, key, value)
 
     session.add(sample)
-    
+
     # 更新项目的 update_time
     _update_project_time(session, sample.project_id)
     session.commit()
@@ -137,7 +137,7 @@ def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate)
 
 def get(session: Session, sample_uid: uuid.UUID, with_files: bool = False) -> Optional[Sample]:
     """根据 UID 获取样本
-    
+
     Args:
         session: 数据库会话
         sample_uid: 样本 UID
@@ -151,15 +151,19 @@ def get(session: Session, sample_uid: uuid.UUID, with_files: bool = False) -> Op
 
 def get_with_files(session: Session, sample_uid: uuid.UUID) -> Optional[Sample]:
     """获取样本及其关联文件（利用 Relationship 优化查询）
-    
+
     直接返回 Sample 对象，由 FastAPI 根据 response_model 自动序列化
     """
     return get(session, sample_uid, with_files=True)
 
 
-def get_all_by_project(
-    session: Session, project_id: int, limit: int = 20, offset: int = 0
-) -> list[SampleListItem]:
+def get_all(session: Session, sample_uids: list[str]):
+    samples_stmt: Select = select(Sample).where(col(Sample.uid).in_(sample_uids))
+
+    return session.exec(samples_stmt).all()
+
+
+def get_all_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
     """获取项目下的所有样本"""
     query: Select = (
         select(
@@ -253,7 +257,7 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
     sample_file.md5_checksum = md5_checksum
 
     session.add(sample_file)
-    
+
     # 更新项目的 update_time
     _update_project_time(session, sample.project_id)
     session.commit()
@@ -286,7 +290,7 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
 
 def get_files(session: Session, sample_uid: uuid.UUID) -> list[SampleFiles]:
     """获取样本的所有文件（利用 Relationship 优化）
-    
+
     直接返回 SampleFiles 列表，由 FastAPI 根据 response_model 自动序列化
     """
     sample = get(session, sample_uid, with_files=True)
@@ -299,13 +303,13 @@ def batch_import_from_csv(
     session: Session, csv_content: bytes, project_id: int, owner_id: int
 ) -> SampleBatchImportResult:
     """从 CSV 文件批量导入样本
-    
+
     Args:
         session: 数据库会话
         csv_content: CSV 文件内容（bytes）
         project_id: 项目 ID
         owner_id: 所有者 ID
-    
+
     Returns:
         SampleBatchImportResult: 导入结果
     """
@@ -317,39 +321,41 @@ def batch_import_from_csv(
         'spectrum': SampleFileType.SPECTRUM,
         'image': SampleFileType.IMAGE,
     }
-    
+
     result = SampleBatchImportResult(success=0, failed=0, errors=[], samples=[])
-    
+
     try:
         # 使用 polars 读取 CSV
         df = pl.read_csv(BytesIO(csv_content), encoding='utf-8')
-        
+
         # 验证必需列
         if 'sample_name' not in df.columns:
             raise HTTPException(400, 'CSV 文件缺少必需列: sample_name')
-        
+
         # 获取所有列名
         all_columns = df.columns
         fixed_columns = {'sample_name', 'r1', 'r2', 'single', 'spectrum', 'image'}
         meta_columns = [col for col in all_columns if col not in fixed_columns]
-        
+
         # 逐行处理
         for row_idx, row in enumerate(df.iter_rows(named=True), start=1):
             try:
                 sample_name = row.get('sample_name')
-                
+
                 # 验证样本名称
                 if not sample_name or not str(sample_name).strip():
                     result.failed += 1
-                    result.errors.append({
-                        'row': row_idx,
-                        'sample_name': sample_name or '<空>',
-                        'error': '样本名称不能为空',
-                    })
+                    result.errors.append(
+                        {
+                            'row': row_idx,
+                            'sample_name': sample_name or '<空>',
+                            'error': '样本名称不能为空',
+                        }
+                    )
                     continue
-                
+
                 sample_name = str(sample_name).strip()
-                
+
                 # 构建 meta_data
                 meta_data = {}
                 for col in meta_columns:
@@ -357,7 +363,7 @@ def batch_import_from_csv(
                     # 过滤空值
                     if value is not None and str(value).strip():
                         meta_data[col] = str(value)
-                
+
                 # 创建样本
                 sample = Sample(
                     owner_id=owner_id,
@@ -367,17 +373,17 @@ def batch_import_from_csv(
                 )
                 session.add(sample)
                 session.flush()  # 获取样本 UID
-                
+
                 # 处理文件信息
                 files_added = 0
                 for col_name, file_type in FILE_COLUMNS.items():
                     file_path = row.get(col_name)
                     if file_path and str(file_path).strip():
                         file_path = str(file_path).strip()
-                        
+
                         # 自动计算文件信息
                         file_format, file_size, md5_checksum = _calculate_file_info(file_path)
-                        
+
                         # 创建文件记录
                         sample_file = SampleFiles(
                             sample_uid=sample.uid,
@@ -389,27 +395,29 @@ def batch_import_from_csv(
                         )
                         session.add(sample_file)
                         files_added += 1
-                
+
                 session.commit()
                 result.success += 1
                 result.samples.append(sample.uid)
-                
+
             except Exception as e:
                 session.rollback()
                 result.failed += 1
-                result.errors.append({
-                    'row': row_idx,
-                    'sample_name': row.get('sample_name', '<未知>'),
-                    'error': str(e),
-                })
-        
+                result.errors.append(
+                    {
+                        'row': row_idx,
+                        'sample_name': row.get('sample_name', '<未知>'),
+                        'error': str(e),
+                    }
+                )
+
         # 批量导入完成后，更新项目的 update_time
         if result.success > 0:
             _update_project_time(session, project_id)
             session.commit()
-        
+
         return result
-        
+
     except pl.exceptions.ComputeError as e:
         raise HTTPException(400, f'CSV 文件格式错误: {str(e)}')
     except Exception as e:

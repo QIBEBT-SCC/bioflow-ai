@@ -42,16 +42,42 @@ def get_by_time(hour: int, session: SessionDep, current_user: Annotated[User, De
 
 @router.patch('/{uid}', response_model=TaskInstance)
 async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
+    """更新任务实例状态
+    
+    使用 Redis Hash 原子操作更新统计信息，避免竞态条件
+    """
     updated_task = task_crud.update(session, uid, task_update)
 
     run_uid = str(updated_task.instance_uid)
-    run_cache = await monitor_redis_client.get(f'run-stats-{run_uid}')
-    if run_cache:
-        run_cache_data = Statistics.model_validate_json(run_cache.decode('utf-8'))
+    redis_key = f'run-stats-{run_uid}'
+    
+    # 检查 Redis 中是否存在统计信息
+    if not await monitor_redis_client.exists(redis_key):
+        # 如果不存在，从数据库重新计算并初始化
+        run_cache_data = run_crud.get_run_task_stats(session, run_uid)
+        await monitor_redis_client.hset(
+            redis_key,
+            mapping={
+                'total': run_cache_data.total,
+                'waiting': run_cache_data.waiting or 0,
+                'running': run_cache_data.running or 0,
+                'success': run_cache_data.success or 0,
+                'error': run_cache_data.error or 0,
+            }
+        )
+        await monitor_redis_client.expire(redis_key, 86400)
+
+    # 使用原子操作更新统计信息
+    if task_update.status:
         match task_update.status:
             case Status.RUNNING:
-                run_cache_data.add_running()
-                if run_cache_data.running == 1:
+                # waiting -> running
+                await monitor_redis_client.hincrby(redis_key, 'waiting', -1)
+                await monitor_redis_client.hincrby(redis_key, 'running', 1)
+                
+                # 获取当前 running 数量，判断是否需要更新运行实例状态
+                running_count = await monitor_redis_client.hget(redis_key, 'running')
+                if running_count and int(running_count) == 1:
                     run_crud.update(
                         session,
                         run_uid,
@@ -60,9 +86,18 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
                             start_time=task_update.start_time if task_update.start_time else datetime.now(),
                         ),
                     )
+                    
             case Status.SUCCESS:
-                run_cache_data.add_success()
-                if run_cache_data.success == run_cache_data.total:
+                # running -> success
+                await monitor_redis_client.hincrby(redis_key, 'running', -1)
+                await monitor_redis_client.hincrby(redis_key, 'success', 1)
+                
+                # 获取统计信息，判断是否所有任务都成功
+                stats = await monitor_redis_client.hgetall(redis_key)
+                total = int(stats.get(b'total', 0))
+                success = int(stats.get(b'success', 0))
+                
+                if success == total:
                     run_crud.update(
                         session,
                         run_uid,
@@ -71,19 +106,21 @@ async def update_task(uid: str, task_update: TaskUpdate, session: SessionDep):
                             end_time=task_update.end_time if task_update.end_time else datetime.now(),
                         ),
                     )
+                    
             case Status.ERROR:
-                run_cache_data.add_error()
+                # running -> error
+                await monitor_redis_client.hincrby(redis_key, 'running', -1)
+                await monitor_redis_client.hincrby(redis_key, 'error', 1)
+                
+                # 有错误就将运行实例标记为错误
                 run_crud.update(
                     session,
                     run_uid,
                     RunUpdate(
-                        status=Status.ERROR, end_time=task_update.end_time if task_update.end_time else datetime.now()
+                        status=Status.ERROR, 
+                        end_time=task_update.end_time if task_update.end_time else datetime.now()
                     ),
                 )
-    else:
-        run_cache_data = run_crud.get_run_task_stats(session, run_uid)
-
-    await monitor_redis_client.set(f'run-stats-{run_uid}', run_cache_data.model_dump_json(), ex=86400)
 
     return updated_task
 

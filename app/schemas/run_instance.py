@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Self
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.workflow import Status
 from app.schemas.common import Statistics
@@ -11,6 +11,8 @@ from app.schemas.user import UserPublic
 
 
 class TaskInfo4Run(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
 
@@ -22,10 +24,12 @@ class TaskInfo4Run(BaseModel):
 
 
 class SimpleRunPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
     owner: UserPublic
-    
+
     project_id: Optional[int] = None
     workflow_uid: Optional[uuid.UUID] = None
     sample_uid: Optional[uuid.UUID] = None
@@ -59,7 +63,9 @@ class RunPublic(SimpleRunPublic):
             else:
                 self.status = Status.WAITING
 
-            self.task_statistics = Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
+            self.task_statistics = Statistics(
+                total=total, success=success, error=error, running=running, waiting=waiting
+            )
         return self
 
 

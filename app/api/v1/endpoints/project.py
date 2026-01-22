@@ -5,12 +5,12 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from loguru import logger
 from starlette.status import HTTP_404_NOT_FOUND
 
+from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.crud import project as project_crud
 from app.crud import project_workflow as project_workflow_crud
 from app.crud import projetc_tag as tag_crud
 from app.crud import run_instance as run_crud
-from app.crud.project_run import create_runs_from_samples
 from app.crud.resource import sample as sample_crud
 from app.models.project import (
     Project,
@@ -35,6 +35,7 @@ from app.schemas.resource import (
 )
 from app.schemas.run_instance import SimpleRunPublic
 from app.utils.security import UserDep
+from app.utils.workflow import create_runs_from_samples, get_run_stats_from_redis
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -466,10 +467,26 @@ async def get_project_runs(
         limit: 限制数量
 
     Returns:
-        list[SimpleRunPublic]: 运行实例列表
+        list[SimpleRunPublic]: 运行实例列表（包含从 Redis 读取的实时统计信息）
     """
     runs = run_crud.get_runs_by_project(session, project_id, limit, offset)
-    return runs
+
+    # 从 Redis 读取每个运行实例的统计信息
+    result = []
+    for run in runs:
+        run_data = SimpleRunPublic.model_validate(run)
+
+        # 尝试从 Redis 读取统计信息
+        stats = await get_run_stats_from_redis(monitor_redis_client, str(run.uid))
+        if stats:
+            run_data.task_statistics = stats
+        else:
+            # 如果 Redis 中没有，从数据库计算
+            run_data.task_statistics = run_crud.get_run_task_stats(session, str(run.uid))
+
+        result.append(run_data)
+
+    return result
 
 
 @router.get('/{project_id}/runs/count')
@@ -503,10 +520,20 @@ async def get_project_run(
         run_uid: 运行实例 UID
 
     Returns:
-        SimpleRunPublic: 运行实例详情
+        SimpleRunPublic: 运行实例详情（包含从 Redis 读取的实时统计信息）
     """
     run = run_crud.get(session, str(run_uid))
     if not run or run.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
 
-    return run
+    run_data = SimpleRunPublic.model_validate(run)
+
+    # 尝试从 Redis 读取统计信息
+    stats = await get_run_stats_from_redis(monitor_redis_client, str(run_uid))
+    if stats:
+        run_data.task_statistics = stats
+    else:
+        # 如果 Redis 中没有，从数据库计算
+        run_data.task_statistics = run_crud.get_run_task_stats(session, str(run_uid))
+
+    return run_data

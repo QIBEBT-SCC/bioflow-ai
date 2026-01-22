@@ -65,15 +65,28 @@ def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> Seq
 
 
 def get(session: Session, uid: str) -> RunInstance:
-    statement: Select = select(RunInstance).where(RunInstance.uid == uid)
+    statement: Select = (
+        select(RunInstance)
+        .where(RunInstance.uid == uid)
+        .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
+    )
     return session.exec(statement).one()
 
 
 def get_run_task_stats(session: Session, uid: str) -> Statistics:
+    """获取运行实例的任务统计信息
+    
+    Args:
+        session: 数据库会话
+        uid: 运行实例 UID
+        
+    Returns:
+        Statistics: 任务统计信息
+    """
     statement: Select = (
         select(  # type: ignore
             func.count().label('total'),
-            func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
+            func.sum(case((col(TaskInstance.status) == Status.SUCCESS, 1), else_=0)).label('success'),
             func.sum(case((col(TaskInstance.status) == Status.ERROR, 1), else_=0)).label('error'),
             func.sum(case((col(TaskInstance.status) == Status.RUNNING, 1), else_=0)).label('running'),
             func.sum(case((col(TaskInstance.status) == Status.WAITING, 1), else_=0)).label('waiting'),
