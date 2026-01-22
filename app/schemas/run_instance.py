@@ -25,6 +25,10 @@ class SimpleRunPublic(BaseModel):
     uid: uuid.UUID
     name: str
     owner: UserPublic
+    
+    project_id: Optional[int] = None
+    workflow_uid: Optional[uuid.UUID] = None
+    sample_uid: Optional[uuid.UUID] = None
 
     status: Status
     task_statistics: Optional[Statistics] = None

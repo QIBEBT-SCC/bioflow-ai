@@ -84,3 +84,74 @@ def get_run_task_stats(session: Session, uid: str) -> Statistics:
 
     total, success, error, running, waiting = session.exec(statement).one()
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
+
+
+def get_runs_by_project(
+    session: Session, project_id: int, limit: int = 20, offset: int = 0
+) -> Sequence[RunInstance]:
+    """获取项目的所有运行实例
+    
+    Args:
+        session: 数据库会话
+        project_id: 项目 ID
+        limit: 限制数量
+        offset: 偏移量
+        
+    Returns:
+        运行实例列表
+    """
+    statement: Select = (
+        select(RunInstance)
+        .where(RunInstance.project_id == project_id)
+        .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
+        .order_by(col(RunInstance.create_time).desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    
+    return session.exec(statement).all()
+
+
+def get_runs_by_sample(
+    session: Session, sample_uid: str, limit: int = 20, offset: int = 0
+) -> Sequence[RunInstance]:
+    """获取样本的所有运行实例
+    
+    Args:
+        session: 数据库会话
+        sample_uid: 样本 UID
+        limit: 限制数量
+        offset: 偏移量
+        
+    Returns:
+        运行实例列表
+    """
+    statement: Select = (
+        select(RunInstance)
+        .where(RunInstance.sample_uid == sample_uid)
+        .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
+        .order_by(col(RunInstance.create_time).desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    
+    return session.exec(statement).all()
+
+
+def get_project_run_count(session: Session, project_id: int) -> int:
+    """获取项目的运行实例数量
+    
+    Args:
+        session: 数据库会话
+        project_id: 项目 ID
+        
+    Returns:
+        运行实例数量
+    """
+    statement: Select = (
+        select(func.count())
+        .select_from(RunInstance)
+        .where(RunInstance.project_id == project_id)
+    )
+    
+    return session.exec(statement).one()

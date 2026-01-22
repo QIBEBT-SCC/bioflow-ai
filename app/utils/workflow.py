@@ -1,5 +1,7 @@
 import uuid
+from typing import Optional
 
+import rich
 import rustworkx as rx
 from celery import chain, group
 from loguru import logger
@@ -7,9 +9,11 @@ from sqlmodel import Session
 from uuid_extensions import uuid7str
 
 import app.crud.resource.bio_db as db_crud
+import app.crud.resource.sample as sample_crud
 import app.crud.task_instance as task_crud
 import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings
+from app.models.resource import SampleFileType
 from app.models.user import User
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
@@ -99,6 +103,7 @@ def send_task(
     output_base: str,
     run_uid: uuid.UUID,
     owner: User,
+    auto_fill: Optional[str] = None,
 ) -> None:
     """构建实际任务队列，并发送至celery worker
 
@@ -109,7 +114,11 @@ def send_task(
         output_base: 根输出目录
         run_uid: 运行实例UID
         owner: 任务创建者
+        auto_fill: 自动填充输入序列
     """
+
+    rich.print(task_nodes)
+
     tasks = []
     task_index = 1
     for sub_group in task_nodes:
@@ -162,10 +171,32 @@ def send_task(
                     )
                     task_crud.insert(session, task_instance)
 
-                    sub_tasks.append(load_sequence_task.s(args=task_node.args).set(task_id=task_node.id))
+                    if auto_fill:
+                        sample_uid = auto_fill.split(':')[1]
+                        sample = sample_crud.get_with_files(session, sample_uid)  # type: ignore
+
+                        r1_path = next(
+                            (f.file_path for f in sample.sample_files if f.data_type == SampleFileType.SEQUENCING_R1),
+                            None,
+                        )
+                        r2_path = next(
+                            (f.file_path for f in sample.sample_files if f.data_type == SampleFileType.SEQUENCING_R2),
+                            None,
+                        )
+
+                        if r1_path is None:
+                            raise Exception('Sample missing r1 sequencing file')
+                        if r2_path is None:
+                            raise Exception('Sample missing r2 sequencing file')
+
+                        sub_tasks.append(
+                            load_sequence_task.s(args={'r1': r1_path, 'r2': r2_path}).set(task_id=task_node.id)
+                        )
+                    else:
+                        sub_tasks.append(load_sequence_task.s(args=task_node.args).set(task_id=task_node.id))
                 case 'resource_genome':
                     task_instance = TaskInstance(
-                        uid=task_node.id,
+                        uid=uuid.UUID(task_node.id),
                         instance_uid=run_uid,
                         owner_id=owner.id,
                         name='load_reference_genome',
@@ -181,7 +212,7 @@ def send_task(
                     )
                 case 'resource_file':
                     task_instance = TaskInstance(
-                        uid=task_node.id,
+                        uid=uuid.UUID(task_node.id),
                         instance_uid=run_uid,
                         owner_id=owner.id,
                         name='read_file',
@@ -192,7 +223,7 @@ def send_task(
                     sub_tasks.append(load_file_task.s(file_path=task_node.args).set(task_id=task_node.id))
                 case 'value_string':
                     task_instance = TaskInstance(
-                        uid=task_node.id,
+                        uid=uuid.UUID(task_node.id),
                         instance_uid=run_uid,
                         owner_id=owner.id,
                         name='value',

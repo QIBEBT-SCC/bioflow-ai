@@ -10,6 +10,7 @@ from sqlalchemy import UUID, Column, ForeignKey
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
+from app.models.resource import Sample
 from app.models.tools import ToolDefine
 from app.models.user import User
 from app.schemas.react_flow import WorkflowDefinition
@@ -45,7 +46,12 @@ class RunInstance(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
+
+    # 项目关联（可选，调试模式下为 None）
     project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
+    workflow_uid: Optional[uuid.UUID] = Field(default=None)  # 新增：关联的工作流模板
+    sample_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='samples.uid')  # 新增：单个样本
+
     owner_id: int = Field(foreign_key='users.id')
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
 
@@ -56,6 +62,7 @@ class RunInstance(SQLModel, table=True):
     end_time: Optional[datetime] = Field(default=None)
 
     owner: Optional['User'] = Relationship()
+    sample: Optional['Sample'] = Relationship()
     tasks: list['TaskInstance'] = Relationship(back_populates='run_instance')
 
 
@@ -78,7 +85,7 @@ class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    instance_uid: uuid.UUID = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('run_instances.uid')))
+    instance_uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, foreign_key='run_instances.uid')
     tool_uid: Optional[uuid.UUID] = Field(foreign_key='tools.uid')
     owner_id: int = Field(foreign_key='users.id')
     name: str

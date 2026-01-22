@@ -15,16 +15,15 @@ class SequenceInput(BaseModel):
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_file_task(self: Task, result_dict: Optional[dict[str, Any]] = None, *, file_path: str) -> ToolOutput:
-    if Path(file_path).exists(follow_symlinks=True):
-        return ToolOutput(result={'file_path': file_path})
+    assert Path(file_path).exists(), f'File "{file_path}" not found.'
 
-    raise FileNotFoundError
+    return ToolOutput(result={'file_path': file_path})
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_sequence_task(self: Task, result_dict: Optional[dict[str, Any]] = None, *, args: dict[str, Any]) -> ToolOutput:
     sequence_input = SequenceInput.model_validate(args)
-    if sequence_input.r1.exists(follow_symlinks=True) and sequence_input.r2.exists(follow_symlinks=True):
-        return ToolOutput(result={'r1': str(sequence_input.r1), 'r2': str(sequence_input.r2)})
+    assert sequence_input.r1.exists(), f'File "{sequence_input.r1}" not found.'
+    assert sequence_input.r2.exists(), f'File "{sequence_input.r1}" not found.'
 
-    raise FileNotFoundError
+    return ToolOutput(result={'r1': str(sequence_input.r1), 'r2': str(sequence_input.r2)})

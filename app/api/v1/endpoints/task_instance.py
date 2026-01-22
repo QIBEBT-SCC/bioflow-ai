@@ -111,8 +111,9 @@ async def read_resource_monitor(uid: str, session: SessionDep):
 
     monitors = []
     for stat_data in stats_list:
-        stat_data['task_uid'] = uid
-        monitors.append(TaskMonitor.model_validate(stat_data))
+        if stat_data is not None:
+            stat_data['task_uid'] = uid
+            monitors.append(TaskMonitor.model_validate(stat_data))
 
     monitor_crud.insert_list(session, monitors)
 

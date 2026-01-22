@@ -203,7 +203,4 @@ class ToolTaskInfo(BaseModel):
     modifiable_static_params: str
     file_mounts: list[FileMount]
 
-    mkdir_output: bool
-    use_temp_dir: bool
-
     image: ToolImage

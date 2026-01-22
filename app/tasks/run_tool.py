@@ -105,8 +105,7 @@ def docker_task(
 
     # 创建输出目录
     host_output_dir = Path(output_dir).absolute()
-    if tool_config.mkdir_output:
-        host_output_dir.mkdir(parents=True, exist_ok=True)
+    host_output_dir.mkdir(parents=True, exist_ok=True)
 
     # 处理文件挂载
     param_inputs, mount_paths, expected_output = build_mounts(tool_config.file_mounts, output_dir, sample_name, inputs)

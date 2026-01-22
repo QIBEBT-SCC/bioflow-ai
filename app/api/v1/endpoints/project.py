@@ -2,11 +2,15 @@ import uuid
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from loguru import logger
 from starlette.status import HTTP_404_NOT_FOUND
 
 from app.core.session import SessionDep
 from app.crud import project as project_crud
+from app.crud import project_workflow as project_workflow_crud
 from app.crud import projetc_tag as tag_crud
+from app.crud import run_instance as run_crud
+from app.crud.project_run import create_runs_from_samples
 from app.crud.resource import sample as sample_crud
 from app.models.project import (
     Project,
@@ -14,6 +18,12 @@ from app.models.project import (
 )
 from app.models.resource import Sample, SampleFiles
 from app.schemas.project import ProjectCreateProp, ProjectPublic, TagProp, TagWithCount
+from app.schemas.project_workflow import (
+    ProjectWorkflowAdd,
+    ProjectWorkflowPublic,
+    WorkflowRunRequest,
+    WorkflowRunResult,
+)
 from app.schemas.resource import (
     SampleBatchImportResult,
     SampleCreate,
@@ -23,10 +33,12 @@ from app.schemas.resource import (
     SamplePublic,
     SampleUpdate,
 )
+from app.schemas.run_instance import SimpleRunPublic
 from app.utils.security import UserDep
 
 router = APIRouter()
 tag_router = APIRouter()
+workflow_router = APIRouter()
 
 
 @tag_router.post('')
@@ -332,3 +344,169 @@ async def get_project_sample_files(
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
     return sample_crud.get_files(session, sample_uid)
+
+
+# ==================== 工作流管理端点（在项目下） ====================
+
+
+@router.post('/{project_id}/workflows', response_model=ProjectWorkflowPublic)
+async def add_workflow_to_project(
+    project_id: int,
+    workflow_add: ProjectWorkflowAdd,
+    session: SessionDep,
+    current_user: UserDep,
+):
+    """将工作流模板添加到项目中
+
+    Args:
+        project_id: 项目 ID
+        workflow_add: 包含 workflow_uid 的请求体
+
+    Returns:
+        ProjectWorkflowPublic: 添加的工作流信息
+    """
+    project_workflow_crud.add_workflow_to_project(session, project_id, workflow_add.workflow_uid)
+
+    # 返回工作流信息
+    workflows = project_workflow_crud.get_project_workflows(session, project_id, limit=1000)
+    for wf in workflows:
+        if wf.workflow_uid == workflow_add.workflow_uid:
+            return wf
+
+    raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
+
+
+@router.get('/{project_id}/workflows', response_model=list[ProjectWorkflowPublic])
+async def get_project_workflows(
+    project_id: int,
+    session: SessionDep,
+    current_user: UserDep,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=100)] = 20,
+):
+    """获取项目中的所有工作流模板
+
+    Args:
+        project_id: 项目 ID
+        offset: 偏移量
+        limit: 限制数量
+
+    Returns:
+        list[ProjectWorkflowPublic]: 工作流列表
+    """
+    return project_workflow_crud.get_project_workflows(session, project_id, limit, offset)
+
+
+@router.delete('/{project_id}/workflows/{workflow_uid}')
+async def remove_workflow_from_project(
+    project_id: int,
+    workflow_uid: uuid.UUID,
+    session: SessionDep,
+    current_user: UserDep,
+):
+    """从项目中移除工作流模板
+
+    Args:
+        project_id: 项目 ID
+        workflow_uid: 工作流模板 UID
+
+    Returns:
+        成功消息
+    """
+    project_workflow_crud.remove_workflow_from_project(session, project_id, workflow_uid)
+    return {'message': 'Workflow removed successfully'}
+
+
+@router.post('/{project_id}/workflows/{workflow_uid}/run', response_model=WorkflowRunResult)
+async def run_workflow_on_samples(
+    project_id: int,
+    workflow_uid: uuid.UUID,
+    run_request: WorkflowRunRequest,
+    session: SessionDep,
+    current_user: UserDep,
+):
+    """在选定的样本上运行工作流
+
+    为每个样本创建一个独立的 RunInstance
+
+    Args:
+        project_id: 项目 ID
+        workflow_uid: 工作流模板 UID
+        run_request: 包含样本 UID 列表和可选的运行名称前缀
+
+    Returns:
+        WorkflowRunResult: 包含创建的运行实例 UID 列表
+    """
+    # 检查工作流是否在项目中
+    if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
+
+    # 批量创建运行实例
+    logger.debug(run_request)
+    result = create_runs_from_samples(
+        session, project_id, workflow_uid, run_request.sample_uids, current_user, run_request.run_name_prefix
+    )
+
+    return result
+
+
+@router.get('/{project_id}/runs', response_model=list[SimpleRunPublic])
+async def get_project_runs(
+    project_id: int,
+    session: SessionDep,
+    current_user: UserDep,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=100)] = 20,
+):
+    """获取项目的所有运行实例
+
+    Args:
+        project_id: 项目 ID
+        offset: 偏移量
+        limit: 限制数量
+
+    Returns:
+        list[SimpleRunPublic]: 运行实例列表
+    """
+    runs = run_crud.get_runs_by_project(session, project_id, limit, offset)
+    return runs
+
+
+@router.get('/{project_id}/runs/count')
+async def get_project_run_count(
+    project_id: int,
+    session: SessionDep,
+    current_user: UserDep,
+) -> int:
+    """获取项目的运行实例数量
+
+    Args:
+        project_id: 项目 ID
+
+    Returns:
+        int: 运行实例数量
+    """
+    return run_crud.get_project_run_count(session, project_id)
+
+
+@router.get('/{project_id}/runs/{run_uid}', response_model=SimpleRunPublic)
+async def get_project_run(
+    project_id: int,
+    run_uid: uuid.UUID,
+    session: SessionDep,
+    current_user: UserDep,
+):
+    """获取项目中的指定运行实例详情
+
+    Args:
+        project_id: 项目 ID
+        run_uid: 运行实例 UID
+
+    Returns:
+        SimpleRunPublic: 运行实例详情
+    """
+    run = run_crud.get(session, str(run_uid))
+    if not run or run.project_id != project_id:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
+
+    return run
