@@ -1,0 +1,107 @@
+"""任务处理器基础框架
+
+提供任务处理器的基类、装饰器和注册表机制
+"""
+
+import uuid
+from abc import ABC, abstractmethod
+from typing import Optional
+
+from celery import Signature
+from loguru import logger
+from sqlmodel import Session
+
+import app.crud.task_instance as task_crud
+from app.models.user import User
+from app.models.workflow import TaskInstance
+from app.schemas.react_flow import TaskNode
+
+
+class TaskContext:
+    """任务处理上下文，封装处理器需要的所有共享数据"""
+
+    def __init__(
+        self,
+        session: Session,
+        sample_name: str,
+        output_base: str,
+        run_uid: uuid.UUID,
+        owner: User,
+        auto_fill: Optional[str] = None,
+        task_index: int = 1,
+    ):
+        self.session = session
+        self.sample_name = sample_name
+        self.output_base = output_base
+        self.run_uid = run_uid
+        self.owner = owner
+        self.auto_fill = auto_fill
+        self.task_index = task_index
+
+
+# ==================== 任务处理器注册表 ====================
+
+# 全局注册表：映射节点类型到处理器实例
+_TASK_HANDLERS: dict[str, 'BaseTaskHandler'] = {}
+
+
+def register_handler(node_type: str):
+    """
+    装饰器：注册任务处理器
+
+    Usage:
+        @register_handler('tool')
+        class ToolTaskHandler(BaseTaskHandler):
+            ...
+    """
+
+    def decorator(handler_class: type['BaseTaskHandler']) -> type['BaseTaskHandler']:
+        _TASK_HANDLERS[node_type] = handler_class()
+        logger.debug(f'已注册任务处理器: {node_type} -> {handler_class.__name__}')
+        return handler_class
+
+    return decorator
+
+
+def get_handler(node_type: str) -> Optional['BaseTaskHandler']:
+    """获取指定节点类型的处理器"""
+    return _TASK_HANDLERS.get(node_type)
+
+
+def get_all_handlers() -> dict[str, 'BaseTaskHandler']:
+    """获取所有已注册的处理器"""
+    return _TASK_HANDLERS.copy()
+
+
+# ==================== 任务处理器基类 ====================
+
+
+class BaseTaskHandler(ABC):
+    """任务处理器基类"""
+
+    @abstractmethod
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:
+        """创建 TaskInstance 数据库记录"""
+        pass
+
+    @abstractmethod
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:
+        """创建 Celery 任务签名"""
+        pass
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """
+        处理任务节点
+
+        Returns:
+            tuple: (celery_task, new_task_index)
+        """
+        # 创建数据库记录
+        task_instance = self.create_task_instance(task_node, context)
+        task_crud.insert(context.session, task_instance)
+
+        # 创建 Celery 任务
+        celery_task = self.create_celery_task(task_node, context)
+
+        # 返回任务和更新后的索引（默认不递增）
+        return celery_task, context.task_index
