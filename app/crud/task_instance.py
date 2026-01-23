@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Sequence
 
-from loguru import logger
 from sqlalchemy import Select
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, and_, col, func, or_, select
@@ -22,7 +21,6 @@ def update(session: Session, uid: str, task_update: TaskUpdate) -> TaskInstance:
     db_task = get(session, uid)
 
     update_data = task_update.model_dump(exclude_unset=True)
-    logger.debug(update_data)
     db_task.sqlmodel_update(update_data)
     session.add(db_task)
     session.commit()
