@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Any, Optional
 
-import rich
 from celery import Task
 from docker.types import Mount
 from loguru import logger
@@ -63,7 +62,11 @@ def build_bowtie2_index(genome_fasta: str) -> str:
         f'bowtie2-build --threads {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
     )
 
-    assert status == 0
+    if status == 0:
+        logger.success('build bowtie2 index succeed')
+    else:
+        logger.error(output)
+        raise
     return f'{index_path}/{genome_fasta.stem}'
 
 
@@ -81,7 +84,11 @@ def build_bwa_index(genome_fasta: str):
         f'bwa index /data/raw/{genome_fasta.name}',
     )
 
-    assert status == 0
+    if status == 0:
+        logger.success('build bwa index succeed')
+    else:
+        logger.error(output)
+        raise
     return f'{genome_fasta}'
 
 
@@ -128,7 +135,11 @@ def build_star_index(genome_fasta: str, annotation_gff: str):
         f'STAR --runThreadN {get_settings().persistent.MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
     )
 
-    assert status == 0
+    if status == 0:
+        logger.success('build STAR index succeed')
+    else:
+        logger.error(output)
+        raise
     return f'{index_path}'
 
 
@@ -149,7 +160,11 @@ def build_minimap2_index(genome_fasta: str):
         f'minimap2 -t {get_settings().persistent.MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
     )
 
-    assert status == 0
+    if status == 0:
+        logger.success('build minimap2 index succeed')
+    else:
+        logger.error(output)
+        raise
     return f'{index_path}/{genome_fasta.stem}.mmi'
 
 
@@ -201,7 +216,6 @@ def load_genome_task(
             if not genome_records:
                 genome = search_reference_genomes(species_name)
                 species_info = get_species_info(genome.organism.tax_id)
-                rich.print(species_info)
 
                 if genome_record := genome_crud.get_by_taxid(session, species_info.tax_id):
                     genome_update = GenomeUpdate(id=genome_record.id, aliases=f'{genome_record.aliases}|{species_name}')
