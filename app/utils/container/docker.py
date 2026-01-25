@@ -75,6 +75,7 @@ def run_docker(
         user=get_current_user_identity(),
         auto_remove=False,
         detach=True,
+        mounts=mounts,
         *kwargs,
     )
 

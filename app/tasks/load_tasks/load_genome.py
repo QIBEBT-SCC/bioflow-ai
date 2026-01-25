@@ -1,8 +1,10 @@
 from pathlib import Path
 from typing import Any, Optional
 
+import rich
 from celery import Task
 from docker.types import Mount
+from loguru import logger
 from sqlmodel import Session
 
 import app.crud.resource.reference_genome as genome_crud
@@ -20,11 +22,31 @@ from app.utils.api.ncbi_datasets import (
     search_reference_genomes,
     search_reference_genomes_by_tax_id,
 )
-from app.utils.container.podman import run_podman
 from worker import celery_app
 
 
-def build_bowtie2_index(genome_fasta: str)->str:
+def _run_command(image_cfg: ImageConfig, mounts: list[Mount], command: str):
+    if get_settings().docker.CONTAINER == 'podman':
+        from app.utils.container.podman import run_podman
+
+        status, output = run_podman(
+            image_cfg,
+            command,
+            mounts,
+        )
+    else:
+        from app.utils.container.docker import run_docker
+
+        status, output = run_docker(
+            image_cfg,
+            command,
+            mounts,
+        )
+
+    return status, output
+
+
+def build_bowtie2_index(genome_fasta: str) -> str:
     genome_fasta = Path(genome_fasta)
     index_path = genome_fasta.parent / 'bowtie2'
     index_path.mkdir(exist_ok=True, parents=True)
@@ -34,15 +56,14 @@ def build_bowtie2_index(genome_fasta: str)->str:
         Mount(type='bind', source=str(index_path), target='/data/output'),
     ]
 
-    # TODO 设定镜像
-    image_cfg = ImageConfig(**{})
-    status, output = run_podman(
+    image_cfg = ImageConfig.from_str('quay.io/biocontainers/bowtie2:2.5.4--he96a11b_6')
+    status, output = _run_command(
         image_cfg,
-        f'bowtie2-build --threads {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
         mounts,
+        f'bowtie2-build --threads {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
     )
 
-    assert status ==0
+    assert status == 0
     return f'{index_path}/{genome_fasta.stem}'
 
 
@@ -53,16 +74,16 @@ def build_bwa_index(genome_fasta: str):
         Mount(type='bind', source=str(genome_fasta.parent), target='/data/raw'),
     ]
 
-    # TODO 设定镜像
-    image_cfg = ImageConfig(**{})
-    status, output = run_podman(
+    image_cfg = ImageConfig.from_str('quay.io/biocontainers/bwa:0.7.19--h577a1d6_1')
+    status, output = _run_command(
         image_cfg,
-        f'bwa index /data/raw/{genome_fasta.name}',
         mounts,
+        f'bwa index /data/raw/{genome_fasta.name}',
     )
 
     assert status == 0
     return f'{genome_fasta}'
+
 
 def build_hisat2_index(genome_fasta: str):
     genome_fasta = Path(genome_fasta)
@@ -74,20 +95,24 @@ def build_hisat2_index(genome_fasta: str):
         Mount(type='bind', source=str(index_path), target='/data/output'),
     ]
 
-    # TODO 设定镜像
-    image_cfg = ImageConfig(**{})
-    status, output = run_podman(
+    image_cfg = ImageConfig.from_str('quay.io/biocontainers/hisat2:2.2.1--h503566f_8')
+    status, output = _run_command(
         image_cfg,
-        f'hisat2-build -p {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
         mounts,
+        f'hisat2-build -p {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
     )
 
-    assert status ==0
+    if status == 0:
+        logger.success('build hisat2 index succeed')
+    else:
+        logger.error(output)
+        raise
     return f'{index_path}/{genome_fasta.stem}'
 
-def build_star_index(genome_fasta: str, annotation_gff:str):
+
+def build_star_index(genome_fasta: str, annotation_gff: str):
     genome_fasta = Path(genome_fasta)
-    annotation_gff =Path(annotation_gff)
+    annotation_gff = Path(annotation_gff)
     index_path = genome_fasta.parent / 'star'
     index_path.mkdir(exist_ok=True, parents=True)
 
@@ -96,18 +121,18 @@ def build_star_index(genome_fasta: str, annotation_gff:str):
         Mount(type='bind', source=str(index_path), target='/data/output'),
     ]
 
-    # TODO 设定镜像
-    image_cfg = ImageConfig(**{})
-    status, output = run_podman(
+    image_cfg = ImageConfig.from_str('quay.io/biocontainers/star:2.7.11b--h5ca1c30_7')
+    status, output = _run_command(
         image_cfg,
-        f'STAR --runThreadN {get_settings().persistent.MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
         mounts,
+        f'STAR --runThreadN {get_settings().persistent.MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
     )
 
     assert status == 0
     return f'{index_path}'
 
-def build_minimap2_index(genome_fasta:str):
+
+def build_minimap2_index(genome_fasta: str):
     genome_fasta = Path(genome_fasta)
     index_path = genome_fasta.parent / 'minimap2'
     index_path.mkdir(exist_ok=True, parents=True)
@@ -117,35 +142,37 @@ def build_minimap2_index(genome_fasta:str):
         Mount(type='bind', source=str(index_path), target='/data/output'),
     ]
 
-    # TODO 设定镜像
-    image_cfg = ImageConfig(**{})
-    status, output = run_podman(
+    image_cfg = ImageConfig.from_str('quay.io/biocontainers/minimap2:2.30--h577a1d6_0')
+    status, output = _run_command(
         image_cfg,
-        f'minimap2 -t {get_settings().persistent.MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
         mounts,
+        f'minimap2 -t {get_settings().persistent.MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
     )
 
     assert status == 0
     return f'{index_path}/{genome_fasta.stem}.mmi'
 
 
-def _create_genome_record(session: Session, genome, species_info: Any, alias_name: Optional[str] = None) -> ReferenceGenomes:
+def _create_genome_record(
+    session: Session, genome, species_info: Any, alias_name: Optional[str] = None
+) -> ReferenceGenomes:
     """创建基因组数据库记录"""
     download_result = download_genome_data(
         genome.accession, get_settings().persistent.GENOME_PATH, include_annotation=True, timeout=3600
     )
-    
+
     genome_record = ReferenceGenomes(
         ncbi_tax_id=species_info.tax_id,
         name=species_info.organism_name,
         accession=genome.accession,
         genome_sequences=download_result['genome_fasta'],
-        annotation_features=download_result['annotation_gff'],
+        annotation_gff=download_result['annotation_gff'],
+        annotation_gtf=download_result['annotation_gtf'],
     )
-    
+
     if alias_name and alias_name != genome_record.name:
         genome_record.aliases = alias_name
-    
+
     return genome_crud.insert(session, genome_record)
 
 
@@ -158,13 +185,15 @@ def load_genome_task(
         if 'ncbi_tax_id' in inputs:
             tax_id = get_tool_output(inputs['ncbi_tax_id'].source_uid, inputs['ncbi_tax_id'].source_k)
             # 首先尝试通过tax_id在数据库中查找
-            genome_record = genome_crud.get_by_taxid(session, tax_id)
-            
+            genome_record = genome_crud.get_by_taxid(session, int(tax_id))
+
             if not genome_record:
                 # 如果数据库中没有，通过API搜索并下载
-                genome = search_reference_genomes_by_tax_id(tax_id)
+                genome = search_reference_genomes_by_tax_id(int(tax_id))
                 species_info = get_species_info(genome.organism.tax_id)
                 genome_record = _create_genome_record(session, genome, species_info)
+            else:
+                logger.info(f'Found existed genome record for tax_id: "{tax_id}"')
         elif 'species_name' in inputs:
             species_name = get_tool_output(inputs['species_name'].source_uid, inputs['species_name'].source_k)
             genome_records = genome_crud.search(session, species_name)
@@ -172,6 +201,7 @@ def load_genome_task(
             if not genome_records:
                 genome = search_reference_genomes(species_name)
                 species_info = get_species_info(genome.organism.tax_id)
+                rich.print(species_info)
 
                 if genome_record := genome_crud.get_by_taxid(session, species_info.tax_id):
                     genome_update = GenomeUpdate(id=genome_record.id, aliases=f'{genome_record.aliases}|{species_name}')
@@ -179,13 +209,15 @@ def load_genome_task(
                 else:
                     genome_record = _create_genome_record(session, genome, species_info, species_name)
             else:
+                logger.info(f'Found existed genome record for species: "{species_name}"')
                 genome_record = genome_records[0]
-        
+
         else:
             raise ValueError("Either 'ncbi_tax_id' or 'species_name' must be provided in inputs")
 
         load_result['genome_fasta'] = genome_record.genome_sequences
-        load_result['annotation_gff'] = genome_record.annotation_features
+        load_result['annotation_gff'] = genome_record.annotation_gff
+        load_result['annotation_gtf'] = genome_record.annotation_gtf
 
         # 定义索引构建器映射
         index_builders = {
