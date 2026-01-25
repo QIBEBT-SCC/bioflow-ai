@@ -237,6 +237,8 @@ def _process_zip_file(zip_file: Path, temp_path: Path, output_dir: Path) -> dict
                     file_types['genome_fasta'] = str(target_file.absolute())
             elif file_lower.endswith('.gff') or file_lower.endswith('.gff3'):
                 file_types['annotation_gff'] = str(target_file.absolute())
+            elif file_lower.endswith('.gtf'):
+                file_types['annotation_gtf'] = str(target_file.absolute())
             elif file_lower.endswith('.jsonl') or file_lower.endswith('.tsv'):
                 file_types['reports'] = str(target_file.absolute())
 
@@ -498,6 +500,7 @@ def download_genome_data(
                     request_data['include_annotation_type'] = [
                         'GENOME_FASTA',  # 基因组FASTA序列
                         'GENOME_GFF',  # GFF3注释文件
+                        'GENOME_GTF',  # GTF注释文件
                         'SEQUENCE_REPORT',  # 序列报告
                     ]
                 else:

@@ -48,7 +48,7 @@ def get(session: Session, genome_id: int) -> Optional[ReferenceGenomes]:
 
 def get_by_taxid(session: Session, tax_id: int) -> Optional[ReferenceGenomes]:
     """通过物种id获取参考基因组"""
-    query: Select = select(ReferenceGenomes).where(ReferenceGenomes.ncbi_tax_id == int)
+    query: Select = select(ReferenceGenomes).where(ReferenceGenomes.ncbi_tax_id == tax_id)
     return session.exec(query).one_or_none()
 
 

@@ -134,21 +134,22 @@ CREATE TABLE IF NOT EXISTS bio_dbs
 
 CREATE TABLE IF NOT EXISTS reference_genomes
 (
-    id                  SERIAL,
-    ncbi_tax_id         INTEGER NOT NULL,
-    name                VARCHAR NOT NULL,
-    accession           VARCHAR NOT NULL,
-    aliases             VARCHAR,
-    genome_sequences    VARCHAR NOT NULL,
-    annotation_features VARCHAR NOT NULL,
-    bowtie2_index       VARCHAR,
-    bwa_index           VARCHAR,
-    hisat2_index        VARCHAR,
-    star_index          VARCHAR,
-    minimap2_index      VARCHAR,
+    id               SERIAL,
+    ncbi_tax_id      INTEGER NOT NULL,
+    name             VARCHAR NOT NULL,
+    accession        VARCHAR NOT NULL,
+    aliases          VARCHAR,
+    genome_sequences VARCHAR NOT NULL,
+    annotation_gff   VARCHAR NOT NULL,
+    annotation_gtf   VARCHAR NOT NULL,
+    bowtie2_index    VARCHAR,
+    bwa_index        VARCHAR,
+    hisat2_index     VARCHAR,
+    star_index       VARCHAR,
+    minimap2_index   VARCHAR,
     PRIMARY KEY (id),
-    UNIQUE (name),
-    UNIQUE (ncbi_tax_id)
+    UNIQUE (ncbi_tax_id),
+    UNIQUE (name)
 );
 
 CREATE TABLE IF NOT EXISTS samples

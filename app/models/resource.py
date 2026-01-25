@@ -68,13 +68,14 @@ class ReferenceGenomes(SQLModel, table=True):
     accession: str
     aliases: Optional[str] = Field(default=None, description='物种别名，多个别名用|分隔')
     genome_sequences: str
-    annotation_features: str
+    annotation_gff: str
+    annotation_gtf: str
 
-    bowtie2_index: Optional[str]
-    bwa_index: Optional[str]
-    hisat2_index: Optional[str]
-    star_index: Optional[str]
-    minimap2_index: Optional[str]
+    bowtie2_index: Optional[str] = None
+    bwa_index: Optional[str] = None
+    hisat2_index: Optional[str] = None
+    star_index: Optional[str] = None
+    minimap2_index: Optional[str] = None
 
 
 class File(SQLModel, table=True):
