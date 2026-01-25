@@ -165,8 +165,8 @@ class ToolNodePublic(BaseModel):
     input_handles: list[Handle] = Field(default_factory=list)
     output_handles: list[Handle] = Field(default_factory=list)
 
-    immutable_static_params: str
-    modifiable_static_params: str
+    immutable_static_params: Optional[str]
+    modifiable_static_params: Optional[str]
     complete_command: Optional[str] = None
 
     @model_validator(mode='after')
@@ -199,8 +199,8 @@ class ToolTaskInfo(BaseModel):
 
     command_template: str
     dynamic_params: list[ParamDefine]
-    immutable_static_params: str
-    modifiable_static_params: str
+    immutable_static_params: Optional[str]
+    modifiable_static_params: Optional[str]
     file_mounts: list[FileMount]
 
     image: ToolImage
