@@ -1,6 +1,8 @@
 from typing import Annotated, Optional, Sequence
 
-from fastapi import APIRouter, Form, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
+from langchain_core.documents import Document
+from langchain_milvus import Milvus
 from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.tools.image as image_crud
@@ -8,6 +10,7 @@ import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
+from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
@@ -15,13 +18,14 @@ from app.schemas.tools import (
     DockerToolUpdate,
     ImagePublic,
     ImageUpdate,
+    RunRequest,
     SimpleToolPublic,
     ToolGroupPublic,
     ToolNodePublic,
     ToolPublic,
     ToolTaskInfo,
 )
-from app.utils.container.podman import run_podman
+from app.utils.container import run_command
 from app.utils.security import AdminDep, MemberDep
 from llm.models import qwen3_embedding
 
@@ -89,16 +93,6 @@ async def get_image(session: SessionDep, uid: str):
     return image_crud.get(session, uid)
 
 
-# @image_router.get('/{uid}/documents', response_model=list[SimpleToolDoc])
-# async def get_image_docs(session: SessionDep, uid: str):
-#     return doc_crud.get_by_image(session, uid)
-#
-#
-# @image_router.get('/{uid}/tools', response_model=list[SimpleToolPublic])
-# async def get_image_tools(session: SessionDep, uid: str):
-#     return tool_crud.get_by_image(session, uid)
-
-
 @image_router.patch('/{uid}', response_model=ToolImage)
 async def update_image(uid: str, image_update: ImageUpdate, session: SessionDep, current_user: AdminDep):
     """更新镜像信息"""
@@ -108,15 +102,13 @@ async def update_image(uid: str, image_update: ImageUpdate, session: SessionDep,
     return updated_image
 
 
-@image_router.post('/{uid}')
-async def run_in_image(
-    uid: str, command: Annotated[str, Form(description='要运行的命令')], session: SessionDep, current_user: MemberDep
-):
+@image_router.post('/{uid}/run')
+async def run_in_image(uid: str, request: RunRequest, session: SessionDep, current_user: MemberDep):
     image = image_crud.get(session, uid)
     if not image:
         raise HTTPException(HTTP_404_NOT_FOUND, 'No corresponding image found')
 
-    code, result = run_podman(image.image, command, [])
+    code, result = run_command(image.image, [], request.command)
     return {'code': code, 'result': result}
 
 
@@ -129,23 +121,47 @@ async def get_doc(session: SessionDep, uid: str):
 # =============== tool ===============
 @router.post('', response_model=SimpleToolPublic)
 async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, current_user: AdminDep):
-    tags_to_add = [ToolTag(name=tag.name) for tag in tool_prop.tags if tag.id == -1]
-    exist_ids: list[int] = [tag.id for tag in tool_prop.tags if tag.id != -1]
-    if tags_to_add:
-        tags_to_add = tag_crud.insert_all(session, tags_to_add)
-        exist_ids.extend([tag.id for tag in tags_to_add])
+    # 解析tag
+    tags = tag_crud.get_all_by_id(session, tool_prop.tag_ids)
 
-    tags = tag_crud.get_all_by_id(session, exist_ids)
+    # 解析帮助命令
+    tool_image = image_crud.get(session, tool_prop.image_uid)
+    tool_doc = doc_crud.get_by_command(session, tool_prop.help_command)
+    if tool_doc is None:
+        code, result = run_command(tool_image.image, [], tool_prop.help_command)
+        tool_doc = ToolHelpDoc(help_command=tool_prop.help_command, content=result, image_uid=tool_prop.image_uid)
+        tool_doc = doc_crud.insert(session, tool_doc)
 
     tool_data = tool_prop.to_tool_data()
     tool_data.tags = tags
-
-    # 添加描述的向量索引
-    embedding_model = qwen3_embedding()
-    vector = embedding_model.embed_documents([tool_data.description])[0]
-    tool_data.des_vector = vector
+    tool_data.help_doc_uid = tool_doc.uid
 
     new_tool = tool_crud.insert(session, tool_data)
+
+    # 添加向量索引
+    embedding_model = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='ToolCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding_model,
+        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        consistency_level='Strong',
+        drop_old=False,
+        auto_id=True,
+    )
+
+    docs = [
+        Document(
+            page_content=new_tool.description,
+            metadata={
+                'image_uid': str(new_tool.image_uid),
+                'tool_uid': str(new_tool.uid),
+                'name': new_tool.name,
+            },
+        ),
+    ]
+    await vectorstore.aadd_documents(docs)
+
     return new_tool
 
 

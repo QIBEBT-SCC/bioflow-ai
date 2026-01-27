@@ -45,11 +45,8 @@ class SimpleToolDoc(BaseModel):
     help_command: str
 
 
-class AiGenRequest(BaseModel):
-    name: str
-    description: str
-
-    image_uid: uuid.UUID
+class RunRequest(BaseModel):
+    command: str
 
 
 class DockerToolCreate(BaseModel):
@@ -58,15 +55,15 @@ class DockerToolCreate(BaseModel):
     name: str
     image_uid: uuid.UUID
     description: str
-    help_doc_uid: uuid.UUID
+    help_command: str
 
     group_id: int
-    tags: list[ToolTag]
+    tag_ids: list[int]
 
     command_template: str
     dynamic_params: list[ParamDefine]
-    immutable_static_params: str
-    modifiable_static_params: str
+    immutable_static_params: Optional[str]
+    modifiable_static_params: Optional[str]
     file_mounts: list[FileMount]
 
     def to_tool_data(self) -> ToolDefine:
@@ -76,13 +73,11 @@ class DockerToolCreate(BaseModel):
             description=self.description,
             tool_type=ToolType.DOCKER,
             group_id=self.group_id,
-            help_doc_uid=self.help_doc_uid,
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
             immutable_static_params=self.immutable_static_params,
             modifiable_static_params=self.modifiable_static_params,
             file_mounts=self.file_mounts,
-            tags=self.tags,
         )
 
 
