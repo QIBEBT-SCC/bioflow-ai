@@ -7,7 +7,9 @@ import yaml
 from fastapi import FastAPI
 from fastapi.responses import Response
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 
 from app.api.v1.endpoints import (
     auth,
@@ -46,9 +48,18 @@ origins = [
     'http://172.18.19.113:3000',
 ]
 
+
+class LogRequestMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        logger.debug(f'Received request: {await request.json()}')
+        response = await call_next(request)
+        return response
+
+
 app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=['*'], allow_headers=['*']
 )
+# app.add_middleware(LogRequestMiddleware)
 
 
 @app.get('/openapi.yaml', include_in_schema=False)
@@ -75,6 +86,7 @@ app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'])
 app.include_router(tool.doc_router, prefix='/api/v1/documents', tags=['tool'])
 app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
 app.include_router(resource.reference_router, prefix='/api/v1/references', tags=['resource'])
+app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'])
 app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
 
 
