@@ -38,6 +38,8 @@ class TaskContext:
         self.auto_fill = auto_fill
         self.task_index = task_index
 
+        self.downstream_files = []
+
 
 # ==================== 任务处理器注册表 ====================
 
@@ -45,19 +47,35 @@ class TaskContext:
 _TASK_HANDLERS: dict[str, 'BaseTaskHandler'] = {}
 
 
-def register_handler(node_type: str):
+def register_handler(*node_types: str):
     """
     装饰器：注册任务处理器
 
+    支持单个或多个节点类型注册到同一个处理器
+
     Usage:
+        # 单个类型
         @register_handler('tool')
         class ToolTaskHandler(BaseTaskHandler):
             ...
+
+        # 多个类型（别名）
+        @register_handler('type1', 'type2', 'type3')
+        class MultiTypeHandler(BaseTaskHandler):
+            ...
     """
+    if not node_types:
+        raise ValueError('至少需要提供一个节点类型')
 
     def decorator(handler_class: type['BaseTaskHandler']) -> type['BaseTaskHandler']:
-        _TASK_HANDLERS[node_type] = handler_class()
-        logger.debug(f'已注册任务处理器: {node_type} -> {handler_class.__name__}')
+        # 创建一个处理器实例
+        handler_instance = handler_class()
+
+        # 为所有指定的类型注册同一个实例
+        for node_type in node_types:
+            _TASK_HANDLERS[node_type] = handler_instance
+            logger.debug(f'已注册任务处理器: {node_type} -> {handler_class.__name__}')
+
         return handler_class
 
     return decorator
@@ -71,6 +89,34 @@ def get_handler(node_type: str) -> Optional['BaseTaskHandler']:
 def get_all_handlers() -> dict[str, 'BaseTaskHandler']:
     """获取所有已注册的处理器"""
     return _TASK_HANDLERS.copy()
+
+
+def register_alias(alias: str, original_type: str) -> None:
+    """
+    为已注册的处理器添加别名
+
+    Args:
+        alias: 新的别名
+        original_type: 原始类型名称
+
+    Raises:
+        ValueError: 如果原始类型未注册
+
+    Usage:
+        @register_handler('primary_name')
+        class MyHandler(BaseTaskHandler):
+            ...
+
+        # 添加别名
+        register_alias('alias1', 'primary_name')
+        register_alias('alias2', 'primary_name')
+    """
+    if original_type not in _TASK_HANDLERS:
+        raise ValueError(f'原始类型 {original_type} 未注册')
+
+    handler = _TASK_HANDLERS[original_type]
+    _TASK_HANDLERS[alias] = handler
+    logger.debug(f'已注册别名: {alias} -> {handler.__class__.__name__} (原始类型: {original_type})')
 
 
 # ==================== 任务处理器基类 ====================

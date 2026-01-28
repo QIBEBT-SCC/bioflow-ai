@@ -8,7 +8,7 @@ from typing import Optional
 
 import rich
 import rustworkx as rx
-from celery import chain, group
+from celery import chain
 from loguru import logger
 from sqlmodel import Session
 from uuid_extensions import uuid7str
@@ -72,9 +72,21 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
             id=node.id, type=node.type, resource_uid=node.data.resource_uid, args=node.data.args
         )
     for edge in workflow.edges:
-        node_map[edge.target].kwarg[edge.targetHandle.split('-in-')[-1]] = TaskInput(
-            source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1]
-        )
+        target_param = edge.targetHandle.split('-in-')[-1]
+        task_input = TaskInput(source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1])
+
+        # 检查该参数是否已存在输入
+        if target_param in node_map[edge.target].kwarg:
+            existing = node_map[edge.target].kwarg[target_param]
+            # 如果已经是列表，追加
+            if isinstance(existing, list):
+                existing.append(task_input)
+            # 如果是单个TaskInput，转换为列表
+            else:
+                node_map[edge.target].kwarg[target_param] = [existing, task_input]
+        else:
+            # 首次添加，保持单个TaskInput
+            node_map[edge.target].kwarg[target_param] = task_input
 
     # DAG排序
     edge_set = [(edge.source, edge.target) for edge in workflow.edges]
@@ -149,7 +161,13 @@ def send_task(
 
         # 只有当子任务列表不为空时才添加到任务组
         if sub_tasks:
-            tasks.append(group(*sub_tasks))
+            # tasks.append(group(*sub_tasks))
+            tasks.extend(sub_tasks)  # celery 目前不支持多个group
+
+    # if context.downstream_files:
+    #     handler = get_handler('summary')
+    #     summary_task, _ = handler.handle(None, context)
+    #     tasks.append(summary_task)
 
     # 构建并发送工作流
     if tasks:

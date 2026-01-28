@@ -9,6 +9,7 @@ from app.utils.workflow.handler_base import (  # noqa: I001
     TaskContext,
     get_all_handlers,
     get_handler,
+    register_alias,
     register_handler,
 )
 
@@ -32,6 +33,7 @@ __all__ = [
     'BaseTaskHandler',
     'TaskContext',
     'register_handler',
+    'register_alias',
     'get_handler',
     'get_all_handlers',
     # 核心功能

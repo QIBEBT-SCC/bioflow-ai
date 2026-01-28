@@ -18,9 +18,9 @@ from app.schemas.react_flow import TaskNode
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
 from app.tasks.load_tasks.load_genome import load_genome_task
 from app.tasks.load_tasks.static_value import set_value_task
+from app.tasks.package_result import package_task
 from app.tasks.run_tool import docker_task
-
-from .handler_base import BaseTaskHandler, TaskContext, register_handler
+from app.utils.workflow.handler_base import BaseTaskHandler, TaskContext, register_handler
 
 
 @register_handler('tool')
@@ -195,3 +195,62 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
     def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
         """Copy2Folder 目前不创建任务"""
         return None, context.task_index
+
+
+@register_handler('code_python', 'code_R')
+class SimpleCodeTaskHandler(BaseTaskHandler):
+    """处理下游分析代码节点
+
+    这个处理器不创建 Celery 任务和 TaskInstance，
+    只将代码信息添加到 context.downstream_files 中供后续使用
+    """
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:
+        raise NotImplementedError('SimpleCodeTaskHandler 不创建 TaskInstance')
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:
+        raise NotImplementedError('SimpleCodeTaskHandler 不创建 Celery 任务')
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """不创建任务，只记录下游代码信息"""
+
+        node_inputs = task_node.kwarg['input_files']
+        if isinstance(list, node_inputs):
+            input_files = node_inputs
+        else:
+            input_files = [node_inputs]
+
+        context.downstream_files.extend(input_files)
+
+        return None, context.task_index
+
+
+@register_handler('summary')
+class SummaryHandler(BaseTaskHandler):
+    """处理下游分析代码节点
+
+    这个处理器不创建 Celery 任务和 TaskInstance，
+    只将代码信息添加到 context.downstream_files 中供后续使用
+    """
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:
+        return TaskInstance(
+            uid=context.run_uid,  # 最终打包节点的任务uuid与运行实例的uuid一致
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='package',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:
+        assert context.downstream_files is not None
+
+        downstream_files = list(set(context.downstream_files))
+        output_dir = f'{get_settings().persistent.STORAGE_PATH}/{context.owner.username}/{context.output_base}/summary'
+
+        return package_task.s(
+            run_uid=f'{context.run_uid}',
+            inputs=task_node.kwarg,
+            output_dir=output_dir,
+            sample_name=context.sample_name,
+        ).set(task_id=context.run_uid)  # 最终打包节点的任务uuid与运行实例的uuid一致
