@@ -3,10 +3,10 @@ from typing import Annotated, Awaitable, Callable, Literal, NotRequired, Optiona
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput
-from langchain_core.messages import RemoveMessage, ToolMessage
+from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
+from langgraph.types import Command, Overwrite
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -301,7 +301,8 @@ def delete_todo(indexs: list[int], runtime: ToolRuntime):
 def view_todos(runtime: ToolRuntime):
     """View the current todo list.
 
-    Generally, you can see the current to-do list directly from the status bar; call this tool ONLY when you need to review it or require the full task list for other reasons.
+    Generally, you can see the current to-do list directly from the status bar (if available); call this tool ONLY when you need to review it or require the full task list for other reasons.
+    To keep the conversation clean, invoking this tool will clear previous tool calls and results related to todo.
     """
     current_todos = runtime.state.get('todos', [])
     if not current_todos:
@@ -312,12 +313,23 @@ def view_todos(runtime: ToolRuntime):
         )
         content = f'<TODOs>\n{todo_list_str}\n</TODOs>'
 
-    return content
+    new_messages = []
+    for m in runtime.state.get('messages', []):
+        if isinstance(m, ToolMessage):
+            if m.name == 'view_todos':
+                new_messages.append(m.model_copy(update={'content': 'Expired message'}))
+        elif isinstance(m, AIMessage):
+            if m.tool_calls and m.tool_calls[0]['name'] == 'view_todos':
+                new_messages.append(m)
+        else:
+            new_messages.append(m)
+    new_messages.append(ToolMessage(content=content, tool_call_id=runtime.tool_call_id))
+    return Command(update={'messages': Overwrite(value=new_messages)})
 
 
 class TodoMiddleware(AgentMiddleware):
     state_schema = TodoState
-    tools = [add_todos, update_todo_state, view_todos]
+    tools = [add_todos, update_todo_state]
 
     def wrap_model_call(
         self,
