@@ -12,8 +12,8 @@ from llm.states import FolderContext
 # 设置特别长文件名的阈值
 NAME_LENGTH_THRESHOLD = 40
 
-# 设置文件最大字符数限制（约1MB的文本内容）
-MAX_FILE_CHARS = 1_000_000
+# 设置文件最大字符数限制
+MAX_FILE_CHARS = 4000
 
 
 def _is_safe_path(path: str, root_path: str) -> bool:
@@ -44,6 +44,7 @@ def list_directory(path: str, runtime: ToolRuntime[FolderContext]) -> str:
     Args:
         path: 相对于根目录的路径
     """
+    runtime.stream_writer({'data': f'list dir {path}'})
     try:
         dir_path = _get_safe_path(path, runtime.context.root_path)
 
@@ -54,7 +55,7 @@ def list_directory(path: str, runtime: ToolRuntime[FolderContext]) -> str:
 
         # 收集所有项目信息
         entries = []
-        for item in sorted(dir_path.iterdir()):
+        for item in dir_path.iterdir():
             name = item.name
             if item.is_dir():
                 entries.append({'name': name + '/', 'size': None, 'is_dir': True})
@@ -117,6 +118,7 @@ def read_file(
     Returns:
         文件内容，每行前带有行号
     """
+    runtime.stream_writer({'data': f'read file {path}'})
     try:
         file_path = _get_safe_path(path, runtime.context.root_path)
 
@@ -127,11 +129,6 @@ def read_file(
 
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
-        # 检查字符数量
-        char_count = len(content)
-        if char_count > MAX_FILE_CHARS:
-            return f'错误: 文件过大 ({char_count:,} 字符)，请使用 offset 和 limit 参数分页读取'
 
         lines = content.splitlines(keepends=True)
 
@@ -148,7 +145,23 @@ def read_file(
         result = f'文件: {path}\n'
         result += f'总行数: {total_lines}, 显示: {start + 1}-{min(end, total_lines)}\n'
         result += '-' * 50 + '\n'
-        result += '\n'.join(numbered_lines)
+        content_lines = '\n'.join(numbered_lines)
+
+        # 检查实际返回内容的字符数，如果超过限制则截断
+        header = result
+        if len(header) + len(content_lines) > MAX_FILE_CHARS:
+            truncated_content = content_lines[:MAX_FILE_CHARS]
+            last_newline = truncated_content.rfind('\n')
+            if last_newline > 0:
+                truncated_content = truncated_content[:last_newline]
+
+            result = (
+                header
+                + truncated_content
+                + f'\n\n... [内容已截断，总计 {len(content_lines):,} 字符，已显示 {len(truncated_content):,} 字符] ...'
+            )
+        else:
+            result = header + content_lines
 
         return result
     except UnicodeDecodeError:
@@ -176,14 +189,13 @@ def grep_search(
     Args:
         pattern: 要搜索的正则表达式模式
         file_path: 要搜索的文件路径（相对于根目录）
-        output_mode: 输出模式
-            - "content": 显示匹配行及上下文
-            - "count": 只显示匹配次数
+        output_mode: 输出模式, "content": 显示匹配行及上下文; "count": 只显示匹配次数
         context_lines: 显示匹配行前后的上下文行数（仅content模式）
 
     Returns:
         搜索结果
     """
+    runtime.stream_writer({'data': f'search in file {file_path} for "{pattern}"'})
     try:
         target_path = _get_safe_path(file_path, runtime.context.root_path)
 
@@ -201,11 +213,6 @@ def grep_search(
         # 读取文件内容
         with open(target_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
-        # 检查字符数量
-        char_count = len(content)
-        if char_count > MAX_FILE_CHARS:
-            return f'错误: 文件过大 ({char_count:,} 字符)，无法搜索'
 
         lines = content.splitlines(keepends=True)
 
@@ -226,14 +233,26 @@ def grep_search(
         result = f"文件 '{file_path}' 中找到 {len(matches)} 个匹配:\n"
         result += '=' * 50 + '\n'
 
+        # 逐个添加匹配项，检查是否超过字符限制
+        total_matches = len(matches)
+        displayed_matches = 0
+
         for match_line in matches:
             start = max(1, match_line - context_lines)
             end = min(len(lines), match_line + context_lines)
 
-            result += f'\n行 {match_line}:\n'
+            match_content = f'\n行 {match_line}:\n'
             for i in range(start, end + 1):
                 prefix = '> ' if i == match_line else '  '
-                result += f'{prefix}{i:4d}| {lines[i - 1].rstrip()}\n'
+                match_content += f'{prefix}{i:4d}| {lines[i - 1].rstrip()}\n'
+
+            # 检查添加这个匹配项后是否超过限制
+            if len(result) + len(match_content) + 200 > MAX_FILE_CHARS:
+                result += f'\n... [已截断，共 {total_matches} 个匹配，已显示 {displayed_matches} 个] ...'
+                break
+
+            result += match_content
+            displayed_matches += 1
 
         return result
 
@@ -259,6 +278,7 @@ def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.
     Returns:
         找到的文件列表，按修改时间排序
     """
+    runtime.stream_writer({'data': f'search file with "{pattern}"'})
     try:
         search_path = _get_safe_path(path, runtime.context.root_path)
 
@@ -321,13 +341,14 @@ def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.
 
 
 @tool(parse_docstring=True)
-def edit_file(
+def write_to_file(
     path: str,
     content: str,
     runtime: ToolRuntime[FolderContext],
     mode: Literal['append', 'overwrite'] = 'append',
 ) -> str:
     """编辑或创建文件
+    注意，使用 overwrite 会完全覆盖文件中现有的内容，除非你十分确信，否则正常情况下只使用 append 模式
 
     ## 使用示例
     - edit_file("SUMMARY.md", "# 项目说明\\n")  # 追加内容
@@ -336,19 +357,17 @@ def edit_file(
     Args:
         path: 相对于根目录的文件路径
         content: 要写入的内容
-        mode: 写入模式
-            - "append": 追加到文件末尾（默认）
-            - "overwrite": 覆盖整个文件
+        mode: 写入模式. "append": 追加到文件末尾（默认）; "overwrite": 覆盖整个文件
 
     Returns:
         操作结果信息
     """
+    runtime.stream_writer({'data': f'{mode} to file {path}'})
     try:
         file_path = _get_safe_path(path, runtime.context.root_path)
 
         # 检查文件名是否在允许列表中
-        filename = file_path.name
-        if filename not in runtime.context.allowed_files:
+        if path not in runtime.context.allowed_files:
             allowed_list = ', '.join(runtime.context.allowed_files)
             return f'错误: 不允许编辑此文件。只允许编辑以下文件: {allowed_list}'
 
@@ -395,6 +414,7 @@ def copy_file(
     Returns:
         操作结果信息
     """
+    runtime.stream_writer({'data': f'copy {source_path} to {target_path}'})
     try:
         src_path = _get_safe_path(source_path, runtime.context.root_path)
         dst_path = _get_safe_path(target_path, runtime.context.root_path)
