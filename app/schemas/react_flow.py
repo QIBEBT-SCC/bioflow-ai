@@ -1,6 +1,6 @@
-import uuid
-from typing import Optional, Any
-from pydantic import BaseModel, Field
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Position(BaseModel):
@@ -43,6 +43,8 @@ class WorkflowDefinition(BaseModel):
 
 
 class TaskInput(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     source_uid: str
     source_k: str
 
@@ -52,4 +54,4 @@ class TaskNode(BaseModel):
     type: str
     resource_uid: Optional[str] = None
     args: str | dict[str, Any]
-    kwarg: dict[str, TaskInput] = Field(default_factory=dict)
+    kwarg: dict[str, TaskInput | list[TaskInput]] = Field(default_factory=dict)
