@@ -1,12 +1,14 @@
-from typing import Annotated, Awaitable, Callable, Literal, NotRequired, Optional
+from typing import Annotated, Any, Awaitable, Callable, Literal, NotRequired, Optional, cast
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
-from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput
+from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput, StateT
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
+from langgraph.runtime import Runtime
 from langgraph.types import Command, Overwrite
+from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -148,7 +150,15 @@ def update_todo_state(index: int, status: Literal['pending', 'in_progress', 'com
         remaining_count = len(pending_todos) + len(in_progress_todos)
 
         if remaining_count == 0:
-            msg_content = f'Task {index} marked as {status}. Context cleared.\n\nAll tasks have been completed, and the mission can be ended.'
+            msg_content = (
+                f'Task {index} marked as {status}.\n\nAll tasks have been completed, and the mission can be ended.'
+            )
+            update_messages = [
+                ToolMessage(
+                    msg_content,
+                    tool_call_id=runtime.tool_call_id,
+                ),
+            ]
         else:
             completed_todos = [t for t in updated_todos if t.status == 'completed']
             display_todos = completed_todos + in_progress_todos
@@ -168,13 +178,13 @@ def update_todo_state(index: int, status: Literal['pending', 'in_progress', 'com
 
             msg_content = f'{todo_msg}\n\nTask {index} marked as {status}. Context cleared.\n\n{remaining_count} todos remaining to be processed'
 
-        update_messages = [
-            *remove_messages,
-            ToolMessage(
-                msg_content,
-                tool_call_id=runtime.tool_call_id,
-            ),
-        ]
+            update_messages = [
+                *remove_messages,
+                ToolMessage(
+                    msg_content,
+                    tool_call_id=runtime.tool_call_id,
+                ),
+            ]
     else:
         update_messages = [
             ToolMessage(
@@ -331,6 +341,11 @@ class TodoMiddleware(AgentMiddleware):
     state_schema = TodoState
     tools = [add_todos, update_todo_state]
 
+    def __init__(self, limit_add: bool = False):
+        self.limit_add = limit_add
+
+        self.todo_inited = False
+
     def wrap_model_call(
         self,
         request: ModelRequest,
@@ -350,6 +365,27 @@ class TodoMiddleware(AgentMiddleware):
             request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
         )
         return await handler(request)
+
+    def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        last_message = cast(AIMessage, state['messages'][-1])
+        if last_message.tool_calls and last_message.tool_calls[0]['name'] == 'add_todos':
+            if self.limit_add and self.todo_inited:
+                return {
+                    'jump_to': 'model',
+                    'messages': [
+                        ToolMessage(
+                            content='TODO-list已经初始化，禁止再次使用 add_todos 工具。',
+                            tool_call_id=last_message.tool_calls[0]['id'],
+                        )
+                    ],
+                }
+            else:
+                self.todo_inited = True
+
+        return None
+
+    async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        return self.after_model(state, runtime)
 
 
 class BuildTodoMiddleware(AgentMiddleware):

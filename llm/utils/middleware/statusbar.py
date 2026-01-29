@@ -21,7 +21,12 @@ class StatusBarMiddleware(AgentMiddleware):
             for todo in request.state['todos']:  # type: ignore
                 todo: Todo
                 if todo.status == 'in_progress':
-                    status.append(f'Current To-DO: {todo.content}')
+                    status.append(f'Current To-DO: <todo index={todo.index}>{todo.content}</todo>')
+                    break
+                if todo.status == 'pending':
+                    status.append(
+                        f'No currently processed To-DO, the next To-DO in the queue is: <todo index={todo.index}>{todo.content}</todo>'
+                    )
                     break
 
         if status:
