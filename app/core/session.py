@@ -8,7 +8,15 @@ from sqlmodel import Session, SQLModel
 
 from app.core.config import get_settings
 
-engine = create_engine(get_settings().persistent.DB_URL)
+# 配置数据库连接池以支持并发任务
+engine = create_engine(
+    get_settings().persistent.DB_URL,
+    pool_size=20,              # 连接池大小
+    max_overflow=40,           # 最大溢出连接数
+    pool_pre_ping=True,        # 连接前检查可用性
+    pool_recycle=3600,         # 连接回收时间（1小时）
+    echo=False,                # 不打印 SQL 语句（生产环境）
+)
 
 
 @logger.catch

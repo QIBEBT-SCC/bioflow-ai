@@ -8,14 +8,14 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.models.tools import FileMount, ImageConfig
+from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.task_instance import TaskUpdate
 from app.tasks.base.base_task import (
     BaseBioTask,
-    ToolOutput,
     get_tool_data,
     get_tool_output,
-    update_monitor_log,
+    update_monitor_redis,
     update_task,
 )
 from app.utils.input_format import PartialFormatter, build_command_template
@@ -102,6 +102,7 @@ def docker_task(
     assert self.request.id is not None
 
     tool_config = get_tool_data(tool_uid)
+    logger.debug(f'task {self.request.id} start: {tool_config.name}')
 
     # 创建输出目录
     host_output_dir = Path(output_dir).absolute()
@@ -109,9 +110,6 @@ def docker_task(
 
     # 处理文件挂载
     param_inputs, mount_paths, expected_output = build_mounts(tool_config.file_mounts, output_dir, sample_name, inputs)
-    logger.debug(param_inputs)
-    logger.debug(mount_paths)
-    logger.debug(expected_output.all_files())
 
     if expected_output.all_exist():
         return expected_output
@@ -152,7 +150,7 @@ def docker_task(
             log_count += 1
 
             if log_count % 100 == 0:
-                update_monitor_log(self.request.id)
+                update_monitor_redis(self.request.id)
     else:
         from app.utils.container.docker import run_docker_background
 
@@ -164,7 +162,7 @@ def docker_task(
             log_count += 1
 
             if log_count % 100 == 0:
-                update_monitor_log(self.request.id)
+                update_monitor_redis(self.request.id)
 
     # 验证输出文件是否生成
     missing_outputs = [str(path) for name, path in expected_output.all_files().items() if not path.exists()]

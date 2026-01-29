@@ -4,7 +4,8 @@ from typing import Any, Optional
 from celery import Task
 from pydantic import BaseModel
 
-from app.tasks.base.base_task import BaseBioTask, ToolOutput
+from app.models.workflow import ToolOutput
+from app.tasks.base.base_task import BaseBioTask
 from worker import celery_app
 
 

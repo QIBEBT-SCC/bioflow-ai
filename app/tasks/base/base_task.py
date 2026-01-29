@@ -1,138 +1,213 @@
-import json
 import platform
 import socket
 from datetime import datetime
-from typing import Optional
 
 import celery
-import requests
 from loguru import logger
+from sqlalchemy.orm import joinedload
+from sqlmodel import Session, select
 
-from app.core.config import get_settings
-from app.models.workflow import Status, ToolOutput
+import app.crud.task_instance as task_crud
+from app.core.session import engine
+from app.models.tools import ToolDefine
+from app.models.workflow import Status
 from app.schemas.task_instance import TaskUpdate
 from app.schemas.tools import ToolTaskInfo
 
 
 class BaseBioTask(celery.Task):
     def before_start(self, task_id, args, kwargs):
-        os_info = platform.platform()
-        hostname = socket.gethostname()
-        data = TaskUpdate(status=Status.RUNNING, system=os_info, hostname=hostname, start_time=datetime.now())
-        update_task(task_id, data)
+        """任务开始前的钩子 - 直接更新数据库"""
+        try:
+            with Session(engine) as session:
+                task = task_crud.get(session, task_id)
+                task.status = Status.RUNNING
+                task.system = platform.platform()
+                task.hostname = socket.gethostname()
+                task.start_time = datetime.now()
+
+                session.add(task)
+                session.commit()
+                logger.debug(f'任务 {task_id} 状态已更新为 RUNNING')
+        except Exception as e:
+            logger.error(f'更新任务 {task_id} 启动状态失败: {e}')
 
     def on_success(self, retval, task_id, args, kwargs):
-        data = TaskUpdate(tool_output=retval, status=Status.SUCCESS, end_time=datetime.now())
-        update_task(task_id, data)
-        update_monitor_log(task_id)
+        """任务成功后的钩子 - 直接更新数据库"""
+        try:
+            with Session(engine) as session:
+                task = task_crud.get(session, task_id)
+                task.status = Status.SUCCESS
+                task.tool_output = retval
+                task.end_time = datetime.now()
+
+                session.add(task)
+                session.commit()
+                logger.success(f'任务 {task_id} 状态已更新为 SUCCESS')
+        except Exception as e:
+            logger.error(f'更新任务 {task_id} 成功状态失败: {e}')
+
+        # 更新 Redis 监控日志（用于实时推送）
+        try:
+            update_monitor_redis(task_id)
+        except Exception as e:
+            logger.warning(f'更新 Redis 监控日志失败: {e}')
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
-        data = TaskUpdate(status=Status.ERROR, end_time=datetime.now())
-        update_task(task_id, data)
-        update_monitor_log(task_id)
+        """任务失败后的钩子 - 直接更新数据库"""
+        try:
+            with Session(engine) as session:
+                task = task_crud.get(session, task_id)
+                task.status = Status.ERROR
+                task.end_time = datetime.now()
+
+                session.add(task)
+                session.commit()
+                logger.debug(f'任务 {task_id} 状态已更新为 ERROR')
+        except Exception as e:
+            logger.error(f'更新任务 {task_id} 失败状态失败: {e}')
+
+        # 更新 Redis 监控日志（用于实时推送）
+        try:
+            update_monitor_redis(task_id)
+        except Exception as e:
+            logger.warning(f'更新 Redis 监控日志失败: {e}')
 
 
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
-    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tools/{tool_uid}/task_info'
-    headers = {'Content-Type': 'application/json'}
+    """从数据库获取工具信息
 
-    response = requests.get(url, headers=headers)
-    assert response.status_code == 200
+    Args:
+        tool_uid: 工具 UID
 
-    return ToolTaskInfo.model_validate(response.json())
+    Returns:
+        ToolTaskInfo: 工具任务信息
+    """
+    with Session(engine) as session:
+        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))
+
+        tool = session.exec(statement).one_or_none()
+        if not tool:
+            raise ValueError(f'工具 {tool_uid} 不存在')
+
+        return ToolTaskInfo(
+            uid=tool.uid,
+            name=tool.name,
+            file_mounts=tool.file_mounts,
+            command_template=tool.command_template,
+            dynamic_params=tool.dynamic_params,
+            immutable_static_params=tool.immutable_static_params,
+            modifiable_static_params=tool.modifiable_static_params,
+            image=tool.image,
+        )
 
 
-def update_task(uid: str, data: TaskUpdate, max_retries: int = 3) -> bool:
-    """更新任务状态，带重试机制
-    
+def update_task(uid: str, data: TaskUpdate) -> bool:
+    """更新任务状态
+
     Args:
         uid: 任务 UID
         data: 更新数据
-        max_retries: 最大重试次数
-        
+
     Returns:
         bool: 是否更新成功
     """
-    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tasks/{uid}'
-    headers = {'Content-Type': 'application/json'}
-    json_str = data.model_dump_json(exclude_unset=True)
-    
-    for attempt in range(max_retries):
-        try:
-            response = requests.patch(
-                url, 
-                json=json.loads(json_str), 
-                headers=headers,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                return True
-            else:
-                logger.warning(
-                    f'更新任务状态失败 (尝试 {attempt + 1}/{max_retries}): '
-                    f'HTTP {response.status_code} - {response.text}'
-                )
-                
-        except requests.exceptions.Timeout:
-            logger.warning(f'更新任务状态超时 (尝试 {attempt + 1}/{max_retries})')
-        except requests.exceptions.ConnectionError as e:
-            logger.warning(f'连接失败 (尝试 {attempt + 1}/{max_retries}): {e}')
-        except Exception as e:
-            logger.error(f'更新任务状态异常 (尝试 {attempt + 1}/{max_retries}): {e}')
-            
-        # 如果不是最后一次尝试，等待一段时间后重试
-        if attempt < max_retries - 1:
-            import time
-            time.sleep(1 * (attempt + 1))  # 递增等待时间
-    
-    logger.error(f'更新任务 {uid} 状态失败，已达到最大重试次数')
-    return False
+    try:
+        with Session(engine) as session:
+            task_crud.update(session, uid, data)
+            return True
+    except Exception as e:
+        logger.error(f'更新任务 {uid} 状态失败: {e}')
+        return False
 
 
-def update_monitor_log(uid: str, max_retries: int = 3) -> bool:
-    """更新监控日志，带重试机制
-    
+def update_monitor_redis(uid: str) -> bool:
+    """更新 Redis 监控日志（用于实时通知）
+
     Args:
         uid: 任务 UID
-        max_retries: 最大重试次数
-        
+
     Returns:
         bool: 是否更新成功
     """
-    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tasks/{uid}/notify'
-    
+    try:
+        from worker import monitor_redis_client
+
+        # 从数据库获取任务信息
+        with Session(engine) as session:
+            task = task_crud.get(session, uid)
+
+            # 更新 Redis 中的运行实例统计
+            run_stats_key = f'run-stats-{task.instance_uid}'
+
+            if task.status == Status.RUNNING:
+                monitor_redis_client.hincrby(run_stats_key, 'waiting', -1)
+                monitor_redis_client.hincrby(run_stats_key, 'running', 1)
+            elif task.status == Status.SUCCESS:
+                monitor_redis_client.hincrby(run_stats_key, 'running', -1)
+                monitor_redis_client.hincrby(run_stats_key, 'success', 1)
+            elif task.status == Status.ERROR:
+                monitor_redis_client.hincrby(run_stats_key, 'running', -1)
+                monitor_redis_client.hincrby(run_stats_key, 'error', 1)
+
+            return True
+    except Exception as e:
+        logger.error(f'更新 Redis 监控日志失败: {e}')
+        return False
+
+
+def get_tool_output(uid: str, k: str, max_retries: int = 30, retry_interval: float = 2.0) -> str:
+    """从数据库获取任务输出，带轮询重试机制
+
+    用于处理任务间的依赖关系。如果输出尚未就绪，会进行轮询重试。
+
+    Args:
+        uid: 任务 UID
+        k: 输出字段名称
+        max_retries: 最大重试次数（默认 30 次）
+        retry_interval: 重试间隔（秒，默认 2 秒）
+
+    Returns:
+        str: 任务输出的文件路径
+
+    Raises:
+        TimeoutError: 超过最大重试次数仍未获取到输出
+        ValueError: 任务不存在或输出字段不存在
+    """
+    import time
+
     for attempt in range(max_retries):
         try:
-            response = requests.post(url, timeout=10)
-            
-            if response.status_code == 200:
-                return True
-            else:
-                logger.warning(
-                    f'更新监控日志失败 (尝试 {attempt + 1}/{max_retries}): '
-                    f'HTTP {response.status_code}'
-                )
-                
-        except requests.exceptions.Timeout:
-            logger.warning(f'更新监控日志超时 (尝试 {attempt + 1}/{max_retries})')
+            with Session(engine) as session:
+                task = task_crud.get(session, uid)
+
+                # 检查任务状态
+                if task.status == Status.ERROR:
+                    raise ValueError(f'任务 {uid} 执行失败，无法获取输出')
+
+                # 检查输出是否存在
+                if task.tool_output is not None:
+                    all_files = task.tool_output.all_files()
+                    if k in all_files:
+                        result = str(all_files[k])
+                        logger.debug(f'成功获取输出 {k}: {result}')
+                        return result
+
+                # 输出尚未就绪，等待重试
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        f'任务 {uid} 的输出 {k} 尚未就绪 '
+                        f'(状态: {task.status.name}, 尝试 {attempt + 1}/{max_retries})，等待重试...'
+                    )
+                    time.sleep(retry_interval)
+
         except Exception as e:
-            logger.error(f'更新监控日志异常 (尝试 {attempt + 1}/{max_retries}): {e}')
-            
-        if attempt < max_retries - 1:
-            import time
-            time.sleep(1)
-    
-    logger.error(f'更新任务 {uid} 监控日志失败，已达到最大重试次数')
-    return False
+            if attempt < max_retries - 1:
+                logger.warning(f'获取任务输出失败 (尝试 {attempt + 1}/{max_retries}): {e}')
+                time.sleep(retry_interval)
+            else:
+                raise
 
-
-def get_tool_output(uid: str, k: str) -> str:
-    url = f'http://localhost:{get_settings().network.PORT}/api/v1/tasks/{uid}/result'
-    headers = {'Content-Type': 'application/json'}
-
-    response = requests.get(url, headers=headers)
-    assert response.status_code == 200
-
-    task_output = ToolOutput.model_validate(response.json())
-    return str(task_output.all_files()[k])
+    raise TimeoutError(
+        f'无法获取任务 {uid} 的输出 {k}，已重试 {max_retries} 次（总等待时间: {max_retries * retry_interval:.0f}秒）'
+    )
