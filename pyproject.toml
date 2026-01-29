@@ -37,6 +37,7 @@ dependencies = [
     "pyarrow>=21.0.0",
     "pydantic-settings>=2.8.1",
     "pyjwt>=2.10.1",
+    "python-frontmatter>=1.1.0",
     "python-multipart>=0.0.20",
     "rustworkx>=0.16.0",
     "sqlmodel>=0.0.27",
@@ -52,6 +53,10 @@ podman = [
 
 [tool.ruff]
 line-length = 120
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 #[[tool.uv.index]]
 #url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"

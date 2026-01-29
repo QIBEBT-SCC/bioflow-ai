@@ -14,12 +14,12 @@ from llm.agents.reproduction.mamagers import (
 )
 from llm.models import get_agent_model
 from llm.states import BuildSchema, UserContext
-from llm.tools.skills import view_skill
-from llm.tools.workflow import assist_tool, save_workflow
+from llm.tools.workflow import assist_tool, save_workflow, view_workflow
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
+    InitedTodoMiddleware,
+    SkillMiddleware,
     StatusBarMiddleware,
-    TodoMiddleware,
     TokenStatisticMiddleware,
 )
 
@@ -48,12 +48,8 @@ You cannot directly operate nodes; you can only request to add nodes by calling 
 ## Notes
 - Only one task can be processed at a time. Ensure that the current task has been marked as `completed` before starting the next task.
 - When a task is marked as `completed`, the current context information will be cleared. You can obtain necessary information by viewing the todo list and the current workflow status.
-
-## Advanced Skills
-We provide some advanced skills. When you need them, you can view their detailed descriptions by calling the `view_skill` tool:
-- Cross-workflow file transfer
-    - name: CROSS_WORKFLOW_FILE_TRANSFER
-
+- To allow the manager to focus solely on adding nodes, you need to tell them in detail what needs to be done, as only you can see the current task list and workflow status.
+- Unless otherwise specified in the text, the default input sequences are paired-end sequencing files.
 """
 
 
@@ -171,17 +167,18 @@ async def call_code_manager(request: str, runtime: ToolRuntime[UserContext, Buil
 build_workflow_agent: CompiledStateGraph[BuildSchema, UserContext] = create_agent(
     get_agent_model(),
     [
+        view_workflow,
         call_tool_manager,
         call_resource_manager,
         call_processor_manager,
         call_code_manager,
-        view_skill,
         assist_tool,
         save_workflow,
     ],
     system_prompt=BUILD_FLOW_SYSTEM,
     middleware=[  # type: ignore
-        TodoMiddleware(),
+        InitedTodoMiddleware(),
+        SkillMiddleware(['cross_workflow_file_transfer']),
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
         TokenStatisticMiddleware(agent_name='reproduction_agent', **get_agent_model().metadata),
