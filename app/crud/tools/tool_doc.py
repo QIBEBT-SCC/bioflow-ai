@@ -4,6 +4,7 @@ from sqlalchemy import Select
 from sqlmodel import Session, col, select
 
 from app.models.tools import ToolHelpDoc
+from app.schemas.tools import DocUpdate
 
 
 def insert(session: Session, doc: ToolHelpDoc) -> ToolHelpDoc:
@@ -29,6 +30,21 @@ def delete(session: Session, doc_uid: str):
     if doc:
         session.delete(doc)
         session.commit()
+
+
+def update(session: Session, image_uid: str, doc_update: DocUpdate):
+    """部分更新镜像信息"""
+    doc = get(session, image_uid)
+    if not doc:
+        return None
+
+    update_data = doc_update.model_dump(exclude_unset=True)
+    doc.sqlmodel_update(update_data)
+
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return doc
 
 
 def get_all(session: Session, limit: int, offset: int):

@@ -72,7 +72,7 @@ def run_docker(
         stderr=True,
         entrypoint=['/bin/sh', '-c'],
         working_dir=workdir,
-        user=get_current_user_identity(),
+        # user=get_current_user_identity(),
         auto_remove=False,
         detach=True,
         mounts=mounts,

@@ -16,6 +16,7 @@ from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
     DockerToolCreate,
     DockerToolUpdate,
+    DocUpdate,
     ImagePublic,
     ImageUpdate,
     RunRequest,
@@ -116,6 +117,17 @@ async def run_in_image(uid: str, request: RunRequest, session: SessionDep, curre
 @doc_router.get('/{uid}', response_model=ToolHelpDoc)
 async def get_doc(session: SessionDep, uid: str):
     return doc_crud.get(session, uid)
+
+
+@doc_router.post('/{uid}/refresh', response_model=ToolHelpDoc)
+async def refresh_doc(session: SessionDep, uid: str):
+    doc = doc_crud.get(session, uid)
+    if not doc:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'No corresponding doc found')
+
+    code, result = run_command(doc.image.image, [], doc.help_command)
+    update_data = DocUpdate(content=result)
+    return doc_crud.update(session, uid, update_data)
 
 
 # =============== tool ===============

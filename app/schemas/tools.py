@@ -40,6 +40,11 @@ class ImageUpdate(BaseModel):
     image: Optional[ImageConfig] = None
 
 
+class DocUpdate(BaseModel):
+    help_command: Optional[str] = None
+    content: Optional[str] = None
+
+
 class SimpleToolDoc(BaseModel):
     uid: uuid.UUID
     help_command: str
