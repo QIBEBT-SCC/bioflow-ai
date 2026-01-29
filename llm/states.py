@@ -176,3 +176,10 @@ class BuildSchema(MessagesState, total=False):
     global_marks: list[GlobalMarker]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
+
+
+# =====================summary agent state==========================
+@dataclass
+class FolderContext(UserContext):
+    root_path: str
+    allowed_files: list[str]
