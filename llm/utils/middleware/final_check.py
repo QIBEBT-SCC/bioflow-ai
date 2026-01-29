@@ -1,3 +1,4 @@
+from pathlib import Path
 from string import Formatter
 from typing import Any, NotRequired, TypedDict, cast
 
@@ -11,7 +12,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.utils.input_format import build_command_template
-from llm.states import StructuredResponse, ToolGeneratorState, UserContext
+from llm.states import FolderContext, StructuredResponse, ToolGeneratorState, UserContext
 from llm.utils.token import store_token_usage
 
 
@@ -234,4 +235,52 @@ class CheckGenerateMiddleware(AgentMiddleware):
         return None
 
     async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
+        return self.after_model(state, runtime)
+
+
+class CheckTaskReportMiddleware(AgentMiddleware):
+    state_schema = CheckState
+
+    def __init__(
+        self,
+        error_time: int = 3,
+    ) -> None:
+        """
+        Args:
+            error_time: 重试次数
+        """
+        super().__init__()
+
+        self.error_time = error_time
+
+    def after_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
+        last_message = cast(AIMessage, state['messages'][-1])
+        if last_message.tool_calls:
+            return None
+
+        check_failed_count = state.get('check_failed_count', 0)
+
+        missing_files = []
+        for file_name in runtime.context.allowed_files:
+            file_path = Path(runtime.context.root_path) / file_name
+            if not file_path.exists():
+                missing_files.append(file_name)
+
+        if missing_files:
+            missing = ', '.join(missing_files)
+            logger.warning(f'Check failed. Missing files: {missing}')
+            # return _handle_check_failed(
+            #     check_failed_count,
+            #     [
+            #         HumanMessage(
+            #             content=f'Could not find the expected output files "{missing}". Please check if you did not generate them or used incorrect file names or paths.'
+            #         )
+            #     ],
+            #     self.error_time,
+            # )
+
+        logger.success('Check passed')
+        return None
+
+    async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
         return self.after_model(state, runtime)

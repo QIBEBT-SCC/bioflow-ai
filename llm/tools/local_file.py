@@ -1,4 +1,5 @@
 import re
+import shutil
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -373,7 +374,43 @@ def edit_file(
                 # 追加模式
                 with open(file_path, 'a', encoding='utf-8') as f:
                     f.write(content)
-                return f'成功: 已追加内容到文件 {path}'
+                return f'成功: 已追加内容到文件 {path} ({len(content)} 字符)'
+
+    except Exception as e:
+        return f'错误: {str(e)}'
+
+
+@tool(parse_docstring=True)
+def copy_file(
+    source_path: str,
+    target_path: str,
+    runtime: ToolRuntime[FolderContext],
+) -> str:
+    """复制文件到新位置。
+
+    Args:
+        source_path: 源文件路径（相对于根目录）
+        target_path: 目标文件路径（相对于根目录）
+
+    Returns:
+        操作结果信息
+    """
+    try:
+        src_path = _get_safe_path(source_path, runtime.context.root_path)
+        dst_path = _get_safe_path(target_path, runtime.context.root_path)
+
+        if not src_path.exists():
+            return f'错误: 源文件不存在: {source_path}'
+        if not src_path.is_file():
+            return f'错误: 源路径不是文件: {source_path}'
+        if dst_path.exists():
+            return f'错误: 目标文件已存在: {target_path}'
+
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, dst_path)
+
+        size_str = format_size(dst_path.stat().st_size)
+        return f'成功: 已复制文件 {source_path} -> {target_path} ({size_str})'
 
     except Exception as e:
         return f'错误: {str(e)}'
