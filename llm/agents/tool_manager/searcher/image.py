@@ -1,15 +1,15 @@
-from typing import Annotated, Literal, Optional
+from typing import Literal, Optional
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
-from langchain_core.tools import InjectedToolCallId, tool
+from langchain_core.tools import tool
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import ToolNode, ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -355,7 +355,7 @@ class GetImageAgent:
 
 
 @tool(parse_docstring=True)
-def need_new_image(name: str, tool_call_id: Annotated[str, InjectedToolCallId]):
+def need_new_image(name: str, runtime: ToolRuntime):
     """Initiate a request to create a new image
 
     Args:
@@ -365,7 +365,7 @@ def need_new_image(name: str, tool_call_id: Annotated[str, InjectedToolCallId]):
     return Command(
         update={
             'messages': [
-                ToolMessage(content='', tool_call_id=tool_call_id),
+                ToolMessage(content='', tool_call_id=runtime.tool_call_id),
                 RemoveMessage(id=REMOVE_ALL_MESSAGES),
                 HumanMessage(content=f'Need to create a new image for tool: {name}'),
             ]
