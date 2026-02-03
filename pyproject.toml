@@ -62,13 +62,6 @@ default = true
 quote-style = "single"
 docstring-code-format = true
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["app*", "llm*"]
-
-[tool.uv]
-package = true
-
 [tool.ruff.lint]
 extend-select = ["I"]
 ignore = [
