@@ -1,13 +1,14 @@
-from typing import Annotated, Any, Awaitable, Callable, Literal, NotRequired, Optional, cast
+from typing import Annotated, Any, Awaitable, Callable, Literal, NotRequired, Optional
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput, StateT
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 from langchain_core.tools import tool
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
-from langgraph.types import Command, Overwrite
+from langgraph.types import Command
 from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -34,6 +35,10 @@ class Todo(BaseModel):
 
 class TodoState(AgentState):
     todos: Annotated[NotRequired[list[Todo]], OmitFromInput]
+    msg_to_keep: NotRequired[int]
+
+
+TODO_TOOL_NAMES = {'view_todos'}
 
 
 @tool(parse_docstring=True)
@@ -324,17 +329,30 @@ def view_todos(runtime: ToolRuntime):
         content = f'<TODOs>\n{todo_list_str}\n</TODOs>'
 
     new_messages = []
-    for m in runtime.state.get('messages', []):
-        if isinstance(m, ToolMessage):
-            if m.name == 'view_todos':
-                new_messages.append(m.model_copy(update={'content': 'Expired message'}))
-        elif isinstance(m, AIMessage):
-            if m.tool_calls and m.tool_calls[0]['name'] == 'view_todos':
-                new_messages.append(m)
-        else:
-            new_messages.append(m)
+    for m in runtime.state.get('messages', [])[:-1]:
+        # 跳过 todo 相关的 ToolMessage
+        if isinstance(m, ToolMessage) and m.name in TODO_TOOL_NAMES:
+            new_messages.append(m.model_copy(update={'content': 'Expired message'}))
+            continue
+
+        # 跳过 todo 相关的 AIMessage
+        # if isinstance(m, AIMessage) and m.tool_calls and m.tool_calls[0]['name'] in TODO_TOOL_NAMES:
+        #     continue
+
+        # 保留其他所有消息
+        new_messages.append(m.model_copy())
+
+    new_messages.append(runtime.state.get('messages')[-1].model_copy())
     new_messages.append(ToolMessage(content=content, tool_call_id=runtime.tool_call_id))
-    return Command(update={'messages': Overwrite(value=new_messages)})
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(content='', tool_call_id=runtime.tool_call_id),
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                *new_messages,
+            ]
+        }
+    )
 
 
 class TodoMiddleware(AgentMiddleware):
@@ -367,22 +385,32 @@ class TodoMiddleware(AgentMiddleware):
         return await handler(request)
 
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
-        last_message = cast(AIMessage, state['messages'][-1])
-        if last_message.tool_calls and last_message.tool_calls[0]['name'] == 'add_todos':
-            if self.limit_add and self.todo_inited:
-                return {
-                    'jump_to': 'model',
-                    'messages': [
-                        ToolMessage(
-                            content='TODO-list已经初始化，禁止再次使用 add_todos 工具。',
-                            tool_call_id=last_message.tool_calls[0]['id'],
-                        )
-                    ],
-                }
-            else:
-                self.todo_inited = True
+        if not self.limit_add:
+            return None
 
-        return None
+        last_message = state['messages'][-1]
+        is_add_todos_call = (
+            isinstance(last_message, AIMessage)
+            and last_message.tool_calls
+            and last_message.tool_calls[0]['name'] == 'add_todos'
+        )
+
+        if not is_add_todos_call:
+            return None
+
+        if not self.todo_inited:
+            self.todo_inited = True
+            return None
+
+        return {
+            'jump_to': 'model',
+            'messages': [
+                ToolMessage(
+                    content='TODO-list已经初始化，禁止再次使用 add_todos 工具。',
+                    tool_call_id=last_message.tool_calls[0]['id'],
+                )
+            ],
+        }
 
     async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
         return self.after_model(state, runtime)
@@ -391,6 +419,14 @@ class TodoMiddleware(AgentMiddleware):
 class BuildTodoMiddleware(AgentMiddleware):
     state_schema = TodoState
     tools = [add_todos, update_todo_content, delete_todo, view_todos]
+
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        init_msgs = len(state['messages'])
+        return {'msg_to_keep': init_msgs}
+
+    async def abefore_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        init_msgs = len(state['messages'])
+        return {'msg_to_keep': init_msgs}
 
 
 class InitedTodoMiddleware(AgentMiddleware):
