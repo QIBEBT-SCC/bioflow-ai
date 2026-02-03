@@ -55,12 +55,8 @@ podman = [
 line-length = 120
 
 [[tool.uv.index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 default = true
-
-#[[tool.uv.index]]
-#url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-#default = true
 
 [tool.ruff.format]
 quote-style = "single"
