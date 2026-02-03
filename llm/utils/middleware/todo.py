@@ -3,7 +3,7 @@ from typing import Annotated, Any, Awaitable, Callable, Literal, NotRequired, Op
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput, StateT
-from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import AIMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.prebuilt import ToolRuntime
@@ -369,20 +369,18 @@ class TodoMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelCallResult:
-        request.system_prompt = (
-            request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
-        )
-        return handler(request)
+        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_system_message = SystemMessage(content=new_content)
+        return handler(request.override(system_message=new_system_message))
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelCallResult:
-        request.system_prompt = (
-            request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
-        )
-        return await handler(request)
+        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_system_message = SystemMessage(content=new_content)
+        return await handler(request.override(system_message=new_system_message))
 
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
         if not self.limit_add:
@@ -437,17 +435,15 @@ class InitedTodoMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelCallResult:
-        request.system_prompt = (
-            request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
-        )
-        return handler(request)
+        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_system_message = SystemMessage(content=new_content)
+        return handler(request.override(system_message=new_system_message))
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelCallResult:
-        request.system_prompt = (
-            request.system_prompt + '\n\n' + SYSTEM_PROMPT if request.system_prompt else SYSTEM_PROMPT
-        )
-        return await handler(request)
+        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_system_message = SystemMessage(content=new_content)
+        return await handler(request.override(system_message=new_system_message))
