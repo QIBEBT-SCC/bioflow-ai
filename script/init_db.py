@@ -112,14 +112,11 @@ async def init_images(drop_old: bool = True):
 
 async def init_tools(index: Optional[int] = None):
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-    if index is not None:
-        os.environ['LANGCHAIN_PROJECT'] = 'ai-dev'
-    else:
-        os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
+    os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
     # 读取完整数据集
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
-    
+
     # 需要跳过的工具（不处理，但保留在数据集中）
     skip_tools = ['MACS2', 'RSEM']
 
@@ -131,9 +128,7 @@ async def init_tools(index: Optional[int] = None):
             return
     else:
         # 过滤掉跳过的工具和已完成的任务
-        todo_df = function_df.filter(
-            ~pl.col('tool_name').is_in(skip_tools) & ~pl.col('thread').is_not_null()
-        )
+        todo_df = function_df.filter(~pl.col('tool_name').is_in(skip_tools) & ~pl.col('thread').is_not_null())
 
     async with aiosqlite.connect('checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -172,9 +167,9 @@ async def init_tools(index: Optional[int] = None):
                 }
 
             thread_id = f'tool_{row_index}_{tool_name}'
-            config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
+            config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 2000}
             context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
-            
+
             # 更新处理后的数据
             function_df = function_df.with_columns(
                 pl.when(pl.col('index') == row_index)
@@ -215,6 +210,7 @@ async def init_tools(index: Optional[int] = None):
                     .alias('tool_node'),
                 )
                 function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
+                logger.success(f'{thread_id} done')
 
 
 async def read_interrupt(index: int):
@@ -341,6 +337,7 @@ async def delete_prebuild_tool(indices: list[int]):
         output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / thread_id
         if output_path.exists():
             shutil.rmtree(output_path)
+            logger.info(f'清理了运行目录：{output_path}')
 
     # 批量更新 DataFrame
     indices_condition = pl.col('index').is_in(indices)
