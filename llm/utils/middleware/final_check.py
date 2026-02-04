@@ -8,11 +8,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.runtime import Runtime
+from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.utils.input_format import build_command_template
-from llm.states import FolderContext, StructuredResponse, ToolGeneratorState, UserContext
+from llm.states import FolderContext, StructuredResponse, UserContext
 from llm.utils.token import store_token_usage
 
 
@@ -77,6 +78,9 @@ class CheckReportMiddleware(AgentMiddleware):
         )
         self.check_chain = prompt | model.with_structured_output(CheckResult, include_raw=True)
         self.model_metadata = model.metadata
+
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        return {'check_failed_count': 0}
 
     def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
         last_message = cast(AIMessage, state['messages'][-1])
@@ -164,7 +168,10 @@ class CheckGenerateMiddleware(AgentMiddleware):
 
         self.error_time = error_time
 
-    def after_model(self, state: ToolGeneratorState, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        return {'check_failed_count': 0}
+
+    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
         last_message = cast(AIMessage, state['messages'][-1])
         if last_message.tool_calls:
             return None
