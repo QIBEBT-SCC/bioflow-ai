@@ -55,7 +55,7 @@ podman = [
 line-length = 120
 
 [[tool.uv.index]]
-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.ruff.format]
@@ -100,6 +100,7 @@ dev = [
     "arize-phoenix-otel>=0.13.1",
     "boto3-stubs>=1.42.19",
     "celery-types>=0.23.0",
+    "duckdb>=1.4.4",
     "langgraph-checkpoint-sqlite>=3.0.0",
     "openinference-instrumentation-langchain>=0.1.53",
     "opentelemetry-sdk>=1.38.0",
