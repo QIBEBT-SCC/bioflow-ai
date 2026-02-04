@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from langchain_core.messages import UsageMetadata
+from loguru import logger
 from sqlmodel import Session
 
 import app.crud.setting.llm_statistic as statistic_crud
@@ -35,22 +36,25 @@ def store_token_usage(
     Returns:
         None
     """
-    input_tokens = token_usage.get('input_tokens', 0)
-    output_tokens = token_usage.get('output_tokens', 0)
-    cache_read = token_usage['input_token_details'].get('cache_read', 0)
-    price = (
-        (input_tokens - cache_read) * input_price + cache_read * cache_read_price + output_tokens * output_price
-    ) / Decimal(1000000)
+    if token_usage:
+        input_tokens = token_usage.get('input_tokens', 0)
+        output_tokens = token_usage.get('output_tokens', 0)
+        cache_read = token_usage['input_token_details'].get('cache_read', 0)
+        price = (
+            (input_tokens - cache_read) * input_price + cache_read * cache_read_price + output_tokens * output_price
+        ) / Decimal(1000000)
 
-    statistic_data = LLMStatistic(
-        agent_name=agent_name,
-        model_id=model_id,
-        setting_key=setting_key,
-        user_id=user_id,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_read=cache_read,
-        price=price,
-    )
-    with Session(engine) as session:
-        statistic_crud.insert(session, statistic_data)
+        statistic_data = LLMStatistic(
+            agent_name=agent_name,
+            model_id=model_id,
+            setting_key=setting_key,
+            user_id=user_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read=cache_read,
+            price=price,
+        )
+        with Session(engine) as session:
+            statistic_crud.insert(session, statistic_data)
+    else:
+        logger.warning('token usage is empty')
