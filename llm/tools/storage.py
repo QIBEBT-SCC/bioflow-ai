@@ -17,8 +17,8 @@ async def view_pdf(file_id: str, runtime: ToolRuntime):
     try:
         context = read_text_file(file_id.replace('.pdf', '.md'))
         context = f'<Doc>\n{context}\n</Doc>'
-    except Exception as e:
-        context = f'Error reading file: {e}'
+    except Exception:
+        context = f'Error reading file: "{file_id}", please verify that the file name is correct.'
 
     return Command(
         update={
