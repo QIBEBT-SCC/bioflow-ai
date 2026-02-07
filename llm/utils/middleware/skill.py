@@ -10,7 +10,9 @@ from langchain_core.tools import tool
 CURRENT_DIR = Path(__file__).parent
 SKILLS_DIR = CURRENT_DIR.parent.parent / 'skills'
 
-BASE_PROMPT = """## Advanced Skills
+BASE_PROMPT = """
+
+## Advanced Skills
 We provide some advanced skills. When you need them, you can view their detailed descriptions by calling the `view_skill` tool:
 """
 
@@ -25,7 +27,7 @@ async def view_skill(skill_name: str):
     skill_path = SKILLS_DIR / f'{skill_name}.md'
     if skill_path.exists() and skill_path.is_file():
         skill_data = skill_path.read_text(encoding='utf-8')
-        post = frontmatter.load(skill_data)
+        post = frontmatter.loads(skill_data)
         content = post.content
         return content
 

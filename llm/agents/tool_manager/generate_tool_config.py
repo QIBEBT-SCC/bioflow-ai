@@ -7,7 +7,7 @@ from langgraph.types import Command
 from app.models.tools import FileMount, ParamDefine
 from llm.models import get_high_performance_model
 from llm.states import ToolGeneratorState, UserContext
-from llm.utils.middleware import DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import DisableParallelToolCallsMiddleware, SkillMiddleware, TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckGenerateMiddleware
 
 SYSTEM_PROMPT = """You are a bioinformatics engineer and will see a real execution report of a bioinformatics tool, including test run commands and the list of generated output files.  
@@ -16,179 +16,17 @@ Your task is to create a Docker execution template for the tool based on this in
 <ThoughtProcess>
 In the context information, the user will provide a test run command, and all you need to do is abstract based on this command and the output files it generates.
 To achieve this goal, you can break down the task into the following steps:
-1. **Mount Files**: Process the tool's input/output files, organizing them into a list with specific format (details are provided in the <FileMounts> section)
+1. **Read Skill**: Based on the operation report, select a skill corresponding to the relevant category to view detailed cases. Do not view multiple skills -- only examine the skill corresponding to the current tool's category.
+2. **Mount Files**: Process the tool's input/output files, organizing them into a list with specific format (details are provided in the <FileMounts> section)
     - If the tool's output consists of only a few files, list all of them.
     - If the tool's output files are complex (e.g., including intermediate files generated during execution, temporary folders, etc.), only list files needed for subsequent analysis tasks based on your knowledge.
-2. **Command Design**: Based on the tool documentation and the file mounts generated in the previous step, abstract the commands in the trial run report, splitting them into parameter variables and template strings.
+3. **Command Design**: Based on the tool documentation and the file mounts generated in the previous step, abstract the commands in the trial run report, splitting them into parameter variables and template strings.
     a. Extract the parameters involved in the command into three categories: `dynamic_params`, `immutable_static_params`, and `modifiable_static_params`.
     b. Generate the template string for the complete command.
-3. **Information Generation**: Name the tool and generate a brief description, following the naming rules specified in the <Naming> section.
+4. **Information Generation**: Name the tool and generate a brief description
+
+All tools must be called sequentially. Calling multiple tools simultaneously is **strictly prohibited**!
 </ThoughtProcess>
-
-## Examples
-<Example>
-This is a common example, using diamond blastx to output alignment files in .daa format
-{
-  "file_mounts": [
-    {
-      "name": "sequence",
-      "description": "input query file",
-      "file_path": "{sequence}",
-      "mount_path": "/data/raw",
-      "file_type": "INPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "db",
-      "description": "database file",
-      "file_path": "{db}",
-      "mount_path": "/data/db",
-      "file_type": "INPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "daa",
-      "description": " DIAMOND alignment archive (DAA) file",
-      "file_path": "{output_dir}/{sample_name}.daa",
-      "mount_path": "/data/output",
-      "file_type": "OUTPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "log",
-      "description": "log",
-      "file_path": "{output_dir}/11_run.log",
-      "mount_path": "/data/output",
-      "file_type": "OUTPUT",
-      "is_report": false,
-      "is_log": true
-    }
-  ],
-  "dynamic_params": [
-    {
-      "description": "input query file",
-      "command": "--query {sequence}",
-      "is_position": false,
-      "index": null
-    },
-    {
-      "description": "database file",
-      "command": "--db {db}",
-      "is_position": false,
-      "index": null
-    },
-    {
-      "description": "output file",
-      "command": "--out {daa}",
-      "is_position": false,
-      "index": null
-    },
-  ],
-  "immutable_static_params": "-f 100",
-  "modifiable_static_params": "--fast --threads 64",
-  "command_template": "diamond blastx {dynamic_params} {static_params} > {log} 2>&1",
-  "name": "DIAMOND blastx (daa)",
-  "description": "Align DNA query sequences against a protein reference database and output with .daa format using DIAMOND",
-}
-</Example>
-
-<Example>
-This example shows how to define positional parameters, and how to set FileMount for special cases such as setting an index file.
-{
-  "file_mounts": [
-    {
-      "name": "reference_in",
-      "description": "comma-separated list of files with ref sequences",
-      "file_path": "{reference_in}",
-      "mount_path": "/data/raw",
-      "file_type": "INPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "index",
-      "description": "write bt2 data to files with this dir/basename",
-      "file_path": "{output_dir}/{sample_name}_index",
-      "mount_path": "/data/output",
-      "file_type": "OUTPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "log",
-      "description": "log",
-      "file_path": "{output_dir}/00_run.log",
-      "mount_path": "/data/output",
-      "file_type": "OUTPUT",
-      "is_report": false,
-      "is_log": true
-    }
-  ],
-  "dynamic_params": [
-    {
-      "description": "input query file",
-      "command": "{reference_in}",
-      "is_position": true,
-      "index": 0
-    },
-    {
-      "description": "bowtie2 index files",
-      "command": "{index}",
-      "is_position": true,
-      "index": 1
-    }
-  ],
-  "immutable_static_params": "",
-  "modifiable_static_params": "--threads 64",
-  "command_template": "bowtie2-build {static_params} {position_params} > {log} 2>&1",
-  "name": "bowtie2-build",
-  "description": "Building bowtie2 alignment index files by bowtie2-build",
-}
-</Example>
-
-<Example>
-This example demonstrates a special case of encapsulation when a tool can only use stdout as output, in which case the file_mount name can be directly used in `command_template`.
-{
-  "file_mounts": [
-    {
-      "name": "fq_file",
-      "description": "FASTQ sequence file",
-      "file_path": "{fq_file}",
-      "mount_path": "/data/raw",
-      "file_type": "INPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "fa_file",
-      "description": "FASTA sequence file",
-      "file_path": "{output_dir}/{sample_name}.fa",
-      "mount_path": "/data/output",
-      "file_type": "OUTPUT",
-      "is_report": false,
-      "is_log": false
-    },
-    {
-      "name": "log",
-      "description": "log",
-      "file_path": "{output_dir}/00_run.log",
-      "mount_path": "/data/output",
-      "file_type": "OUTPUT",
-      "is_report": false,
-      "is_log": true
-    }
-  ],
-  "dynamic_params": [],
-  "immutable_static_params": "",
-  "modifiable_static_params": "-q 30",
-  "command_template": "seqtk seq {static_params} {fq_file} > {fa_file} 2> {log}",
-  "name": "seqtk seq (fq2fa)",
-  "description": "Convert fastq files to fasta format using seqtk",
-}
-</Example>
 """
 
 FILE_MOUNT_DESCRIPTION = """Set the file mounts for the tool.
@@ -253,38 +91,18 @@ INFO_DESCRIPTION = """Set the tool info for the tool.
 - For general-purpose tools, use the original tool name directly.
 - For specific cases, the name should reflect its particular use:
     - Subcommand: Format as "ToolName subcommand"
-    - Specialized use related to input/output files or key parameters: Format as "ToolName(key_identifier)".
+    - Specialized use related to input/output files or key parameters: Format as "ToolName(key_identifier)"
+- Examples:
+    - "fastp"
+    - "samtools sort"
+    - "diamond blastx (daa)"
+    - "seqtk seq (fq2fa)"
     
 ## How to write description
 In the description field, you need to briefly describe:
 - What is the purpose of the current encapsulated tool command
 - What usable files are produced after the command runs (briefly describe the main result files only)
 - If the input files required by this command have special requirements (e.g., generated by a specific tool), these should also be described.
-"""
-
-CHECK_PROMPT = """You are a bioinformatician, and your task is to review the tool abstraction encapsulation and actual execution report provided by the user, verify whether the encapsulation is correct, and provide feedback.
-You will see four pieces of information: the original encapsulation requirements, the actual execution results report for these requirements, the AI-generated encapsulation configuration <ToolConfig>, and the structured output <TemplateOutput> formatted based on this configuration.
-
-## Check Criteria
-Check <TemplateOutput>, and evaluate whether the current formatted result meets the requirements from the following aspects:
-- Command:
-    - Whether the command template after encapsulation is consistent with the command in the actual execution report, without missing parameters and with correct parameter types
-    - The variables used in the encapsulated command template are allowed to be only the following values; check whether any other variables are used
-        - `{{output_dir}}`
-        - `{{sample_name}}`
-        - Variable names of input files
-- Input Files: Whether the input files listed in the <TemplateOutput> consistent with those required in the Test Run Report?
-- Output Files:
-    - If the tool's output consists of only a few files, check whether all output files are listed in <TemplateOutput>.
-    - If the tool's output files are complex (e.g., including intermediate files generated during execution, temporary folders, etc.), check whether the main results potentially used for general downstream analysis are listed in <TemplateOutput>
-    - It doesn't necessarily have to be a file or folder; depending on how it's used, it can also be a path prefix (e.g., a multi-file index built).
-    - The naming format and other details do not need to strictly match those in the test execution report; as long as the files are correct, it's fine.
-
-    
-## Response format
-If the check passes, return `checked` as `true` directly without writing `reason`; if the check does not pass, provide different feedback in the `reason` field according to the situation:
-- Input Files and Output Files: generally, necessary files are missing; simply indicate in the `reason` which files are missing.
-- Command: If the command check fails, you only need to include the fixed sentence: "The final command has missing or incorrect parameters; please check `command_template` and parameters to ensure they were generated according to specifications, and review the errors yourself." This is because the encapsulated content of the tool differs from the final template you see; conveying your judgment criteria back would only cause interference.
 """
 
 
@@ -350,17 +168,7 @@ def set_tool_info(
     description: str,
     runtime: ToolRuntime[UserContext],
 ):
-    """Set the tool info for the tool.
-
-    ## How to name a tool
-    - For general-purpose tools, use the original tool name directly.
-    - For specific cases, the name should reflect its particular use:
-        - Subcommand: Format as "ToolName subcommand"
-        - Specialized use related to input/output files or key parameters: Format as "ToolName(key_identifier)".
-
-    ## How to write description
-
-    """
+    """Set the tool info for the tool."""
     if 'command_template' not in runtime.state:
         return Command(
             update={
@@ -388,6 +196,7 @@ tool_generator_agent = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[  # type: ignore
         DisableParallelToolCallsMiddleware(),
+        SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
         CheckGenerateMiddleware(2),
         TokenStatisticMiddleware('tool_generator', **get_high_performance_model().metadata),
     ],
