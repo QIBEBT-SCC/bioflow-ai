@@ -1,17 +1,17 @@
 ---
 name: STDOUT_TOOLS
-description: 当工具只能使用标准输出流作为输出时撰写配置文件的实例
+description: How to write configuration files when tools can only use standard output streams as output
 ---
 
 # Skill: Tools with stdout as output
 
-以工具`seqtk seq`为例，该工具使用标准输出流作为输出，实际命令如下所示：
+Taking the tool `seqtk seq` as an example, this tool uses the standard output stream as its output. The actual command is shown below:
 
 ```bash
 seqtk seq -q 30 S1.fq.gz > /data/output/S1.fa 2> log.txt
 ```
 
-## 文件挂载
+## File Mounts
 
 ```json
 [
@@ -45,9 +45,10 @@ seqtk seq -q 30 S1.fq.gz > /data/output/S1.fa 2> log.txt
 ]
 ```
 
-## 参数设置
+## Command Settings
 
-由于涉及到重定向输出，难以用简单的{dynamic_params}来实现参数模板的定义，所以这类工具不需要设置`dynamic_params`参数，而是直接在模板中使用文件挂载中定义的文件名作为变量
+Due to the involvement of redirected output, defining parameter templates using simple `dynamic_params` is challenging. Therefore, such tools do not require setting `dynamic_params` parameters.
+Instead, they directly use filenames defined in file mounts as variables within the template.
 
 ```json
 {
@@ -58,10 +59,9 @@ seqtk seq -q 30 S1.fq.gz > /data/output/S1.fa 2> log.txt
 }
 ```
 
-## 核心要点
+## Key Points
 
-1. 此模式不需要再设置dynamic_params
-2. 在此模式下，模板字符串中允许使用的变量有：
-    - `file_mounts`中的`name`值（文件变量）
-    - `{output_dir}`和`{sample_name}`，直接使用用于构建动态参数（输出路径、文件前缀等）
-    - `{static_params}`
+1. This mode no longer requires setting `dynamic_params`.
+2. In this mode, the variables allowed in the `command_template` are:
+    - The `name` value in `file_mounts` (file variable)
+    - `{output_dir}` and `{sample_name}`, used directly to construct parameters related to output paths and sample names.

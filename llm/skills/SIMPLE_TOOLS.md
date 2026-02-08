@@ -1,55 +1,51 @@
 ---
 name: SIMPLE_TOOLS
-description: 常规命令行工具配置文件撰写的实际示例，适用于大部分命令行工具
+description: Example of writing configuration files for standard command-line tools, applicable to most command-line tools.
 ---
 
 # Skill: Example Configuration for Standard Tools
 
-以samtools sort为例，该工具的命令为：
+Taking `samtools sort` as an example, the command for this tool is:
 
 ```bash
 samtools sort --write-index -@ 32 -o /data/output/A1.sorted.bam A1.bam > /data/output/11_run.log 2>&1
 ```
 
-## 文件挂载
-
-首先根据信息设置此工具的文件挂载：
+## File Mounts
 
 ```json
 [
   {
     "name": "bam_in",
-    "is_log": false,
-    "file_path": "{bam_in}",
+    "description": "Input BAM/SAM file to be sorted by genomic coordinate",
     "file_type": "INPUT",
-    "is_report": false,
+    "file_path": "{bam_in}",
     "mount_path": "/data/raw",
-    "description": "Input BAM/SAM file to be sorted by genomic coordinate"
+    "is_report": false,
+    "is_log": false
   },
   {
     "name": "bam_sorted",
-    "is_log": false,
-    "file_path": "{output_dir}/{sample_name}.sorted.bam",
     "file_type": "OUTPUT",
-    "is_report": false,
+    "description": "Sorted BAM file organized by genomic coordinate",
+    "file_path": "{output_dir}/{sample_name}.sorted.bam",
     "mount_path": "/data/output",
-    "description": "Sorted BAM file organized by genomic coordinate"
+    "is_report": false,
+    "is_log": false
   },
   {
     "name": "log",
-    "is_log": true,
+    "description": "log",
     "file_path": "{output_dir}/11_run.log",
     "file_type": "OUTPUT",
-    "is_report": false,
     "mount_path": "/data/output",
-    "description": "log"
+    "is_report": false,
+    "is_log": true
   }
 ]
 ```
 
-## 参数设置
-
-此命令中包含了多种类型的参数
+## Command Settings
 
 ```json
 {
@@ -73,14 +69,14 @@ samtools sort --write-index -@ 32 -o /data/output/A1.sorted.bam A1.bam > /data/o
 }
 ```
 
-可以看到最终的command_template中包含了以下变量：
+It can be seen that the final `command_template` contains the following variables:
 
-- `static_params`：由两种不同的静态参数自动拼接
-- `dynamic_params`和`position_params`：根据is_position从原本的dynamic_params中拆分出来
-- `log`：日志文件，直接使用之前文件挂载中的文件名
+- `{static_params}`: Automatically concatenated from two different static parameters
+- `{dynamic_params}` and `{position_params}`: Split from the original dynamic_params according to is_position
+- `{log}`: Log file, directly using the filename from the previous file mounting
 
-## 核心要点
+## Key Points
 
-- 只要参数涉及到输出路径（`{output_dir}` 变量）和样本名称（`{sample_name}`变量），则应当放在dynamic_params中
-- 类似线程数、物种名称这样的参数，与输出路径和文件名无关，放在对应的静态参数中
-- command_template中的dynamic_params变量不等于参数设置中的dynamic_params，不要混淆
+- As long as a parameter involves the output path (`{output_dir}` variable) and sample name (`{sample_name}` variable), it should be placed in `dynamic_params`.
+- Parameters such as the number of threads and species names, which are unrelated to the output path and filename, should be placed in the corresponding static parameters.
+- The `{dynamic_params}` variable in command_template is not equal to the `dynamic_params` in the parameter settings; do not confuse them.
