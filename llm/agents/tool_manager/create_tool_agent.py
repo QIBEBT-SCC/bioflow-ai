@@ -5,7 +5,7 @@ from langchain.agents import create_agent
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
-from langchain_milvus import Milvus
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import END
@@ -307,7 +307,9 @@ class CreateToolAgent:
                 collection_name='ToolCollection',
                 connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
                 embedding_function=embedding_model,
-                index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+                builtin_function=BM25BuiltInFunction(),
+                vector_field=['dense', 'sparse'],
+                index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, None],
                 consistency_level='Strong',
                 drop_old=False,
                 auto_id=True,

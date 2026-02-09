@@ -14,12 +14,12 @@ import rich
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_milvus import Milvus
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from loguru import logger
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 from tqdm import tqdm
 
 import app.crud.tools.image as image_crud
@@ -29,7 +29,7 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ImageConfig, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.utils.container.docker import run_docker
 from llm.agents.tool_manager import CreateToolAgent, CreateToolContext, CreateToolState
 from llm.models import qwen3_embedding
@@ -356,7 +356,9 @@ async def rebuild_vector_store():
         collection_name='ToolCollection',
         connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        builtin_function=BM25BuiltInFunction(),
+        vector_field=['dense', 'sparse'],
+        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, None],
         # search_params={'M': 64, 'efConstruction': 100},
         consistency_level='Strong',
         drop_old=True,
@@ -364,23 +366,49 @@ async def rebuild_vector_store():
     )
 
     function_df = pl.read_parquet('tool_functions_deepseek.parquet').filter(pl.col('tool_node').is_not_null())
-    for row in function_df.iter_rows(named=True):
-        row: dict[str, Any]
+    node_uids = function_df['tool_node'].unique().to_list()
 
-        with Session(engine) as session:
-            tool_data = tool_crud.get(session, row['tool_node'])
+    with Session(engine) as session:
+        statement = select(
+            ToolDefine.uid,
+            ToolDefine.description,
+            ToolDefine.image_uid,
+            ToolDefine.name,
+        ).where(col(ToolDefine.uid).in_(node_uids))
+        results = session.exec(statement).all()
+        tools_map = {str(row.uid): row for row in results}  # type: ignore[attr-defined]
 
-        docs = [
-            Document(
-                page_content=tool_data.description,
-                metadata={
-                    'image_uid': str(tool_data.image_uid),
-                    'tool_uid': str(tool_data.uid),
-                    'name': tool_data.name,
-                },
-            ),
-        ]
-        await vectorstore.aadd_documents(docs)
+    docs_to_add = []
+    empty_tools = []
+    batch_size = 10
+
+    for node_uid in tqdm(node_uids, total=len(node_uids)):
+        tool_data = tools_map.get(node_uid)
+
+        if tool_data and tool_data.description:  # type: ignore[attr-defined]
+            docs_to_add.append(
+                Document(
+                    page_content=tool_data.description,  # type: ignore[attr-defined]
+                    metadata={
+                        'image_uid': str(tool_data.image_uid),  # type: ignore[attr-defined]
+                        'tool_uid': str(tool_data.uid),  # type: ignore[attr-defined]
+                        'name': tool_data.name,  # type: ignore[attr-defined]
+                    },
+                )
+            )
+
+            if len(docs_to_add) >= batch_size:
+                await vectorstore.aadd_documents(docs_to_add)
+                docs_to_add = []
+        else:
+            empty_tools.append(node_uid)
+
+    if docs_to_add:
+        await vectorstore.aadd_documents(docs_to_add)
+
+    if empty_tools:
+        empty_file = Path('empty_tools.txt')
+        empty_file.write_text('\n'.join(empty_tools) + '\n')
 
 
 def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]):
