@@ -1,6 +1,6 @@
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langchain_milvus import Milvus
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -28,7 +28,7 @@ The search results will include the tool node information encapsulated in the da
 
 
 class SearchToolArgsSchema(BaseModel):
-    query: str = Field(description='Briefly describe the tool or function to be searched for')
+    query: str = Field(description='Briefly describe the tool or function to be searched for in ENGLISH')
 
 
 @tool(description=TOOL_DESCRIPTION, args_schema=SearchToolArgsSchema)
@@ -40,17 +40,32 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
         collection_name='ToolCollection',
         connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        search_params={'M': 64, 'efConstruction': 100},
+        builtin_function=BM25BuiltInFunction(),
+        vector_field=['dense', 'sparse'],
         consistency_level='Strong',
     )
 
     task = 'Provide a search query to search for tools with relevant functions'
     query = embedding.get_detailed_instruct(task, query)
     image_uid = runtime.state.get('image_uid', None)
+
     if image_uid:
-        results = await vectorstore.amax_marginal_relevance_search(query, k=10, expr=f'image_uid == "{str(image_uid)}"')
+        results = await vectorstore.asimilarity_search(
+            query,
+            k=10,
+            param=[{'M': 64, 'efConstruction': 100}, {}],
+            expr=f'image_uid == "{str(image_uid)}"',
+            ranker_type='weighted',
+            ranker_params={'weights': [0.85, 0.15]},
+        )
     else:
-        results = await vectorstore.amax_marginal_relevance_search(query, k=10)
+        results = await vectorstore.asimilarity_search(
+            query,
+            k=10,
+            param=[{'M': 64, 'efConstruction': 100}, {}],
+            ranker_type='weighted',
+            ranker_params={'weights': [0.85, 0.15]},
+        )
 
     if not results:
         return Command(
