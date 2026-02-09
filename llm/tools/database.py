@@ -1,4 +1,3 @@
-import datetime
 from typing import Optional
 
 from langchain_core.messages import ToolMessage
@@ -15,13 +14,9 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.crud import workflow as wf_crud
 from app.models.resource import BioDb
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
-from app.models.workflow import Workflow, WorkflowType
-from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import ToolNodePublic
-from llm.states import BuildSchema, UserContext
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -340,6 +335,27 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
             ]
         }
     )
+
+
+@tool(parse_docstring=True)
+def read_tool_doc(tool_id: int, runtime: ToolRuntime):
+    """Read existing tool's help document
+
+    Args:
+        tool_id: tool ID for which you wish to view the help documentation
+    """
+    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    tool_uid = mapper.get_uid_by_index(tool_id)
+
+    with Session(engine) as session:
+        tool_data = tool_crud.get(session, tool_uid)
+
+        if tool_data and tool_data.help_doc:
+            doc_content = f'<Doc help_command="{tool_data.help_doc.help_command}">\n{tool_data.help_doc.content}\n<Doc>'
+        else:
+            doc_content = 'No help documentation was found for this tool.'
+
+    return doc_content
 
 
 @tool(parse_docstring=True)
