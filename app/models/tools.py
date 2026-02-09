@@ -27,9 +27,9 @@ class ParamDefine(BaseModel):
 class FileMount(BaseModel):
     name: str
     description: str
+    file_type: Literal['INPUT', 'OUTPUT']
     file_path: str
     mount_path: str
-    file_type: Literal['INPUT', 'OUTPUT']
     is_report: bool = PField(default=False)
     is_log: bool = PField(default=False)
 
