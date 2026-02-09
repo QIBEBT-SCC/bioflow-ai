@@ -42,7 +42,7 @@ Based on your knowledge and the user-provided information, define a list of the 
 - **mount_path**: The output path of the file within the Docker container
     - For INPUT type:
         - If all input files are in one path, you can directly set the input to `/data/raw`.
-        - If the input may come from different paths, you can design different mapping paths, with the root directory located under `/data`.
+        - If the input may come from different paths, you can design different mapping paths, with the root directory located under `/data` (e.g. /data/raw, /data/index ...).
     - For OUTPUT type, the default value is `/data/output`.
 - **is_report**:
     - If the file is a **read-only** report file (such as html, png, svg, etc.), set it to true.
