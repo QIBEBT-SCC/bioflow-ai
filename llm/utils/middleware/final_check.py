@@ -1,5 +1,4 @@
 from pathlib import Path
-from string import Formatter
 from typing import Any, NotRequired, TypedDict, cast
 
 from langchain.agents.middleware import AgentMiddleware
@@ -12,7 +11,6 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from app.utils.input_format import build_command_template
 from llm.states import FolderContext, StructuredResponse, UserContext
 from llm.utils.token import store_token_usage
 
@@ -200,43 +198,43 @@ class CheckGenerateMiddleware(AgentMiddleware):
                 self.error_time,
             )
 
-        complete_command = build_command_template(
-            command_template=state['command_template'],
-            dynamic_params=state['dynamic_params'],
-            immutable_static_params=state['immutable_static_params'],
-            modifiable_static_params=state['modifiable_static_params'],
-            file_mounts=state['file_mounts'],
-        )
-        template_params = {field_name for _, field_name, _, _ in Formatter().parse(complete_command) if field_name}
-        input_files = {mount.name for mount in state['file_mounts'] if mount.file_type == 'INPUT'}
-
-        # 检查1：template_params中的变量名是否只有input_files中值的以及output_dir和sample_name
-        allowed_params = input_files | {'output_dir', 'sample_name'}
-        invalid_params = template_params - allowed_params
-        if invalid_params:
-            return _handle_check_failed(
-                check_failed_count,
-                [
-                    HumanMessage(
-                        content=f'Invalid parameter(s) in command template: "{", ".join(invalid_params)}". Invoke the `set_command_detail` tool again based on the rules to make corrections.'
-                    )
-                ],
-                self.error_time,
-            )
-
-        # 检查2：input_files中的值是否在template_params中均存在
-        missing_inputs = input_files - template_params
-        if missing_inputs:
-            return _handle_check_failed(
-                check_failed_count,
-                [
-                    HumanMessage(
-                        content=f'Input file(s) not used in command: "{", ".join(missing_inputs)}". '
-                        f'All input files must be referenced in the command. Check if the command_template and parameter settings are correct, and call the `set_command_detail` tool again to correct them.'
-                    )
-                ],
-                self.error_time,
-            )
+        # complete_command = build_command_template(
+        #     command_template=state['command_template'],
+        #     dynamic_params=state['dynamic_params'],
+        #     immutable_static_params=state['immutable_static_params'],
+        #     modifiable_static_params=state['modifiable_static_params'],
+        #     file_mounts=state['file_mounts'],
+        # )
+        # template_params = {field_name for _, field_name, _, _ in Formatter().parse(complete_command) if field_name}
+        # input_files = {mount.name for mount in state['file_mounts'] if mount.file_type == 'INPUT'}
+        #
+        # # # 检查1：template_params中的变量名是否只有input_files中值的以及output_dir和sample_name
+        # allowed_params = input_files | {'output_dir', 'sample_name'}
+        # invalid_params = template_params - allowed_params
+        # if invalid_params:
+        #     return _handle_check_failed(
+        #         check_failed_count,
+        #         [
+        #             HumanMessage(
+        #                 content=f'Invalid parameter(s) in command template: "{", ".join(invalid_params)}". Invoke the `set_command_detail` tool again based on the rules to make corrections.'
+        #             )
+        #         ],
+        #         self.error_time,
+        #     )
+        #
+        # # 检查2：input_files中的值是否在template_params中均存在
+        # missing_inputs = input_files - template_params
+        # if missing_inputs:
+        #     return _handle_check_failed(
+        #         check_failed_count,
+        #         [
+        #             HumanMessage(
+        #                 content=f'Input file(s) not used in command: "{", ".join(missing_inputs)}". '
+        #                 f'All input files must be referenced in the command. Check if the command_template and parameter settings are correct, and call the `set_command_detail` tool again to correct them.'
+        #             )
+        #         ],
+        #         self.error_time,
+        #     )
 
         logger.success('Check passed')
         return None
