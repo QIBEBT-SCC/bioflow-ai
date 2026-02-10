@@ -51,49 +51,54 @@ podman = [
     "podman>=5.6.0",
 ]
 
-[tool.ruff]
-line-length = 120
-
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[tool.ruff]
+line-length = 120
 
 [tool.ruff.format]
 quote-style = "single"
 docstring-code-format = true
 
 [tool.ruff.lint]
-extend-select = ["I"]
+extend-select = ["ALL"]
 ignore = [
     "C90", # McCabe complexity
     "COM812", # Messes with the formatter
+    "CPY", # No copyright
     "FIX002", # Line contains TODO
     "PERF203", # Rarely useful
     "PLR09", # Too many something (arg, statements, etc)
-    "RUF012", # Doesn't play well with Pydantic
-    "TC001", # Doesn't play well with Pydantic
-    "TC002", # Doesn't play well with Pydantic
-    "TC003", # Doesn't play well with Pydantic
     "TD002", # Missing author in TODO
     "TD003", # Missing issue link in TODO
-    "RUF002", # Em-dash in docstring
+    "Q000", # Using single quote
+    "D100", # Public module doc
+    "D101", # Missing docstring for public class
+    "E501", # Long line in docstring
 
     # TODO rules
-    "ANN401", # No type Any
-    "D100", # pydocstyle: missing docstring in public module
-    "PLC0415", # pylint: import-outside-top-level
-    "TRY301", # tryceratops: raise-within-try
+    "ANN401", # No Any types
+    "BLE", # Blind exceptions
+    "ERA", # No commented-out code
 ]
 unfixable = [
     "B028", # People should intentionally tune the stacklevel
-    "PLW1510", # People should intentionally set the check argument
 ]
 
 flake8-annotations.allow-star-arg-any = true
 flake8-annotations.mypy-init-return = true
-flake8-type-checking.runtime-evaluated-base-classes = ["pydantic.BaseModel", "langchain_core.load.serializable.Serializable", "langchain_core.runnables.base.RunnableSerializable"]
-pep8-naming.classmethod-decorators = ["classmethod", "langchain_core.utils.pre_init", "pydantic.field_validator", "pydantic.v1.root_validator", ]
-pyupgrade.keep-runtime-typing = true
+flake8-builtins.ignorelist = ["id", "input", "type"]
+flake8-type-checking.runtime-evaluated-base-classes = ["pydantic.BaseModel", "langchain_core.load.serializable.Serializable", "langchain_core.runnables.base.RunnableSerializable", "langchain_core.language_models.base.BaseLanguageModel", "langchain_core.outputs.generation.Generation", "langchain_core.tools.base.BaseTool", ]
+pep8-naming.classmethod-decorators = ["classmethod", "langchain_core.utils.pydantic.pre_init", "pydantic.field_validator", "pydantic.v1.root_validator", ]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+ignore-var-parameters = true  # ignore missing documentation for *args and **kwargs parameters
 
 [dependency-groups]
 dev = [
