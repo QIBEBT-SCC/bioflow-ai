@@ -1,10 +1,12 @@
 from typing import Literal
 
+import duckdb
 import matplotlib.pyplot as plt
 import polars as pl
 import rich
 import seaborn as sns
 from loguru import logger
+from matplotlib.ticker import FuncFormatter
 
 
 def load_run_data() -> pl.DataFrame:
@@ -52,6 +54,7 @@ def load_run_data() -> pl.DataFrame:
 def draw_fig() -> None:
     """绘制统计图片."""
     statistic_df = load_run_data().with_columns(pl.col('tool_node').is_not_null().cast(pl.Int8).alias('success'))
+    print(statistic_df.filter(pl.col('success') == 0))
 
     # Set Nature style
     # simple, clean, often uses Helvetica/Arial, tick marks inward, no top/right spines usually unless boxed
@@ -65,7 +68,7 @@ def draw_fig() -> None:
     # Create figure with dual y-axis
     fig, ax1 = plt.subplots(figsize=(8, 6))
 
-    # Determine bins (e.g., width of 5)
+    # Determine bins (e.g., width of 10 to reduce sparsity at tail)
     bin_width = 5
     max_val = statistic_df['message_len'].max() if statistic_df['message_len'].max() else 0
     bins = range(0, int(max_val) + bin_width, bin_width)
@@ -85,34 +88,28 @@ def draw_fig() -> None:
     ax1.set_ylabel('Count', fontsize=12, fontweight='bold', color='#3c5488')
     ax1.tick_params(axis='y', labelcolor='#3c5488')
 
-    # Calculate success rate per bin using Polars
-    # 1. Create a bin column
-    # 2. Group by bin and calculate mean of success
-    success_rate_pl = (
-        statistic_df.with_columns(
-            ((pl.col('message_len') / bin_width).floor().cast(pl.Int64) * bin_width).alias('bin_start')
-        )
-        .group_by('bin_start')
-        .agg(pl.col('success').mean().alias('success_rate'))
-        .sort('bin_start')
-        .with_columns((pl.col('bin_start') + bin_width / 2).alias('bin_center'))
+    # Prepare data for Line Plot with CI
+    # We assign each point to a bin center, then let seaborn aggregate and calculate CI
+    df_for_line = statistic_df.with_columns(
+        ((pl.col('message_len') / bin_width).floor().cast(pl.Int64) * bin_width + bin_width / 2).alias('bin_center')
     )
 
-    # Plot Success Rate
+    # Plot Success Rate with Confidence Interval
     ax2 = ax1.twinx()
     sns.lineplot(
-        data=success_rate_pl,
+        data=df_for_line,
         x='bin_center',
-        y='success_rate',
+        y='success',
         ax=ax2,
-        color='#e64b35',  # Nature-like red
+        color='#00A087',  # Nature-like green
         marker='o',
         linewidth=2,
-        markersize=8,
+        markersize=6,
+        err_style='band',  # Default, draws CI
         label='Success Rate',
     )
-    ax2.set_ylabel('Success Rate', fontsize=12, fontweight='bold', color='#e64b35')
-    ax2.tick_params(axis='y', labelcolor='#e64b35')
+    ax2.set_ylabel('Success Rate', fontsize=12, fontweight='bold', color='#00A087')
+    ax2.tick_params(axis='y', labelcolor='#00A087')
     ax2.set_ylim(0, 1.1)
 
     # Title and cleanup
@@ -125,6 +122,93 @@ def draw_fig() -> None:
     plt.savefig('imgs/message_len_distribution.png', dpi=300)
     plt.savefig('imgs/message_len_distribution.pdf')
     logger.info('Saved figures to imgs/message_len_distribution.png and imgs/message_len_distribution.pdf')
+
+
+def draw_bidirectional_fig() -> None:
+    """绘制双向直方图 (Success vs Fail)."""
+    statistic_df = load_run_data().with_columns(pl.col('tool_node').is_not_null().cast(pl.Int8).alias('success'))
+
+    # 区分成功和失败的数据
+    success_df = statistic_df.filter(pl.col('success') == 1)
+    fail_df = statistic_df.filter(pl.col('success') == 0)
+
+    # Binning
+    bin_width = 5
+    max_val = statistic_df['message_len'].max() if statistic_df['message_len'].max() else 0
+    bins = range(0, int(max_val) + bin_width, bin_width)
+
+    # Plot
+    sns.set_theme(style='ticks', font_scale=1.2)
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Success (Positive Y)
+    sns.histplot(
+        data=success_df,
+        x='message_len',
+        color='#4DBBD5',  # Nature Blue
+        bins=bins,
+        alpha=0.7,
+        label='Success',
+        edgecolor='white',
+        ax=ax,
+    )
+
+    # Fail (Negative Y)
+    # Seaborn histplot doesn't directly support negative weights easily for simple counts in this way without workaround
+    # Workaround: Calculate histogram counts first, then plot barplot with negative values OR use weights=-1
+    # Using weights=-1 with histplot:
+    # We need to add a weights column to fail_df
+    fail_df_weighted = fail_df.with_columns(pl.lit(-1).alias('weight'))
+
+    sns.histplot(
+        data=fail_df_weighted,
+        x='message_len',
+        bins=bins,
+        weights='weight',
+        color='#E64B35',  # Nature Red
+        alpha=0.7,
+        label='Fail',
+        edgecolor='white',
+        ax=ax,
+    )
+
+    # Format Axis
+    ax.axhline(0, color='black', linewidth=0.8)
+    ax.set_xlabel('Message Length', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Count', fontsize=12, fontweight='bold')
+
+    # Fix Y-axis labels to be positive numbers
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: str(abs(int(x)))))
+
+    plt.legend()
+    plt.title('Success vs Failure Distribution by Message Length', fontsize=14, pad=20)
+    sns.despine()
+
+    plt.tight_layout()
+    plt.savefig('imgs/success_fail_distribution.png', dpi=300)
+    plt.savefig('imgs/success_fail_distribution.pdf')
+    logger.info('Saved figures to imgs/success_fail_distribution.png and imgs/success_fail_distribution.pdf')
+
+
+def load_score_data() -> pl.DataFrame:
+    """读取评估打分数据."""
+    conn = duckdb.connect('result.db')
+    score_df = conn.execute('SELECT * FROM tool_generate').pl()
+    score_df = score_df.filter(pl.col('bioflow_ai_score').is_not_null()).select(
+        [
+            'run_id',
+            'bioflow_ai_score',
+            'biomni_score',
+            'biomaster_score',
+            'gemini_score',
+        ]
+    )
+    conn.close()
+
+    return score_df
 
 
 def update_function(idx: int, col_name: Literal['help_command', 'function_description'], content: str) -> None:
@@ -169,4 +253,6 @@ def search_tool() -> None:
 
 
 if __name__ == '__main__':
-    draw_fig()
+    # draw_fig()
+    # draw_bidirectional_fig()
+    load_score_data()
