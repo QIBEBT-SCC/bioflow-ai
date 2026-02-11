@@ -101,7 +101,7 @@ async def init_images(drop_old: bool = True):
     batch_size = 50
 
     for i in tqdm(range(0, len(images), batch_size)):
-        batch_images = images[i : i + batch_size]
+        batch_images = images[i: i + batch_size]
         docs = [
             Document(page_content=img.description, metadata={'image_uid': str(img.uid), 'name': img.name})
             for img in batch_images
@@ -156,9 +156,9 @@ async def init_tools(index: Optional[int] = None):
                     'messages': [
                         HumanMessage(
                             content=f'<Require>\n'
-                            f'tool_name: {tool_name}\n'
-                            f'function: {function}\nhelp_command: `{help_command}`\n'
-                            f'</Require>'
+                                    f'tool_name: {tool_name}\n'
+                                    f'function: {function}\nhelp_command: `{help_command}`\n'
+                                    f'</Require>'
                         )
                     ],
                     'image_uid': tool_image.uid,
@@ -180,11 +180,11 @@ async def init_tools(index: Optional[int] = None):
             function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
             async for namespace, mode, data in agent.astream(
-                agent_input,  # type: ignore
-                config,
-                context=context,  # type: ignore
-                stream_mode=['custom', 'updates'],
-                subgraphs=True,
+                    agent_input,  # type: ignore
+                    config,
+                    context=context,  # type: ignore
+                    stream_mode=['custom', 'updates'],
+                    subgraphs=True,
             ):
                 _log_update(namespace, mode, data)
 
@@ -250,11 +250,11 @@ async def continue_run(index: int, message: Optional[str] = None, approve: bool 
         else:
             input_message = None
         async for namespace, mode, data in agent.astream(
-            input_message,
-            config,
-            context=context,  # type: ignore
-            stream_mode=['custom', 'updates'],
-            subgraphs=True,
+                input_message,
+                config,
+                context=context,  # type: ignore
+                stream_mode=['custom', 'updates'],
+                subgraphs=True,
         ):
             _log_update(namespace, mode, data)
 
@@ -300,10 +300,10 @@ async def delete_prebuild_tool(indices: list[int]):
 
                 response = await agent.aget_state(config, subgraphs=True)
                 if (
-                    response.tasks
-                    and response.tasks[0].state
-                    and 'container_id' in response.tasks[0].state.values
-                    and response.tasks[0].state.values['container_id']
+                        response.tasks
+                        and response.tasks[0].state
+                        and 'container_id' in response.tasks[0].state.values
+                        and response.tasks[0].state.values['container_id']
                 ):
                     # 删除残余容器
                     try:
@@ -358,8 +358,7 @@ async def rebuild_vector_store():
         embedding_function=embedding,
         builtin_function=BM25BuiltInFunction(),
         vector_field=['dense', 'sparse'],
-        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, None],
-        # search_params={'M': 64, 'efConstruction': 100},
+        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
         consistency_level='Strong',
         drop_old=True,
         auto_id=True,
@@ -411,6 +410,22 @@ async def rebuild_vector_store():
         empty_file.write_text('\n'.join(empty_tools) + '\n')
 
 
+def statistic() -> None:
+    """统计生成情况."""
+    last_tool = 0
+    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
+    print(function_df.height)
+    analysed = function_df.filter(pl.col('index') > last_tool).filter(pl.col('thread').is_not_null())
+    tool_results = analysed.filter(pl.col('tool_node').is_not_null())
+
+    print(f'从上次统计, 已分析{analysed.height}条数据')
+    print(f'其中成功得到有效工具节点的有: {tool_results.height}条')
+    print(f'新生成节点{tool_results["tool_node"].n_unique()}个')
+    print('=' * 50)
+    print('最新运行记录为: ')
+    rich.print(analysed.top_k(1, by='index').row(0, named=True))
+
+
 def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]):
     if mode == 'custom':
         logger.info(data)
@@ -422,36 +437,35 @@ def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]):
 
 
 @click.group()
-def cli():
-    """数据库初始化和管理工具"""
-    pass
+def cli() -> None:
+    """数据库初始化和管理工具."""
 
 
 @cli.command()
-@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据（默认：不删除）')
-def init_tag_and_group_cmd(drop_old: bool):
-    """初始化标签和分组"""
+@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据 (默认: 不删除)')
+def init_tag_and_group_cmd(*, drop_old: bool) -> None:
+    """初始化标签和分组."""
     init_tag_and_group(drop_old)
 
 
 @cli.command()
-@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据（默认：不删除）')
-def init_images_cmd(drop_old: bool):
-    """初始化镜像数据"""
+@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据 (默认: 不删除)')
+def init_images_cmd(*, drop_old: bool) -> None:
+    """初始化镜像数据."""
     asyncio.run(init_images(drop_old))
 
 
 @cli.command()
-@click.option('--index', type=int, default=None, help='指定要处理的数据索引（如果不指定则处理所有未完成的数据）')
-def init_tools_cmd(index: Optional[int]):
-    """初始化工具"""
+@click.option('--index', type=int, default=None, help='指定要处理的数据索引 (如果不指定则处理所有未完成的数据)')
+def init_tools_cmd(index: Optional[int]) -> None:
+    """初始化工具."""
     asyncio.run(init_tools(index))
 
 
 @cli.command()
 @click.argument('index', type=int)
-def read_interrupt_cmd(index: int):
-    """读取工具中断信息"""
+def read_interrupt_cmd(index: int) -> None:
+    """读取工具中断信息."""
     asyncio.run(read_interrupt(index))
 
 
@@ -459,22 +473,28 @@ def read_interrupt_cmd(index: int):
 @click.argument('index', type=int)
 @click.option('--message', '-m', type=str, default=None, help='继续运行时发送的消息')
 @click.option('--approve', is_flag=True, default=False, help='批准标志')
-def continue_run_cmd(index: int, message: Optional[str], approve: bool):
-    """继续运行指定索引的工具创建任务"""
+def continue_run_cmd(index: int, message: Optional[str], *, approve: bool) -> None:
+    """继续运行指定索引的工具创建任务."""
     asyncio.run(continue_run(index, message, approve))
 
 
 @cli.command()
 @click.argument('indices', type=int, nargs=-1, required=True)
-def delete_prebuild_tool_cmd(indices: tuple[int, ...]):
-    """删除指定索引的预构建工具（可一次删除多个，例如: 61 62 63 65）"""
+def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
+    """删除指定索引的预构建工具 (可一次删除多个, 例如: 61 62 63 65)."""
     asyncio.run(delete_prebuild_tool(list(indices)))
 
 
 @cli.command()
-def rebuild_vector_store_cmd():
-    """重建向量存储"""
+def rebuild_vector_store_cmd() -> None:
+    """重建向量存储."""
     asyncio.run(rebuild_vector_store())
+
+
+@cli.command()
+def show_statistic() -> None:
+    """显示节点生成统计数据."""
+    statistic()
 
 
 if __name__ == '__main__':
