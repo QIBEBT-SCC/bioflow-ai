@@ -1,5 +1,7 @@
 import json
+from typing import TYPE_CHECKING
 
+import polars as pl
 from sqlmodel import Session
 
 import app.crud.tools.image as image_crud
@@ -8,7 +10,9 @@ import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.session import engine
-from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+
+if TYPE_CHECKING:
+    from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 
 
 def export_tags():
@@ -17,7 +21,7 @@ def export_tags():
 
     json_data = []
     for tag in tags:
-        # 我发现model_dump会打乱字段顺序，还是手动做吧
+        # 我发现model_dump会打乱字段顺序, 还是手动做吧
         ordered_tag = {'id': tag.id, 'name': tag.name}
         json_data.append(ordered_tag)
 
@@ -38,11 +42,12 @@ def export_groups():
         f.write(json.dumps(json_data, sort_keys=False, indent=2))
 
 
-def export_images():
+def export_images() -> None:
+    """导出镜像数据."""
     with Session(engine) as session:
         images: list[ToolImage] = image_crud.get_all(session, 80, 0)
 
-    json_data = []
+    image_data = []
     for image in images:
         ordered_image = {
             'uid': str(image.uid),
@@ -51,12 +56,12 @@ def export_images():
             'description': image.description,
             'homepage': image.homepage,
             'paper_link': image.paper_link,
-            'image': image.image.model_dump(),
+            'image_url': image.image.get_image(),
         }
-        json_data.append(ordered_image)
+        image_data.append(ordered_image)
 
-    with open('../presets/images.json', 'w') as f:
-        f.write(json.dumps(json_data, sort_keys=False, indent=2))
+    output_df = pl.DataFrame(image_data)
+    output_df.write_parquet('../presets/images.parquet', compression='snappy')
 
 
 def export_docs():
