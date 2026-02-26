@@ -410,7 +410,7 @@ requires-dist = [
     { name = "langchain-anthropic", specifier = ">=1.3.0" },
     { name = "langchain-community", specifier = ">=0.4.0" },
     { name = "langchain-google-genai", specifier = ">=4.0.0" },
-    { name = "langchain-milvus", specifier = ">=0.2.2" },
+    { name = "langchain-milvus", specifier = "==0.3.3" },
     { name = "langchain-model-profiles", specifier = ">=0.0.5" },
     { name = "langchain-openai", specifier = ">=1.1.0" },
     { name = "langchain-qwen3", specifier = ">=0.1.2" },
@@ -686,9 +686,9 @@ wheels = [
 name = "chardet"
 version = "5.2.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f3/0d/f7b6ab21ec75897ed80c17d79b15951a719226b9fababf1e40ea74d69079/chardet-5.2.0.tar.gz", hash = "sha256:1b3b6ff479a8c414bc3fa2c0852995695c4a026dcd6d0633b2dd092ca39c1cf7" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f3/0d/f7b6ab21ec75897ed80c17d79b15951a719226b9fababf1e40ea74d69079/chardet-5.2.0.tar.gz", hash = "sha256:1b3b6ff479a8c414bc3fa2c0852995695c4a026dcd6d0633b2dd092ca39c1cf7", size = 2069618, upload-time = "2023-08-01T19:23:02.662Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl", hash = "sha256:e1cf59446890a00105fe7b7912492ea04b6e6f06d4b742b2c788469e34c82970" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl", hash = "sha256:e1cf59446890a00105fe7b7912492ea04b6e6f06d4b742b2c788469e34c82970", size = 199385, upload-time = "2023-08-01T19:23:00.661Z" },
 ]
 
 [[package]]
@@ -1974,15 +1974,15 @@ wheels = [
 
 [[package]]
 name = "langchain-milvus"
-version = "0.3.0"
+version = "0.3.3"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "pymilvus" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/9e/53/570420a1da6a86efa0e7db04a46269874b1fb3122892283172a5cd4539da/langchain_milvus-0.3.0.tar.gz", hash = "sha256:bbed016bc5bcb8df858f5dfd0c245457c4c6ed5259481cd2f9d433a59f2ad833", size = 33912, upload-time = "2025-11-14T06:29:54.435Z" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/09/21/ecce785a24e61ba2c0f6249a5a68b969ccc053342f933aeab31a3f885f5e/langchain_milvus-0.3.3.tar.gz", hash = "sha256:406c2d88da133741f5cc3e2fea4b36386182b35500205c70d003382ded210e41", size = 35577, upload-time = "2026-01-05T10:01:16.386Z" }
 wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/39/4b/4c320b816d7fe0a28ea742bcc4f1a4bc4c03775f48a0efe57719a12d90c2/langchain_milvus-0.3.0-py3-none-any.whl", hash = "sha256:68c149bdba7a83e50948c7a2463ecf0cb00e446d268e30765b19b0ec13a0df85", size = 37373, upload-time = "2025-11-14T06:29:53.461Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/be/5d/6a0dac51ca2343332d5de9c79686d54f905d225b173a8e1b03ae6d35982a/langchain_milvus-0.3.3-py3-none-any.whl", hash = "sha256:6e12f15453372dd48836978faa4a149de79c721df3322229ad732a5e628e8e97", size = 38962, upload-time = "2026-01-05T10:01:15.186Z" },
 ]
 
 [[package]]
