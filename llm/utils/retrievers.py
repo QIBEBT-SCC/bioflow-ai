@@ -12,8 +12,8 @@ from app.models.document import ParentDocument
 from llm.models import qwen3_embedding
 
 
-def insert_documents(document_content: str, doc_id: str):
-    """插入文档：父文档存数据库，子文档存 Milvus"""
+def insert_documents(document_content: str, doc_id: str) -> None:
+    """插入文档: 父文档存数据库, 子文档存 Milvus."""
     embedding_model = qwen3_embedding()
     vectorstore = Milvus(
         collection_name='PaperCollection',
@@ -25,7 +25,7 @@ def insert_documents(document_content: str, doc_id: str):
         auto_id=True,
     )
 
-    # 1. 分割父文档（按 Markdown 标题）
+    # 1. 分割父文档 (按 Markdown 标题)
     headers_to_split_on = [('#', 'Title'), ('##', 'Section')]
     parent_splitter = MarkdownHeaderTextSplitter(headers_to_split_on, strip_headers=False)
     parent_docs = parent_splitter.split_text(document_content)
@@ -59,16 +59,16 @@ def insert_documents(document_content: str, doc_id: str):
                 child_doc.metadata['parent_uid'] = str(parent.uid)
                 child_doc.metadata['Title'] = parent.title
                 child_doc.metadata['Section'] = parent.section
-            
-            # 6. 子文档分批存到 Milvus（防止显存爆掉）
+
+            # 6. 子文档分批存到 Milvus
             batch_size = get_settings().pdf_parser.BATCH_SIZE
             for i in range(0, len(child_docs), batch_size):
                 batch = child_docs[i : i + batch_size]
                 vectorstore.add_documents(batch)
 
 
-async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 8):
-    """检索文档：从 Milvus 查子文档，根据 parent_uid 从数据库取父文档"""
+async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 8) -> list[Document]:
+    """从 Milvus 查子文档, 根据 parent_uid 从数据库取父文档."""
     embedding = qwen3_embedding()
     vectorstore = Milvus(
         collection_name='Papers',
@@ -79,7 +79,7 @@ async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 
     )
 
     task = 'Provide a search query to search for relevant paper snippets'
-    query = embedding.get_detailed_instruct(task, query)
+    query = f'Instruct: {task}\nQuery:{query}'
 
     # 1. 从 Milvus 查询子文档
     if doc_id:
@@ -91,7 +91,7 @@ async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 
         return []
 
     # 2. 提取 parent_uid 并去重
-    parent_uids = list(set([UUID(r.metadata['parent_uid']) for r in results]))
+    parent_uids = list({UUID(r.metadata['parent_uid']) for r in results})
 
     # 3. 从数据库批量查询父文档
     with Session(engine) as session:
@@ -99,7 +99,7 @@ async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 
         parent_docs = session.exec(statement).all()
 
     # 4. 转换为 Document 对象
-    documents = [
+    return [
         Document(
             page_content=p.content,
             metadata={
@@ -111,5 +111,3 @@ async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 
         )
         for p in parent_docs
     ]
-
-    return documents

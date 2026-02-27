@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -9,12 +11,15 @@ from sqlmodel import Session
 import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ToolDefine
 from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
 from llm.utils.formatters import handle_formatter
 from llm.utils.retrievers import retrieve_documents
 from llm.utils.uid_mapper import BidirectionalMapper
+
+if TYPE_CHECKING:
+    from app.models.tools import ToolDefine
+
 
 TOOL_DESCRIPTION = """Search existing tools from the vector database based on functionality
 **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
@@ -32,9 +37,8 @@ class SearchToolArgsSchema(BaseModel):
 
 
 @tool(description=TOOL_DESCRIPTION, args_schema=SearchToolArgsSchema)
-async def search_tools_by_function(query: str, runtime: ToolRuntime):
-    """Search existing tools from the vector database based on functionality"""
-
+async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
+    """Search existing tools from the vector database based on functionality."""
     embedding = qwen3_embedding()
     vectorstore = Milvus(
         collection_name='ToolCollection',
@@ -46,7 +50,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
     )
 
     task = 'Provide a search query to search for tools with relevant functions'
-    query = embedding.get_detailed_instruct(task, query)
+    query = f'Instruct: {task}\nQuery:{query}'
     image_uid = runtime.state.get('image_uid', None)
 
     if image_uid:
@@ -54,7 +58,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
             query,
             k=10,
             param=[{'M': 64, 'efConstruction': 100}, {}],
-            expr=f'image_uid == "{str(image_uid)}"',
+            expr=f'image_uid == "{image_uid!s}"',
             ranker_type='weighted',
             ranker_params={'weights': [0.85, 0.15]},
         )
@@ -121,8 +125,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime):
 
 @tool
 async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
-    """Get relevant paper content from the vector database based on the query"""
-
+    """Get relevant paper content from the vector database based on the query."""
     paper_id = runtime.state.get('paper_id', None)
 
     documents = await retrieve_documents(query, doc_id=paper_id, k=5)
@@ -144,12 +147,11 @@ async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
 
 @tool(parse_docstring=True)
 async def search_processors(query: str) -> str:
-    """Search for the processor node corresponding to the function
+    """Search for the processor node corresponding to the function.
 
     Args:
         query: Briefly describe the processor or function to be searched for
     """
-
     embedding = qwen3_embedding()
     vectorstore = Milvus(
         collection_name='ProcessorCollection',
@@ -160,7 +162,7 @@ async def search_processors(query: str) -> str:
     )
 
     task = 'Provide a search query to search for data processors with relevant functions'
-    query = embedding.get_detailed_instruct(task, query)
+    query = f'Instruct: {task}\nQuery:{query}'
 
     results = await vectorstore.amax_marginal_relevance_search(query, k=10)
 

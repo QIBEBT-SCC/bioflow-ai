@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import aiosqlite
 import click
@@ -13,7 +13,6 @@ import polars as pl
 import rich
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -33,6 +32,9 @@ from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, To
 from app.utils.container.docker import run_docker
 from llm.agents.tool_manager import CreateToolAgent, CreateToolContext, CreateToolState
 from llm.models import qwen3_embedding
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 
 # 禁用 crawl4ai 导致的 httpx 日志输出
 logging.getLogger('httpx').setLevel(logging.WARNING)
@@ -55,13 +57,13 @@ def init_tag_and_group(drop_old: bool = True):
             logger.info(f'Delete {delete_tag_count} tags and {delete_group_count} groups')
 
         # init tags
-        with open('../presets/tags.json', 'r') as f:
+        with open('../presets/tags.json') as f:
             tags_data = json.loads(f.read())
             tags = [ToolTag.model_validate(tag) for tag in tags_data]
         tag_crud.insert_all(session, tags)
 
         # init group
-        with open('../presets/groups.json', 'r') as f:
+        with open('../presets/groups.json') as f:
             groups_data = json.loads(f.read())
             groups = [ToolGroup.model_validate(group) for group in groups_data]
         group_crud.insert_all(session, groups)
@@ -101,7 +103,7 @@ async def init_images(drop_old: bool = True):
     batch_size = 50
 
     for i in tqdm(range(0, len(images), batch_size)):
-        batch_images = images[i: i + batch_size]
+        batch_images = images[i : i + batch_size]
         docs = [
             Document(page_content=img.description, metadata={'image_uid': str(img.uid), 'name': img.name})
             for img in batch_images
@@ -110,17 +112,18 @@ async def init_images(drop_old: bool = True):
         await vectorstore.aadd_documents(docs)
 
 
-async def init_tools(index: Optional[int] = None):
+async def init_tools(index: Optional[int] = None) -> None:
+    """初始化工具节点."""
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
     # 读取完整数据集
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
 
-    # 需要跳过的工具（不处理，但保留在数据集中）
-    skip_tools = ['MACS2', 'RSEM']
+    # 需要跳过的工具 (不处理, 但保留在数据集中)
+    skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake']
 
-    # 如果指定了 index，只处理该索引的数据；否则处理所有未完成的数据
+    # 如果指定了 index, 只处理该索引的数据; 否则处理所有未完成的数据
     if index is not None:
         todo_df = function_df.filter(pl.col('index') == index)
         if todo_df.height == 0:
@@ -156,9 +159,9 @@ async def init_tools(index: Optional[int] = None):
                     'messages': [
                         HumanMessage(
                             content=f'<Require>\n'
-                                    f'tool_name: {tool_name}\n'
-                                    f'function: {function}\nhelp_command: `{help_command}`\n'
-                                    f'</Require>'
+                            f'tool_name: {tool_name}\n'
+                            f'function: {function}\nhelp_command: `{help_command}`\n'
+                            f'</Require>'
                         )
                     ],
                     'image_uid': tool_image.uid,
@@ -180,11 +183,11 @@ async def init_tools(index: Optional[int] = None):
             function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
             async for namespace, mode, data in agent.astream(
-                    agent_input,  # type: ignore
-                    config,
-                    context=context,  # type: ignore
-                    stream_mode=['custom', 'updates'],
-                    subgraphs=True,
+                agent_input,  # type: ignore
+                config,
+                context=context,  # type: ignore
+                stream_mode=['custom', 'updates'],
+                subgraphs=True,
             ):
                 _log_update(namespace, mode, data)
 
@@ -231,7 +234,10 @@ async def read_interrupt(index: int):
 async def continue_run(index: int, message: Optional[str] = None, approve: bool = False):
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     function_df = function_df.with_columns(
-        pl.when(pl.col('index') == index).then(pl.lit(False)).otherwise(pl.col('interrupted')).alias('interrupted'),
+        pl.when(pl.col('index') == index)
+        .then(pl.lit(value=False))
+        .otherwise(pl.col('interrupted'))
+        .alias('interrupted'),
     )
     tool_info: dict[str, Any] = function_df.filter(pl.col('index') == index).row(index=0, named=True)
 
@@ -250,11 +256,11 @@ async def continue_run(index: int, message: Optional[str] = None, approve: bool 
         else:
             input_message = None
         async for namespace, mode, data in agent.astream(
-                input_message,
-                config,
-                context=context,  # type: ignore
-                stream_mode=['custom', 'updates'],
-                subgraphs=True,
+            input_message,
+            config,
+            context=context,  # type: ignore
+            stream_mode=['custom', 'updates'],
+            subgraphs=True,
         ):
             _log_update(namespace, mode, data)
 
@@ -262,7 +268,7 @@ async def continue_run(index: int, message: Optional[str] = None, approve: bool 
         if response.interrupts:
             function_df = function_df.with_columns(
                 pl.when(pl.col('index') == index)
-                .then(pl.lit(True))
+                .then(pl.lit(value=True))
                 .otherwise(pl.col('interrupted'))
                 .alias('interrupted'),
             )
@@ -277,7 +283,8 @@ async def continue_run(index: int, message: Optional[str] = None, approve: bool 
         function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
 
 
-async def delete_prebuild_tool(indices: list[int]):
+async def delete_prebuild_tool(indices: list[int]) -> None:
+    """删除现有节点."""
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     thread_ids_to_delete: list[str] = []
 
@@ -300,19 +307,19 @@ async def delete_prebuild_tool(indices: list[int]):
 
                 response = await agent.aget_state(config, subgraphs=True)
                 if (
-                        response.tasks
-                        and response.tasks[0].state
-                        and 'container_id' in response.tasks[0].state.values
-                        and response.tasks[0].state.values['container_id']
+                    response.tasks
+                    and response.tasks[0].state
+                    and 'container_id' in response.tasks[0].state.values
+                    and response.tasks[0].state.values['container_id']
                 ):
                     # 删除残余容器
                     try:
                         if get_settings().docker.CONTAINER == 'docker':
-                            from app.utils.container.docker import remove_container
+                            from app.utils.container.docker import remove_container  # noqa: PLC0415
 
                             remove_container(response.tasks[0].state.values['container_id'])
                         else:
-                            from app.utils.container.podman import remove_container
+                            from app.utils.container.podman import remove_container  # noqa: PLC0415
 
                             remove_container(response.tasks[0].state.values['container_id'])
                         logger.info('清理了残余容器')

@@ -1,7 +1,7 @@
 import os
 import secrets
 from functools import lru_cache
-from typing import Literal, Type
+from typing import Literal
 
 import tomli_w
 from loguru import logger
@@ -147,11 +147,24 @@ class PDFParserConfig(BaseSectionConfig):
     open_mineru: OpenMinerUConfig = OpenMinerUConfig()
 
 
+class LocalEmbeddingModel(BaseSectionConfig):
+    MODEL: str = 'Qwen/Qwen3-Embedding-4B'
+    USE_MODELSCOPE: bool = False
+    DEVICE: str = 'cuda:0'
+
+
+class RemoteEmbeddingModel(BaseSectionConfig):
+    MODEL: str = 'Qwen/Qwen3-Embedding-4B'
+    BASE_URL: str = 'https://api.siliconflow.cn/v1/'
+    API_KEY: SecretStr = SecretStr('')
+
+
 class KnowledgeBaseConfig(BaseSectionConfig):
     MILVUS_URL: str = 'http://localhost:19530'
-    EMBEDDING_MODEL: str = 'Qwen/Qwen3-Embedding-4B'
-    USE_MODELSCOPE: bool = False
-    EMBEDDING_DEVICE: str = 'cuda:0'
+    USE_LOCAL_MODEL: bool = False
+
+    local: LocalEmbeddingModel = LocalEmbeddingModel()
+    remote: RemoteEmbeddingModel = RemoteEmbeddingModel()
 
 
 class Settings(BaseSettings):
@@ -177,7 +190,7 @@ class Settings(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
-        settings_cls: Type[BaseSettings],
+        settings_cls: type[BaseSettings],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
