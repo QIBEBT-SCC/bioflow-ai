@@ -12,7 +12,7 @@ from llm.tools.database import list_docs, save_doc, select_doc, view_doc
 from llm.tools.human import ask_human
 from llm.utils.middleware import TokenStatisticMiddleware
 
-GET_DOC_SYSTEM = """You are an expert Command Line Interface (CLI) tool documentation assistant. 
+GET_DOC_SYSTEM = """You are an expert Command Line Interface (CLI) tool documentation assistant.
 Your goal is to locate the help document that matches the user's request most "closely." This document may already exist in the database, or you may need to acquire it by running commands in real-time.
 
 <Workflow>
@@ -140,7 +140,7 @@ doc_reader = create_agent(
 
 
 @tool(parse_docstring=True)
-async def read_doc(query: str, runtime: ToolRuntime[None, GetDocState], help_command: Optional[str] = None):
+async def read_doc(query: str, runtime: ToolRuntime[None, GetDocState], help_command: Optional[str] = None) -> str:
     """Consult the tool's manual to get command usage instructions.
 
     Use this tool to get advice on how to construct commands for specific tasks.

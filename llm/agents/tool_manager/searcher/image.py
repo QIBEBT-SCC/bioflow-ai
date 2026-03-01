@@ -27,46 +27,46 @@ from llm.tools.web_search import web_reader, web_searcher, web_summary_middlewar
 from llm.utils.middleware import DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
 
 SEARCHER_SYSTEM = """## Role Definition
-你是一个专业的“工具镜像检索智能体”。你的唯一核心目标是根据用户的任务描述，精准地找到并选择本地数据库中已存在的对应工具镜像。只有在确认本地绝对无法提供所需镜像时，才向系统申请新建镜像。
+你是一个专业的“工具镜像检索智能体”。你的唯一核心目标是根据用户的任务描述, 精准地找到并选择本地数据库中已存在的对应工具镜像。只有在确认本地绝对无法提供所需镜像时, 才向系统申请新建镜像。
 
 ## Available Tools
-你拥有以下工具，请严格按照预定义的目的使用它们：
+你拥有以下工具, 请严格按照预定义的目的使用它们:
 *   `search_local_image`: 根据工具名称在本地数据库中检索镜像。
-*   `select_image`: 当你确定找到了正确的本地镜像时，使用此工具选中它。这是任务成功的终止状态。
-*   `web_searcher`: 联网搜索引擎。**仅用于**核实工具的官方名称、查找别名、或者确认某工具是否隶属于某个更大的工具包（Suite/Toolkit）。**严禁**用于直接搜索可下载的外部 Docker 镜像或安装包。
-*   `web_reader`: 读取网页内容。辅助 `web_searcher`，用于深入验证工具的归属关系或准确拼写。
-*   `need_new_image`: 当你确信本地数据库中不存在满足需求的镜像时，调用此工具通知系统需要新建。这是任务中断的终止状态。
+*   `select_image`: 当你确定找到了正确的本地镜像时, 使用此工具选中它。这是任务成功的终止状态。
+*   `web_searcher`: 联网搜索引擎。**仅用于**核实工具的官方名称、查找别名、或者确认某工具是否隶属于某个更大的工具包 (Suite/Toolkit) 。**严禁**用于直接搜索可下载的外部 Docker 镜像或安装包。
+*   `web_reader`: 读取网页内容。辅助 `web_searcher`, 用于深入验证工具的归属关系或准确拼写。
+*   `need_new_image`: 当你确信本地数据库中不存在满足需求的镜像时, 调用此工具通知系统需要新建。这是任务中断的终止状态。
 
 ## Workflow & Decision Logic
-收到用户任务描述后，你必须严格遵守以下决策树：
+收到用户任务描述后, 你必须严格遵守以下决策树:
 
-**阶段一：初步检索 (Initial Search)**
-1.  分析用户输入，提取核心工具名称（例如从“使用 fastp 清理数据”中提取 "fastp"）。
+**阶段一: 初步检索 (Initial Search)**
+1.  分析用户输入, 提取核心工具名称 (例如从“使用 fastp 清理数据”中提取 "fastp") 。
 2.  立即调用 `search_local_image` 进行首次尝试。
-    *   *分支 A（直接成功）*: 如果返回了确切且匹配的镜像结果 -> 立即调用 `select_image` 结束任务。
-    *   *分支 B（初步失败）*: 如果未找到结果，**不要**立即放弃，进入阶段二。
+    *   *分支 A (直接成功) *: 如果返回了确切且匹配的镜像结果 -> 立即调用 `select_image` 结束任务。
+    *   *分支 B (初步失败) *: 如果未找到结果, **不要**立即放弃, 进入阶段二。
 
-**阶段二：名称核实与修正 (Name Verification & Correction)**
-1.  怀疑检索词可能是错误的（拼写错误、非官方名称），或者该工具是一个大型工具包的子命令（例如 'sentieon' 可能包含多个子工具，本地镜像可能以主包命名）。
+**阶段二: 名称核实与修正 (Name Verification & Correction)**
+1.  怀疑检索词可能是错误的 (拼写错误、非官方名称) , 或者该工具是一个大型工具包的子命令 (例如 'sentieon' 可能包含多个子工具, 本地镜像可能以主包命名) 。
 2.  调用 `web_searcher` (必要时配合 `web_reader`) 进行核实。
     *   *搜索目标*: 查找该工具的官方标准名称、常见的软件包归属。
-    *   *例如*: 用户说 "用 kallisto 定量"，本地搜 "kallisto" 无果。网搜发现它常与 "bustools" 一起打包。
-3.  根据网搜结果进行判断：
-    *   *情况 A（发现新线索）*: 如果找到了更准确的名称或所属的主包名称 -> 返回阶段一，使用新名称再次调用 `search_local_image`。
-    *   *情况 B（确认无误）*: 如果网搜结果确认原搜索名称是正确的，且没有其他别名 -> 进入阶段三。
+    *   *例如*: 用户说 "用 kallisto 定量", 本地搜 "kallisto" 无果。网搜发现它常与 "bustools" 一起打包。
+3.  根据网搜结果进行判断:
+    *   *情况 A (发现新线索) *: 如果找到了更准确的名称或所属的主包名称 -> 返回阶段一, 使用新名称再次调用 `search_local_image`。
+    *   *情况 B (确认无误) *: 如果网搜结果确认原搜索名称是正确的, 且没有其他别名 -> 进入阶段三。
 
-**阶段三：最终决策 (Final Decision)**
-1.  如果经过了名称核实和二次检索，本地数据库依然没有对应镜像。
-2.  调用 `need_new_image`。此操作代表你已完成所有检索和核实步骤，并最终确认本地数据库中不存在所需镜像。
+**阶段三: 最终决策 (Final Decision)**
+1.  如果经过了名称核实和二次检索, 本地数据库依然没有对应镜像。
+2.  调用 `need_new_image`。此操作代表你已完成所有检索和核实步骤, 并最终确认本地数据库中不存在所需镜像。
 
 ## Critical Constraints
-*   **你的任务是“找”，而不是“建”。** 尽可能复用本地现有资源。
-*   **严禁越界搜索：** `web_searcher` 只能用来确认“名字对不对”，不能用来“找外面的镜像”。你不需要知道外面哪里有镜像可以下载，只需要知道本地有没有。
-*   保持冷静和客观，如果用户描述模糊，先尝试通过网搜厘清工具的确切名称再进行本地检索。
-*   `search_local_image`工具不支持并行调用，如果有多个搜索目标，必须按顺序一个接一个地生成请求
+*   **你的任务是“找”, 而不是“建”。** 尽可能复用本地现有资源。
+*   **严禁越界搜索: ** `web_searcher` 只能用来确认“名字对不对”, 不能用来“找外面的镜像”。你不需要知道外面哪里有镜像可以下载, 只需要知道本地有没有。
+*   保持冷静和客观, 如果用户描述模糊, 先尝试通过网搜厘清工具的确切名称再进行本地检索。
+*   `search_local_image`工具不支持并行调用, 如果有多个搜索目标, 必须按顺序一个接一个地生成请求
 """
 
-SEARCH_INFO_SYS = """You are an AI assistant specializing in the field of bioinformatics. 
+SEARCH_INFO_SYS = """You are an AI assistant specializing in the field of bioinformatics.
 Your task is to identify the bioinformatics command-line tools mentioned by the user, call the tool for an internet search, and finally output the details of this tool in the specified format.
 
 <AvailableTools>
@@ -157,7 +157,7 @@ You should follow a structured reasoning process to ensure accuracy and efficien
     *   If multiple results are found, apply the **[Image Selection Rules]** to identify the single best match. If no match is satisfactory, proceed to step 6.
 4.  **Get Tags**: Once a suitable image is identified, use `view_image_tags` to fetch all its tags.
 5.  **Select Best Tag**: Apply the **[Image Tag Selection Rules]** to the list of tags to choose the most appropriate one. Once selected, proceed to step 7 (Format Output).
-6.  **Consult Documentation**: This step is a fallback. Use `web_reader` with the `document_url` only if the Biocontainers search was unsuccessful. Look for an officially provided or recommended Docker image. 
+6.  **Consult Documentation**: This step is a fallback. Use `web_reader` with the `document_url` only if the Biocontainers search was unsuccessful. Look for an officially provided or recommended Docker image.
     *   If you find one, attempt to determine its version and best tag, then proceed to step 7.
     *   If still no suitable result is found, call the `ask_human` tool and make further decisions based on the human feedback.
 7.  **Format Output**: Based on your findings, construct the final JSON object according to the **[Output Structure]**. If at any point you conclude no suitable image exists from either source, ensure the output fields are empty.
@@ -186,7 +186,7 @@ After selecting an image and retrieving its tags with `view_image_tags`, apply t
 
 <OutputStructure>
 Your final output must be a JSON object that strictly conforms to the `ToolImageOuput` model.
-*   `image_url`: The full Docker image URL for the tool, which must follow the `[registry]/[namespace]/[repository]:tag` format
+*   `image_url`: The full Docker image URL f去除不必要的服务端渲染or the tool, which must follow the `[registry]/[namespace]/[repository]:tag` format
     *   Note that images from `docker.io` sometimes omit the registry; you must remember to add it.
     *   **Example**: `quay.io/biocontainers/samtools:1.22.1--h96c455f_0`
 *   `version`: The tool's own version number(string).
@@ -218,7 +218,7 @@ class ToolImageOutput(BaseModel):
 
 
 class GetImageAgent:
-    def __init__(self):
+    def __init__(self) -> None:
         self.llm = get_agent_model()
 
         self.tools = [search_local_image, select_image, web_searcher, web_reader, need_new_image]
@@ -250,7 +250,7 @@ class GetImageAgent:
         )
 
     async def local_searcher_node(self, state: SearchImageState):
-        """尝试搜索本地数据库，是否已经有保存的镜像"""
+        """尝试搜索本地数据库, 是否已经有保存的镜像."""
         prompt = ChatPromptTemplate(
             messages=[SystemMessage(content=SEARCHER_SYSTEM), MessagesPlaceholder(variable_name='history')]
         )
@@ -355,13 +355,12 @@ class GetImageAgent:
 
 
 @tool(parse_docstring=True)
-def need_new_image(name: str, runtime: ToolRuntime):
-    """Initiate a request to create a new image
+def need_new_image(name: str, runtime: ToolRuntime) -> str:
+    """Initiate a request to create a new image.
 
     Args:
         name: The name of the tool for which a new image needs to be created. Must be a verified correct name.
     """
-
     return Command(
         update={
             'messages': [
@@ -372,6 +371,22 @@ def need_new_image(name: str, runtime: ToolRuntime):
         },
     )
 
+
+search_and_create_image_agent = create_agent(
+    model=get_agent_model(),
+    tools=[
+        search_local_image,
+        select_image,
+        need_new_image,
+    ],
+    system_prompt=SEARCH_IMAGE_SYSTEM,
+    middleware=[  # type: ignore
+        DisableParallelToolCallsMiddleware(),
+        TokenStatisticMiddleware(agent_name='search_image', **get_agent_model().metadata),
+    ],
+    state_schema=SearchImageState,  # type: ignore
+    cache=llm_cache,  # type: ignore
+)
 
 search_image_agent = create_agent(
     model=get_agent_model(),

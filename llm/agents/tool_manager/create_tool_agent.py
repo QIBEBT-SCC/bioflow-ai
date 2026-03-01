@@ -1,5 +1,6 @@
 import uuid
-from typing import Literal, Optional
+from pathlib import Path
+from typing import Any, Literal, Optional
 
 from langchain.agents import create_agent
 from langchain_core.documents import Document
@@ -88,7 +89,7 @@ To achieve your goal, you can follow these steps:
 3. If the result of step 1 is empty or there are no suitable records, then you need to call the `run_command` tool to try to run commands within the corresponding container to get help documentation (see the detailed explanation in the <RunCommand> section).
 4. `save_doc` will save the output from the last `run_command` execution to the database. After you get the desired help documentation, remember to call this tool to save the document and complete your task.
 
-When you think a document can be selected or saved, **directly** call the tool to execute the operation. 
+When you think a document can be selected or saved, **directly** call the tool to execute the operation.
 When `run_command` fails multiple times or other unresolvable errors occur, you can call the `ask_human` tool to seek human intervention.
 </ThinkingProcess>
 
@@ -123,7 +124,7 @@ class TempIDClass(BaseModel):
 
 
 class CreateToolAgent:
-    def __init__(self):
+    def __init__(self) -> None:
         self.struct_llm = get_high_performance_model()
         self.think_llm = get_agent_model()
 
@@ -138,15 +139,15 @@ class CreateToolAgent:
             context_schema=UserContext,  # type: ignore
         )
 
-    async def select_image_node(self, state: CreateToolState):
-        """首先搜索得到此工具的对应镜像"""
-        if 'image_uid' in state and state['image_uid']:
+    async def select_image_node(self, state: CreateToolState) -> dict[str, Any]:
+        """首先搜索得到此工具的对应镜像."""
+        if state.get('image_uid'):
             # 我们认为数据库中的镜像信息就是完全的
             with Session(engine) as session:
                 tool_image = image_crud.get(session, str(state['image_uid']))
                 return {'image': tool_image.image}
         else:
-            # TODO 重写镜像搜索
+            # TODO: 重写镜像搜索
             writer = get_stream_writer()
             writer({'info': 'Searching for docker image...'})
 
@@ -158,31 +159,31 @@ class CreateToolAgent:
                 'image': response['image'],
             }
 
-    async def get_doc_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
-        """然后尝试获取指令对应的帮助文档"""
-        if 'doc_uid' in state and state['doc_uid']:
+    async def get_doc_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any] | None:
+        """然后尝试获取指令对应的帮助文档."""
+        if state.get('doc_uid'):
             return None
-        else:
-            writer = get_stream_writer()
-            writer({'info': "Searching for tool's help document..."})
+        writer = get_stream_writer()
+        writer({'info': "Searching for tool's help document..."})
 
-            response = await doc_searcher.ainvoke(
-                {  # type: ignore
-                    'messages': state['messages'],
-                    'image_uid': state['image_uid'],
-                    'image': state['image'],
-                },
-                context=UserContext(user_id=runtime.context.user_id),
-            )
-            doc_uid = response['doc_uid']
+        response = await doc_searcher.ainvoke(
+            {  # type: ignore
+                'messages': state['messages'],
+                'image_uid': state['image_uid'],
+                'image': state['image'],
+            },
+            context=UserContext(user_id=runtime.context.user_id),
+        )
+        doc_uid = response['doc_uid']
 
-            return {
-                'doc_uid': doc_uid,
-            }
+        return {
+            'doc_uid': doc_uid,
+        }
 
     async def search_exist_tool_node(
         self, state: CreateToolState, runtime: Runtime[CreateToolContext]
     ) -> Command[Literal['get_report', '__end__']]:
+        """检查是否已经有此功能的节点."""
         writer = get_stream_writer()
         writer({'info': 'Searching if an available node already exists locally...'})
 
@@ -198,7 +199,7 @@ class CreateToolAgent:
             },
             context=UserContext(user_id=runtime.context.user_id),
         )
-        if 'tool_uid' in pre_search_result and pre_search_result['tool_uid']:
+        if pre_search_result.get('tool_uid'):
             with Session(engine) as session:
                 tool_data = tool_crud.get(session, pre_search_result['tool_uid'])
 
@@ -237,8 +238,8 @@ class CreateToolAgent:
 
         return Command(goto='get_report')
 
-    async def get_report_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
-        """获取工具的输出结果"""
+    async def get_report_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
+        """获取工具的输出结果."""
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
 
@@ -259,8 +260,8 @@ class CreateToolAgent:
 
         return {'messages': [HumanMessage(content=run_report)]}
 
-    async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
-        """最后一步，为工具选择分组"""
+    async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
+        """最后一步, 为工具选择分组."""
         writer = get_stream_writer()
         writer({'info': 'Assigning groups to tools...'})
 
@@ -272,8 +273,8 @@ class CreateToolAgent:
         # 不更新消息
         return {'group_id': response['group_id']}
 
-    async def generate_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]):
-        """生成工具配置"""
+    async def generate_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
+        """生成工具配置."""
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
@@ -284,7 +285,9 @@ class CreateToolAgent:
 
         with Session(engine) as session:
             group = group_crud.get(session, state['group_id'])
-            assert group is not None
+            if group is None:
+                err_msg = 'Empty Group ID'
+                raise ValueError(err_msg)
 
             tag = tag_crud.get_by_name(session, 'AI Unchecked')
 
@@ -361,15 +364,17 @@ class CreateToolAgent:
 
     @staticmethod
     def whether_local_search(
-        state: CreateToolState, runtime: Runtime[CreateToolContext]
+        state: CreateToolState,
+        runtime: Runtime[CreateToolContext],
     ) -> Literal['search_exist_tool', 'get_report']:
-        """如果是以智能体模式运行，需要检查冗余"""
+        """如果是以智能体模式运行, 需要检查冗余."""
         if runtime.context.auto_save:
             return 'search_exist_tool'
 
         return 'get_report'
 
-    def build(self, memory: Optional[BaseCheckpointSaver] = None, visualize: bool = False) -> CompiledStateGraph:
+    def build(self, memory: Optional[BaseCheckpointSaver] = None, *, visualize: bool = False) -> CompiledStateGraph:
+        """Create Tool Agent."""
         graph = StateGraph(
             state_schema=CreateToolState,  # type: ignore
             context_schema=CreateToolContext,  # type: ignore
@@ -390,16 +395,13 @@ class CreateToolAgent:
         graph.add_edge('choose_group', 'generate_tool_config')
         graph.add_edge('generate_tool_config', END)
 
-        if memory is not None:
-            compiled_graph = graph.compile(checkpointer=memory)
-        else:
-            compiled_graph = graph.compile()
+        compiled_graph = graph.compile(checkpointer=memory) if memory is not None else graph.compile()
 
         if visualize:
             mermaid_code = compiled_graph.get_graph().draw_mermaid(
                 curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
             )
-            with open('images/create_tool_agent.md', 'w') as f:
+            with Path('images/create_tool_agent.md').open('w') as f:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
         return compiled_graph

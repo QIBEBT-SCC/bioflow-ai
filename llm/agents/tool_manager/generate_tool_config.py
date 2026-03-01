@@ -10,7 +10,7 @@ from llm.states import ToolGeneratorState, UserContext
 from llm.utils.middleware import DisableParallelToolCallsMiddleware, SkillMiddleware, TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckGenerateMiddleware
 
-SYSTEM_PROMPT = """You are a bioinformatics engineer and will see a real execution report of a bioinformatics tool, including test run commands and the list of generated output files.  
+SYSTEM_PROMPT = """You are a bioinformatics engineer and will see a real execution report of a bioinformatics tool, including test run commands and the list of generated output files.
 Your task is to create a Docker execution template for the tool based on this information, so it can be used for subsequent automation.
 
 <ThoughtProcess>
@@ -82,7 +82,7 @@ You must construct a `command_template` string using specific variables:
    - **Exception (Direct File Reference)**:
         - For tools using **stdout** for output, or for **positional file arguments** (e.g., input files), you are allowed to directly use the **name** value from `<FileMounts>` (e.g., `{input_file}`, `> {output_file}`) in the template.
         - In these cases, these files do NOT need to be defined in `dynamic_params`.
-   - Ensure the order of variables matches the tool's required syntax. 
+   - Ensure the order of variables matches the tool's required syntax.
 """
 
 INFO_DESCRIPTION = """Set the tool info for the tool.
@@ -97,7 +97,7 @@ INFO_DESCRIPTION = """Set the tool info for the tool.
     - "samtools sort"
     - "diamond blastx (daa)"
     - "seqtk seq (fq2fa)"
-    
+
 ## How to write description
 In the description field, you need to briefly describe:
 - What is the purpose of the current encapsulated tool command
@@ -110,7 +110,7 @@ In the description field, you need to briefly describe:
 async def set_file_mounts(
     file_mounts: list[FileMount],
     runtime: ToolRuntime[UserContext],
-):
+) -> Command:
     """Set the file mounts for the tool."""
     return Command(
         update={
@@ -132,7 +132,7 @@ async def set_command_detail(
     modifiable_static_params: str,
     command_template: str,
     runtime: ToolRuntime[UserContext],
-):
+) -> Command:
     """Set the command details for the tool."""
     if 'file_mounts' not in runtime.state:
         return Command(
@@ -167,7 +167,7 @@ def set_tool_info(
     name: str,
     description: str,
     runtime: ToolRuntime[UserContext],
-):
+) -> Command:
     """Set the tool info for the tool."""
     if 'command_template' not in runtime.state:
         return Command(
@@ -194,7 +194,7 @@ tool_generator_agent = create_agent(
     get_high_performance_model(),
     [set_file_mounts, set_command_detail, set_tool_info],
     system_prompt=SYSTEM_PROMPT,
-    middleware=[  # type: ignore
+    middleware=[
         DisableParallelToolCallsMiddleware(),
         SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
         CheckGenerateMiddleware(2),
