@@ -1,7 +1,8 @@
 from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models import BaseChatModel, ModelProfile
+from langchain_core.embeddings import Embeddings
+from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_qwen3 import Qwen3Embeddings
 from pydantic import SecretStr
 from sqlmodel import Session
@@ -42,21 +43,20 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
                         api_key=SecretStr(model_config.provider.api_key),
                         openai_proxy=proxy,
                     )
+                elif 'deepseek' in model_config.name.lower():
+                    model = ChatDeepseekReasoning(
+                        model=model_config.name,
+                        base_url=model_config.provider.base_url,
+                        api_key=SecretStr(model_config.provider.api_key),
+                        openai_proxy=proxy,
+                    )
                 else:
-                    if 'deepseek' in model_config.name.lower():
-                        model = ChatDeepseekReasoning(
-                            model=model_config.name,
-                            base_url=model_config.provider.base_url,
-                            api_key=SecretStr(model_config.provider.api_key),
-                            openai_proxy=proxy,
-                        )
-                    else:
-                        model = ChatOpenAIReasoning(
-                            model=model_config.name,
-                            base_url=model_config.provider.base_url,
-                            api_key=SecretStr(model_config.provider.api_key),
-                            openai_proxy=proxy,
-                        )
+                    model = ChatOpenAIReasoning(
+                        model=model_config.name,
+                        base_url=model_config.provider.base_url,
+                        api_key=SecretStr(model_config.provider.api_key),
+                        openai_proxy=proxy,
+                    )
             case _:
                 raise ValueError('invalid provider type')
 
@@ -140,10 +140,23 @@ def get_high_performance_model() -> BaseChatModel:
 
 
 @cache_model()
-def qwen3_embedding() -> Qwen3Embeddings:
-    embedding = Qwen3Embeddings(
-        model=get_settings().knowledge_base.EMBEDDING_MODEL,
-        use_modelscope=get_settings().knowledge_base.USE_MODELSCOPE,
-        device=get_settings().knowledge_base.EMBEDDING_DEVICE,
+def _local_embedding_model() -> Qwen3Embeddings:
+    """有缓存的本地向量模型."""
+    return Qwen3Embeddings(
+        model=get_settings().knowledge_base.local.MODEL,
+        use_modelscope=get_settings().knowledge_base.local.USE_MODELSCOPE,
+        device=get_settings().knowledge_base.local.DEVICE,
     )
+
+
+def qwen3_embedding() -> Embeddings:
+    """加载向量模型."""
+    if get_settings().knowledge_base.USE_LOCAL_MODEL:
+        embedding = _local_embedding_model()
+    else:
+        embedding = OpenAIEmbeddings(
+            model=get_settings().knowledge_base.remote.MODEL,
+            base_url=get_settings().knowledge_base.remote.BASE_URL,
+            api_key=get_settings().knowledge_base.remote.API_KEY,
+        )
     return embedding
