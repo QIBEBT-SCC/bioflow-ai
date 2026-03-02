@@ -1,119 +1,111 @@
-import json
 from typing import TYPE_CHECKING
 
 import polars as pl
 from sqlmodel import Session
+from tqdm import tqdm
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
-import app.crud.tools.tool_group as group_crud
-import app.crud.tools.tool_tag as tag_crud
 from app.core.session import engine
 
 if TYPE_CHECKING:
-    from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
-
-
-def export_tags():
-    with Session(engine) as session:
-        tags: list[ToolTag] = tag_crud.get_all(session)
-
-    json_data = []
-    for tag in tags:
-        # 我发现model_dump会打乱字段顺序, 还是手动做吧
-        ordered_tag = {'id': tag.id, 'name': tag.name}
-        json_data.append(ordered_tag)
-
-    with open('../presets/tags.json', 'w') as f:
-        f.write(json.dumps(json_data, sort_keys=False, indent=2))
-
-
-def export_groups():
-    with Session(engine) as session:
-        groups: list[ToolGroup] = group_crud.get_all(session)
-
-    json_data = []
-    for group in groups:
-        ordered_group = {'id': group.id, 'name': group.name, 'parent_id': group.parent_id, 'tag_id': group.tag_id}
-        json_data.append(ordered_group)
-
-    with open('../presets/groups.json', 'w') as f:
-        f.write(json.dumps(json_data, sort_keys=False, indent=2))
+    from app.models.tools import ToolDefine, ToolHelpDoc, ToolImage
 
 
 def export_images() -> None:
     """导出镜像数据."""
+    batch_size = 100
+    all_data = []
+
     with Session(engine) as session:
-        images: list[ToolImage] = image_crud.get_all(session, 80, 0)
+        total_count = image_crud.get_counts(session)
 
-    image_data = []
-    for image in images:
-        ordered_image = {
-            'uid': str(image.uid),
-            'name': image.name,
-            'version': image.version,
-            'description': image.description,
-            'homepage': image.homepage,
-            'paper_link': image.paper_link,
-            'image_url': image.image.get_image(),
-        }
-        image_data.append(ordered_image)
+        for offset in tqdm(range(0, total_count, batch_size)):
+            images: list[ToolImage] = image_crud.get_all(session, batch_size, offset)
 
-    output_df = pl.DataFrame(image_data)
+            batch_data = [
+                {
+                    'uid': str(image.uid),
+                    'name': image.name,
+                    'version': image.version,
+                    'description': image.description,
+                    'homepage': image.homepage,
+                    'paper_link': image.paper_link,
+                    'image_url': image.image.get_image(),
+                }
+                for image in images
+            ]
+            all_data.extend(batch_data)
+
+    output_df = pl.DataFrame(all_data)
     output_df.write_parquet('../presets/images.parquet', compression='snappy')
 
 
-def export_docs():
+def export_docs() -> None:
+    """导出工具文档."""
+    batch_size = 100
+    all_data = []
+
     with Session(engine) as session:
-        docs: list[ToolHelpDoc] = doc_crud.get_all(session, 80, 0)
+        total_count = doc_crud.get_counts(session)
 
-    json_data = []
-    for doc in docs:
-        ordered_doc = {
-            'id': doc.uid,
-            'help_command': doc.help_command,
-            'description': doc.description,
-            'content': doc.content,
-            'image_uid': doc.image_uid,
-        }
-        json_data.append(ordered_doc)
+        for offset in tqdm(range(0, total_count, batch_size)):
+            docs: list[ToolHelpDoc] = doc_crud.get_all(session, batch_size, offset)
 
-    with open('../presets/tool_docs.json', 'w') as f:
-        f.write(json.dumps(json_data, sort_keys=False, indent=2))
+            batch_data = [
+                {
+                    'id': str(doc.uid),
+                    'help_command': doc.help_command,
+                    'description': doc.description,
+                    'content': doc.content,
+                    'image_uid': str(doc.image_uid),
+                }
+                for doc in docs
+            ]
+            all_data.extend(batch_data)
+
+    output_df = pl.DataFrame(all_data)
+    output_df.write_parquet('../presets/tool_docs.parquet', compression='snappy')
 
 
-def export_tools():
+def export_tools() -> None:
+    """导出工具节点."""
+    batch_size = 100
+    all_data = []
+
     with Session(engine) as session:
-        tools: list[ToolDefine] = tool_crud.get_all(session, 80, 0)
+        total_count = tool_crud.get_counts(session)
 
-        json_data = []
-        for tool in tools:
-            ordered_tool = {
-                'uid': tool.uid,
-                'name': tool.name,
-                'image_uid': tool.image_uid,
-                'description': tool.description,
-                'tool_type': tool.tool_type,
-                'group_id': tool.group_id,
-                'help_doc_uid': tool.help_doc_uid,
-                'command_template': tool.command_template,
-                'dynamic_params': [param.model_dump() for param in tool.dynamic_params],
-                'static_params': tool.static_params,
-                'file_mounts': [output.model_dump() for output in tool.file_mounts],
-                'mkdir_output': tool.mkdir_output,
-                'use_temp_dir': tool.use_temp_dir,
-                'tags': [tag.model_dump() for tag in tool.tags],
-            }
-            json_data.append(ordered_tool)
+        for offset in tqdm(range(0, total_count, batch_size)):
+            tools: list[ToolDefine] = tool_crud.get_all(session, batch_size, offset)
 
-        with open('../presets/tools.json', 'w') as f:
-            f.write(json.dumps(json_data, sort_keys=False, indent=2))
+            batch_data = [
+                {
+                    'uid': str(tool.uid),
+                    'name': tool.name,
+                    'image_uid': str(tool.image_uid),
+                    'description': tool.description,
+                    'tool_type': tool.tool_type,
+                    'group_id': tool.group_id,
+                    'help_doc_uid': str(tool.help_doc_uid),
+                    'command_template': tool.command_template,
+                    'dynamic_params': [param.model_dump() for param in tool.dynamic_params],
+                    'immutable_static_params': tool.immutable_static_params,
+                    'modifiable_static_params': tool.modifiable_static_params,
+                    'file_mounts': [output.model_dump() for output in tool.file_mounts],
+                    'tags': [tag.model_dump() for tag in tool.tags],
+                }
+                for tool in tools
+            ]
+            all_data.extend(batch_data)
+
+        if all_data:
+            output_df = pl.DataFrame(all_data)
+            output_df.write_parquet('../presets/tools.parquet', compression='snappy')
 
 
 if __name__ == '__main__':
-    # export_tags()
-    # export_groups()
     export_images()
-    # export_docs()
-    # export_tools()
+    export_docs()
+    export_tools()
