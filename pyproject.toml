@@ -11,7 +11,7 @@ dependencies = [
     "bcrypt==4.3.0",
     "boto3>=1.42.18",
     "bs4>=0.0.2",
-    "celery[librabbitmq,redis]>=5.5.2",
+    "celery[librabbitmq,redis]>=5.6.0",
     "crawl4ai>=0.7.6",
     "ddgs>=9.5.2",
     "docker>=7.1.0",
@@ -66,6 +66,7 @@ docstring-code-format = true
 extend-select = ["ALL"]
 ignore = [
     "ARG002",
+    "ARG004",
     "C90", # McCabe complexity
     "COM812", # Messes with the formatter
     "CPY", # No copyright
