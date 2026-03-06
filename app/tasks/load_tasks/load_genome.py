@@ -16,6 +16,7 @@ from app.schemas.react_flow import TaskInput
 from app.schemas.resource import GenomeUpdate
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.api.ncbi_datasets import (
+    NCBIAssemblyDataReport,
     download_genome_data,
     get_species_info,
     search_reference_genomes,
@@ -24,9 +25,9 @@ from app.utils.api.ncbi_datasets import (
 from worker import celery_app
 
 
-def _run_command(image_cfg: ImageConfig, mounts: list[Mount], command: str):
+def _run_command(image_cfg: ImageConfig, mounts: list[Mount], command: str) -> tuple[int, str]:
     if get_settings().docker.CONTAINER == 'podman':
-        from app.utils.container.podman import run_podman
+        from app.utils.container.podman import run_podman  # noqa: PLC0415
 
         status, output = run_podman(
             image_cfg,
@@ -34,7 +35,7 @@ def _run_command(image_cfg: ImageConfig, mounts: list[Mount], command: str):
             mounts,
         )
     else:
-        from app.utils.container.docker import run_docker
+        from app.utils.container.docker import run_docker  # noqa: PLC0415
 
         status, output = run_docker(
             image_cfg,
@@ -46,6 +47,7 @@ def _run_command(image_cfg: ImageConfig, mounts: list[Mount], command: str):
 
 
 def build_bowtie2_index(genome_fasta: str) -> str:
+    """构建 bowtie2 索引."""
     genome_fasta = Path(genome_fasta)
     index_path = genome_fasta.parent / 'bowtie2'
     index_path.mkdir(exist_ok=True, parents=True)
@@ -66,11 +68,13 @@ def build_bowtie2_index(genome_fasta: str) -> str:
         logger.success('build bowtie2 index succeed')
     else:
         logger.error(output)
-        raise
+        raise ValueError(output)
+
     return f'{index_path}/{genome_fasta.stem}'
 
 
-def build_bwa_index(genome_fasta: str):
+def build_bwa_index(genome_fasta: str) -> str:
+    """构建 bwa 索引."""
     genome_fasta = Path(genome_fasta)
 
     mounts = [
@@ -88,11 +92,13 @@ def build_bwa_index(genome_fasta: str):
         logger.success('build bwa index succeed')
     else:
         logger.error(output)
-        raise
+        raise ValueError(output)
+
     return f'{genome_fasta}'
 
 
-def build_hisat2_index(genome_fasta: str):
+def build_hisat2_index(genome_fasta: str) -> str:
+    """构建 hisat2 索引."""
     genome_fasta = Path(genome_fasta)
     index_path = genome_fasta.parent / 'hisat2'
     index_path.mkdir(exist_ok=True, parents=True)
@@ -113,11 +119,13 @@ def build_hisat2_index(genome_fasta: str):
         logger.success('build hisat2 index succeed')
     else:
         logger.error(output)
-        raise
+        raise ValueError(output)
+
     return f'{index_path}/{genome_fasta.stem}'
 
 
-def build_star_index(genome_fasta: str, annotation_gff: str):
+def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
+    """构建 STAR 索引."""
     genome_fasta = Path(genome_fasta)
     annotation_gff = Path(annotation_gff)
     index_path = genome_fasta.parent / 'star'
@@ -139,11 +147,13 @@ def build_star_index(genome_fasta: str, annotation_gff: str):
         logger.success('build STAR index succeed')
     else:
         logger.error(output)
-        raise
+        raise ValueError(output)
+
     return f'{index_path}'
 
 
-def build_minimap2_index(genome_fasta: str):
+def build_minimap2_index(genome_fasta: str) -> str:
+    """构建 minimap2 索引."""
     genome_fasta = Path(genome_fasta)
     index_path = genome_fasta.parent / 'minimap2'
     index_path.mkdir(exist_ok=True, parents=True)
@@ -164,14 +174,15 @@ def build_minimap2_index(genome_fasta: str):
         logger.success('build minimap2 index succeed')
     else:
         logger.error(output)
-        raise
+        raise ValueError(output)
+
     return f'{index_path}/{genome_fasta.stem}.mmi'
 
 
 def _create_genome_record(
-    session: Session, genome, species_info: Any, alias_name: Optional[str] = None
+    session: Session, genome: NCBIAssemblyDataReport, species_info: Any, alias_name: Optional[str] = None
 ) -> ReferenceGenomes:
-    """创建基因组数据库记录"""
+    """创建基因组数据库记录."""
     download_result = download_genome_data(
         genome.accession, get_settings().persistent.GENOME_PATH, include_annotation=True, timeout=3600
     )
@@ -193,8 +204,13 @@ def _create_genome_record(
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_genome_task(
-    self: Task, result_dict: Optional[dict[str, Any]] = None, *, inputs: dict[str, TaskInput], required_index: list[str]
+    self: Task,  # noqa: ARG001
+    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput],
+    required_index: list[str],
 ) -> ToolOutput:
+    """下载基因组任务实例."""
     load_result = {}
     with Session(engine) as session:
         if 'ncbi_tax_id' in inputs:
@@ -203,7 +219,7 @@ def load_genome_task(
             genome_record = genome_crud.get_by_taxid(session, int(tax_id))
 
             if not genome_record:
-                # 如果数据库中没有，通过API搜索并下载
+                # 如果数据库中没有, 通过API搜索并下载
                 genome = search_reference_genomes_by_tax_id(int(tax_id))
                 species_info = get_species_info(genome.organism.tax_id)
                 genome_record = _create_genome_record(session, genome, species_info)
@@ -227,7 +243,8 @@ def load_genome_task(
                 genome_record = genome_records[0]
 
         else:
-            raise ValueError("Either 'ncbi_tax_id' or 'species_name' must be provided in inputs")
+            error_msg = "Either 'ncbi_tax_id' or 'species_name' must be provided in inputs"
+            raise ValueError(error_msg)
 
         load_result['genome_fasta'] = genome_record.genome_sequences
         load_result['annotation_gff'] = genome_record.annotation_gff
@@ -238,7 +255,7 @@ def load_genome_task(
             'bowtie2_index': lambda: build_bowtie2_index(genome_record.genome_sequences),
             'bwa_index': lambda: build_bwa_index(genome_record.genome_sequences),
             'hisat2_index': lambda: build_hisat2_index(genome_record.genome_sequences),
-            'star_index': lambda: build_star_index(genome_record.genome_sequences, genome_record.annotation_features),
+            'star_index': lambda: build_star_index(genome_record.genome_sequences, genome_record.annotation_gff),
             'minimap2_index': lambda: build_minimap2_index(genome_record.genome_sequences),
         }
 
@@ -259,3 +276,111 @@ def load_genome_task(
                     load_result[index_name] = getattr(genome_record, index_name)
 
     return ToolOutput(result=load_result)
+
+
+@celery_app.task(bind=True, pydantic=True)
+def download_genome_admin_task(
+    self: Task,  # noqa: ARG001
+    *,
+    ncbi_tax_id: Optional[int] = None,
+    species_name: Optional[str] = None,
+    required_index: list[str],
+) -> dict[str, Any]:
+    """从 NCBI 下载参考基因组（管理员直接调用版，不依赖 Redis TaskInput）."""
+    load_result: dict[str, Any] = {}
+    with Session(engine) as session:
+        if ncbi_tax_id is not None:
+            genome_record = genome_crud.get_by_taxid(session, ncbi_tax_id)
+            if not genome_record:
+                genome = search_reference_genomes_by_tax_id(ncbi_tax_id)
+                species_info = get_species_info(genome.organism.tax_id)
+                genome_record = _create_genome_record(session, genome, species_info)
+            else:
+                logger.info(f'Found existing genome record for tax_id: "{ncbi_tax_id}"')
+        elif species_name is not None:
+            genome_records = genome_crud.search(session, species_name)
+            if not genome_records:
+                genome = search_reference_genomes(species_name)
+                species_info = get_species_info(genome.organism.tax_id)
+                if genome_record := genome_crud.get_by_taxid(session, species_info.tax_id):
+                    genome_update = GenomeUpdate(
+                        id=genome_record.id,
+                        aliases=f'{genome_record.aliases}|{species_name}',
+                    )
+                    genome_record = genome_crud.update(session, genome_update)
+                else:
+                    genome_record = _create_genome_record(session, genome, species_info, species_name)
+            else:
+                logger.info(f'Found existing genome record for species: "{species_name}"')
+                genome_record = genome_records[0]
+        else:
+            error_msg = "Either 'ncbi_tax_id' or 'species_name' must be provided."
+            raise ValueError(error_msg)
+
+        load_result['genome_fasta'] = genome_record.genome_sequences
+        load_result['annotation_gff'] = genome_record.annotation_gff
+        load_result['annotation_gtf'] = genome_record.annotation_gtf
+        load_result['genome_id'] = genome_record.id
+
+        index_builders = {
+            'bowtie2_index': lambda: build_bowtie2_index(genome_record.genome_sequences),
+            'bwa_index': lambda: build_bwa_index(genome_record.genome_sequences),
+            'hisat2_index': lambda: build_hisat2_index(genome_record.genome_sequences),
+            'star_index': lambda: build_star_index(genome_record.genome_sequences, genome_record.annotation_gff),
+            'minimap2_index': lambda: build_minimap2_index(genome_record.genome_sequences),
+        }
+
+        for index_name in required_index:
+            if index_name in index_builders:
+                existing_index = getattr(genome_record, index_name, None)
+                if existing_index:
+                    load_result[index_name] = existing_index
+                else:
+                    new_index = index_builders[index_name]()
+                    update_data = {index_name: new_index}
+                    genome_update = GenomeUpdate(id=genome_record.id, **update_data)
+                    genome_record = genome_crud.update(session, genome_update)
+                    load_result[index_name] = getattr(genome_record, index_name)
+
+    return load_result
+
+
+@celery_app.task(bind=True, pydantic=True)
+def build_genome_index_admin_task(
+    self: Task,  # noqa: ARG001
+    *,
+    genome_id: int,
+    required_index: list[str],
+) -> dict[str, Any]:
+    """为已存在的参考基因组构建索引（管理员直接调用版）."""
+    load_result: dict[str, Any] = {}
+    with Session(engine) as session:
+        genome_record = genome_crud.get(session, genome_id)
+        if not genome_record:
+            error_msg = f'Genome with id={genome_id} not found.'
+            raise ValueError(error_msg)
+
+        load_result['genome_id'] = genome_record.id
+        load_result['name'] = genome_record.name
+
+        index_builders = {
+            'bowtie2_index': lambda: build_bowtie2_index(genome_record.genome_sequences),
+            'bwa_index': lambda: build_bwa_index(genome_record.genome_sequences),
+            'hisat2_index': lambda: build_hisat2_index(genome_record.genome_sequences),
+            'star_index': lambda: build_star_index(genome_record.genome_sequences, genome_record.annotation_gff),
+            'minimap2_index': lambda: build_minimap2_index(genome_record.genome_sequences),
+        }
+
+        for index_name in required_index:
+            if index_name in index_builders:
+                existing_index = getattr(genome_record, index_name, None)
+                if existing_index:
+                    logger.info(f'{index_name} already exists for genome id={genome_id}, skipping.')
+                    load_result[index_name] = existing_index
+                else:
+                    new_index = index_builders[index_name]()
+                    genome_update = GenomeUpdate(id=genome_record.id, **{index_name: new_index})
+                    genome_record = genome_crud.update(session, genome_update)
+                    load_result[index_name] = getattr(genome_record, index_name)
+
+    return load_result

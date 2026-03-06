@@ -513,11 +513,11 @@ def download_genome_data(
                 # 检查响应类型
                 content_type = response.headers.get('content-type', '')
                 if 'application/zip' not in content_type:
-                    error_text = response.text
-                    raise ValueError(f'The API returned a non-ZIP format response: {error_text}')
+                    error_text = f'The API returned a non-ZIP format response: {response.text}'
+                    raise ValueError(error_text)  # noqa: TRY301
 
                 # 下载文件
-                with open(zip_file, 'wb') as f:
+                with zip_file.open('wb') as f:
                     for chunk in response.iter_bytes(chunk_size=8192):
                         f.write(chunk)
 

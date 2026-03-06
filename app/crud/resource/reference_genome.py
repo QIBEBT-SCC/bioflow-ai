@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from sqlalchemy import Select, func, or_
 from sqlmodel import Session, select
@@ -52,7 +52,7 @@ def get_by_taxid(session: Session, tax_id: int) -> Optional[ReferenceGenomes]:
     return session.exec(query).one_or_none()
 
 
-def search(session: Session, search_term: str, threshold: float = 0.3) -> List[ReferenceGenomes]:
+def search(session: Session, search_term: str, threshold: float = 0.3) -> list[ReferenceGenomes]:
     """
     搜索参考基因组，支持通过标准名称或别名（用|分隔）进行相似度匹配
 
@@ -83,7 +83,18 @@ def search(session: Session, search_term: str, threshold: float = 0.3) -> List[R
     return list(session.exec(query).all())
 
 
-def get_all(session: Session) -> List[ReferenceGenomes]:
+def get_all(session: Session) -> list[ReferenceGenomes]:
     """获取所有参考基因组"""
     query: Select = select(ReferenceGenomes)
+    return list(session.exec(query).all())
+
+
+def get_count(session: Session) -> int:
+    """获取参考基因组总数"""
+    return session.exec(select(func.count()).select_from(ReferenceGenomes)).one()
+
+
+def get_all_paginated(session: Session, limit: int = 20, offset: int = 0) -> list[ReferenceGenomes]:
+    """分页获取参考基因组列表"""
+    query: Select = select(ReferenceGenomes).offset(offset).limit(limit)
     return list(session.exec(query).all())
