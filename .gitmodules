@@ -1,4 +1,0 @@
-[submodule "testdata"]
-	path = testdata
-	url = git@hf.co:datasets/Aye10032/bioflow-ai-testdata
-	branch = main
