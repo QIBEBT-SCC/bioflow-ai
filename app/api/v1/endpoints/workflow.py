@@ -1,18 +1,17 @@
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from starlette import status
 from uuid_extensions import uuid7
 
 import app.crud.run_instance as run_crud
 import app.crud.workflow as wf_crud
 from app.core.session import SessionDep
-from app.models.user import User
 from app.models.workflow import RunInstance, Status, Workflow
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.workflow import WorkflowCreateProp
 from app.utils.input_format import get_sample_name
-from app.utils.security import get_current_active_user
+from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
 
 router = APIRouter()
@@ -21,15 +20,17 @@ router = APIRouter()
 @router.get('')
 async def get_workflows(
     session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-):
+) -> list[Workflow]:
+    """Get a paginated list of workflows for the current user."""
     return wf_crud.get_all(session, limit, offset, current_user.id)
 
 
 @router.get('/count')
-async def get_workflows_count(session: SessionDep, current_user: Annotated[User, Depends(get_current_active_user)]):
+async def get_workflows_count(session: SessionDep, current_user: UserDep) -> int:
+    """Get the total count of workflows for the current user."""
     return wf_crud.get_count(session, current_user.id)
 
 
@@ -37,14 +38,14 @@ async def get_workflows_count(session: SessionDep, current_user: Annotated[User,
 async def run_workflow(
     workflow: WorkflowDefinition,
     session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: UserDep,
     template_name: Optional[str] = None,
 ) -> RunInstance:
+    """Create a new workflow run instance from the editor."""
     if template_name is None:
         template_name = 'unname'
 
-    # 检查合法
-    # TODO
+    # TODO: 合法性检查
 
     # 更新节点uid
     workflow = update_node_id(workflow)
@@ -64,9 +65,8 @@ async def run_workflow(
 
 
 @router.get('/{uid}')
-async def get_workflow(
-    uid: str, session: SessionDep, user: Annotated[User, Depends(get_current_active_user)]
-) -> Workflow:
+async def get_workflow(uid: str, session: SessionDep, _current_user: UserDep) -> Workflow:
+    """Get a workflow by its UID."""
     return wf_crud.get(session, uid)
 
 
@@ -74,8 +74,9 @@ async def get_workflow(
 async def save_workflow(
     workflow_prop: WorkflowCreateProp,
     session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: UserDep,
 ) -> str:
+    """Save a new workflow template."""
     if wf_crud.workflow_name_exists(session, workflow_prop.name):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='name already exists!')
 
@@ -100,8 +101,9 @@ async def update_workflow(
     uid: str,
     workflow: WorkflowDefinition,
     session: SessionDep,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-):
+    _current_user: UserDep,
+) -> str:
+    """Update an existing workflow's definition."""
     # TODO: 合法性检查
 
     wf_crud.update(session, uid, workflow)

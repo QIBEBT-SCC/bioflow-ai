@@ -1,8 +1,8 @@
 from fastapi import APIRouter
-from pydantic import BaseModel, EmailStr, SecretStr
+from pydantic import BaseModel, SecretStr
 
-from app.crud import user as user_crud
 from app.core.session import SessionDep
+from app.crud import user as user_crud
 from app.models.user import User, UserRole
 from app.schemas.user import UserPublic
 from app.utils.security import get_password_hash
@@ -16,8 +16,9 @@ class UserCreate(BaseModel):
     password: SecretStr
 
 
-@router.post('', response_model=UserPublic)
-def new_user(user_create: UserCreate, session: SessionDep):
+@router.post('')
+def new_user(user_create: UserCreate, session: SessionDep) -> UserPublic:
+    """Create a new user account."""
     user = User(
         email=user_create.email,
         username=user_create.username,

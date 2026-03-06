@@ -18,6 +18,7 @@ router = APIRouter()
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep
 ) -> Token:
+    """Authenticate user and return an access token."""
     user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -27,9 +28,10 @@ async def login_for_access_token(
         )
     access_token_expires = timedelta(minutes=get_settings().security.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={'sub': user.email}, expires_delta=access_token_expires)
-    return Token(access_token=access_token, token_type='bearer')
+    return Token(access_token=access_token, token_type='bearer')  # noqa: S106
 
 
-@router.get('/me', response_model=UserPublic)
-async def read_users_me(current_user: Annotated[User, Depends(get_current_active_user)]):
+@router.get('/me')
+async def read_users_me(current_user: Annotated[User, Depends(get_current_active_user)]) -> UserPublic:
+    """Return the current authenticated user's information."""
     return current_user
