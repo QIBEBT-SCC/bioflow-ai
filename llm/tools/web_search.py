@@ -1,4 +1,6 @@
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
+from typing import Optional
+
+from crawl4ai import AsyncWebCrawler, BM25ContentFilter, BrowserConfig, CrawlerRunConfig, DefaultMarkdownGenerator
 from ddgs import DDGS
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.tools import tool
@@ -56,7 +58,7 @@ You must strictly organize your compressed output using the following Markdown h
 
 
 @tool(parse_docstring=True)
-async def web_searcher(query: str):
+async def web_searcher(query: str) -> str:
     """Search the network based on keywords and return a series of web pages found.
 
     Args:
@@ -81,20 +83,35 @@ async def web_searcher(query: str):
 
 
 @tool(parse_docstring=True)
-async def web_reader(url: str):
+async def web_reader(url: str, query: Optional[str] = None) -> str:
     """Calling this tool allows you to read the content of a specific web page.
+
     **This tool prohibits parallel calls! You are only allowed to read one webpage at a time!**
 
     Args:
         url: URL of the web page to read
+        query: If this parameter is used, the page content will be filtered by BM25 using the provided query; otherwise, the original page is returned.
     """
     proxy = {'server': get_settings().network.get_proxy_url()} if get_settings().network.USE_PROXY else None
-    async with AsyncWebCrawler(config=BrowserConfig(proxy_config=proxy, verbose=False, text_mode=True)) as crawler:
-        result = await crawler.arun(url=url, config=CrawlerRunConfig(verbose=False, exclude_all_images=True))
 
-    if result.markdown and len(result.markdown) > 8000:
-        return f'<PageContent>\n{result.markdown[:8000]}...\n</PageContent>\n\n'
-    return f'<PageContent>\n{result.markdown}\n</PageContent>\n\n'
+    async with AsyncWebCrawler(config=BrowserConfig(proxy_config=proxy, verbose=False, text_mode=True)) as crawler:
+        if query:
+            bm25_filter = BM25ContentFilter(
+                user_query=query,
+                # Adjust for stricter or looser results
+                bm25_threshold=1.2,
+            )
+            md_generator = DefaultMarkdownGenerator(content_filter=bm25_filter)
+            run_config = CrawlerRunConfig(verbose=False, markdown_generator=md_generator)
+            result = await crawler.arun(url=url, config=run_config)
+            return f'<PageContent>\n{result.markdown.fit_markdown}\n</PageContent>\n\n'
+
+        run_config = CrawlerRunConfig(verbose=False, exclude_all_images=True)
+        result = await crawler.arun(url=url, config=run_config)
+
+        if result.markdown and len(result.markdown) > 8000:  # noqa: PLR2004
+            return f'<PageContent>\n{result.markdown[:8000]}...\n</PageContent>\n\n'
+        return f'<PageContent>\n{result.markdown}\n</PageContent>\n\n'
 
 
 web_summary_middleware = SummarizationMiddleware(
