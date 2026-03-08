@@ -13,13 +13,14 @@ from llm.agents.reproduction.mamagers import (
     tool_manager_agent,
 )
 from llm.models import get_agent_model
-from llm.states import BuildSchema, UserContext
+from llm.states import BuildContext, BuildSchema, UserContext
 from llm.tools.workflow import assist_tool, save_workflow, view_workflow
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
     InitedTodoMiddleware,
     SkillMiddleware,
     StatusBarMiddleware,
+    TodoMiddleware,
     TokenStatisticMiddleware,
 )
 
@@ -27,14 +28,15 @@ BUILD_FLOW_SYSTEM = """You are a bioinformatics expert using a visual bioinforma
 Your task is to call the corresponding tools to add appropriate nodes to the panel to design a bioinformatics analysis workflow that meets user needs.
 
 ## Task Flow
-You will see a prepared task list and the user's description of the tasks. Based on the user's description and the task list, gradually complete the following:
-1. Check the Todo list, select the next `pending` task and call `update_todo(..., status='in_progress')` to update its status.
-2. According to different task types, call the corresponding manager tools to prepare the required resources or tools.
-    - If initializing a workflow, you need to first understand what is used as input data for this workflow, and then call the `call_resource_manager` tool to request adding resource nodes.
+You will see a prepared plan and the user's description of the tasks. Based on the user's description and the plan, gradually complete the following:
+1. Read the plan and call the `add_todos` tool to initialize the todo list.
+2. Check the Todo list, select the next `pending` task and call `update_todo(..., status='in_progress')` to update its status.
+3. According to different task types, call the corresponding manager tools to prepare the required resources or tools.
+    - For every workflow, you need to first understand what is used as input data for this workflow, and then call the `call_resource_manager` tool to request adding resource nodes.
     - If it is a task to process or analyze data, call the `call_tool_manager` tool to request adding corresponding bioinformatics tool nodes.
-    - If it is required to save the workflow, call the `save_workflow` tool to save the current workflow to the database.
+    - Once an upstream workflow is built, call the `save_workflow` tool to save the current workflow to the database.
 4. After the current task is completed, call `update_todo(..., status='completed')` to update the task status.
-5. Repeat the above steps until all tasks are marked as `completed`, then summarize and end your work.
+5. Repeat the above steps until all upstream workflows in the plan have been built, then summarize and end your work.
 
 ## Editor Description
 This editor includes the following types of nodes:
@@ -49,14 +51,12 @@ You cannot directly operate nodes; you can only request to add nodes by calling 
 - Only one task can be processed at a time. Ensure that the current task has been marked as `completed` before starting the next task.
 - When a task is marked as `completed`, the current context information will be cleared. You can obtain necessary information by viewing the todo list and the current workflow status.
 - To allow the manager to focus solely on adding nodes, you need to tell them in detail what needs to be done, as only you can see the current task list and workflow status.
-- Unless otherwise specified in the text, the default input sequences are paired-end sequencing files.
 """
 
 
 @tool
-async def call_tool_manager(request: str, runtime: ToolRuntime[UserContext, BuildSchema]):
-    """Tool manager, call to add tool nodes"""
-
+async def call_tool_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
+    """Tool manager, call to add tool nodes."""
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
     global_marks = runtime.state.get('global_marks', [])
@@ -69,7 +69,7 @@ async def call_tool_manager(request: str, runtime: ToolRuntime[UserContext, Buil
             'global_marks': global_marks,
             'messages': [HumanMessage(content=request)],
         },
-        context=UserContext(user_id=runtime.context.user_id),  # type: ignore
+        context=BuildContext(user_id=runtime.context.user_id, has_reference=runtime.context.has_reference),  # type: ignore
     )
 
     return Command(
@@ -83,9 +83,8 @@ async def call_tool_manager(request: str, runtime: ToolRuntime[UserContext, Buil
 
 
 @tool
-async def call_resource_manager(request: str, runtime: ToolRuntime[UserContext, BuildSchema]):
-    """Resource manager, call to add resource nodes"""
-
+async def call_resource_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
+    """Resource manager, call to add resource nodes."""
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
     global_marks = runtime.state.get('global_marks', [])
@@ -111,8 +110,8 @@ async def call_resource_manager(request: str, runtime: ToolRuntime[UserContext, 
 
 
 @tool
-async def call_processor_manager(request: str, runtime: ToolRuntime[UserContext, BuildSchema]):
-    """Processor manager, call to add processor nodes"""
+async def call_processor_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
+    """Processor manager, call to add processor nodes."""
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
     global_marks = runtime.state.get('global_marks', [])
@@ -138,8 +137,8 @@ async def call_processor_manager(request: str, runtime: ToolRuntime[UserContext,
 
 
 @tool
-async def call_code_manager(request: str, runtime: ToolRuntime[UserContext, BuildSchema]):
-    """Code manager, call to add code nodes"""
+async def call_code_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
+    """Code manager, call to add code nodes."""
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
     global_marks = runtime.state.get('global_marks', [])
@@ -164,7 +163,7 @@ async def call_code_manager(request: str, runtime: ToolRuntime[UserContext, Buil
     )
 
 
-build_workflow_agent: CompiledStateGraph[BuildSchema, UserContext] = create_agent(
+build_workflow_agent: CompiledStateGraph = create_agent(
     get_agent_model(),
     [
         view_workflow,
@@ -176,14 +175,14 @@ build_workflow_agent: CompiledStateGraph[BuildSchema, UserContext] = create_agen
         save_workflow,
     ],
     system_prompt=BUILD_FLOW_SYSTEM,
-    middleware=[  # type: ignore
-        InitedTodoMiddleware(),
-        SkillMiddleware(['cross_workflow_file_transfer']),
+    middleware=[
+        TodoMiddleware(),
+        SkillMiddleware(['CROSS_WORKFLOW_FILE_TRANSFER', 'MODIFY_WITH_AWK']),
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
         TokenStatisticMiddleware(agent_name='reproduction_agent', **get_agent_model().metadata),
     ],
     state_schema=BuildSchema,  # type: ignore
-    context_schema=UserContext,  # type: ignore
+    context_schema=BuildContext,  # type: ignore
     cache=llm_cache,
 )
