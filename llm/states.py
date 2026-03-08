@@ -3,8 +3,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any, Generic, Literal, NotRequired, Optional, TypedDict, TypeVar
 
+from langchain.agents import AgentState
 from langchain_core.messages import AIMessage, BaseMessage
-from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
@@ -27,7 +27,7 @@ class UserContext:
 
 
 # =====================tool generator state==========================
-class ToolGeneratorState(MessagesState, total=False):
+class ToolGeneratorState(AgentState, total=False):
     name: str
     description: str
     file_mounts: list[FileMount]
@@ -38,7 +38,7 @@ class ToolGeneratorState(MessagesState, total=False):
 
 
 # =====================create tool agent state==========================
-class SearchImageState(MessagesState, total=False):
+class SearchImageState(AgentState, total=False):
     id_mapper: BidirectionalMapper
 
     image_uid: uuid.UUID
@@ -50,7 +50,7 @@ class SearchImageState(MessagesState, total=False):
     paper_link: str
 
 
-class GetDocState(MessagesState):
+class GetDocState(AgentState):
     id_mapper: NotRequired[BidirectionalMapper]
 
     image_uid: uuid.UUID
@@ -59,7 +59,7 @@ class GetDocState(MessagesState):
     doc_uid: NotRequired[uuid.UUID]
 
 
-class SelectGroupState(MessagesState):
+class SelectGroupState(AgentState):
     group_id: NotRequired[int]
 
 
@@ -72,7 +72,7 @@ class CreateToolContext(UserContext):
     test_run_id: Optional[str] = None
 
 
-class CreateToolState(MessagesState, total=False):
+class CreateToolState(AgentState, total=False):
     id_mapper: BidirectionalMapper
 
     image_uid: uuid.UUID
@@ -94,7 +94,7 @@ class CreateToolOutput(BaseModel):
 
 
 # =====================test run agent state==========================
-class TestRunState(MessagesState):
+class TestRunState(AgentState):
     image: ImageConfig
     container_id: NotRequired[str]
 
@@ -116,14 +116,18 @@ class Todo(BaseModel):
     status: Literal['pending', 'in_progress', 'completed']
 
 
-class DesignState(MessagesState, total=False):
-    task: str
+class DesignState(AgentState, total=False):
+    # 文献复现使用
     paper_id: str
-
     paper_summary: str
+
+    # 暂存
     todos: list[Todo]
+
+    # 生成节点输入用
     workflow_description: str
 
+    # 生成接节点输出
     workflow_uids: list[uuid.UUID]
 
 
@@ -155,7 +159,7 @@ class GlobalMarker(BaseModel):
     description: str
 
 
-class ManagerSchema(MessagesState, total=False):
+class ManagerSchema(AgentState, total=False):
     paper_id: str
 
     id_mapper: BidirectionalMapper
@@ -165,7 +169,7 @@ class ManagerSchema(MessagesState, total=False):
     global_marks: Annotated[list[GlobalMarker], operator.add]
 
 
-class BuildSchema(MessagesState, total=False):
+class BuildSchema(AgentState, total=False):
     paper_id: str
 
     todos: list[Todo]
@@ -176,6 +180,11 @@ class BuildSchema(MessagesState, total=False):
     global_marks: list[GlobalMarker]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
+
+
+@dataclass
+class BuildContext(UserContext):
+    has_reference: bool
 
 
 # =====================summary agent state==========================
