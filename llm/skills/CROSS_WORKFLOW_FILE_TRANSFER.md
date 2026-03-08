@@ -1,6 +1,6 @@
 ---
 name: CROSS_WORKFLOW_FILE_TRANSFER
-description: aaa
+description: 说明当需要在不同工作流之间引用文件时如何处理
 ---
 
 # Skill: Cross-Workflow File Transfer
