@@ -168,7 +168,8 @@ log/
 volumes/
 script/*.parquet
 script/*.db
-script/imgs
+
+docs/
 
 *.docs.yaml
 
