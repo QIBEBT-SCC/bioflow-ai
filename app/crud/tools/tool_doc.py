@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import Select
+from sqlalchemy import Select, func
 from sqlmodel import Session, col, select
 
 from app.models.tools import ToolHelpDoc
@@ -68,3 +68,9 @@ def get_by_command(session: Session, help_command: str) -> Optional[ToolHelpDoc]
     query: Select = select(ToolHelpDoc).where(ToolHelpDoc.help_command == help_command)
 
     return session.exec(query).one_or_none()
+
+
+def get_counts(session: Session):
+    query: Select = select(func.count()).select_from(ToolHelpDoc)
+
+    return session.exec(query).one()
