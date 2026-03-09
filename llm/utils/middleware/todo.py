@@ -1,4 +1,5 @@
-from typing import Annotated, Any, Awaitable, Callable, Literal, NotRequired, Optional
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Any, Literal, NotRequired, Optional
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
@@ -13,7 +14,7 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
-SYSTEM_PROMPT = """<To-DOList>
+SYSTEM_PROMPT = """## Todo List
 Use the todo tools for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.
 
 ## Guidelines:
@@ -22,7 +23,8 @@ Use the todo tools for complex objectives to ensure that you are tracking each n
 - Always mark todos as 'completed' immediately after finishing a step - do not batch multiple completions
 - Dynamically adjust the todo list as you go - use the `before` parameter to insert prerequisite tasks when you discover dependencies
 - When you find that a task requires preparation, insert new tasks before it using `add_todos` with the `before` parameter
-</To-DOList>"""
+
+"""
 
 
 class Todo(BaseModel):
@@ -42,8 +44,8 @@ TODO_TOOL_NAMES = {'view_todos'}
 
 
 @tool(parse_docstring=True)
-def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
-    """Add new tasks to the todo list or insert tasks at a specific position
+def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime) -> Command:
+    """Add new tasks to the todo list or insert tasks at a specific position.
 
     - To append tasks to the end: call with `tasks` parameter only (before=None)
     - To insert tasks before an existing task: specify the `before` parameter with the target task index
@@ -109,7 +111,11 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime):
 
 
 @tool('update_todo', parse_docstring=True)
-def update_todo_state(index: int, status: Literal['pending', 'in_progress', 'completed'], runtime: ToolRuntime):
+def update_todo_state(
+    index: int,
+    status: Literal['pending', 'in_progress', 'completed'],
+    runtime: ToolRuntime,
+) -> Command:
     """Update the status of a specific todo item.
 
     - Use this to mark tasks as 'in_progress' when you start working on them
@@ -202,7 +208,7 @@ def update_todo_state(index: int, status: Literal['pending', 'in_progress', 'com
 
 
 @tool('update_todo', parse_docstring=True)
-def update_todo_content(index: int, content: str, runtime: ToolRuntime):
+def update_todo_content(index: int, content: str, runtime: ToolRuntime) -> Command:
     """Update the content of a specific todo item.
 
     Use this to modify the description or content of an existing task.
@@ -250,7 +256,7 @@ def update_todo_content(index: int, content: str, runtime: ToolRuntime):
 
 
 @tool(parse_docstring=True)
-def delete_todo(indexs: list[int], runtime: ToolRuntime):
+def delete_todo(indexs: list[int], runtime: ToolRuntime) -> Command:
     """Delete specific todo items.
 
     Use this to remove existing tasks from the todo list.
@@ -313,7 +319,7 @@ def delete_todo(indexs: list[int], runtime: ToolRuntime):
 
 
 @tool
-def view_todos(runtime: ToolRuntime):
+def view_todos(runtime: ToolRuntime) -> Command:
     """View the current todo list.
 
     Generally, you can see the current to-do list directly from the status bar (if available); call this tool ONLY when you need to review it or require the full task list for other reasons.
@@ -357,32 +363,32 @@ def view_todos(runtime: ToolRuntime):
 
 class TodoMiddleware(AgentMiddleware):
     state_schema = TodoState
-    tools = [add_todos, update_todo_state]
+    tools = [add_todos, update_todo_state]  # noqa: RUF012
 
-    def __init__(self, limit_add: bool = False):
+    def __init__(self, *, limit_add: bool = False):
         self.limit_add = limit_add
 
         self.todo_inited = False
 
-    def wrap_model_call(
+    def wrap_model_call(  # noqa: D102
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelCallResult:
-        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
         new_system_message = SystemMessage(content=new_content)
         return handler(request.override(system_message=new_system_message))
 
-    async def awrap_model_call(
+    async def awrap_model_call(  # noqa: D102
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelCallResult:
-        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
         new_system_message = SystemMessage(content=new_content)
         return await handler(request.override(system_message=new_system_message))
 
-    def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         if not self.limit_add:
             return None
 
@@ -404,46 +410,46 @@ class TodoMiddleware(AgentMiddleware):
             'jump_to': 'model',
             'messages': [
                 ToolMessage(
-                    content='TODO-list已经初始化，禁止再次使用 add_todos 工具。',
+                    content='TODO-list已经初始化, 禁止再次使用 add_todos 工具。',
                     tool_call_id=last_message.tool_calls[0]['id'],
                 )
             ],
         }
 
-    async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
 
 class BuildTodoMiddleware(AgentMiddleware):
     state_schema = TodoState
-    tools = [add_todos, update_todo_content, delete_todo, view_todos]
+    tools = [add_todos, update_todo_content, delete_todo, view_todos]  # noqa: RUF012
 
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         init_msgs = len(state['messages'])
         return {'msg_to_keep': init_msgs}
 
-    async def abefore_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    async def abefore_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         init_msgs = len(state['messages'])
         return {'msg_to_keep': init_msgs}
 
 
 class InitedTodoMiddleware(AgentMiddleware):
-    tools = [update_todo_state, view_todos]
+    tools = [update_todo_state, view_todos]  # noqa: RUF012
 
-    def wrap_model_call(
+    def wrap_model_call(  # noqa: D102
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelCallResult:
-        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
         new_system_message = SystemMessage(content=new_content)
         return handler(request.override(system_message=new_system_message))
 
-    async def awrap_model_call(
+    async def awrap_model_call(  # noqa: D102
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelCallResult:
-        new_content = list(request.system_message.content_blocks) + [{'type': 'text', 'text': SYSTEM_PROMPT}]
+        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
         new_system_message = SystemMessage(content=new_content)
         return await handler(request.override(system_message=new_system_message))
