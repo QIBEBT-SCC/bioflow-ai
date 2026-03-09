@@ -30,6 +30,8 @@ Below is available images:
 </images>
 """
 
+K = 1024
+
 
 class BioContainerTool(BaseModel):
     id: str
@@ -58,14 +60,14 @@ def _format_size(size_bytes: int) -> str:
     units = ['B', 'KB', 'MB', 'GB', 'TB']
     size = float(size_bytes)
     for unit in units:
-        if size < 1024 or unit == 'TB':
+        if size < K or unit == 'TB':
             return f'{size:.2f} {unit}'
-        size /= 1024
+        size /= K
     return ''
 
 
 @tool(parse_docstring=True)
-async def search_image(tool_name: str):
+async def search_image(tool_name: str) -> str:
     """Search BioContainer to get the image of the target tool.
 
     Args:
@@ -82,7 +84,7 @@ async def search_image(tool_name: str):
         response.raise_for_status()
 
     # 检查响应是否有内容
-    if response.status_code == 204 or not response.content:
+    if response.status_code == 204 or not response.content:  # noqa: PLR2004
         return 'No corresponding mirror found, please try asking human to confirm the tool name.'
 
     tool_list = [BioContainerTool.model_validate(r) for r in response.json()]
@@ -104,7 +106,7 @@ async def search_image(tool_name: str):
 
 
 @tool(parse_docstring=True)
-async def view_image_tags(image_name: str):
+async def view_image_tags(image_name: str) -> str:
     """View tags for a specified image name.
 
     Args:
@@ -118,7 +120,7 @@ async def view_image_tags(image_name: str):
         response.raise_for_status()
 
         # 检查响应是否有内容
-        if response.status_code == 204 or not response.content:
+        if response.status_code == 204 or not response.content:  # noqa: PLR2004
             return 'No tags found for this image, please confirm the image name.'
 
         versions = []

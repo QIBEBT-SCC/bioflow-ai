@@ -1,9 +1,10 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from loguru import logger
 from sqlmodel import Session
 
 import app.crud.resource.bio_db as db_crud
@@ -14,16 +15,19 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.resource import BioDb
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import ToolNodePublic
 from llm.utils.formatters import handle_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
+if TYPE_CHECKING:
+    from app.models.resource import BioDb
+
 
 @tool(parse_docstring=True)
 def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     """Search the database for images that have already been pulled locally.
+
     **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
@@ -74,8 +78,8 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
 def select_image(
     image_id: int,
     runtime: ToolRuntime,
-):
-    """Select existing image in the database
+) -> Command:
+    """Select existing image in the database.
 
     Args:
         image_id: selected image id
@@ -109,7 +113,7 @@ async def pull_and_save_image(
     description: str,
     runtime: ToolRuntime,
 ) -> Command:
-    """Pull down the searched images and save relevant information to the database
+    """Pull down the searched images and save relevant information to the database.
 
     It should be noted that the tag and version of an image are not necessarily the same; some image tags may contain other content after them.
 
@@ -119,7 +123,7 @@ async def pull_and_save_image(
         version: version of tool, can be judged by the image tag
         description: Description of the tool corresponding to this image. This is a description of the tool, not the current requirements.
     """
-    # 实际上这里并不会拉取镜像，只不过为了让LLM不要乱想我们谎称会拉取♪
+    # 实际上这里并不会拉取镜像, 只不过为了让LLM不要乱想我们谎称会拉取♪
     with Session(engine) as session:
         new_image = ToolImage(
             name=name,
@@ -148,7 +152,7 @@ async def pull_and_save_image(
 
 @tool
 def list_docs(runtime: ToolRuntime) -> Command:
-    """List existing document records under the corresponding image"""
+    """List existing document records under the corresponding image."""
     image_uid = runtime.state.get('image_uid')
 
     with Session(engine) as session:
@@ -193,7 +197,7 @@ def list_docs(runtime: ToolRuntime) -> Command:
 
 @tool(parse_docstring=True)
 def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
-    """View the specific content of the corresponding help document
+    """View the specific content of the corresponding help document.
 
     Args:
         doc_id: ID of the document to view
@@ -208,8 +212,8 @@ def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
 
 
 @tool(parse_docstring=True)
-def select_doc(doc_id: int, runtime: ToolRuntime):
-    """Select existing help document in the database
+def select_doc(doc_id: int, runtime: ToolRuntime) -> Command:
+    """Select existing help document in the database.
 
     Args:
         doc_id: selected doc id
@@ -243,11 +247,11 @@ def save_doc(
     """
     image: ImageConfig = runtime.state.get('image')
     if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker
+        from app.utils.container.docker import run_docker  # noqa: PLC0415
 
         code, result = run_docker(image, help_command, [])
     else:
-        from app.utils.container.podman import run_podman
+        from app.utils.container.podman import run_podman  # noqa: PLC0415
 
         code, result = run_podman(image, help_command, [])
 
@@ -276,7 +280,8 @@ def save_doc(
 
 @tool(parse_docstring=True)
 def search_tool(query: str, runtime: ToolRuntime) -> Command:
-    """Search for the corresponding tool node
+    """Search for the corresponding tool node.
+
     **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
@@ -287,28 +292,37 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
         mappers = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
-        tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
-        tool_blocks = [
-            (
-                f'  <tool>\n'
-                f'    <name>{t.name}</name>\n'
-                f'    <description>{t.description}</description>\n'
-                f'    <input_handles>\n'
-                f'{handle_formatter(t.input_handles)}\n'
-                f'    </input_handles>\n'
-                f'    <output_handles>\n'
-                f'{handle_formatter(t.output_handles)}\n'
-                f'    </output_handles>\n'
-                f'    <data>\n'
-                f'      <tool_id>{mappers.get_index_by_uid(str(t.uid))}</tool_id>\n'
-                f'      <args editable=False>{t.immutable_static_params}</args>\n'
-                f'      <args editable=True>{t.modifiable_static_params}</args>\n'
-                f'    </data>\n'
-                f'    <command>{t.complete_command}</command>'
-                f'  </tool>'
-            )
-            for t in tool_nodes
-        ]
+        tool_nodes = []
+        for exist_tool in exist_tools:
+            try:
+                tool_nodes.append(ToolNodePublic.model_validate(exist_tool.model_dump()))
+            except TypeError:
+                logger.warning(f'Failed to parse tool "{exist_tool.name}"({exist_tool.uid})')
+
+        tool_blocks = []
+        for t in tool_nodes:
+            try:
+                tool_blocks.append(
+                    f'  <tool>\n'
+                    f'    <name>{t.name}</name>\n'
+                    f'    <description>{t.description}</description>\n'
+                    f'    <input_handles>\n'
+                    f'{handle_formatter(t.input_handles)}\n'
+                    f'    </input_handles>\n'
+                    f'    <output_handles>\n'
+                    f'{handle_formatter(t.output_handles)}\n'
+                    f'    </output_handles>\n'
+                    f'    <data>\n'
+                    f'      <tool_id>{mappers.get_index_by_uid(str(t.uid))}</tool_id>\n'
+                    f'      <args editable=False>{t.immutable_static_params}</args>\n'
+                    f'      <args editable=True>{t.modifiable_static_params}</args>\n'
+                    f'    </data>\n'
+                    f'    <command>{t.complete_command}</command>'
+                    f'  </tool>'
+                )
+            except TypeError:
+                logger.warning(f'Failed to build block for tool "{t.name}"({t.uid})')
+
         return Command(
             update={
                 'id_mapper': mappers,
@@ -338,8 +352,8 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
 
 
 @tool(parse_docstring=True)
-def read_tool_doc(tool_id: int, runtime: ToolRuntime):
-    """Read existing tool's help document
+def read_tool_doc(tool_id: int, runtime: ToolRuntime) -> str:
+    """Read existing tool's help document.
 
     Args:
         tool_id: tool ID for which you wish to view the help documentation
@@ -359,8 +373,8 @@ def read_tool_doc(tool_id: int, runtime: ToolRuntime):
 
 
 @tool(parse_docstring=True)
-def select_tool(tool_id: int, runtime: ToolRuntime):
-    """Select existing tool in the database
+def select_tool(tool_id: int, runtime: ToolRuntime) -> Command:
+    """Select existing tool in the database.
 
     Args:
         tool_id: selected tool id
@@ -382,13 +396,17 @@ def select_tool(tool_id: int, runtime: ToolRuntime):
 
 @tool
 def view_groups() -> str:
-    """View all existing groups"""
+    """View all existing groups."""
     with Session(engine) as session:
         groups = group_crud.get_all(session)
 
     if groups:
 
-        def build_tree_string(_groups_list, _parent_id=None, _indent=0):
+        def _build_tree_string(
+            _groups_list: list[ToolGroup],
+            _parent_id: Optional[int] = None,
+            _indent: int = 0,
+        ) -> list[str]:
             result = []
             # 找到当前层级的所有分组
             current_level_groups = [g for g in _groups_list if g.parent_id == _parent_id]
@@ -398,26 +416,24 @@ def view_groups() -> str:
                 result.append(f'{prefix}{group.id}: {group.name}')
 
                 # 递归添加子分组
-                child_result = build_tree_string(_groups_list, group.id, _indent + 1)
+                child_result = _build_tree_string(_groups_list, group.id, _indent + 1)
                 result.extend(child_result)
 
             return result
 
-        tree_lines = build_tree_string(groups)
-        group_str = '\n'.join(tree_lines)
-        return group_str
+        tree_lines = _build_tree_string(groups)
+        return '\n'.join(tree_lines)
 
     return 'No groups found'
 
 
 @tool(parse_docstring=True)
-def select_group(group_id: int, runtime: ToolRuntime):
-    """Select the corresponding group for the tool
+def select_group(group_id: int, runtime: ToolRuntime) -> Command:
+    """Select the corresponding group for the tool.
 
     Args:
         group_id: selected group id
     """
-
     return Command(
         update={
             'group_id': group_id,
@@ -432,8 +448,8 @@ def select_group(group_id: int, runtime: ToolRuntime):
 
 
 @tool(parse_docstring=True)
-def add_group(name: str, parent_id: Optional[int] = None):
-    """create new tool group
+def add_group(name: str, parent_id: Optional[int] = None) -> str:
+    """Create new tool group.
 
     Args:
         name: group name
@@ -454,7 +470,8 @@ def add_group(name: str, parent_id: Optional[int] = None):
 
 @tool(parse_docstring=True)
 def search_biodb(query: str) -> str:
-    """Search for the biological databases used by the tool using its name
+    """Search for the biological databases used by the tool using its name.
+
     **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:

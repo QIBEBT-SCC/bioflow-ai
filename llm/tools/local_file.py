@@ -17,7 +17,7 @@ MAX_FILE_CHARS = 4000
 
 
 def _is_safe_path(path: str, root_path: str) -> bool:
-    """检查路径是否在根目录范围内（安全检查）。"""
+    """检查路径是否在根目录范围内 (安全检查) ."""
     try:
         full_path = (Path(root_path) / Path(path)).resolve()
         return full_path.is_relative_to(root_path)
@@ -26,16 +26,17 @@ def _is_safe_path(path: str, root_path: str) -> bool:
 
 
 def _get_safe_path(path: str, root_path: str) -> Path:
-    """获取安全的绝对路径。"""
+    """获取安全的绝对路径."""
     full_path = (Path(root_path) / Path(path)).resolve()
     if not full_path.is_relative_to(root_path):
-        raise ValueError(f'路径越界: {path}')
+        err_msg = f'路径越界: {path}'
+        raise ValueError(err_msg)
     return full_path
 
 
 @tool(parse_docstring=True)
 def list_directory(path: str, runtime: ToolRuntime[FolderContext]) -> str:
-    """列出目录中的文件和子目录
+    """列出目录中的文件和子目录.
 
     ## 使用案例
     - list_directory(".")  # 列出根目录
@@ -67,7 +68,7 @@ def list_directory(path: str, runtime: ToolRuntime[FolderContext]) -> str:
         if not entries:
             return f'目录为空: {path}'
 
-        # 计算对齐宽度（只考虑不超过阈值的文件名）
+        # 计算对齐宽度 (只考虑不超过阈值的文件名)
         normal_names = [e['name'] for e in entries if len(e['name']) <= NAME_LENGTH_THRESHOLD]
         max_name_len = max(len(name) for name in normal_names) if normal_names else 0
         name_width = max_name_len + 4
@@ -86,15 +87,15 @@ def list_directory(path: str, runtime: ToolRuntime[FolderContext]) -> str:
             else:
                 size_str = entry['size']
                 if len(name) > NAME_LENGTH_THRESHOLD:
-                    # 特别长的文件名，只隔4个空格
+                    # 特别长的文件名. 只隔4个空格
                     lines.append(f'{name}    {size_str}')
                 else:
-                    # 普通文件名，按照统一宽度对齐
+                    # 普通文件名, 按照统一宽度对齐
                     lines.append(f'{name:<{name_width}}{size_str:>{size_width}}')
 
         return '\n'.join(lines)
     except Exception as e:
-        return f'错误: {str(e)}'
+        return f'错误: {e!s}'
 
 
 @tool
@@ -104,7 +105,7 @@ def read_file(
     offset: Optional[int] = None,
     limit: Optional[int] = None,
 ) -> str:
-    """读取文件内容，支持行号和分页读取。
+    """读取文件内容, 支持行号和分页读取.
 
     ## 使用案例
     - read_file("config.yaml")  # 读取整个文件
@@ -112,11 +113,11 @@ def read_file(
 
     Args:
         path: 相对于根目录的文件路径
-        offset: 起始行号（从1开始），用于大文件分页读取
-        limit: 读取的行数限制，用于大文件分页读取
+        offset: 起始行号 (从1开始), 用于大文件分页读取
+        limit: 读取的行数限制, 用于大文件分页读取
 
     Returns:
-        文件内容，每行前带有行号
+        文件内容, 每行前带有行号
     """
     runtime.stream_writer({'data': f'read file {path}'})
     try:
@@ -127,7 +128,7 @@ def read_file(
         if not file_path.is_file():
             return f'错误: 不是文件: {path}'
 
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with Path(file_path).open('r', encoding='utf-8') as f:
             content = f.read()
 
         lines = content.splitlines(keepends=True)
@@ -147,7 +148,7 @@ def read_file(
         result += '-' * 50 + '\n'
         content_lines = '\n'.join(numbered_lines)
 
-        # 检查实际返回内容的字符数，如果超过限制则截断
+        # 检查实际返回内容的字符数, 如果超过限制则截断
         header = result
         if len(header) + len(content_lines) > MAX_FILE_CHARS:
             truncated_content = content_lines[:MAX_FILE_CHARS]
@@ -155,19 +156,17 @@ def read_file(
             if last_newline > 0:
                 truncated_content = truncated_content[:last_newline]
 
-            result = (
+            return (
                 header
                 + truncated_content
-                + f'\n\n... [内容已截断，总计 {len(content_lines):,} 字符，已显示 {len(truncated_content):,} 字符] ...'
+                + f'\n\n... [内容已截断, 总计 {len(content_lines):,} 字符, 已显示 {len(truncated_content):,} 字符] ...'
             )
-        else:
-            result = header + content_lines
 
-        return result
+        return header + content_lines
     except UnicodeDecodeError:
         return f'错误: 无法解码文件 (可能是二进制文件): {path}'
     except Exception as e:
-        return f'错误: {str(e)}'
+        return f'错误: {e!s}'
 
 
 @tool(parse_docstring=True)
@@ -178,8 +177,7 @@ def grep_search(
     output_mode: Literal['content', 'count'] = 'content',
     context_lines: int = 2,
 ) -> str:
-    """
-    在指定文件中搜索匹配的文本内容（支持正则表达式）。
+    """在指定文件中搜索匹配的文本内容 (支持正则表达式).
 
     ## 使用案例
     - grep_search("def main", "main.py")  # 在main.py中搜索 "def main"
@@ -188,9 +186,9 @@ def grep_search(
 
     Args:
         pattern: 要搜索的正则表达式模式
-        file_path: 要搜索的文件路径（相对于根目录）
+        file_path: 要搜索的文件路径 (相对于根目录)
         output_mode: 输出模式, "content": 显示匹配行及上下文; "count": 只显示匹配次数
-        context_lines: 显示匹配行前后的上下文行数（仅content模式）
+        context_lines: 显示匹配行前后的上下文行数 (仅content模式)
 
     Returns:
         搜索结果
@@ -211,10 +209,9 @@ def grep_search(
             return f'错误: 无效的正则表达式: {e}'
 
         # 读取文件内容
-        with open(target_path, 'r', encoding='utf-8') as f:
+        with Path(target_path).open('r', encoding='utf-8') as f:
             content = f.read()
-
-        lines = content.splitlines(keepends=True)
+            lines = content.splitlines(keepends=True)
 
         # 查找匹配行
         matches = []
@@ -229,15 +226,14 @@ def grep_search(
         if output_mode == 'count':
             return f"文件 '{file_path}' 中找到 {len(matches)} 个匹配"
 
-        # content 模式：显示匹配行及上下文
+        # content 模式: 显示匹配行及上下文
         result = f"文件 '{file_path}' 中找到 {len(matches)} 个匹配:\n"
         result += '=' * 50 + '\n'
 
-        # 逐个添加匹配项，检查是否超过字符限制
+        # 逐个添加匹配项, 检查是否超过字符限制
         total_matches = len(matches)
-        displayed_matches = 0
 
-        for match_line in matches:
+        for displayed_matches, match_line in enumerate(matches):
             start = max(1, match_line - context_lines)
             end = min(len(lines), match_line + context_lines)
 
@@ -248,23 +244,21 @@ def grep_search(
 
             # 检查添加这个匹配项后是否超过限制
             if len(result) + len(match_content) + 200 > MAX_FILE_CHARS:
-                result += f'\n... [已截断，共 {total_matches} 个匹配，已显示 {displayed_matches} 个] ...'
+                result += f'\n... [已截断, 共 {total_matches} 个匹配, 已显示 {displayed_matches} 个] ...'
                 break
 
             result += match_content
-            displayed_matches += 1
-
-        return result
-
     except UnicodeDecodeError:
         return f'错误: 无法解码文件 (可能是二进制文件): {file_path}'
     except Exception as e:
-        return f'错误: {str(e)}'
+        return f'错误: {e!s}'
+    else:
+        return result
 
 
 @tool(parse_docstring=True)
 def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.') -> str:
-    """按文件名模式查找文件（支持通配符）。
+    """按文件名模式查找文件 (支持通配符).
 
     ## 使用案例
     - find_files("*.py")  # 查找所有Python文件
@@ -272,11 +266,11 @@ def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.
     - find_files("config.*")  # 查找所有config配置文件
 
     Args:
-        pattern: 文件名模式，支持通配符
-        path: 搜索起始路径（默认为根目录）
+        pattern: 文件名模式, 支持通配符
+        path: 搜索起始路径 (默认为根目录)
 
     Returns:
-        找到的文件列表，按修改时间排序
+        找到的文件列表, 按修改时间排序
     """
     runtime.stream_writer({'data': f'search file with "{pattern}"'})
     try:
@@ -297,7 +291,7 @@ def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.
             # 也包含子目录中的匹配
             found_files.extend(search_path.glob(f'**/{pattern}'))
 
-        # 过滤出文件（排除目录）并按修改时间排序
+        # 过滤出文件 (排除目录) 并按修改时间排序
         files = [f for f in found_files if f.is_file()]
         files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
 
@@ -312,7 +306,7 @@ def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.
             size_str = format_size(size)
             entries.append({'name': rel_path, 'size': size_str})
 
-        # 计算对齐宽度（只考虑不超过阈值的文件名）
+        # 计算对齐宽度 (只考虑不超过阈值的文件名)
         normal_names = [e['name'] for e in entries if len(e['name']) <= NAME_LENGTH_THRESHOLD]
         max_name_len = max(len(name) for name in normal_names) if normal_names else 0
         name_width = max_name_len + 4
@@ -328,16 +322,16 @@ def find_files(pattern: str, runtime: ToolRuntime[FolderContext], path: str = '.
             name = entry['name']
             size_str = entry['size']
             if len(name) > NAME_LENGTH_THRESHOLD:
-                # 特别长的文件名，只隔4个空格
+                # 特别长的文件名, 只隔4个空格
                 lines.append(f'{name}    {size_str}')
             else:
-                # 普通文件名，按照统一宽度对齐
+                # 普通文件名, 按照统一宽度对齐
                 lines.append(f'{name:<{name_width}}{size_str:>{size_width}}')
 
         return '\n'.join(lines)
 
     except Exception as e:
-        return f'错误: {str(e)}'
+        return f'错误: {e!s}'
 
 
 @tool(parse_docstring=True)
@@ -347,17 +341,18 @@ def write_to_file(
     runtime: ToolRuntime[FolderContext],
     mode: Literal['append', 'overwrite'] = 'append',
 ) -> str:
-    """编辑或创建文件
-    注意，使用 overwrite 会完全覆盖文件中现有的内容，除非你十分确信，否则正常情况下只使用 append 模式
+    r"""编辑或创建文件.
+
+    注意, 使用 overwrite 会完全覆盖文件中现有的内容, 除非你十分确信, 否则正常情况下只使用 append 模式
 
     ## 使用示例
-    - edit_file("SUMMARY.md", "# 项目说明\\n")  # 追加内容
+    - edit_file("SUMMARY.md", "# 项目说明\n")  # 追加内容
     - edit_file("SUMMARY.md", "新的任务列表", mode="overwrite")  # 覆盖内容
 
     Args:
         path: 相对于根目录的文件路径
         content: 要写入的内容
-        mode: 写入模式. "append": 追加到文件末尾（默认）; "overwrite": 覆盖整个文件
+        mode: 写入模式. "append": 追加到文件末尾 (默认) ; "overwrite": 覆盖整个文件
 
     Returns:
         操作结果信息
@@ -379,24 +374,23 @@ def write_to_file(
 
         if is_new_file:
             # 新建文件
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with Path(file_path).open('w', encoding='utf-8') as f:
                 f.write(content)
             return f'成功: 已创建新文件 {path}'
-        else:
-            # 文件已存在
-            if mode == 'overwrite':
-                # 覆盖模式
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                return f'成功: 已覆盖文件 {path}'
-            else:
-                # 追加模式
-                with open(file_path, 'a', encoding='utf-8') as f:
-                    f.write(content)
-                return f'成功: 已追加内容到文件 {path} ({len(content)} 字符)'
+
+        if mode == 'overwrite':
+            # 覆盖模式
+            with Path(file_path).open('w', encoding='utf-8') as f:
+                f.write(content)
+            return f'成功: 已覆盖文件 {path}'
+
+        # 追加模式
+        with Path(file_path).open('a', encoding='utf-8') as f:
+            f.write(content)
+        return f'成功: 已追加内容到文件 {path} ({len(content)} 字符)'
 
     except Exception as e:
-        return f'错误: {str(e)}'
+        return f'错误: {e!s}'
 
 
 @tool(parse_docstring=True)
@@ -405,11 +399,11 @@ def copy_file(
     target_path: str,
     runtime: ToolRuntime[FolderContext],
 ) -> str:
-    """复制文件到新位置。
+    """复制文件到新位置.
 
     Args:
-        source_path: 源文件路径（相对于根目录）
-        target_path: 目标文件路径（相对于根目录）
+        source_path: 源文件路径 (相对于根目录)
+        target_path: 目标文件路径 (相对于根目录)
 
     Returns:
         操作结果信息
@@ -430,7 +424,7 @@ def copy_file(
         shutil.copy2(src_path, dst_path)
 
         size_str = format_size(dst_path.stat().st_size)
-        return f'成功: 已复制文件 {source_path} -> {target_path} ({size_str})'
-
     except Exception as e:
-        return f'错误: {str(e)}'
+        return f'错误: {e!s}'
+    else:
+        return f'成功: 已复制文件 {source_path} -> {target_path} ({size_str})'
