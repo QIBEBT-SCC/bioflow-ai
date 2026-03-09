@@ -1,7 +1,7 @@
 import json
-from typing import Any, Callable, Literal, Optional, Sequence, Union
+from collections.abc import Callable, Sequence
+from typing import Any, Literal, Optional
 
-import openai
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
@@ -9,7 +9,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import _DictOrPydantic, _DictOrPydanticClass
-from loguru import logger
+from pydantic import BaseModel
 
 
 class ChatOpenAIReasoning(ChatOpenAI):
@@ -43,7 +43,7 @@ class ChatOpenAIReasoning(ChatOpenAI):
 
     def _create_chat_result(
         self,
-        response: Union[dict, openai.BaseModel],
+        response: dict | BaseModel,
         generation_info: Optional[dict] = None,
     ) -> ChatResult:
         rtn = super()._create_chat_result(response, generation_info)
@@ -51,7 +51,7 @@ class ChatOpenAIReasoning(ChatOpenAI):
         for generation in rtn.generations:
             generation.message.response_metadata['model_provider'] = self.provider
 
-        if not isinstance(response, openai.BaseModel):
+        if not isinstance(response, BaseModel):
             return rtn
 
         choices = getattr(response, 'choices', None)

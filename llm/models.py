@@ -16,10 +16,18 @@ from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from llm.utils.cache import cache_model
 
 
+class NoApikeyError(ValueError):
+    pass
+
+
 def _get_model_from_db(model_id: int) -> BaseChatModel:
     with Session(engine) as session:
         model_config = model_crud.get(session, model_id)
-        assert model_config.provider.api_key is not None, 'No available api_key has been set yet!'
+
+        if model_config.provider.api_key is None:
+            err_msg = 'No available api_key has been set yet!'
+            raise NoApikeyError(err_msg)
+
         proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
 
         match model_config.provider.provider_type:
@@ -58,7 +66,7 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
                         openai_proxy=proxy,
                     )
             case _:
-                raise ValueError('invalid provider type')
+                raise TypeError
 
         model.metadata = {
             'model_id': model_id,
@@ -70,6 +78,10 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
 
 
 def get_agent_model() -> BaseChatModel:
+    """用于常规智能体的模型.
+
+    工具调用能力强, 同时成本适中
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'agent_model')
         model_id = setting.model_id
@@ -80,6 +92,10 @@ def get_agent_model() -> BaseChatModel:
 
 
 def get_chat_model() -> BaseChatModel:
+    """常规对话模型.
+
+    通用问答对话, 最好支持多模态
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'chat_model')
         model_id = setting.model_id
@@ -90,6 +106,10 @@ def get_chat_model() -> BaseChatModel:
 
 
 def get_vision_model() -> BaseChatModel:
+    """视觉模型.
+
+    具有多模态能力的模型, 后期可能改名, 用于图像生成之类的
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'vision_model')
         model_id = setting.model_id
@@ -100,6 +120,10 @@ def get_vision_model() -> BaseChatModel:
 
 
 def get_coding_model() -> BaseChatModel:
+    """编码模型.
+
+    coding能力强的模型
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'coding_model')
         model_id = setting.model_id
@@ -110,6 +134,10 @@ def get_coding_model() -> BaseChatModel:
 
 
 def get_simple_model() -> BaseChatModel:
+    """简单任务处理模型.
+
+    可以没有多模态能力, 以便宜为核心, 处理意图识别等任务
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'simple_model')
         model_id = setting.model_id
@@ -120,6 +148,10 @@ def get_simple_model() -> BaseChatModel:
 
 
 def get_long_context_model() -> BaseChatModel:
+    """长上下文处理模型.
+
+    要求在对话窗口大的同时, 控制成本
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'long_context_model')
         model_id = setting.model_id
@@ -130,6 +162,10 @@ def get_long_context_model() -> BaseChatModel:
 
 
 def get_high_performance_model() -> BaseChatModel:
+    """高性能模型.
+
+    处理复杂决策问题
+    """
     with Session(engine) as session:
         setting = setting_crud.get(session, 'high_performance_model')
         model_id = setting.model_id
