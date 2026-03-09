@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -24,11 +23,9 @@ from tqdm import tqdm
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
-import app.crud.tools.tool_group as group_crud
-import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from app.models.tools import ImageConfig, ToolDefine, ToolHelpDoc, ToolImage
 from app.utils.container.docker import run_docker
 from llm.agents.tool_manager import CreateToolAgent, CreateToolContext, CreateToolState
 from llm.models import qwen3_embedding
@@ -47,26 +44,6 @@ def _clear_container():
         image_name = ''.join(container.image.tags)
         if 'biocontainers' in image_name:
             container.remove(force=True)
-
-
-def init_tag_and_group(drop_old: bool = True):
-    with Session(engine) as session:
-        if drop_old:
-            delete_tag_count = tag_crud.drop_all(session)
-            delete_group_count = group_crud.drop_all(session)
-            logger.info(f'Delete {delete_tag_count} tags and {delete_group_count} groups')
-
-        # init tags
-        with open('../presets/tags.json') as f:
-            tags_data = json.loads(f.read())
-            tags = [ToolTag.model_validate(tag) for tag in tags_data]
-        tag_crud.insert_all(session, tags)
-
-        # init group
-        with open('../presets/groups.json') as f:
-            groups_data = json.loads(f.read())
-            groups = [ToolGroup.model_validate(group) for group in groups_data]
-        group_crud.insert_all(session, groups)
 
 
 async def init_images(drop_old: bool = True):
@@ -121,7 +98,7 @@ async def init_tools(index: Optional[int] = None) -> None:
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
 
     # 需要跳过的工具 (不处理, 但保留在数据集中)
-    skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake']
+    skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
 
     # 如果指定了 index, 只处理该索引的数据; 否则处理所有未完成的数据
     if index is not None:
@@ -433,7 +410,7 @@ def statistic() -> None:
     rich.print(analysed.top_k(1, by='index').row(0, named=True))
 
 
-def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]):
+def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]) -> None:
     if mode == 'custom':
         logger.info(data)
     else:
@@ -446,13 +423,6 @@ def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]):
 @click.group()
 def cli() -> None:
     """数据库初始化和管理工具."""
-
-
-@cli.command()
-@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据 (默认: 不删除)')
-def init_tag_and_group_cmd(*, drop_old: bool) -> None:
-    """初始化标签和分组."""
-    init_tag_and_group(drop_old)
 
 
 @cli.command()
