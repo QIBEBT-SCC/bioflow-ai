@@ -2,9 +2,9 @@ from langchain_core.tools import tool
 from langgraph.types import interrupt
 
 
-@tool(parse_docstring=True)
-def ask_human(question: str):
-    """Consult humans for advice
+@tool('ask_human', parse_docstring=True)
+def ask_human(question: str) -> str:
+    """Consult humans for advice.
 
     Args:
         question: Issues to consult with humans

@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from docker.types import Mount
 from langchain_core.messages import ToolMessage
@@ -11,47 +11,51 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.models.tools import ImageConfig
 from llm.states import TestRunContext
+
+if TYPE_CHECKING:
+    from app.models.tools import ImageConfig
 
 COMMAND_DESCRIPTION = """在容器环境中运行指定bash命令或生物信息学命令行工具并返回执行结果
 
 ## 如何使用此工具
-- **此工具禁止并行调用**，当有多个命令想要执行时，必须依次调用
+- **此工具禁止并行调用**,当有多个命令想要执行时,必须依次调用
 - 每次调用都应只执行一个核心任务。严禁使用 `&&` 或 `;` 连接多个独立的命令
-- 当输出超过3000个字符的时候，输出将会被截断，并只返回给你头部和尾部的部分内容
+- 当输出超过3000个字符的时候,输出将会被截断,并只返回给你头部和尾部的部分内容
 
 ### 运行系统命令
-为了保证系统的安全性，你只允许使用下面列出来的系统命令和对应的参数：
+为了保证系统的安全性,你只允许使用下面列出来的系统命令和对应的参数:
 <AvailableSystemCommands>
-- `ls -lha`：用于浏览目录结构
-    - 不要在数据库目录内使用此命令。因为数据库可能包含数百个小文件，请改用 `find` 命令
-- `find`：用于按名称或模式在目录中查找文件
-    - 可以与 `grep` 结合进行过滤（例如，`find ... | grep ...`）
-    - 禁止使用具有修改或执行效果的参数，例如 `-exec` 和 `-delete`
-- `wc -l`：用于获取文件行数
-- `sed`：用于按行范围读取文件内容
+- `ls -lha`: 用于浏览目录结构
+    - 不要在数据库目录内使用此命令。因为数据库可能包含数百个小文件,请改用 `find` 命令
+- `find`: 用于按名称或模式在目录中查找文件
+    - 可以与 `grep` 结合进行过滤 (例如,`find ... | grep ...` )
+    - 禁止使用具有修改或执行效果的参数,例如 `-exec` 和 `-delete`
+- `wc -l`: 用于获取文件行数
+- `sed`: 用于按行范围读取文件内容
     - 仅允许使用 `sed -n 'start,endp' file` 形式
     - 禁止使用 `-i` 或任何修改文件的参数
-    - 使用 sed 查看文件时，一次读取的行数不得超过 10 行
-- `grep`：用于在文件或其他命令的输出中搜索文本内容
-    - 仅用于搜索，绝不能修改源文件
-- `file`：用于确定文件类型
-- `cmp -s`：用于快速比较两个文件是否相同；无输出表示它们相同
-- `whereis`：用于查找可执行文件的路径
-- `mkdir`：用于在工作输出目录中创建新目录
+    - 使用 sed 查看文件时,一次读取的行数不得超过 10 行
+- `grep`: 用于在文件或其他命令的输出中搜索文本内容
+    - 仅用于搜索,绝不能修改源文件
+- `file`: 用于确定文件类型
+- `cmp -s`: 用于快速比较两个文件是否相同; 无输出表示它们相同
+- `whereis`: 用于查找可执行文件的路径
+- `mkdir`: 用于在工作输出目录中创建新目录
     - 仅允许在 `/data/output` 及其子目录中创建目录
     - 可以使用 `-p` 参数进行递归创建
-- `cp`：仅用于将原始数据从 `/data/testdata` 复制到 `/data/output/00_raw`
+- `cp`: 仅用于将原始数据从 `/data/testdata` 复制到 `/data/output/00_raw`
     - 文件绝不能从 `/data/output` 复制回 `/data/testdata` 或任何其他敏感目录
-    - 不允许使用删除或移动源文件的变体（例如，`mv`命令，使用 `--remove-source-files` 等）
+    - 不允许使用删除或移动源文件的变体 (例如,`mv`命令,使用 `--remove-source-files` 等 )
 </AvailableSystemCommands>
 
 ### 运行生物信息学命令行工具
-当运行生物信息学命令行工具时，请遵循以下规则：
+当运行生物信息学命令行工具时,请遵循以下规则:
 - 必须设置 `workdir` 以指明当前工作目录
-- 当你需要运行的工具与Current Image不同时，应该使用 `run_other_tool` 而非此工具
+- 当你需要运行的工具与Current Image不同时,应该使用 `run_other_tool` 而非此工具
 """
+
+MAX_CHAR = 3000
 
 
 class ContainerMount(BaseModel):
@@ -61,21 +65,22 @@ class ContainerMount(BaseModel):
 
 
 @tool(parse_docstring=True)
-def run_command(command: str, runtime: ToolRuntime):
-    """run command in a container and return the result
+def run_command(command: str, runtime: ToolRuntime) -> str:
+    """Run command in a container and return the result.
+
     **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
 
     Args:
         command: the command you need to run
     """
-    image = runtime.state.get('image')
+    image = cast('ImageConfig', runtime.state.get('image'))
 
     if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker
+        from app.utils.container.docker import run_docker  # noqa: PLC0415
 
         code, result = run_docker(image, command, [])
     else:
-        from app.utils.container.podman import run_podman
+        from app.utils.container.podman import run_podman  # noqa: PLC0415
 
         code, result = run_podman(image, command, [])
 
@@ -83,7 +88,7 @@ def run_command(command: str, runtime: ToolRuntime):
 
 
 @tool('run_command', description=COMMAND_DESCRIPTION)
-def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Optional[str] = None):
+def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Optional[str] = None) -> Command:
     """Run command, and return it`s output result."""
     if 'container_id' in runtime.state:
         container_id = runtime.state.get('container_id')
@@ -151,11 +156,11 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
         )
 
     if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker_by_id
+        from app.utils.container.docker import run_docker_by_id  # noqa: PLC0415
 
         code, out = run_docker_by_id(container_id, command, workdir)
     else:
-        from app.utils.container.podman import run_podman_by_id
+        from app.utils.container.podman import run_podman_by_id  # noqa: PLC0415
 
         code, out = run_podman_by_id(container_id, command, workdir)
 
@@ -182,10 +187,10 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
 
 
 @tool(parse_docstring=True)
-def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunContext]):
-    """Create a new container using tool image
+def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunContext]) -> Command:
+    """Create a new container using tool image.
 
-    - The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so you don't need to add them manually.
+    The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so no need to add them manually.
 
     Args:
         mounts: Other mounts besides testdata and output folder
@@ -209,7 +214,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
                 update={
                     'messages': [
                         ToolMessage(
-                            content=f'你在试图挂载 `{m.source}`，但是测试数据{test_data_path}已经被默认挂载到容器的/data/testdata目录下，无需手动挂载。',
+                            content=f'你在试图挂载 `{m.source}`,但是测试数据{test_data_path}已经被默认挂载到容器的/data/testdata目录下,无需手动挂载。',
                             tool_call_id=runtime.tool_call_id,
                         )
                     ],
@@ -233,28 +238,27 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
     container_id: Optional[str] = None
     match get_settings().docker.CONTAINER:
         case 'docker':
-            from app.utils.container.docker import create_container
+            from app.utils.container.docker import create_container  # noqa: PLC0415
 
-            final_mounts = []
-            for m in mount_configs + [testdata_mount, output_mount]:
-                final_mounts.append(
-                    Mount(
-                        target=m['target'],
-                        source=m['source'],
-                        type='bind',
-                        read_only=m.get('read_only', False),
-                    )
+            final_mounts = [
+                Mount(
+                    target=m['target'],
+                    source=m['source'],
+                    type='bind',
+                    read_only=m.get('read_only', False),
                 )
+                for m in [*mount_configs, testdata_mount, output_mount]
+            ]
             container_id = create_container(image, final_mounts)
         case 'podman':
-            from app.utils.container.podman import create_container
+            from app.utils.container.podman import create_container  # noqa: PLC0415
 
             # Podman specific relabeling
             for m in mount_configs:
                 m['relabel'] = 'z'
             testdata_mount['relabel'] = 'z'
 
-            final_mounts = mount_configs + [testdata_mount, output_mount]
+            final_mounts = [*mount_configs, testdata_mount, output_mount]
             container_id = create_container(image, final_mounts)
         case _:
             container_id = None
@@ -274,17 +278,16 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
 
 
 @tool('remove_container')
-def stop_and_rm_container(runtime: ToolRuntime):
-    """Stop and remove container"""
-
+def stop_and_rm_container(runtime: ToolRuntime) -> Command:
+    """Stop and remove container."""
     container_id = runtime.state.get('container_id')
 
     if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import remove_container
+        from app.utils.container.docker import remove_container  # noqa: PLC0415
 
         remove_container(container_id)
     else:
-        from app.utils.container.podman import remove_container
+        from app.utils.container.podman import remove_container  # noqa: PLC0415
 
         remove_container(container_id)
 
@@ -302,6 +305,6 @@ def stop_and_rm_container(runtime: ToolRuntime):
 
 
 def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('find', 'grep', 'help', 'DESCRIPTION.md')) or len(output) <= 3000:
+    if any(k in command for k in ('find', 'grep', 'help', 'DESCRIPTION.md')) or len(output) <= MAX_CHAR:
         return output
     return f'{output[:1500]}\n...\n{output[-500:]}'
