@@ -1,16 +1,13 @@
 import asyncio
-import time
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Annotated, AsyncGenerator, Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from langchain.agents import create_agent
 from langchain_core.messages import (
-    AIMessage,
     AIMessageChunk,
-    HumanMessage,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis import AsyncRedisSaver
@@ -26,11 +23,7 @@ from app.models.chat import ChatSessions
 from app.schemas.chat import ChatResponse, ChatSessionPublic, ChatSessionUpdate, PaginatedChatSessions
 from app.utils.security import UserDep
 from llm.agents.reproduction.design_workflow import WorkflowDesigner
-from llm.agents.supervisor import Supervisor
-from llm.models import get_agent_model, get_long_context_model
-from llm.prebuild.chains import generate_title
-from llm.states import ReproductionState, UserContext
-from llm.tools.web_search import web_searcher
+from llm.states import UserContext
 from llm.utils.ai_sdk.stream_protocol import (
     data_part,
     done_marker,
@@ -45,12 +38,10 @@ from llm.utils.ai_sdk.stream_protocol import (
     text_delta,
     text_end,
     text_start,
-    tool_input_start,
 )
 from llm.utils.ai_sdk.ui_message import UIMessage
 from llm.utils.lc.memory import PostgresMessageHistory
 from llm.utils.lc.messages import InterruptMessage
-from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.multimodal import (
     filter_multimedia_message,
     langchain_messages_to_ui_messages,
@@ -73,8 +64,7 @@ async def new_chat_session(session: SessionDep, current_user: UserDep):
 async def get_chats_sessions(
     session: SessionDep, current_user: UserDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 8
 ):
-    """
-    获取用户的聊天会话列表，支持分页懒加载
+    """获取用户的聊天会话列表，支持分页懒加载
 
     - **offset**: 偏移量，用于分页（默认0）
     - **limit**: 每页数量，最大20（默认8）
@@ -275,8 +265,8 @@ async def generate_reproduction_stream(
                 chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, interrupted=True))
 
         except Exception as e:
-            logger.exception(f'生成聊天响应时发生错误: {str(e)}')
-            yield error_part(f'生成响应时发生错误: {str(e)}')
+            logger.exception(f'生成聊天响应时发生错误: {e!s}')
+            yield error_part(f'生成响应时发生错误: {e!s}')
         finally:
             yield finish_message()
             yield done_marker()
@@ -284,45 +274,45 @@ async def generate_reproduction_stream(
 
 async def generate_test_stream() -> AsyncGenerator[str, None]:
     yield start_message()
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield start_step()
     yield reasoning_start('111')
     yield reasoning_delta('111', '这是一个思考的内容。')
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield reasoning_end('111')
 
     yield data_part('test', {'mes': '这是一个测试数据部分。'})
-    time.sleep(1)
+    await asyncio.sleep(1)
 
     yield reasoning_start('222')
     yield reasoning_delta('222', '这是另一个思考的内容。')
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield reasoning_end('222')
 
     yield text_start('333')
     yield text_delta('333', '这是生成的文本内容。')
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield text_end('333')
     yield finish_step()
 
     yield start_step()
     yield data_part('test', {'mes': '这是一个测试数据部分。'})
-    time.sleep(1)
+    await asyncio.sleep(1)
 
     yield reasoning_start('444')
     yield reasoning_delta('444', '这是另一个思考的内容。')
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield reasoning_end('444')
 
     yield text_start('555')
     yield text_delta('555', '这是生成的文本内容。')
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield text_end('555')
     yield finish_step()
 
     yield start_step()
     yield data_part('link', {'to': '连接转发'})
-    time.sleep(1)
+    await asyncio.sleep(1)
     yield finish_step()
 
     yield finish_message()
