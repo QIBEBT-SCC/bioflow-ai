@@ -1,9 +1,9 @@
 import json
 import uuid
-from typing import Any, Dict
+from typing import Any
 
 
-def _sse_line(data: Dict[str, Any]) -> str:
+def _sse_line(data: dict[str, Any]) -> str:
     """Serialize a dict as one SSE data line followed by a blank line."""
     return f'data: {json.dumps(data, ensure_ascii=False)}\n\n'
 
@@ -94,12 +94,12 @@ def file_part(url: str, media_type: str) -> str:
 # ============================================================================
 
 
-def data_part(suffix: str, data: Dict[str, Any]) -> str:
+def data_part(suffix: str, data: dict[str, Any]) -> str:
     """Custom data-* part per AI SDK UI protocol."""
     return _sse_line({'type': f'data-{suffix}', 'data': data})
 
 
-def data_part_typed(data_type: str, data: Dict[str, Any]) -> str:
+def data_part_typed(data_type: str, data: dict[str, Any]) -> str:
     """Typed custom data part supporting data-* format."""
     return _sse_line({'type': f'data-{data_type}', 'data': data})
 
@@ -134,14 +134,14 @@ def tool_input_delta(tool_call_id: str, input_text_delta: str) -> str:
     return _sse_line({'type': 'tool-input-delta', 'toolCallId': tool_call_id, 'inputTextDelta': input_text_delta})
 
 
-def tool_input_available(tool_call_id: str, tool_name: str, input_data: Dict[str, Any]) -> str:
+def tool_input_available(tool_call_id: str, tool_name: str, input_data: dict[str, Any]) -> str:
     """Indicates that tool input is complete and ready for execution."""
     return _sse_line(
         {'type': 'tool-input-available', 'toolCallId': tool_call_id, 'toolName': tool_name, 'input': input_data}
     )
 
 
-def tool_output_available(tool_call_id: str, output_data: Dict[str, Any]) -> str:
+def tool_output_available(tool_call_id: str, output_data: dict[str, Any]) -> str:
     """Contains the result of tool execution."""
     return _sse_line({'type': 'tool-output-available', 'toolCallId': tool_call_id, 'output': output_data})
 
