@@ -1,10 +1,11 @@
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
@@ -24,18 +25,21 @@ class CheckState(TypedDict):
     check_failed_count: NotRequired[int]
 
 
+class MaxCheckError(Exception):
+    pass
+
+
 def _handle_check_failed(
     check_failed_count: int,
     messages: list[BaseMessage],
     max_retries: int = 3,
 ) -> dict[str, Any]:
-    """
-    统一处理检查失败的逻辑
+    """统一处理检查失败的逻辑.
 
     Args:
         check_failed_count: 当前失败次数
         messages: 要返回的消息列表
-        max_retries: 最大重试次数，默认为3
+        max_retries: 最大重试次数, 默认为3
 
     Returns:
         包含跳转信息和更新后的状态
@@ -44,7 +48,8 @@ def _handle_check_failed(
         Exception: 当失败次数达到最大重试次数时
     """
     if check_failed_count >= max_retries:
-        raise Exception(f'Check failed {max_retries} times.')
+        err_msg = f'Check failed {max_retries} times.'
+        raise MaxCheckError(err_msg)
 
     return {
         'jump_to': 'model',
@@ -61,7 +66,8 @@ class CheckReportMiddleware(AgentMiddleware):
         model: BaseChatModel,
         check_prompt: str,
     ) -> None:
-        """
+        """对模型输出结果进行检查.
+
         Args:
             model: 用于检查任务完成状态的模型
             check_prompt: 检查提示词
@@ -81,7 +87,7 @@ class CheckReportMiddleware(AgentMiddleware):
         return {'check_failed_count': 0}
 
     def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
-        last_message = cast(AIMessage, state['messages'][-1])
+        last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
             return None
@@ -117,7 +123,7 @@ class CheckReportMiddleware(AgentMiddleware):
         return None
 
     async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
-        last_message = cast(AIMessage, state['messages'][-1])
+        last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
             return None
@@ -158,10 +164,6 @@ class CheckGenerateMiddleware(AgentMiddleware):
         self,
         error_time: int = 3,
     ) -> None:
-        """
-        Args:
-            error_time: 重试次数
-        """
         super().__init__()
 
         self.error_time = error_time
@@ -170,7 +172,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         return {'check_failed_count': 0}
 
     def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
-        last_message = cast(AIMessage, state['messages'][-1])
+        last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
             return None
 
@@ -250,16 +252,12 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         self,
         error_time: int = 3,
     ) -> None:
-        """
-        Args:
-            error_time: 重试次数
-        """
         super().__init__()
 
         self.error_time = error_time
 
     def after_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
-        last_message = cast(AIMessage, state['messages'][-1])
+        last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
             return None
 
@@ -288,4 +286,45 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         return None
 
     async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
+        return self.after_model(state, runtime)
+
+
+class CheckPlanConfirmMiddleware(AgentMiddleware):
+    def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        messages = state['messages']
+        last_message = cast('AIMessage', messages[-1])
+
+        # 如果这是一条不带工具调用的信息, 那么说明已经完成任务了
+        if last_message.tool_calls:
+            return None
+
+        # 1. 拦截过早结束: 对话条轮数小于三条, 说明没有调用工具就直接结束任务了
+        if len(messages) < 3:  # noqa: PLR2004
+            return {
+                'jump_to': 'model',
+                'messages': [
+                    HumanMessage(content='Please follow the instructions and call the tool to complete the task.')
+                ],
+            }
+
+        # 2. 拦截未确认结束: 校验任务完结的最后动作是否为 ask_human
+        # 正常情况下, 完结的最后三条序列必然是:
+        # [-3] AIMessage (包含了调用 ask_human)
+        # [-2] ToolMessage (用于 ask_human 的返回结果)
+        # [-1] AIMessage (无工具调用的最终总结信息)
+        tool_msg = messages[-2]
+
+        if isinstance(tool_msg, ToolMessage) and tool_msg.name == 'ask_human':
+            return None
+
+        return {
+            'jump_to': 'model',
+            'messages': [
+                HumanMessage(
+                    content='Before concluding the task, you must use the ask_human tool to confirm your opinion with the user.'
+                )
+            ],
+        }
+
+    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
         return self.after_model(state, runtime)
