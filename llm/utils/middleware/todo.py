@@ -154,7 +154,8 @@ def update_todo_state(
         # ... logs ...
         # -1: AI calling this tool
         logger.debug(f'TODO complete: {target_todo.content}')
-        remove_messages = [RemoveMessage(id=m.id) for m in runtime.state['messages'][1:-1]]
+        keep_msgs = runtime.state.get('msg_to_keep', 1)
+        remove_messages = [RemoveMessage(id=m.id) for m in runtime.state['messages'][keep_msgs:-1]]
 
         pending_todos = [t for t in updated_todos if t.status == 'pending']
         in_progress_todos = [t for t in updated_todos if t.status == 'in_progress']
@@ -369,6 +370,9 @@ class TodoMiddleware(AgentMiddleware):
         self.limit_add = limit_add
 
         self.todo_inited = False
+
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+        return {'msg_to_keep': len(state['messages'])}
 
     def wrap_model_call(  # noqa: D102
         self,

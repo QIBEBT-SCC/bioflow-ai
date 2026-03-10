@@ -472,8 +472,6 @@ def add_group(name: str, parent_id: Optional[int] = None) -> str:
 def search_biodb(query: str) -> str:
     """Search for the biological databases used by the tool using its name.
 
-    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
-
     Args:
         query: Keyword for Search, It can be the tool that uses this database (e.g., Kraken2), or the name of this database (e.g., nr or eggnog).
     """

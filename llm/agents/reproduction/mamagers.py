@@ -69,7 +69,7 @@ RESOURCE_MANAGER_SYSTEM = """你是一名生物信息专家, 正在使用一款�
 - 节点的位置安排:
     - 当前面板上没有节点时, 新添加的节点放在面板中央位置 (x=0, y=0)
     - 当前面板上已有节点时, 按照分析执行的顺序, 将新添加的节点放在右侧 (x+1), y坐标与相关联的上游节点保持一致
-    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标, 避免节点重叠
+    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标 (±1), 避免节点重叠
 """
 
 PROCESSOR_MANAGER_SYSTEM = """你是一名生物信息专家, 正在使用一款基于节点式编辑器的可视化生物信息分析平台。
@@ -103,8 +103,8 @@ PROCESSOR_MANAGER_SYSTEM = """你是一名生物信息专家, 正在使用一款
 - 你是一个大的工作流构建团队中的工具专家, 你只需要添加当前要求你添加的对应处理器节点就行
 - 节点的位置安排:
     - 当前面板上没有节点时, 新添加的节点放在面板中央位置 (x=0, y=0)
-    - 当前面板上已有节点时, 按照分析执行的顺序, 将新添加的节点放在右侧(x+1), y坐标与相关联的上游节点保持一致
-    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标, 避免节点重叠
+    - 当前面板上已有节点时, 按照分析执行的顺序, 将新添加的节点放在右侧 (x+1), y坐标与相关联的上游节点保持一致
+    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标 (±1), 避免节点重叠
 - 由于中间处理情况比较复杂, 如果确定数据库中没有找到相关处理器节点时, 调用 `add_code_node` 工具直接添加一个bash类型的代码节点来实现该功能
 """
 
@@ -137,14 +137,16 @@ CODE_MANAGER_SYSTEM = """你是一名生物信息专家, 正在使用一款基�
 - 你是一个大的工作流构建团队中的工具专家, 你只需要添加当前要求你添加的对应代码节点就行
 - 节点的位置安排:
     - 当前面板上没有节点时, 新添加的节点放在面板中央位置 (x=0, y=0)
-    - 当前面板上已有节点时, 按照分析执行的顺序, 将新添加的节点放在右侧(x+1), y坐标与相关联的上游节点保持一致
-    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标, 避免节点重叠
+    - 当前面板上已有节点时, 按照分析执行的顺序, 将新添加的节点放在右侧 (x+1), y坐标与相关联的上游节点保持一致
+    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标  (±1), 避免节点重叠
 """
 
 
 @tool(parse_docstring=True)
 async def create_tool_node(request: str, runtime: ToolRuntime[BuildContext]) -> Command:
     """Create new tool node.
+
+    **This tool prohibits parallel calls! You are only allowed to request the creation of one tool at a time!**
 
     Args:
         request: Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the tool's input is, and what the main expected output is)"
@@ -223,8 +225,16 @@ tool_manager_agent: CompiledStateGraph = create_agent(
         ask_human,
     ],
     middleware=[
-        DisableParallelToolCallsMiddleware(),
         ToolManagerMiddleware(),
+        DisableParallelToolCallsMiddleware(
+            disabled_tools={
+                'search_tool',
+                'create_tool_node',
+                'add_tool_node',
+                'tool_need_other_node',
+                'ask_human',
+            }
+        ),
         TokenStatisticMiddleware('tool_manager', **get_agent_model().metadata),
     ],
     state_schema=ManagerSchema,  # type: ignore
@@ -244,7 +254,7 @@ resource_manager_agent: CompiledStateGraph = create_agent(
     ],
     system_prompt=RESOURCE_MANAGER_SYSTEM,
     middleware=[
-        DisableParallelToolCallsMiddleware(),
+        DisableParallelToolCallsMiddleware(disabled_tools={'add_resource_node', 'add_note_node', 'ask_human'}),
         TokenStatisticMiddleware('resource_manager', **get_agent_model().metadata),
     ],
     state_schema=ManagerSchema,  # type: ignore
@@ -264,7 +274,7 @@ processor_manager_agent: CompiledStateGraph = create_agent(
     ],
     system_prompt=PROCESSOR_MANAGER_SYSTEM,
     middleware=[
-        DisableParallelToolCallsMiddleware(),
+        DisableParallelToolCallsMiddleware(disabled_tools={'add_processor_node', 'add_code_node'}),
         TokenStatisticMiddleware('processor_manager', **get_agent_model().metadata),
     ],
     state_schema=ManagerSchema,  # type: ignore
@@ -278,11 +288,10 @@ code_manager_agent: CompiledStateGraph = create_agent(
         view_node_details,
         view_workflow,
         add_code_node,
-        ask_human,
     ],
     system_prompt=CODE_MANAGER_SYSTEM,
     middleware=[
-        DisableParallelToolCallsMiddleware(),
+        DisableParallelToolCallsMiddleware(disabled_tools={'add_code_node'}),
         TokenStatisticMiddleware('code_manager', **get_agent_model().metadata),
     ],
     state_schema=ManagerSchema,  # type: ignore

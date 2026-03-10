@@ -68,6 +68,8 @@ async def add_tool_node(
 ) -> Command:
     """Add tool nodes to the workflow by tool ID.
 
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
+
     Args:
         selected_id: The tool ID of the corresponding node source
         update_args: Updated parameters for this tool node. Leave blank means not modifying parameters. Note that if you pass an empty string, it also means modifying parameters.
@@ -151,6 +153,8 @@ async def add_resource_node(
     runtime: ToolRuntime[UserContext],
 ) -> Command:
     """Add a resource node to the workflow.
+
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
         resource_type: Resource node type
@@ -295,6 +299,8 @@ async def add_processor_node(
 ) -> Command:
     """Add a processor node to the workflow.
 
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
+
     Args:
         processor_name: Processor name
         arguments: Parameters of the resource node.
@@ -380,6 +386,8 @@ async def add_code_node(
 ) -> Command:
     """Add a code node to the workflow.
 
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
+
     Args:
         language: program language(R, python, linux bash)
         pos_x: The x-coordinate of the node's layout on the panel, only positive integer
@@ -419,16 +427,15 @@ async def add_code_node(
 
 
 @tool(parse_docstring=True)
-async def add_note_node(
-    note_content: str, pos_x: int, pos_y: int, input_edges: list[BuildEdge], runtime: ToolRuntime[UserContext]
-) -> Command:
+async def add_note_node(note_content: str, pos_x: int, pos_y: int, runtime: ToolRuntime[UserContext]) -> Command:
     """Add a note node to the workflow.
+
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
 
     Args:
         note_content: Specific content of the notes (as brief and precise as possible)
         pos_x: The x-coordinate of the node's layout on the panel, only positive integer
         pos_y: The y-coordinate of the node's layout on the panel
-        input_edges: Code node only have one edge `files`, just need to connect the files generated during the preliminary analysis, which are required by the code here, to this handle.
     """
     node_count = len(runtime.state.get('exist_nodes', []))
     node_id = generate_char_index(node_count + 1)
@@ -444,13 +451,9 @@ async def add_note_node(
         y=pos_y,
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
-
     return Command(
         update={
             'exist_nodes': [new_node],
-            'exist_edges': input_edges,
             'messages': [
                 ToolMessage(content=f'add new note:\n{node_formatter(new_node)}', tool_call_id=runtime.tool_call_id)
             ],

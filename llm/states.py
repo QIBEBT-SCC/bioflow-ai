@@ -118,6 +118,7 @@ class Todo(BaseModel):
 
 class DesignState(AgentState, total=False):
     task: str
+    plan_update: bool
 
     # 文献复现使用
     paper_id: str

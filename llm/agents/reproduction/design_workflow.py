@@ -71,7 +71,7 @@ You must strictly adhere to the following interaction workflow; do not submit th
 
 1. Check user input. If task planning requires additional meta information (e.g., sequencing type, species origin, etc.), call the `ask_human` tool to ask follow-up questions
 2. Based on collected information, call the `write_plan` tool to write a complete Markdown format analysis plan
-3. Call `ask_human` to ask if the user approves the plan (no need to rewrite it, the user can directly see the content written by `write_plan`)
+3. Call `ask_for_confirm` to ask if the user approves the plan (no need to rewrite it, the user can directly see the content written by `write_plan`)
     - If the user requests modifications, return to step 2
     - If the user gives an affirmative response, do not call tools again, summarize and end the task
 
@@ -107,6 +107,7 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 2. The plan must include "invisible but necessary" steps, such as: BUSCO/QUAST evaluation after assembly, repeat sequence marking after alignment, mitochondrial filtering for single cells, etc.
 3. Before calling `ask_human` and obtaining user confirmation, the task is not considered complete
 4. Upstream planning is for subsequent tool selection and workflow boundaries, requiring only clear logic; downstream suggestions are for the user to see and must be actionable
+5. Only one tool call is allowed at a time; calling multiple tools at once is strictly prohibited!
 """
 
 SUMMARY_PAPER_SYSTEM = """You are a bioinformatics scholar whose work involves reading published biological literature and summarizing the information contained within.
@@ -188,7 +189,7 @@ class AutonomousDesignAgent:
     def __init__(self, memory: Optional[BaseCheckpointSaver] = None, *, use_cache: bool = False) -> None:
         self.name = 'autonomous_design'
 
-        self.tools = [wait_for_confirm, write_plan]
+        self.tools = [ask_human, ask_for_confirm, write_plan]
         self.llm = get_high_performance_model().bind_tools(self.tools, parallel_tool_calls=False)
 
         self.memory = memory
@@ -219,7 +220,20 @@ class AutonomousDesignAgent:
         """处理未调用工具直接结束的情况."""
         last_message = state['messages'][-1]
         if last_message.tool_calls:
-            return Command(goto='tools')
+            if len(last_message.tool_calls) == 1:
+                return Command(goto='tools')
+
+            # 屏蔽并行调用
+            error_msg = 'Parallel tool calls detected; this invocation has been invalidated. Only one tool call is allowed at a time!'
+            return Command(
+                goto='model',
+                update={
+                    'messages': [
+                        ToolMessage(content=error_msg, tool_call_id=tool_call['id'])
+                        for tool_call in last_message.tool_calls
+                    ]
+                },
+            )
 
         # 实际上理论来说不会走到这里, 工具直接退出了
         if isinstance(state['messages'][-2], ToolMessage) and state['messages'][-2].name == 'ask_human':
@@ -230,7 +244,7 @@ class AutonomousDesignAgent:
             update={
                 'messages': [
                     HumanMessage(
-                        content='Call the `ask_human` tool to ask a human for information instead of outputting information directly.'
+                        content='Call the `ask_for_confirm` tool to ask a human for information instead of outputting information directly.'
                     )
                 ]
             },
@@ -244,7 +258,6 @@ class AutonomousDesignAgent:
         graph.add_node('tools', ToolNode(self.tools))
 
         graph.add_edge('model', 'router')
-        graph.add_edge('tools', 'model')
 
         graph.set_entry_point('model')
 
@@ -324,7 +337,17 @@ class WorkflowDesigner:
             context=UserContext(user_id=runtime.context.user_id),
         )
 
-        return {'messages': response['messages'], 'workflow_description': response['workflow_description']}
+        return {
+            'messages': [
+                HumanMessage(
+                    content=f'For the above requirements, the following is an analysis plan for reference. Based on the upstream portion, please select appropriate tools for each step to build an actual workflow.\n'
+                    f'<Plan>\n'
+                    f'{response["workflow_description"]}\n'
+                    f'</Plan>'
+                )
+            ],
+            'workflow_description': response['workflow_description'],
+        }
 
     async def summary_paper_node(self, state: DesignState, runtime: Runtime[UserContext]) -> dict[str, Any]:
         """从文献复现Step1 - 文献总结."""
@@ -382,16 +405,7 @@ class WorkflowDesigner:
             }
             build_context: BuildContext = BuildContext(user_id=runtime.context.user_id, has_reference=True)
         else:
-            build_input = {
-                'messages': [
-                    HumanMessage(
-                        content=f'For the above requirements, the following is an analysis plan for reference. Based on the upstream portion, please select appropriate tools for each step to build an actual workflow.\n'
-                        f'<Plan>\n'
-                        f'{state["workflow_description"]}\n'
-                        f'</Plan>'
-                    )
-                ],
-            }
+            build_input = {'messages': state['messages']}
             build_context: BuildContext = BuildContext(user_id=runtime.context.user_id, has_reference=False)
 
         response = await build_workflow_agent.ainvoke(
@@ -439,6 +453,20 @@ class WorkflowDesigner:
         return compiled_graph
 
 
+@tool('ask_human', parse_docstring=True)
+def ask_human(question: str, runtime: ToolRuntime) -> Command:
+    """Consult humans for advice.
+
+    Args:
+        question: Issues to consult with humans
+    """
+    answer = interrupt({'question': question})
+    return Command(
+        goto='model',
+        update={'messages': [ToolMessage(content=f'Human feedback is: "{answer}"', tool_call_id=runtime.tool_call_id)]},
+    )
+
+
 @tool
 async def write_plan(plan: str, runtime: ToolRuntime) -> Command:
     """Write or update your plan.
@@ -448,31 +476,50 @@ async def write_plan(plan: str, runtime: ToolRuntime) -> Command:
     """
     if runtime.state.get('workflow_description'):
         return Command(
+            goto='model',
             update={
                 'workflow_description': plan,
+                'plan_update': True,
                 'messages': [ToolMessage(content='Updated the plan content.', tool_call_id=runtime.tool_call_id)],
-            }
+            },
         )
     return Command(
+        goto='model',
         update={
             'workflow_description': plan,
+            'plan_update': True,
             'messages': [ToolMessage(content='The plan content has been saved.', tool_call_id=runtime.tool_call_id)],
-        }
+        },
     )
 
 
-@tool('ask_human', parse_docstring=True)
-async def wait_for_confirm(question: str, runtime: ToolRuntime) -> Command:
-    """Consult humans for advice.
+@tool(parse_docstring=True)
+async def ask_for_confirm(question: str, runtime: ToolRuntime) -> Command:
+    """Seek human feedback on your plans.
 
     Args:
         question: Issues to consult with humans
     """
+    plan_update = runtime.state.get('plan_update', False)
+    if not plan_update:
+        return Command(
+            goto='model',
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='Before asking for confirm, call `write_plan` to write or update the plan.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            },
+        )
+
     answer = interrupt({'question': question})
     if isinstance(answer, bool) and answer:
         return Command(
-            goto='__end__',
+            goto=END,
             update={
+                'plan_update': False,
                 'messages': [
                     ToolMessage(content='The user agreed with your point.', tool_call_id=runtime.tool_call_id)
                 ],
@@ -480,5 +527,8 @@ async def wait_for_confirm(question: str, runtime: ToolRuntime) -> Command:
         )
     return Command(
         goto='model',
-        update={'messages': [ToolMessage(content=f'Human feedback is: "{answer}"', tool_call_id=runtime.tool_call_id)]},
+        update={
+            'plan_update': False,
+            'messages': [ToolMessage(content=f'Human feedback is: "{answer}"', tool_call_id=runtime.tool_call_id)],
+        },
     )

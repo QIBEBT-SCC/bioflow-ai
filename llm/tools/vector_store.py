@@ -126,23 +126,24 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
 @tool
 async def get_paper_snippets(query: str, runtime: ToolRuntime) -> str:
     """Get relevant paper content from the vector database based on the query."""
-    paper_id = runtime.state.get('paper_id', None)
+    if paper_id := runtime.state.get('paper_id'):
+        documents = await retrieve_documents(query, doc_id=paper_id, k=5)
 
-    documents = await retrieve_documents(query, doc_id=paper_id, k=5)
+        if not documents:
+            return 'Based on your query, no relevant paper content was found.'
 
-    if not documents:
-        return 'Based on your query, no relevant paper content was found.'
+        # 格式化返回的父文档内容
+        content_blocks = '\n\n'.join(
+            [
+                f'<Section title="{doc.metadata.get("Title", "")}" subsection="{doc.metadata.get("Section", "")}">\n'
+                f'{doc.page_content}\n'
+                f'</Section>'
+                for doc in documents
+            ]
+        )
+        return f'Relevant paper content based on your query:\n{content_blocks}'
 
-    # 格式化返回的父文档内容
-    content_blocks = '\n\n'.join(
-        [
-            f'<Section title="{doc.metadata.get("Title", "")}" subsection="{doc.metadata.get("Section", "")}">\n'
-            f'{doc.page_content}\n'
-            f'</Section>'
-            for doc in documents
-        ]
-    )
-    return f'Relevant paper content based on your query:\n{content_blocks}'
+    return 'In the current environment, there are no references; please make decisions based on your own judgment.'
 
 
 @tool(parse_docstring=True)
