@@ -199,9 +199,9 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
 
 @register_handler('code_python', 'code_R')
 class SimpleCodeTaskHandler(BaseTaskHandler):
-    """处理下游分析代码节点
+    """处理下游分析代码节点.
 
-    这个处理器不创建 Celery 任务和 TaskInstance，
+    这个处理器不创建 Celery 任务和 TaskInstance
     只将代码信息添加到 context.downstream_files 中供后续使用
     """
 
@@ -212,13 +212,9 @@ class SimpleCodeTaskHandler(BaseTaskHandler):
         raise NotImplementedError('SimpleCodeTaskHandler 不创建 Celery 任务')
 
     def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
-        """不创建任务，只记录下游代码信息"""
-
+        """不创建任务, 只记录下游代码信息."""
         node_inputs = task_node.kwarg['input_files']
-        if isinstance(list, node_inputs):
-            input_files = node_inputs
-        else:
-            input_files = [node_inputs]
+        input_files = node_inputs if isinstance(node_inputs, list) else [node_inputs]
 
         context.downstream_files.extend(input_files)
 

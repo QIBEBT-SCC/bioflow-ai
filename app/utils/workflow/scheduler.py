@@ -1,4 +1,4 @@
-"""任务调度器
+"""任务调度器.
 
 负责工作流节点的排序、DAG 构建和任务分发
 """
@@ -20,7 +20,7 @@ from .handler_base import TaskContext, get_handler
 
 
 def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
-    """刷新节点ID
+    """刷新节点ID.
 
     用于从模板中实例化节点时刷新节点ID
 
@@ -33,7 +33,7 @@ def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
     for node in workflow.nodes:
         old_id = node.id
         new_id = uuid7str()
-        # 不用刷新edge id，这玩意没用
+        # 不用刷新edge id, 这玩意没用
         for edge in workflow.edges:
             if edge.source == old_id:
                 edge.source = new_id
@@ -49,10 +49,10 @@ def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
 
 
 def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
-    """对任务队列进行重组排序
+    """对任务队列进行重组排序.
 
-    分析react-flow原始数据，转换为DAG
-    剔除单独节点（出入度为0），按深度分层排序
+    分析react-flow原始数据, 转换为DAG
+    剔除单独节点 (出入度为0) , 按深度分层排序
 
     Args:
         workflow: 原始react-flow数据
@@ -78,14 +78,14 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
         # 检查该参数是否已存在输入
         if target_param in node_map[edge.target].kwarg:
             existing = node_map[edge.target].kwarg[target_param]
-            # 如果已经是列表，追加
+            # 如果已经是列表, 追加
             if isinstance(existing, list):
                 existing.append(task_input)
-            # 如果是单个TaskInput，转换为列表
+            # 如果是单个TaskInput, 转换为列表
             else:
                 node_map[edge.target].kwarg[target_param] = [existing, task_input]
         else:
-            # 首次添加，保持单个TaskInput
+            # 首次添加, 保持单个TaskInput
             node_map[edge.target].kwarg[target_param] = task_input
 
     # DAG排序
@@ -113,7 +113,7 @@ def send_task(
     owner: User,
     auto_fill: Optional[str] = None,
 ) -> None:
-    """构建实际任务队列，并发送至celery worker
+    """构建实际任务队列, 并发送至celery worker.
 
     Args:
         session: SQLModel 会话
@@ -124,7 +124,6 @@ def send_task(
         owner: 任务创建者
         auto_fill: 自动填充输入序列
     """
-
     rich.print(task_nodes)
 
     # 创建任务上下文
@@ -155,7 +154,7 @@ def send_task(
             # 更新任务索引
             context.task_index = new_task_index
 
-            # 添加到子任务列表（如果任务不为空）
+            # 添加到子任务列表 (如果任务不为空)
             if celery_task is not None:
                 sub_tasks.append(celery_task)
 
