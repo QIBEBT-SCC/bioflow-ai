@@ -22,40 +22,82 @@ from app.utils.input_format import PartialFormatter, build_command_template
 from worker import celery_app, monitor_redis_client
 
 
+def _resolve_mount_path(mount_paths: dict[str, Path], container_mount_path: str, host_mount_path: Path) -> str:
+    """当不同宿主机路径被挂载到同一容器路径时, 自动分配一个不冲突的容器挂载路径.
+
+    策略: 使用 {原容器路径}/{宿主机目录名} 作为新路径, 若仍冲突则追加序号.
+    """
+    abs_host = host_mount_path.absolute()
+    existing = mount_paths.get(container_mount_path)
+
+    # 无冲突: 路径未使用, 或已映射到同一宿主机目录
+    if existing is None or existing == abs_host:
+        return container_mount_path
+
+    # 冲突: 用宿主机目录名做子路径
+    candidate = f'{container_mount_path}/{host_mount_path.name}'
+    counter = 1
+    while candidate in mount_paths and mount_paths[candidate] != abs_host:
+        candidate = f'{container_mount_path}/{host_mount_path.name}_{counter}'
+        counter += 1
+
+    logger.warning(
+        f'挂载冲突: {container_mount_path} 已映射到 {existing}, '
+        f'将 {abs_host} 重定向到 {candidate}'
+    )
+    return candidate
+
+
 def build_mounts(
     file_mounts: list[FileMount], host_output_dir: str, sample_name: str, inputs: dict[str, TaskInput]
 ) -> tuple[dict[str, str], dict[str, Path], ToolOutput]:
+    """构建挂载映射."""
     param_inputs: dict[str, str] = {}  # 用于构建参数的文件路径
     mount_paths: dict[str, Path] = {}  # 存储挂载的路径映射
     expected_output = ToolOutput()  # 预期输出文件路径
 
-    # 接下来的内部变量：
-    # host_file_path：宿主机上文件的路径
-    # host_mount_path：宿主机上要挂载的文件夹
-    # container_file_path：容器内文件的路径
-    # file.mount_path：容器内的文件夹映射
+    # 内部变量:
+    # host_file_path: 宿主机上文件的路径
+    # host_mount_path: 宿主机上要挂载的文件夹 (仅目录/前缀模式使用)
+    # container_file_path: 容器内文件的路径
+    # file.mount_path: 容器内的文件夹映射 (定义值)
+    # actual_mount_path: 冲突解决后实际使用的容器挂载路径 (仅目录/前缀模式使用)
+    # 注意: mount_paths 同时包含文件级挂载(key为容器内文件路径)和目录级挂载(key为容器内目录路径)
 
     for file in file_mounts:
         if file.file_type == 'INPUT':
-            # 输入文件，提取资源文件
+            # 输入文件, 提取资源文件
             kwarg = inputs[file.name]
             file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
             host_file_path = Path(file_path)
 
-            if host_file_path.is_dir():
-                # 文件夹
-                host_mount_path = host_file_path
-                container_file_path = file.mount_path
-            else:
-                # 文件或类似/path/prefix的情况
-                host_mount_path = host_file_path.parent
+            if host_file_path.is_file():
+                # 文件: 直接挂载文件本身, 不同文件可以共存于同一容器目录
                 container_file_path = f'{file.mount_path}/{host_file_path.name}'
+                mount_paths[container_file_path] = host_file_path.absolute()
+            elif host_file_path.is_dir():
+                # 文件夹: 整目录挂载, 需要冲突检查
+                host_mount_path = host_file_path
+                actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
+                container_file_path = actual_mount_path
+                if actual_mount_path not in mount_paths:
+                    mount_paths[actual_mount_path] = host_mount_path.absolute()
+            else:
+                # 不存在的路径, 视为文件夹+文件名前缀, 取父目录按文件夹处理
+                host_mount_path = host_file_path.parent
+                actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
+                container_file_path = f'{actual_mount_path}/{host_file_path.name}'
+                if actual_mount_path not in mount_paths:
+                    mount_paths[actual_mount_path] = host_mount_path.absolute()
 
         else:
-            # 输出文件，添加期望输出
+            # 输出文件, 添加期望输出
             host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
             host_mount_path = Path(host_output_dir)
-            container_file_path = f'{file.mount_path}/{host_file_path.name}'
+            actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
+            container_file_path = f'{actual_mount_path}/{host_file_path.name}'
+            if actual_mount_path not in mount_paths:
+                mount_paths[actual_mount_path] = host_mount_path.absolute()
 
             if file.is_log:
                 expected_output.log = host_file_path.absolute()
@@ -63,10 +105,6 @@ def build_mounts(
                 expected_output.reports[file.name] = host_file_path.absolute()
             else:
                 expected_output.result[file.name] = host_file_path.absolute()
-
-        # 添加挂载项
-        if file.mount_path not in mount_paths:
-            mount_paths[file.mount_path] = host_mount_path.absolute()
 
         # 添加指令组成(容器内路径)
         param_inputs[file.name] = container_file_path
@@ -77,7 +115,7 @@ def build_mounts(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def docker_task(
     self: Task,
-    result_dict: Optional[dict[str, Any]] = None,
+    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
     *,
     tool_uid: str,
     inputs: dict[str, TaskInput],
@@ -85,13 +123,13 @@ def docker_task(
     sample_name: str,
     params: str = '',
 ) -> ToolOutput:
-    """通用Docker工具执行任务
+    """通用Docker工具执行任务.
 
     Args:
         self: Celery任务
-        result_dict: 用于占位，防止celery链式调用时报错
-        tool_uid: 工具uid，用于从数据库获取具体信息
-        inputs: 输入参数字典，格式为 {参数名: (uid, 类型)}
+        result_dict: 用于占位, 防止celery链式调用时报错
+        tool_uid: 工具uid, 用于从数据库获取具体信息
+        inputs: 输入参数字典, 格式为 {参数名: (uid, 类型)}
         output_dir: 输出目录
         params: 额外参数
         sample_name: 样本名称
@@ -99,7 +137,7 @@ def docker_task(
     Returns:
         ToolOutput: 工具输出结果
     """
-    assert self.request.id is not None
+    assert self.request.id is not None  # noqa: S101
 
     tool_config = get_tool_data(tool_uid)
     logger.debug(f'task {self.request.id} start: {tool_config.name}')
@@ -140,7 +178,7 @@ def docker_task(
     # 运行docker命令
     log_count = 0
     if get_settings().docker.CONTAINER == 'podman':
-        from app.utils.container.podman import run_podman_background
+        from app.utils.container.podman import run_podman_background  # noqa: PLC0415
 
         for stats in run_podman_background(
             docker_image, command=tool_command, mounts=volume_binds, workdir='/data/output'
@@ -152,7 +190,7 @@ def docker_task(
             if log_count % 100 == 0:
                 update_monitor_redis(self.request.id)
     else:
-        from app.utils.container.docker import run_docker_background
+        from app.utils.container.docker import run_docker_background  # noqa: PLC0415
 
         for stats in run_docker_background(
             docker_image, command=tool_command, mounts=volume_binds, working_dir='/data/output'
