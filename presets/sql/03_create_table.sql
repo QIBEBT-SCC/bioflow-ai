@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS samples
     FOREIGN KEY (project_id) REFERENCES projects
 );
 
-CREATE TYPE samplefiletype AS ENUM ('SEQUENCING_R1','SEQUENCING_R2','SPECTRUM','IMAGE');
+CREATE TYPE samplefiletype AS ENUM ('SEQUENCING_R1','SEQUENCING_R2','SEQUENCING','SPECTRUM','IMAGE');
 CREATE TABLE IF NOT EXISTS sample_files
 (
     uid           uuid           NOT NULL,
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS sample_files
     data_type     samplefiletype NOT NULL,
     file_path     VARCHAR        NOT NULL,
     file_format   VARCHAR        NOT NULL,
-    file_size     INTEGER        NOT NULL,
+    file_size     BIGINT         NOT NULL,
     md5_checksum  VARCHAR        NOT NULL,
     uploaded_time TIMESTAMP      NOT NULL,
     PRIMARY KEY (uid),

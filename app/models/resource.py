@@ -4,7 +4,7 @@ from enum import IntEnum
 from typing import Optional
 
 import uuid_extensions
-from sqlalchemy import Column
+from sqlalchemy import BigInteger, Column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -41,7 +41,7 @@ class SampleFiles(SQLModel, table=True):
     data_type: SampleFileType
     file_path: str
     file_format: str
-    file_size: int
+    file_size: int = Field(sa_type=BigInteger)
     md5_checksum: str
     uploaded_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
