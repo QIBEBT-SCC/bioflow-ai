@@ -46,6 +46,7 @@ This editor includes the following types of nodes:
 - Code nodes: execute custom bash scripts or R, Python code.
 
 You cannot directly operate nodes; you can only request to add nodes by calling the corresponding manager tools. You need to pass the specific requirements of the current task to the appropriate manager tools so that they can correctly add the required nodes.
+Generally, you ONLY need to decide to add Resource nodes, Processor nodes, and Code nodes when reading initial data or in special scenarios within other SKILLs; in other cases, tool_manager will automatically add other types of nodes required by the tool.
 
 ## Notes
 - Only one task can be processed at a time. Ensure that the current task has been marked as `completed` before starting the next task.
