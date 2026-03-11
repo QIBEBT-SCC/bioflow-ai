@@ -331,7 +331,7 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
                         f'Based on the keywords, the following tool nodes are available '
                         f'(To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n'
                         f'<tools>\n{"\n\n".join(tool_blocks)}\n</tools>\n\n'
-                        f'Note that if you are reproducing the workflow rather than designing it yourself, the selection of tools must strictly follow the original paper (the versions can be different).',
+                        f'Note that tool_id is only valid for this search; if this tool is called again, the tool_id from the previous search will become invalid.',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ],
