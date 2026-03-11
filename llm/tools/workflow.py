@@ -1,10 +1,11 @@
 import datetime
+import json
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import ToolException, tool
 from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
+from langgraph.types import Command, Overwrite
 from pydantic import ValidationError
 from sqlmodel import Session
 
@@ -17,11 +18,9 @@ from app.schemas.react_flow import Edge, Node, NodeData, Position, WorkflowDefin
 from app.schemas.tools import Handle, ToolNodePublic
 from llm.states import BuildEdge, BuildNode, BuildSchema, GlobalMarker, UserContext
 from llm.utils.formatters import (
-    edge_formatter,
     global_mark_formatter,
     handle_formatter,
     node_formatter,
-    simple_node_formatter,
 )
 from llm.utils.node_schema import PROCESSORS, RESOURCES
 from llm.utils.uid_mapper import generate_char_index
@@ -33,13 +32,23 @@ if TYPE_CHECKING:
 @tool
 async def view_workflow(runtime: ToolRuntime) -> str:
     """View the current workflow structure."""
-    nodes = [f'    {simple_node_formatter(n)}' for n in runtime.state.get('exist_nodes', [])]
-    node_content = f'  <Nodes>\n{"\n".join(nodes)}\n  </Nodes>' if nodes else '  <Nodes>Empty</Nodes>'
+    if runtime.state.get('exist_nodes', []):
+        nodes = [
+            {'id': n.id, 'name': n.name, 'type': n.type, 'x': n.x, 'y': n.y}
+            for n in runtime.state.get('exist_nodes', [])
+        ]
+        edges = [
+            {
+                'source_node': e.source_node,
+                'source_handle': e.source_handle,
+                'target_node': e.target_node,
+                'target_handle': e.target_handle,
+            }
+            for e in runtime.state.get('exist_edges', [])
+        ]
+        return json.dumps({'nodes': nodes, 'edges': edges}, ensure_ascii=False)
 
-    edges = [f'    {edge_formatter(e)}' for e in runtime.state.get('exist_edges', [])]
-    edge_content = f'  <Edges>\n{"\n".join(edges)}\n  </Edges>' if edges else '  <Edges>Empty</Edges>'
-
-    return f'<Workflow>\n{node_content}\n\n{edge_content}\n</Workflow>'
+    return 'The current workflow panel is empty.'
 
 
 @tool(parse_docstring=True)
@@ -58,9 +67,83 @@ async def view_node_details(node_id: str, runtime: ToolRuntime) -> str:
 
 
 @tool(parse_docstring=True)
+async def delete_node(node_id: str, runtime: ToolRuntime) -> Command:
+    """Remove existing node from the panel.
+
+    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
+
+    Args:
+        node_id: Node ID to be deleted
+    """
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    exist_edges: list[BuildEdge] = runtime.state.get('exist_edges', [])
+
+    target_node = next((n for n in exist_nodes if n.id == node_id), None)
+    if target_node is None:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(content=f'Error: Node "{node_id}" not found.', tool_call_id=runtime.tool_call_id)
+                ],
+            }
+        )
+
+    removed_edges = [e for e in exist_edges if node_id in (e.source_node, e.target_node)]
+    remaining_edges = [e for e in exist_edges if node_id not in (e.source_node, e.target_node)]
+    remaining_nodes = [n for n in exist_nodes if n.id != node_id]
+
+    # Reassign IDs sequentially and build remapping table
+    id_map: dict[str, str] = {}
+    for i, node in enumerate(remaining_nodes):
+        new_id = generate_char_index(i + 1)
+        if node.id != new_id:
+            id_map[node.id] = new_id
+            node.id = new_id
+
+    # Update edge references with new IDs
+    for edge in remaining_edges:
+        if edge.source_node in id_map:
+            edge.source_node = id_map[edge.source_node]
+        if edge.target_node in id_map:
+            edge.target_node = id_map[edge.target_node]
+
+    # Build deletion report
+    if removed_edges:
+        edge_lines = []
+        for e in removed_edges:
+            if e.source_node == node_id:
+                edge_lines.append(
+                    f'  - outgoing → node {e.target_node} (handle: {e.source_handle} → {e.target_handle})'
+                )
+            else:
+                edge_lines.append(
+                    f'  - incoming ← node {e.source_node} (handle: {e.source_handle} → {e.target_handle})'
+                )
+        edge_summary = f'{len(removed_edges)} edge(s) removed:\n' + '\n'.join(edge_lines)
+    else:
+        edge_summary = 'No edges were connected to this node.'
+
+    id_remap_summary = ', '.join(f'{old}→{new}' for old, new in id_map.items()) if id_map else 'no changes'
+
+    msg = (
+        f'Deleted node {node_id} ("{target_node.name}", type={target_node.type}, '
+        f'pos={{x:{target_node.x}, y:{target_node.y}}}).\n'
+        f'{edge_summary}\n'
+        f'Node ID reassignment: {id_remap_summary}.'
+    )
+
+    return Command(
+        update={
+            'exist_nodes': Overwrite(remaining_nodes),
+            'exist_edges': Overwrite(remaining_edges),
+            'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
+        }
+    )
+
+
+@tool(parse_docstring=True)
 async def add_tool_node(
     selected_id: int,
-    update_args: Optional[str],
     input_edges: list[BuildEdge],
     pos_x: int,
     pos_y: int,
@@ -72,7 +155,6 @@ async def add_tool_node(
 
     Args:
         selected_id: The tool ID of the corresponding node source
-        update_args: Updated parameters for this tool node. Leave blank means not modifying parameters. Note that if you pass an empty string, it also means modifying parameters.
         input_edges: Input edge connection list for this node. Each input handle allows only one edge to be connected.
         pos_x: The x-coordinate of the node's layout on the panel, only positive integer
         pos_y: The y-coordinate of the node's layout on the panel
@@ -85,15 +167,14 @@ async def add_tool_node(
         db_tool = tool_crud.get(session, tool_uid)
         db_node = ToolNodePublic.model_validate(db_tool.model_dump())
 
-        tool_arg = db_node.modifiable_static_params if update_args is None else update_args
         new_node = BuildNode(
             id=node_id,
             name=db_node.name,
             type='tool',
             input_handles=db_node.input_handles,
             output_handles=db_node.output_handles,
-            data=NodeData(resource_uid=tool_uid, args=tool_arg),
-            command=db_node.complete_command.replace(db_node.modifiable_static_params, tool_arg),
+            data=NodeData(resource_uid=tool_uid, args=db_node.modifiable_static_params),
+            command=db_node.complete_command,
             x=pos_x,
             y=pos_y,
         )
@@ -214,6 +295,29 @@ async def add_resource_node(
             node_data = NodeData(args={'r1': '', 'r2': ''})
         case 'global_file':
             node_data = NodeData(args=arguments)
+        case 'value_string':
+            node_data = NodeData(args=arguments['content'])
+            new_node = BuildNode(
+                id=node_id,
+                name=resource_schema['name'],
+                type='value_string',
+                input_handles=[],
+                output_handles=resource_schema['output_handles'],
+                data=node_data,
+                x=pos_x,
+                y=pos_y,
+            )
+            return Command(
+                update={
+                    'exist_nodes': [new_node],
+                    'messages': [
+                        ToolMessage(
+                            content=f'add new resource node:\n{node_formatter(new_node)}',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ],
+                }
+            )
         case _:
             node_data = NodeData(args='')
 
