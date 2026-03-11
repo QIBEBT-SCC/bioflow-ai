@@ -27,7 +27,7 @@ from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
 from llm.agents.tool_manager.generate_tool_config import tool_generator_agent
 from llm.agents.tool_manager.searcher.doc import doc_searcher
-from llm.agents.tool_manager.searcher.image import GetImageAgent
+from llm.agents.tool_manager.searcher.image import GetImageAgent, search_image_agent
 from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
 from llm.agents.tool_manager.test_run_agent import test_run_agent
 from llm.models import get_agent_model, get_high_performance_model, qwen3_embedding
@@ -129,7 +129,6 @@ class CreateToolAgent:
         self.think_llm = get_agent_model()
 
         # sub agents
-        self.search_image_agent = GetImageAgent().build()
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, select_group],
@@ -152,7 +151,7 @@ class CreateToolAgent:
             writer({'info': 'Searching for docker image...'})
 
             search_input: SearchImageState = {'messages': state['messages']}
-            response = await self.search_image_agent.ainvoke(search_input)
+            response = await search_image_agent.ainvoke(search_input)
 
             return {
                 'image_uid': response['image_uid'],
