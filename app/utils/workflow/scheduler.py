@@ -15,8 +15,7 @@ from uuid_extensions import uuid7str
 
 from app.models.user import User
 from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
-
-from .handler_base import TaskContext, get_handler
+from app.utils.workflow import TaskContext, get_handler
 
 
 def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
@@ -68,9 +67,7 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
     # 构建TaskNode
     node_map: dict[str, TaskNode] = {}
     for node in workflow.nodes:
-        node_map[node.id] = TaskNode(
-            id=node.id, type=node.type, resource_uid=node.data.resource_uid, args=node.data.args
-        )
+        node_map[node.id] = TaskNode(id=node.id, type=node.type, data=node.data)
     for edge in workflow.edges:
         target_param = edge.targetHandle.split('-in-')[-1]
         task_input = TaskInput(source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1])

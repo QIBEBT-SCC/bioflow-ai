@@ -8,7 +8,6 @@ from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import BaseModel, Field
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
-from app.schemas.react_flow import NodeData
 from app.schemas.tools import Handle
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -141,7 +140,7 @@ class BuildNode(BaseModel):
     type: str
     input_handles: list[Handle]
     output_handles: list[Handle]
-    data: NodeData
+    data: dict[str, Any] = Field(default_factory=dict)
     command: Optional[str] = None
     x: int
     y: int

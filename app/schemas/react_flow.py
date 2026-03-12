@@ -8,28 +8,23 @@ class Position(BaseModel):
     y: float
 
 
-class NodeData(BaseModel):
-    resource_uid: Optional[str] = None
-    args: str | dict[str, Any]
-
-
 class NodeBase(BaseModel):
     id: str
     type: str
-    data: NodeData
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class Node(NodeBase):
     position: Position
-    dragHandle: str
-    zIndex: int
+    dragHandle: str  # noqa: N815
+    zIndex: int  # noqa: N815
 
 
 class EdgeBase(BaseModel):
     source: str
-    sourceHandle: str
+    sourceHandle: str  # noqa: N815
     target: str
-    targetHandle: str
+    targetHandle: str  # noqa: N815
 
 
 class Edge(EdgeBase):
@@ -52,6 +47,5 @@ class TaskInput(BaseModel):
 class TaskNode(BaseModel):
     id: str
     type: str
-    resource_uid: Optional[str] = None
-    args: str | dict[str, Any]
+    data: dict[str, Any]
     kwarg: dict[str, TaskInput | list[TaskInput]] = Field(default_factory=dict)

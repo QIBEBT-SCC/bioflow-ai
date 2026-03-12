@@ -1,4 +1,4 @@
-"""任务处理器基础框架
+"""任务处理器基础框架.
 
 提供任务处理器的基类、装饰器和注册表机制
 """
@@ -18,7 +18,7 @@ from app.schemas.react_flow import TaskNode
 
 
 class TaskContext:
-    """任务处理上下文，封装处理器需要的所有共享数据"""
+    """任务处理上下文, 封装处理器需要的所有共享数据."""
 
     def __init__(
         self,
@@ -43,13 +43,20 @@ class TaskContext:
 
 # ==================== 任务处理器注册表 ====================
 
-# 全局注册表：映射节点类型到处理器实例
+# 全局注册表: 映射节点类型到处理器实例
 _TASK_HANDLERS: dict[str, 'BaseTaskHandler'] = {}
 
 
+class EmptyNodeTypeError(ValueError):
+    pass
+
+
+class NotRegisterError(Exception):
+    pass
+
+
 def register_handler(*node_types: str):
-    """
-    装饰器：注册任务处理器
+    """装饰器: 注册任务处理器.
 
     支持单个或多个节点类型注册到同一个处理器
 
@@ -59,13 +66,14 @@ def register_handler(*node_types: str):
         class ToolTaskHandler(BaseTaskHandler):
             ...
 
-        # 多个类型（别名）
+        # 多个类型 (别名)
         @register_handler('type1', 'type2', 'type3')
         class MultiTypeHandler(BaseTaskHandler):
             ...
     """
     if not node_types:
-        raise ValueError('至少需要提供一个节点类型')
+        err_msg = '至少需要提供一个节点类型'
+        raise EmptyNodeTypeError(err_msg)
 
     def decorator(handler_class: type['BaseTaskHandler']) -> type['BaseTaskHandler']:
         # 创建一个处理器实例
@@ -82,18 +90,17 @@ def register_handler(*node_types: str):
 
 
 def get_handler(node_type: str) -> Optional['BaseTaskHandler']:
-    """获取指定节点类型的处理器"""
+    """获取指定节点类型的处理器."""
     return _TASK_HANDLERS.get(node_type)
 
 
 def get_all_handlers() -> dict[str, 'BaseTaskHandler']:
-    """获取所有已注册的处理器"""
+    """获取所有已注册的处理器."""
     return _TASK_HANDLERS.copy()
 
 
 def register_alias(alias: str, original_type: str) -> None:
-    """
-    为已注册的处理器添加别名
+    """为已注册的处理器添加别名.
 
     Args:
         alias: 新的别名
@@ -112,7 +119,8 @@ def register_alias(alias: str, original_type: str) -> None:
         register_alias('alias2', 'primary_name')
     """
     if original_type not in _TASK_HANDLERS:
-        raise ValueError(f'原始类型 {original_type} 未注册')
+        err_msg = f'Original type {original_type} not registered'
+        raise NotRegisterError(err_msg)
 
     handler = _TASK_HANDLERS[original_type]
     _TASK_HANDLERS[alias] = handler
@@ -123,21 +131,18 @@ def register_alias(alias: str, original_type: str) -> None:
 
 
 class BaseTaskHandler(ABC):
-    """任务处理器基类"""
+    """任务处理器基类."""
 
     @abstractmethod
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:
-        """创建 TaskInstance 数据库记录"""
-        pass
+        """创建 TaskInstance 数据库记录."""
 
     @abstractmethod
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:
-        """创建 Celery 任务签名"""
-        pass
+        """创建 Celery 任务签名."""
 
     def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
-        """
-        处理任务节点
+        """处理任务节点.
 
         Returns:
             tuple: (celery_task, new_task_index)
@@ -149,5 +154,5 @@ class BaseTaskHandler(ABC):
         # 创建 Celery 任务
         celery_task = self.create_celery_task(task_node, context)
 
-        # 返回任务和更新后的索引（默认不递增）
+        # 返回任务和更新后的索引 (默认不递增)
         return celery_task, context.task_index

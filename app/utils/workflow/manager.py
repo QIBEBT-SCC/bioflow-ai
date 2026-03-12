@@ -1,4 +1,4 @@
-"""运行实例管理器
+"""运行实例管理器.
 
 负责批量创建和管理工作流运行实例
 """
@@ -17,9 +17,8 @@ from app.crud import workflow as wf_crud
 from app.models.user import User
 from app.models.workflow import RunInstance, Status
 from app.schemas.project_workflow import WorkflowRunResult
-from worker import monitor_redis_client
-
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
+from worker import monitor_redis_client
 
 
 def create_runs_from_samples(
@@ -30,9 +29,9 @@ def create_runs_from_samples(
     current_user: User,
     run_name_prefix: Optional[str] = None,
 ) -> WorkflowRunResult:
-    """从样本列表批量创建运行实例
+    """从样本列表批量创建运行实例.
 
-    为每个样本创建一个独立的 RunInstance，并提交任务执行
+    为每个样本创建一个独立的 RunInstance, 并提交任务执行
 
     Args:
         session: 数据库会话
@@ -40,7 +39,7 @@ def create_runs_from_samples(
         workflow_uid: 工作流模板 UID
         sample_uids: 样本 UID 列表
         current_user: 当前用户
-        run_name_prefix: 运行名称前缀（可选）
+        run_name_prefix: 运行名称前缀 (可选)
 
     Returns:
         WorkflowRunResult: 包含创建的运行实例 UID 列表
@@ -96,7 +95,7 @@ def create_runs_from_samples(
         # 计算总任务数
         total_tasks = sum(len(sub_group) for sub_group in task_list)
 
-        # 在 Redis 中初始化运行实例的任务统计信息（使用 Hash 结构）
+        # 在 Redis 中初始化运行实例的任务统计信息 (使用 Hash 结构)
         try:
             redis_key = f'run-stats-{run.uid}'
             monitor_redis_client.hset(

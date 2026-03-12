@@ -1,6 +1,6 @@
-"""运行统计信息
+"""Runtime Statistics.
 
-负责从 Redis 查询运行实例的统计信息
+Responsible for querying runtime instance statistics from Redis.
 """
 
 from typing import Optional
@@ -13,14 +13,14 @@ from app.schemas.common import Statistics
 
 
 async def get_run_stats_from_redis(redis_client: AsyncRedis, run_uid: str) -> Optional[Statistics]:
-    """从 Redis Hash 中获取运行实例的统计信息（异步版本）
+    """Retrieve statistics of a running instance from Redis Hash (async version).
 
     Args:
-        redis_client: 异步 Redis 客户端
-        run_uid: 运行实例 UID
+        redis_client: Async Redis client
+        run_uid: Running instance UID
 
     Returns:
-        Statistics: 统计信息对象，如果不存在则返回 None
+        Statistics: Statistics object, or None if it does not exist
     """
     redis_key = f'run-stats-{run_uid}'
 
@@ -45,14 +45,14 @@ async def get_run_stats_from_redis(redis_client: AsyncRedis, run_uid: str) -> Op
 
 
 def get_run_stats_from_redis_sync(redis_client: Redis, run_uid: str) -> Optional[Statistics]:
-    """从 Redis Hash 中获取运行实例的统计信息（同步版本）
+    """Retrieve statistics for a running instance from a Redis Hash (synchronous version).
 
     Args:
-        redis_client: 同步 Redis 客户端
-        run_uid: 运行实例 UID
+        redis_client: Synchronous Redis client
+        run_uid: Running instance UID
 
     Returns:
-        Statistics: 统计信息对象，如果不存在则返回 None
+        Statistics: Statistics object, or None if it does not exist
     """
     redis_key = f'run-stats-{run_uid}'
 

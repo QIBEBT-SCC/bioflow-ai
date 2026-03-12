@@ -260,6 +260,7 @@ def load_genome_task(
         }
 
         # 处理每个需要的索引
+        logger.info(f'同时加载索引: {required_index}')
         for index_name in required_index:
             if index_name in index_builders:
                 # 检查数据库中是否已存在该索引

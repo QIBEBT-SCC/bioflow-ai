@@ -8,7 +8,7 @@ from app.schemas.tools import Handle
 class NodeSchema(TypedDict):
     name: str
     description: NotRequired[str]
-    args: Type[BaseModel]
+    args: type[BaseModel]
     input_handles: list[Handle]
     output_handles: list[Handle]
 
@@ -26,6 +26,7 @@ class RenameFileSchema(BaseModel):
     new_file_name: str
 
 
+# 资源节点
 class SequenceResourceSchema(BaseModel):
     pass
 
@@ -47,7 +48,7 @@ class GenomeResourceSchema(BaseModel):
 
 
 class ValueStringResourceSchema(BaseModel):
-    pass
+    value: str
 
 
 PROCESSORS: dict[str, NodeSchema] = {
@@ -133,7 +134,7 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'value_string': {
         'name': 'String Value',
-        'description': 'This node encapsulates a string variable, which can be used as input for other nodes.',
+        'description': 'This node encapsulates a string variable, which can be used as input for other nodes. Use the `value` parameter to specify the content of string',
         'args': ValueStringResourceSchema,
         'input_handles': [],
         'output_handles': [Handle(name='value', description='string value')],

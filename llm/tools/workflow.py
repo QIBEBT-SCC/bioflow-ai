@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Literal, Optional
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import ToolException, tool
@@ -9,12 +9,11 @@ from langgraph.types import Command, Overwrite
 from pydantic import ValidationError
 from sqlmodel import Session
 
-import app.crud.resource.bio_db as db_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.workflow as wf_crud
 from app.core.session import engine
 from app.models.workflow import Workflow, WorkflowType
-from app.schemas.react_flow import Edge, Node, NodeData, Position, WorkflowDefinition
+from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from app.schemas.tools import Handle, ToolNodePublic
 from llm.states import BuildEdge, BuildNode, BuildSchema, GlobalMarker, UserContext
 from llm.utils.formatters import (
@@ -24,9 +23,6 @@ from llm.utils.formatters import (
 )
 from llm.utils.node_schema import PROCESSORS, RESOURCES
 from llm.utils.uid_mapper import generate_char_index
-
-if TYPE_CHECKING:
-    from app.models.resource import BioDb
 
 
 @tool
@@ -173,7 +169,7 @@ async def add_tool_node(
             type='tool',
             input_handles=db_node.input_handles,
             output_handles=db_node.output_handles,
-            data=NodeData(resource_uid=tool_uid, args=db_node.modifiable_static_params),
+            data={'tool_uid': tool_uid, 'args': db_node.modifiable_static_params},
             command=db_node.complete_command,
             x=pos_x,
             y=pos_y,
@@ -227,11 +223,11 @@ async def view_resource_node(node_name: str) -> str:
 @tool(parse_docstring=True)
 async def add_resource_node(
     resource_type: Literal['sequence', 'file', 'db', 'genome', 'value_string', 'global_file'],
-    arguments: Optional[dict[str, Any]],
     input_edges: list[BuildEdge],
     pos_x: int,
     pos_y: int,
     runtime: ToolRuntime[UserContext],
+    arguments: Optional[dict[str, Any]] = None,
 ) -> Command:
     """Add a resource node to the workflow.
 
@@ -239,10 +235,10 @@ async def add_resource_node(
 
     Args:
         resource_type: Resource node type
-        arguments: Parameters of the resource node. Not all resource nodes need to have parameters set; the specific situation depends on user instructions.
         input_edges: Input edge connection list for this node
         pos_x: The x-coordinate of the node's layout on the panel, only positive integer
         pos_y: The y-coordinate of the node's layout on the panel
+        arguments: Parameters of the resource node. Not all resource nodes need to have parameters set; the specific situation depends on user instructions.
     """
     node_count = len(runtime.state.get('exist_nodes', []))
     node_id = generate_char_index(node_count + 1)
@@ -263,6 +259,7 @@ async def add_resource_node(
     # 验证参数
     if arguments is None:
         arguments = {}
+
     try:
         resource_schema['args'].model_validate(arguments)
     except ValidationError as e:
@@ -286,24 +283,14 @@ async def add_resource_node(
 
     # 准备节点数据
     match resource_type:
-        case 'db':
-            with Session(engine) as session:
-                selected_id = arguments['db_id']
-                db_db: BioDb = db_crud.get(session, selected_id)
-                node_data = NodeData(args=f'db:{db_db.name}', resource_uid=f'{selected_id}')
-        case 'sequence':
-            node_data = NodeData(args={'r1': '', 'r2': ''})
-        case 'global_file':
-            node_data = NodeData(args=arguments)
         case 'value_string':
-            node_data = NodeData(args=arguments['content'])
             new_node = BuildNode(
                 id=node_id,
                 name=resource_schema['name'],
                 type='value_string',
                 input_handles=[],
                 output_handles=resource_schema['output_handles'],
-                data=node_data,
+                data=arguments,
                 x=pos_x,
                 y=pos_y,
             )
@@ -318,8 +305,14 @@ async def add_resource_node(
                     ],
                 }
             )
+        case 'sequence':
+            node_data = {'r1': '', 'r2': ''}
+        case 'file':
+            node_data = {'file_path': ''}
+        case 'genome':
+            node_data = {'required_index': []}
         case _:
-            node_data = NodeData(args='')
+            node_data = arguments
 
     # 创建节点
     new_node = BuildNode(
@@ -457,7 +450,7 @@ async def add_processor_node(
         type=processor_name,
         input_handles=PROCESSORS[processor_name]['input_handles'],
         output_handles=PROCESSORS[processor_name]['output_handles'],
-        data=NodeData(args=arguments, resource_uid=''),
+        data=arguments,
         x=pos_x,
         y=pos_y,
     )
@@ -509,7 +502,7 @@ async def add_code_node(
         type=f'code_{language}',
         input_handles=[Handle(name='input_files', description='The files required by this code')],
         output_handles=[Handle(name='output_folder', description='The files generated by this code')],
-        data=NodeData(args=f'{{"description":"{program_request}","code":{code if code else ""}}}'),
+        data={'description': program_request, 'code': code},
         x=pos_x,
         y=pos_y,
     )
@@ -550,7 +543,7 @@ async def add_note_node(note_content: str, pos_x: int, pos_y: int, runtime: Tool
         type='note',
         input_handles=[],
         output_handles=[],
-        data=NodeData(args=note_content),
+        data={'content': note_content},
         x=pos_x,
         y=pos_y,
     )
