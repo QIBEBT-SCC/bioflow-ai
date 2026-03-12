@@ -9,6 +9,7 @@ from langgraph.types import Command, Overwrite
 from pydantic import ValidationError
 from sqlmodel import Session
 
+import app.crud.resource.bio_db as db_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.workflow as wf_crud
 from app.core.session import engine
@@ -18,7 +19,6 @@ from app.schemas.tools import Handle, ToolNodePublic
 from llm.states import BuildEdge, BuildNode, BuildSchema, GlobalMarker, UserContext
 from llm.utils.formatters import (
     global_mark_formatter,
-    handle_formatter,
     node_formatter,
 )
 from llm.utils.node_schema import PROCESSORS, RESOURCES
@@ -204,20 +204,14 @@ async def view_resource_node(node_name: str) -> str:
 
     resource_schema = RESOURCES[node_name]
 
-    input_handles = handle_formatter(resource_schema['input_handles'], 4)
-    output_handles = handle_formatter(resource_schema['output_handles'], 4)
-    return (
-        f'<resource_node name="{node_name}">\n'
-        f'  <description>{resource_schema["description"]}</description>\n'
-        f'  <type>{node_name}</type>\n'
-        f'  <input_handles>\n'
-        f'{input_handles}\n'
-        f'  </input_handles>\n'
-        f'  <output_handles>\n'
-        f'{output_handles}\n'
-        f'  </output_handles>\n'
-        f'</resource_node>'
-    )
+    node_obj = {
+        'name': node_name,
+        'type': node_name,
+        'description': resource_schema['description'],
+        'input_handles': [{'name': h.name, 'description': h.description} for h in resource_schema['input_handles']],
+        'output_handles': [{'name': h.name, 'description': h.description} for h in resource_schema['output_handles']],
+    }
+    return json.dumps(node_obj)
 
 
 @tool(parse_docstring=True)
@@ -282,6 +276,7 @@ async def add_resource_node(
         )
 
     # 准备节点数据
+    node_data = {}
     match resource_type:
         case 'value_string':
             new_node = BuildNode(
@@ -311,6 +306,10 @@ async def add_resource_node(
             node_data = {'file_path': ''}
         case 'genome':
             node_data = {'required_index': []}
+        case 'db':
+            with Session(engine) as session:
+                bio_db = db_crud.get(session, arguments['db_id'])
+                node_data = {**arguments, 'db_name': bio_db.name}
         case _:
             node_data = arguments
 
@@ -369,20 +368,14 @@ async def view_processor_node(node_name: str) -> str:
 
     processor_schema = PROCESSORS[node_name]
 
-    input_handles = handle_formatter(processor_schema['input_handles'], 4)
-    output_handles = handle_formatter(processor_schema['output_handles'], 4)
-    return (
-        f'<processor_node name="{node_name}">\n'
-        f'  <description>{processor_schema["description"]}</description>\n'
-        f'  <type>{node_name}</type>\n'
-        f'  <input_handles>\n'
-        f'{input_handles}\n'
-        f'  </input_handles>\n'
-        f'  <output_handles>\n'
-        f'{output_handles}\n'
-        f'  </output_handles>\n'
-        f'</processor_node>'
-    )
+    node_obj = {
+        'name': node_name,
+        'type': node_name,
+        'description': processor_schema['description'],
+        'input_handles': [{'name': h.name, 'description': h.description} for h in processor_schema['input_handles']],
+        'output_handles': [{'name': h.name, 'description': h.description} for h in processor_schema['output_handles']],
+    }
+    return json.dumps(node_obj)
 
 
 @tool(parse_docstring=True)
@@ -587,19 +580,32 @@ def save_workflow(name: str, runtime: ToolRuntime[UserContext, BuildSchema]) -> 
         name: Workflow name, brief description of this workflow's tasks
     """
     nodes = []
-    for n in runtime.state.get('exist_nodes', []):
-        node = Node(
-            id=n.id,
-            type=n.type,
-            data=n.data,
-            position=Position(x=n.x * 500, y=n.y * 400),
-            dragHandle='.nodeDragable',
-            zIndex=-10 if n.type == 'note' else 20,
-        )
+    exist_nodes = runtime.state.get('exist_nodes', [])
+    exist_edges = runtime.state.get('exist_edges', [])
+    for n in exist_nodes:
+        if n.type == 'resource_genome':
+            required_index = list(dict.fromkeys(e.source_handle for e in exist_edges if e.source_node == n.id))
+            node = Node(
+                id=n.id,
+                type=n.type,
+                data={'required_index': required_index},
+                position=Position(x=n.x * 500, y=n.y * 400),
+                dragHandle='.nodeDragable',
+                zIndex=-10 if n.type == 'note' else 20,
+            )
+        else:
+            node = Node(
+                id=n.id,
+                type=n.type,
+                data=n.data,
+                position=Position(x=n.x * 500, y=n.y * 400),
+                dragHandle='.nodeDragable',
+                zIndex=-10 if n.type == 'note' else 20,
+            )
         nodes.append(node)
 
     edges = []
-    for e in runtime.state.get('exist_edges', []):
+    for e in exist_edges:
         source_handle = f'{e.source_node}-out-{e.source_handle}'
         target_handle = f'{e.target_node}-in-{e.target_handle}'
         edge = Edge(

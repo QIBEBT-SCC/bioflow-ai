@@ -1,3 +1,4 @@
+import json
 from typing import TYPE_CHECKING, Optional
 
 from langchain_core.messages import ToolMessage
@@ -17,7 +18,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import ToolNodePublic
-from llm.utils.formatters import handle_formatter
+from llm.utils.formatters import search_nodes_formatter
 from llm.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
@@ -299,30 +300,6 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
             except TypeError:
                 logger.warning(f'Failed to parse tool "{exist_tool.name}"({exist_tool.uid})')
 
-        tool_blocks = []
-        for t in tool_nodes:
-            try:
-                tool_blocks.append(
-                    f'  <tool>\n'
-                    f'    <name>{t.name}</name>\n'
-                    f'    <description>{t.description}</description>\n'
-                    f'    <input_handles>\n'
-                    f'{handle_formatter(t.input_handles)}\n'
-                    f'    </input_handles>\n'
-                    f'    <output_handles>\n'
-                    f'{handle_formatter(t.output_handles)}\n'
-                    f'    </output_handles>\n'
-                    f'    <data>\n'
-                    f'      <tool_id>{mappers.get_index_by_uid(str(t.uid))}</tool_id>\n'
-                    f'      <args editable=False>{t.immutable_static_params}</args>\n'
-                    f'      <args editable=True>{t.modifiable_static_params}</args>\n'
-                    f'    </data>\n'
-                    f'    <command>{t.complete_command}</command>'
-                    f'  </tool>'
-                )
-            except TypeError:
-                logger.warning(f'Failed to build block for tool "{t.name}"({t.uid})')
-
         return Command(
             update={
                 'id_mapper': mappers,
@@ -330,7 +307,7 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
                     ToolMessage(
                         f'Based on the keywords, the following tool nodes are available '
                         f'(To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n'
-                        f'<tools>\n{"\n\n".join(tool_blocks)}\n</tools>\n\n'
+                        f'{search_nodes_formatter(tool_nodes, mappers)}'
                         f'Note that tool_id is only valid for this search; if this tool is called again, the tool_id from the previous search will become invalid.',
                         tool_call_id=runtime.tool_call_id,
                     )

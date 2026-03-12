@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
-from llm.utils.formatters import handle_formatter
+from llm.utils.formatters import search_nodes_formatter
 from llm.utils.retrievers import retrieve_documents
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -89,33 +89,12 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
 
     tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
 
-    tool_blocks = [
-        (
-            f'  <tool>\n'
-            f'    <name>{t.name}</name>\n'
-            f'    <description>{t.description}</description>\n'
-            f'    <input_handles>\n'
-            f'{handle_formatter(t.input_handles)}\n'
-            f'    </input_handles>\n'
-            f'    <output_handles>\n'
-            f'{handle_formatter(t.output_handles)}\n'
-            f'    </output_handles>\n'
-            f'    <data>\n'
-            f'      <tool_id>{mappers.get_index_by_uid(str(t.uid))}</tool_id>\n'
-            f'      <args editable=False>{t.immutable_static_params}</args>\n'
-            f'      <args editable=True>{t.modifiable_static_params}</args>\n'
-            f'    </data>\n'
-            f'    <command>{t.complete_command}</command>'
-            f'  </tool>'
-        )
-        for t in tool_nodes
-    ]
     return Command(
         update={
             'id_mapper': mappers,
             'messages': [
                 ToolMessage(
-                    content=f'<Tools>\n{"\n".join(tool_blocks)}\n</Tools>',
+                    content=search_nodes_formatter(tool_nodes, mappers),
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

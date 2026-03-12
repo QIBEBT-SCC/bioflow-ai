@@ -1,9 +1,16 @@
-from app.schemas.tools import Handle
+import json
+from typing import Any
+
+from loguru import logger
+
+from app.schemas.tools import Handle, ToolNodePublic
 from app.utils.input_format import build_command_template
-from llm.states import BuildEdge, BuildNode, GlobalMarker, ToolGeneratorState
+from llm.states import BuildNode, GlobalMarker, ToolGeneratorState
+from llm.utils.uid_mapper import BidirectionalMapper
 
 
 def tool_config_formatter(state: ToolGeneratorState) -> str:
+    """返回新生成的工具信息."""
     complete_command = build_command_template(
         command_template=state['command_template'],
         dynamic_params=state['dynamic_params'],
@@ -45,46 +52,48 @@ def handle_formatter(handles: list[Handle], space: int = 6) -> str:
 
 
 def node_formatter(node: BuildNode) -> str:
+    """将节点详细信息以JSON字符串形式返回."""
+    data_obj: dict[str, Any] = {
+        'id': node.id,
+        'name': node.name,
+        'type': node.type,
+    }
     if node.type == 'tool':
-        node_data = (
-            f'  <data>\n'
-            f'    <tool_id>{node.data.resource_uid}</tool_id>\n'
-            f'    <args>{node.data.args}</args>\n'
-            f'  </data>\n'
-            f'  <command>{node.command}</command>\n'
-        )
+        data_obj['command'] = node.command
+        data_obj['tool_uid'] = node.data.get('tool_uid')
     else:
-        node_data = f'  <data>\n    <args>{node.data.args}</args>\n  </data>\n'
+        data_obj['data'] = node.data
 
-    input_handles = (
-        f'  <input_handles>\n{handle_formatter(node.input_handles, 4)}\n  </input_handles>\n'
-        if node.input_handles
-        else ''
-    )
-    output_handles = (
-        f'  <output_handles>\n{handle_formatter(node.output_handles, 4)}\n  </output_handles>\n'
-        if node.output_handles
-        else ''
-    )
+    data_obj['input_handles'] = [{'name': h.name, 'description': h.description} for h in node.input_handles]
+    data_obj['output_handles'] = [{'name': h.name, 'description': h.description} for h in node.output_handles]
+    data_obj['pos'] = {'x': node.x, 'y': node.y}
 
-    return (
-        f'<node id="{node.id}">\n'
-        f'  <name>{node.name}</name>\n'
-        f'  <type>{node.type}</type>\n'
-        f'  <pos x={node.x} y={node.y}/>\n'
-        f'{input_handles}'
-        f'{output_handles}'
-        f'{node_data}'
-        f'</node>'
-    )
+    return json.dumps(data_obj)
 
 
-def simple_node_formatter(node: BuildNode) -> str:
-    return f'<Node id="{node.id}" name="{node.name}" type="{node.type}" pos={{x:{node.x}, y:{node.y}}}/>'
+def search_nodes_formatter(nodes: list[ToolNodePublic], mappers: BidirectionalMapper) -> str:
+    """将数据库中搜索的节点信息以JSON字符串形式返回."""
+    tool_blocks = []
+    for t in nodes:
+        try:
+            tool_blocks.append(
+                {
+                    'id': mappers.get_index_by_uid(str(t.uid)),
+                    'name': t.name,
+                    'description': t.description,
+                    'input_handles': [{'name': h.name, 'description': h.description} for h in t.input_handles],
+                    'output_handles': [{'name': h.name, 'description': h.description} for h in t.output_handles],
+                    'data': {
+                        'command': t.complete_command,
+                        'args_editable': t.modifiable_static_params,
+                        'args_static': t.immutable_static_params,
+                    },
+                }
+            )
+        except TypeError:
+            logger.warning(f'Failed to build block for tool "{t.name}"({t.uid})')
 
-
-def edge_formatter(edge: BuildEdge) -> str:
-    return f'<Edge source_node="{edge.source_node}" source_handle="{edge.source_handle}" target_node="{edge.target_node}" target_handle="{edge.target_handle}"/>'
+    return json.dumps(tool_blocks)
 
 
 def global_mark_formatter(markers: list[GlobalMarker]) -> str:
