@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,10 +42,7 @@ def _resolve_mount_path(mount_paths: dict[str, Path], container_mount_path: str,
         candidate = f'{container_mount_path}/{host_mount_path.name}_{counter}'
         counter += 1
 
-    logger.warning(
-        f'挂载冲突: {container_mount_path} 已映射到 {existing}, '
-        f'将 {abs_host} 重定向到 {candidate}'
-    )
+    logger.warning(f'挂载冲突: {container_mount_path} 已映射到 {existing}, 将 {abs_host} 重定向到 {candidate}')
     return candidate
 
 
@@ -92,7 +90,13 @@ def build_mounts(
 
         else:
             # 输出文件, 添加期望输出
-            host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
+            try:
+                host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
+            except KeyError as e:
+                logger.error(file.file_path)
+                logger.exception(e)
+                sys.exit(1)
+
             host_mount_path = Path(host_output_dir)
             actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
             container_file_path = f'{actual_mount_path}/{host_file_path.name}'
