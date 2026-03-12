@@ -162,9 +162,7 @@ def update_todo_state(
         remaining_count = len(pending_todos) + len(in_progress_todos)
 
         if remaining_count == 0:
-            msg_content = (
-                f'Task {index} marked as {status}.\n\nAll tasks have been completed, and the mission can be ended.'
-            )
+            msg_content = f'Task {index} marked as {status}.\n\nAll tasks have been completed.'
             update_messages = [
                 ToolMessage(
                     msg_content,
@@ -189,6 +187,8 @@ def update_todo_state(
             )
 
             msg_content = f'{todo_msg}\n\nTask {index} marked as {status}. Context cleared.\n\n{remaining_count} todos remaining to be processed'
+            if previous_summary := runtime.state.get('previous_summary'):
+                msg_content += f'\n\n<Handover Message>\n{previous_summary}</Handover Message>'
 
             update_messages = [
                 *remove_messages,

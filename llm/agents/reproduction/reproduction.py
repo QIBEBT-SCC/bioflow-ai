@@ -35,7 +35,11 @@ You will see a prepared plan and the user's description of the tasks. Based on t
     - For every workflow, you need to first understand what is used as input data for this workflow, and then call the `call_resource_manager` tool to request adding resource nodes.
     - If it is a task to process or analyze data, call the `call_tool_manager` tool to request adding corresponding bioinformatics tool nodes.
     - Once an upstream workflow is built, call the `save_workflow` tool to save the current workflow to the database.
-4. After the current task is completed, call `update_todo(..., status='completed')` to update the task status.
+4. After the current task is completed:
+    1. First Call the `summarize_work` tool to draft handover information for the next round of tasks.
+        - It should include two parts: 1. A summary of the current workflow panel status; 2. An explanation of the work completed in this round.
+        - In the handover information, it is particularly necessary to specify the node IDs of certain key nodes.
+    2. Then call `update_todo(..., status='completed')` to update the task status.
 5. Repeat the above steps until all upstream workflows in the plan have been built, then summarize and end your work.
 
 ## Editor Description
@@ -164,6 +168,22 @@ async def call_code_manager(request: str, runtime: ToolRuntime[BuildContext, Bui
     )
 
 
+@tool
+async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
+    """Summarize the current work to assist with the next round of tasks."""
+    return Command(
+        update={
+            'previous_summary': content,
+            'messages': [
+                ToolMessage(
+                    content='Handover information has been saved. You can mark the current task as complete and proceed to the next round.',
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
 build_workflow_agent: CompiledStateGraph = create_agent(
     get_agent_model(),
     [
@@ -172,6 +192,7 @@ build_workflow_agent: CompiledStateGraph = create_agent(
         call_resource_manager,
         call_processor_manager,
         call_code_manager,
+        summarize_work,
         assist_tool,
         save_workflow,
     ],
