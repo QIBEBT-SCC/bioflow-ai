@@ -175,6 +175,7 @@ class BuildSchema(AgentState, total=False):
     paper_id: str
 
     todos: list[Todo]
+    previous_summary: str
 
     exist_nodes: list[BuildNode]
     exist_edges: list[BuildEdge]
