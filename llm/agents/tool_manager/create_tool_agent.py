@@ -45,7 +45,7 @@ from llm.tools.database import (
     select_group,
     view_groups,
 )
-from llm.utils.formatters import handle_formatter
+from llm.utils.formatters import handle_formatter, search_nodes_formatter
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
 
@@ -332,23 +332,7 @@ class CreateToolAgent:
             mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
 
             tool_node = ToolNodePublic.model_validate(tool_data.model_dump())
-            tool_info = (
-                f'<tool>\n'
-                f'  <name>{tool_node.name}</name>\n'
-                f'  <description>{tool_node.description}</description>\n'
-                f'  <input_handles>\n'
-                f'{handle_formatter(tool_node.input_handles, 4)}\n'
-                f'  </input_handles>\n'
-                f'  <output_handles>\n'
-                f'{handle_formatter(tool_node.output_handles, 4)}\n'
-                f'  </output_handles>\n'
-                f'  <data>\n'
-                f'    <tool_id>{mapper.get_index_by_uid(str(tool_data.uid))}</tool_id>\n'
-                f'    <args>{tool_node.modifiable_static_params}<args>\n'
-                f'  </data>\n'
-                f'  <command>{tool_node.complete_command}</command>\n'
-                f'</tool>'
-            )
+            tool_info = search_nodes_formatter([tool_node], mapper)
 
         return {
             'id_mapper': mapper,
