@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from llm.agents.tool_manager.searcher.image import search_image_agent
-from llm.models import get_long_context_model, get_simple_model
+from llm.models import get_high_performance_model, get_long_context_model, get_simple_model
 from llm.states import TestRunContext, TestRunState
 from llm.tools.container import (
     build_container,
@@ -85,7 +85,7 @@ TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
     - 理论上, `00_running_command.txt` 中应该只有一条内容
 - 执行一次**追加写入**操作, 更新持久化日志 `/data/output/task_log.txt`
     - 写入的内容用"==="和换行与之前的内容分开
-    - 在这里记录你为了完成此任务使用了什么文件、成功执行的操作、最终产生了什么输出文件、位于哪里
+    - 记录这是Task几, 你为了完成此任务使用了什么文件、成功执行的操作、最终产生了什么输出文件、位于哪里
     - 不用记录辅助的系统操作、错误尝试、文档读取等信息
 
 
@@ -388,7 +388,7 @@ test_run_agent: CompiledStateGraph = create_agent(
         StatusBarMiddleware(),
         SaveMessagesMiddleware('test_run'),
         ClearContainerMiddleware(),
-        CheckReportMiddleware(get_simple_model(), CHECK_PROMPT),
+        CheckReportMiddleware(get_high_performance_model(), CHECK_PROMPT),
         TodoMiddleware(),
         TokenStatisticMiddleware(agent_name='test_run', **_run_model.metadata),
     ],

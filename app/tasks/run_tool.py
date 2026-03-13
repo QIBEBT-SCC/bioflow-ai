@@ -23,26 +23,48 @@ from app.utils.input_format import PartialFormatter, build_command_template
 from worker import celery_app, monitor_redis_client
 
 
-def _resolve_mount_path(mount_paths: dict[str, Path], container_mount_path: str, host_mount_path: Path) -> str:
-    """当不同宿主机路径被挂载到同一容器路径时, 自动分配一个不冲突的容器挂载路径.
+def _resolve_mount_path(
+    mount_paths: dict[str, Path],
+    param_inputs: dict[str, str],
+    conflicted_paths: set[str],
+    container_mount_path: str,
+    host_mount_path: Path,
+) -> str:
+    """当不同宿主机目录被挂载到同一容器路径时, 自动分配不冲突的容器挂载路径.
 
-    策略: 使用 {原容器路径}/{宿主机目录名} 作为新路径, 若仍冲突则追加序号.
+    首次冲突时回溯: 把先占据该路径的挂载也挪到子目录, 并更新 param_inputs 中的引用.
     """
     abs_host = host_mount_path.absolute()
     existing = mount_paths.get(container_mount_path)
 
-    # 无冲突: 路径未使用, 或已映射到同一宿主机目录
-    if existing is None or existing == abs_host:
+    # 1. 无冲突: 路径未使用且未曾冲突
+    if existing is None and container_mount_path not in conflicted_paths:
         return container_mount_path
 
-    # 冲突: 用宿主机目录名做子路径
+    # 2. 已映射到同一宿主机目录
+    if existing == abs_host:
+        return container_mount_path
+
+    # 3. 首次冲突: 把先来的也挪到子目录
+    if existing is not None and container_mount_path not in conflicted_paths:
+        conflicted_paths.add(container_mount_path)
+        old_host = mount_paths.pop(container_mount_path)
+        old_sub = f'{container_mount_path}/{old_host.name}'
+        mount_paths[old_sub] = old_host
+        # 回溯更新 param_inputs 中所有引用了旧路径的条目
+        for k, v in param_inputs.items():
+            if v == container_mount_path or v.startswith(container_mount_path + '/'):
+                relative = v[len(container_mount_path):]
+                param_inputs[k] = old_sub + relative
+
+    # 4. 为当前挂载分配子目录
     candidate = f'{container_mount_path}/{host_mount_path.name}'
     counter = 1
     while candidate in mount_paths and mount_paths[candidate] != abs_host:
         candidate = f'{container_mount_path}/{host_mount_path.name}_{counter}'
         counter += 1
 
-    logger.warning(f'挂载冲突: {container_mount_path} 已映射到 {existing}, 将 {abs_host} 重定向到 {candidate}')
+    logger.warning(f'挂载冲突: {container_mount_path} 已分裂, 将 {abs_host} 映射到 {candidate}')
     return candidate
 
 
@@ -51,45 +73,32 @@ def build_mounts(
 ) -> tuple[dict[str, str], dict[str, Path], ToolOutput]:
     """构建挂载映射."""
     param_inputs: dict[str, str] = {}  # 用于构建参数的文件路径
-    mount_paths: dict[str, Path] = {}  # 存储挂载的路径映射
+    mount_paths: dict[str, Path] = {}  # 存储挂载的路径映射 (始终目录级)
     expected_output = ToolOutput()  # 预期输出文件路径
-
-    # 内部变量:
-    # host_file_path: 宿主机上文件的路径
-    # host_mount_path: 宿主机上要挂载的文件夹 (仅目录/前缀模式使用)
-    # container_file_path: 容器内文件的路径
-    # file.mount_path: 容器内的文件夹映射 (定义值)
-    # actual_mount_path: 冲突解决后实际使用的容器挂载路径 (仅目录/前缀模式使用)
-    # 注意: mount_paths 同时包含文件级挂载(key为容器内文件路径)和目录级挂载(key为容器内目录路径)
+    conflicted_paths: set[str] = set()  # 已发生过冲突的容器路径
 
     for file in file_mounts:
         if file.file_type == 'INPUT':
-            # 输入文件, 提取资源文件
             kwarg = inputs[file.name]
             file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
             host_file_path = Path(file_path)
 
-            if host_file_path.is_file():
-                # 文件: 直接挂载文件本身, 不同文件可以共存于同一容器目录
-                container_file_path = f'{file.mount_path}/{host_file_path.name}'
-                mount_paths[container_file_path] = host_file_path.absolute()
-            elif host_file_path.is_dir():
-                # 文件夹: 整目录挂载, 需要冲突检查
+            if host_file_path.is_dir():
+                # 文件夹: 整目录挂载
                 host_mount_path = host_file_path
-                actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
-                container_file_path = actual_mount_path
-                if actual_mount_path not in mount_paths:
-                    mount_paths[actual_mount_path] = host_mount_path.absolute()
+                actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+                container_file_path = actual
             else:
-                # 不存在的路径, 视为文件夹+文件名前缀, 取父目录按文件夹处理
+                # 文件或前缀: 挂载父目录, 保留伴生文件
                 host_mount_path = host_file_path.parent
-                actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
-                container_file_path = f'{actual_mount_path}/{host_file_path.name}'
-                if actual_mount_path not in mount_paths:
-                    mount_paths[actual_mount_path] = host_mount_path.absolute()
+                actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+                container_file_path = f'{actual}/{host_file_path.name}'
+
+            if actual not in mount_paths:
+                mount_paths[actual] = host_mount_path.absolute()
 
         else:
-            # 输出文件, 添加期望输出
+            # 输出文件
             try:
                 host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
             except KeyError as e:
@@ -98,10 +107,10 @@ def build_mounts(
                 sys.exit(1)
 
             host_mount_path = Path(host_output_dir)
-            actual_mount_path = _resolve_mount_path(mount_paths, file.mount_path, host_mount_path)
-            container_file_path = f'{actual_mount_path}/{host_file_path.name}'
-            if actual_mount_path not in mount_paths:
-                mount_paths[actual_mount_path] = host_mount_path.absolute()
+            actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+            container_file_path = f'{actual}/{host_file_path.name}'
+            if actual not in mount_paths:
+                mount_paths[actual] = host_mount_path.absolute()
 
             if file.is_log:
                 expected_output.log = host_file_path.absolute()
