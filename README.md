@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./documents/logo_and_text.svg" alt="Logo" width="500px" />
+</p>
+
 # BioFlowAI: Graph-based Intelligent BioAnalysis Platform
 
 ## 测试数据
