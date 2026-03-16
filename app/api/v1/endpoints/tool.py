@@ -124,7 +124,7 @@ async def run_in_image(uid: str, request: RunRequest, session: SessionDep, _curr
     if not image:
         raise HTTPException(HTTP_404_NOT_FOUND, 'No corresponding image found')
 
-    code, result = run_command(image.image, [], request.command)
+    code, result = run_command(image.image, [], request.command, ensure_ascii=False)
     return {'code': code, 'result': result}
 
 
