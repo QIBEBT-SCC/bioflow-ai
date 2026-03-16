@@ -16,7 +16,7 @@ from app.utils.system import get_current_user_identity
 client = docker.from_env()
 
 
-def _check_image(image_cfg: ImageConfig):
+def _check_image(image_cfg: ImageConfig) -> None:
     try:
         client.images.get(image_cfg.get_image())
     except ImageNotFound:
@@ -36,23 +36,30 @@ def _check_image(image_cfg: ImageConfig):
 
 
 def run_docker(
-    image_cfg: ImageConfig, command: str, mounts: list[Mount], workdir: Optional[str] = None, **kwargs
+    image_cfg: ImageConfig,
+    command: str,
+    mounts: list[Mount],
+    workdir: Optional[str] = None,
+    *,
+    ensure_ascii: bool = True,
+    **kwargs,  # noqa: ANN003
 ) -> tuple[int, str]:
-    """在docker容器中运行命令并返回执行结果。
+    """在docker容器中运行命令并返回执行结果.
 
-    同步运行容器命令，等待命令执行完成后返回退出状态码和输出日志。
-    适用于短时间运行的命令，容器会在命令执行完成后自动清理。
+    同步运行容器命令, 等待命令执行完成后返回退出状态码和输出日志。
+    适用于短时间运行的命令, 容器会在命令执行完成后自动清理。
 
     Args:
         image_cfg (ImageConfig): 容器镜像设置
         command (str): 容器内执行的命令
         mounts (list[Mount]): 文件挂载列表
         workdir: 命令运行的工作目录
-        **kwargs: 其他容器参数，如环境变量、端口映射等
+        ensure_ascii: 是否过滤命令行富文本格式
+        **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
         tuple[int, str]: (容器退出状态码, 命令输出日志)
-            - 退出状态码: 0表示成功，非0表示失败
+            - 退出状态码: 0表示成功, 非0表示失败
             - 输出日志: 命令的标准输出和错误输出
 
     Raises:
@@ -76,7 +83,7 @@ def run_docker(
         auto_remove=False,
         detach=True,
         mounts=mounts,
-        *kwargs,
+        *kwargs,  # noqa: B026
     )
 
     try:
@@ -84,7 +91,9 @@ def run_docker(
         result = container.logs(stderr=True)
         result = result.decode('utf-8').rstrip()
 
-        return status_code, _strip_ansi_escape_sequences(result)
+        if ensure_ascii:
+            return status_code, _strip_ansi_escape_sequences(result)
+        return status_code, result
     finally:
         if container:
             container.remove(force=True)
@@ -93,9 +102,9 @@ def run_docker(
 def run_docker_background(
     image_cfg: ImageConfig, command: str, mounts: list[Mount], working_dir: str, interval: float = 1.0, **kwargs
 ):
-    """后台运行docker容器，并实时返回容器资源占用信息。
+    """后台运行docker容器, 并实时返回容器资源占用信息。
 
-    在容器内运行长耗时任务，定期采样并返回容器的资源使用情况，
+    在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
     包括CPU、内存、网络I/O、块I/O等关键指标。
 
     Args:
@@ -103,7 +112,7 @@ def run_docker_background(
         command: 容器内执行的命令
         mounts: 文件挂载列表
         working_dir: 工作目录
-        interval: 资源采样间隔（秒），默认1.0秒
+        interval: 资源采样间隔（秒）, 默认1.0秒
         **kwargs: 其他容器参数
 
     Yields:
@@ -191,7 +200,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     if container.status != 'running':
         logs = container.logs().decode('utf-8', errors='replace')
         container.remove(force=True)
-        raise RuntimeError(f'容器启动失败，状态: {container.status}，镜像: {image_cfg.get_image()}，日志: {logs}')
+        raise RuntimeError(f'容器启动失败, 状态: {container.status}, 镜像: {image_cfg.get_image()}, 日志: {logs}')
 
     logger.debug(f'create container {container.name}')
 
@@ -241,7 +250,7 @@ def remove_container(container_id: str):
 def calculate_docker_stats(stats: dict[str, Any]) -> Optional[dict[str, Any]]:
     """提取容器日志中的监控内容
 
-    从 Docker stats 输出中提取关键的监控指标，包括CPU利用率、内存利用率、
+    从 Docker stats 输出中提取关键的监控指标, 包括CPU利用率、内存利用率、
     实际内存占用、网络I/O状态、块I/O状态等。
 
     Args:
