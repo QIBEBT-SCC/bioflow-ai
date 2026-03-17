@@ -78,7 +78,7 @@ PROCESSORS: dict[str, NodeSchema] = {
 RESOURCES: dict[str, NodeSchema] = {
     'sequence': {
         'name': 'Pair-end Reads Input',
-        'description': 'This node is used for input of common paired-end biological sequencing files. No additional parameters are required.',
+        'description': 'This node is used for input of common paired-end biological sequencing files. No additional parameters are required. For non-paired-end data, use file node instead.',
         'args': SequenceResourceSchema,
         'input_handles': [],
         'output_handles': [
@@ -107,9 +107,9 @@ RESOURCES: dict[str, NodeSchema] = {
         'input_handles': [],
         'output_handles': [Handle(name='file_path', description='db file path')],
     },
-    'genome': {
+    'ncbi_genome': {
         'name': 'NCBI Reference Genome',
-        'description': 'This node is used to load a standard reference genome from NCBI. It requires a preceding string variable node input to specify the species name or TaxID of the reference genome to be used. Meanwhile, this node provides not only the reference genome and annotation but also pre-built indexes for commonly used alignment tools; in most cases, you can directly use the index files provided by this node. Note that if the reference genome is not from an NCBI source, you need to use the file node to load the reference genome file and manually build the index, and add a note node for explanation.',
+        'description': 'This node is used to load a standard reference genome from NCBI RefSeq. It requires a preceding string variable node input to specify the species name or TaxID of the reference genome to be used.',
         'args': GenomeResourceSchema,
         'input_handles': [
             Handle(
@@ -121,6 +121,38 @@ RESOURCES: dict[str, NodeSchema] = {
                 description='(Optional) String variable, String variable, NCBI taxonomy ID of the species of the reference gene to be used',
             ),
         ],
+        'output_handles': [
+            Handle(name='genome_fasta', description='Gene fasta file of the reference genome'),
+            Handle(name='annotation_gff', description='GFF annotation file of the reference genome'),
+            Handle(name='annotation_gtf', description='GTF annotation file of the reference genome'),
+            Handle(name='bowtie2_index', description='Bowtie2 index of the reference genome'),
+            Handle(name='bwa_index', description='BWA index of the reference genome'),
+            Handle(name='hisat2_index', description='HISAT2 index of the reference genome'),
+            Handle(name='minimap2_index', description='minimap2 index of the reference genome'),
+            Handle(name='star_index', description='STAR index of the reference genome'),
+        ],
+    },
+    'GRCh38': {
+        'name': 'GRCh38',
+        'description': 'This node loads the human reference genome sequence and annotation released by Gencode, based on the GRCh38 assembly.',
+        'args': GenomeResourceSchema,
+        'input_handles': [],
+        'output_handles': [
+            Handle(name='genome_fasta', description='Gene fasta file of the reference genome'),
+            Handle(name='annotation_gff', description='GFF annotation file of the reference genome'),
+            Handle(name='annotation_gtf', description='GTF annotation file of the reference genome'),
+            Handle(name='bowtie2_index', description='Bowtie2 index of the reference genome'),
+            Handle(name='bwa_index', description='BWA index of the reference genome'),
+            Handle(name='hisat2_index', description='HISAT2 index of the reference genome'),
+            Handle(name='minimap2_index', description='minimap2 index of the reference genome'),
+            Handle(name='star_index', description='STAR index of the reference genome'),
+        ],
+    },
+    'GRCm39': {
+        'name': 'GRCm39',
+        'description': 'This node is used to loads Gencode mouse reference genome data based on the GRCm39 assembly',
+        'args': GenomeResourceSchema,
+        'input_handles': [],
         'output_handles': [
             Handle(name='genome_fasta', description='Gene fasta file of the reference genome'),
             Handle(name='annotation_gff', description='GFF annotation file of the reference genome'),

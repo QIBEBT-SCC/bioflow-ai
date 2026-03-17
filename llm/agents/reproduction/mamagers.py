@@ -49,7 +49,7 @@ RESOURCE_MANAGER_SYSTEM = """你是一名生物信息专家, 正在使用一款�
 
 进一步细分, 我们有以下几种资源节点: 'sequence', 'file', 'db', 'genome', 'value_string'
 - db: 封装某个生物信息数据库的信息, 如NCBI nr数据库
-- genome: 来自NCBI的标准参考基因组数据库, 此节点需要一个前置的字符变量节点输入, 指定参考基因组的物种名称或TaxID
+- genome: 专门用于输入参考基因组及对应的索引文件。此节点有数种变体, 使用时查阅详情以了解
 - sequence: 针对双端测序文件的资源节点
 - file: 通用文件输入节点
 - value_string: 封装一个字符串变量, 可以用于其他节点的值输入

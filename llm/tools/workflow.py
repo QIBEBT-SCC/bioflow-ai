@@ -198,9 +198,19 @@ async def view_resource_node(node_name: str) -> str:
     Args:
         node_name: The name of the resource node to view details for.
     """
+    if node_name == 'genome':
+        return (
+            'The system currently includes the following nodes for reference genomes (available node_name):\n'
+            '- `ncbi_genome`: Loads reference genomes and annotation files for any species from NCBI RefSeq based on species name or ID.\n'
+            '- `GRCh38`: Loads the human reference genome released by GENCODE.\n'
+            '- `GRCm39`: Loads the mouse reference genome released by GENCODE.\n\n'
+            'In addition to providing genome and annotation files, all these nodes also offer indexes for common alignment tools. '
+            'Generally, you can use them directly rather than manually building indexes. '
+            'Refer to the respective nodes for more details.'
+        )
+
     if node_name not in RESOURCES:
-        exception_msg = f'Error: Unknown resource type: {node_name}.'
-        raise ToolException(exception_msg)
+        return f'Error: Unknown resource type: {node_name}.'
 
     resource_schema = RESOURCES[node_name]
 
@@ -216,7 +226,7 @@ async def view_resource_node(node_name: str) -> str:
 
 @tool(parse_docstring=True)
 async def add_resource_node(
-    resource_type: Literal['sequence', 'file', 'db', 'genome', 'value_string', 'global_file'],
+    resource_type: str,
     input_edges: list[BuildEdge],
     pos_x: int,
     pos_y: int,
@@ -300,11 +310,22 @@ async def add_resource_node(
                     ],
                 }
             )
+        case 'genome':
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content='You should use a specific reference genome node type rather than "genome" as the value for `resource_type`.',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ],
+                }
+            )
         case 'sequence':
             node_data = {'r1': '', 'r2': ''}
         case 'file':
             node_data = {'file_path': ''}
-        case 'genome':
+        case 'ncbi_genome' | 'GRCh38' | 'GRCm39':
             node_data = {'required_index': []}
         case 'db':
             with Session(engine) as session:
@@ -583,7 +604,7 @@ def save_workflow(name: str, runtime: ToolRuntime[UserContext, BuildSchema]) -> 
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
     for n in exist_nodes:
-        if n.type == 'resource_genome':
+        if n.type in {'resource_ncbi_genome', 'resource_GRCh38', 'resource_GRCm39'}:
             required_index = list(dict.fromkeys(e.source_handle for e in exist_edges if e.source_node == n.id))
             node = Node(
                 id=n.id,
