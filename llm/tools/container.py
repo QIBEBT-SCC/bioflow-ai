@@ -106,13 +106,13 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
 
     runtime.stream_writer({'run': command, 'dir': workdir})
     # 允许使用 cat 命令的文件白名单
-    allowed_cat_files = ['DESCRIPTION.md', 'task_log.txt']
+    allowed_cat_files = ['DESCRIPTION.md', 'about.md', 'task_log.txt']
     if re.search(r'(?:^|[|&;])\s*cat\b', command) and not any(file in command for file in allowed_cat_files):
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content='The `cat` command is forbidden. To read files, use the `sed` or `grep` commands; to write files, use the `echo` command.',
+                        content='The cat command is only allowed to read the files "DESCRIPTION.md", "about.md" and "task_log.txt". To read other files, use the `sed` or `grep` commands; to write files, use the `echo` command.',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ],
