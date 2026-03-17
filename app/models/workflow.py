@@ -47,10 +47,10 @@ class RunInstance(SQLModel, table=True):
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
 
-    # 项目关联（可选，调试模式下为 None）
-    project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
-    workflow_uid: Optional[uuid.UUID] = Field(default=None)  # 新增：关联的工作流模板
-    sample_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='samples.uid')  # 新增：单个样本
+    # 项目关联 (可选, 调试模式下为 None)
+    project_id: Optional[int] = Field(default=None, foreign_key='projects.id', ondelete='CASCADE')
+    workflow_uid: Optional[uuid.UUID] = Field(default=None)
+    sample_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='samples.uid', ondelete='CASCADE')
 
     owner_id: int = Field(foreign_key='users.id')
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
@@ -63,7 +63,7 @@ class RunInstance(SQLModel, table=True):
 
     owner: Optional['User'] = Relationship()
     sample: Optional['Sample'] = Relationship()
-    tasks: list['TaskInstance'] = Relationship(back_populates='run_instance')
+    tasks: list['TaskInstance'] = Relationship(back_populates='run_instance', cascade_delete=True)
 
 
 class ToolOutput(BaseModel):
@@ -109,7 +109,11 @@ class TaskMonitor(SQLModel, table=True):
     __tablename__ = 'task_monitor_logs'
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    task_uid: uuid.UUID = Field(sa_column=Column(UUID(as_uuid=True), ForeignKey('task_instances.uid')))
+    task_uid: uuid.UUID = Field(
+        default_factory=uuid_extensions.uuid7,
+        foreign_key='task_instances.uid',
+        ondelete='CASCADE',
+    )
     cpu_usage: float
     mem_usage: float
     mem_used: float

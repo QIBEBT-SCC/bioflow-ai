@@ -1,13 +1,22 @@
 import uuid
 from datetime import datetime
-from typing import Optional, Self
+from typing import Any, Optional, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.workflow import Status
 from app.schemas.common import Statistics
-from app.schemas.react_flow import WorkflowDefinition
+from app.schemas.react_flow import Edge, WorkflowDefinition
 from app.schemas.user import UserPublic
+
+
+class RunData(BaseModel):
+    """运行状态数据, 注入到每个 node 的 data.run_data 中."""
+
+    status: Optional[Status] = None
+    create_time: Optional[datetime] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
 
 
 class TaskInfo4Run(BaseModel):
@@ -62,6 +71,37 @@ class RunPublic(SimpleRunPublic):
                 self.status = Status.ERROR
             else:
                 self.status = Status.WAITING
+
+            self.task_statistics = Statistics(
+                total=total, success=success, error=error, running=running, waiting=waiting
+            )
+        return self
+
+
+class RunDetailPublic(SimpleRunPublic):
+    """详情接口返回, 包含 workflow 图结构和注入的运行状态."""
+
+    nodes: list[dict[str, Any]]
+    edges: list[Edge]
+
+    @model_validator(mode='after')
+    def compute_task_stats(self) -> Self:
+        if self.task_statistics is None:
+            run_datas = [node['data'].get('run_data') for node in self.nodes if node.get('data')]
+            run_datas = [rd for rd in run_datas if rd and rd.get('status')]
+
+            total = len(run_datas)
+            success = sum(1 for rd in run_datas if rd['status'] == Status.SUCCESS)
+            error = sum(1 for rd in run_datas if rd['status'] == Status.ERROR)
+            running = sum(1 for rd in run_datas if rd['status'] == Status.RUNNING)
+            waiting = sum(1 for rd in run_datas if rd['status'] == Status.WAITING)
+
+            if running > 0:
+                self.status = Status.RUNNING
+            elif total > 0 and success == total:
+                self.status = Status.SUCCESS
+            elif error > 0:
+                self.status = Status.ERROR
 
             self.task_statistics = Statistics(
                 total=total, success=success, error=error, running=running, waiting=waiting

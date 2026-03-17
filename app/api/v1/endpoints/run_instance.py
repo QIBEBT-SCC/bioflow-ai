@@ -7,7 +7,7 @@ from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance
 from app.schemas.common import Statistics
-from app.schemas.run_instance import RunPublic, RunUpdate
+from app.schemas.run_instance import RunData, RunDetailPublic, RunPublic, RunUpdate
 from app.utils.security import UserDep
 from app.utils.workflow import get_run_stats_from_redis
 
@@ -59,16 +59,45 @@ def get_run_stats(session: SessionDep, current_user: UserDep) -> Statistics:
 
 
 @router.get('/{uid}')
-async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunPublic:
-    """获取单个运行实例(包含从 Redis 读取的实时统计信息)."""
+async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunDetailPublic:
+    """获取单个运行实例, 返回 workflow 图结构并注入运行状态."""
     run = run_crud.get(session, uid)
 
-    # Pydantic 会自动处理 ORM -> Schema 的转换
-    run_data = RunPublic.model_validate(run)
+    # 构建 task 查找表: {str(task.uid): task}
+    task_map = {str(task.uid): task for task in run.tasks}
+
+    # 将 workflow nodes 转为 dict 并注入 run_data
+    nodes = []
+    for node in run.workflow.nodes:
+        node_dict = node.model_dump()
+        task = task_map.get(node.id)
+        if task:
+            node_dict['data']['run_data'] = RunData(
+                status=task.status,
+                create_time=task.create_time,
+                start_time=task.start_time,
+                end_time=task.end_time,
+            ).model_dump()
+        nodes.append(node_dict)
+
+    run_detail = RunDetailPublic(
+        uid=run.uid,
+        name=run.name,
+        owner=run.owner,
+        project_id=run.project_id,
+        workflow_uid=run.workflow_uid,
+        sample_uid=run.sample_uid,
+        status=run.status,
+        create_time=run.create_time,
+        start_time=run.start_time,
+        end_time=run.end_time,
+        nodes=nodes,
+        edges=run.workflow.edges,
+    )
 
     # 尝试从 Redis 读取统计信息(覆盖 model_validator 计算的值)
     stats = await get_run_stats_from_redis(monitor_redis_client, uid)
     if stats:
-        run_data.task_statistics = stats
+        run_detail.task_statistics = stats
 
-    return run_data
+    return run_detail
