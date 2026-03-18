@@ -7,7 +7,6 @@ import uuid
 from typing import Optional
 
 from celery import Signature
-from loguru import logger
 
 import app.crud.resource.bio_db as db_crud
 import app.crud.resource.sample as sample_crud
@@ -17,7 +16,7 @@ from app.models.resource import SampleFileType
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
-from app.tasks.load_tasks.load_genome import load_ncbi_genome_task
+from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, load_ncbi_genome_task
 from app.tasks.load_tasks.static_value import set_value_task
 from app.tasks.package_result import package_task
 from app.tasks.run_tool import docker_task
@@ -155,7 +154,7 @@ class ResourceGenomeTaskHandler(BaseTaskHandler):
         ).set(task_id=task_node.id)
 
 
-@register_handler('resource_hg38')
+@register_handler('resource_GRCh38')
 class ResourceHG38TaskHandler(BaseTaskHandler):
     """人类基因组资源任务处理器."""
 
@@ -169,8 +168,26 @@ class ResourceHG38TaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        return load_ncbi_genome_task.s(
-            inputs=task_node.kwarg,
+        return load_hg38_task.s(
+            required_index=task_node.data.get('required_index', []),
+        ).set(task_id=task_node.id)
+
+
+@register_handler('resource_GRCm39')
+class ResourceMM39TaskHandler(BaseTaskHandler):
+    """小鼠基因组资源任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='load_reference_genome',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        return load_mm39_task.s(
             required_index=task_node.data.get('required_index', []),
         ).set(task_id=task_node.id)
 
