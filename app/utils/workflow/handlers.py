@@ -20,6 +20,7 @@ from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, loa
 from app.tasks.load_tasks.static_value import set_value_task
 from app.tasks.package_result import package_task
 from app.tasks.run_tool import docker_task
+from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.handler_base import BaseTaskHandler, TaskContext, register_handler
 
 
@@ -58,7 +59,7 @@ class ToolTaskHandler(BaseTaskHandler):
                 f'{get_settings().persistent.STORAGE_PATH}/'
                 f'{context.owner.username}/'
                 f'{context.output_base}/'
-                f'{context.task_index}_{tool_data.name}'
+                f'{context.task_index}_{to_safe_path_segment(tool_data.name)}'
             )
 
             return docker_task.s(

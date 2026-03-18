@@ -17,6 +17,7 @@ from app.crud import workflow as wf_crud
 from app.models.user import User
 from app.models.workflow import RunInstance, Status
 from app.schemas.project_workflow import WorkflowRunResult
+from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
 from worker import monitor_redis_client
 
@@ -123,7 +124,7 @@ def create_runs_from_samples(
             session,
             task_list,
             sample.sample_name,
-            f'{project.name}/{workflow.name}/{sample.sample_name}',
+            f'{to_safe_path_segment(project.name)}/{to_safe_path_segment(workflow.name)}/{sample.sample_name}',
             run.uid,
             current_user,
             f'sample:{sample.uid}',
