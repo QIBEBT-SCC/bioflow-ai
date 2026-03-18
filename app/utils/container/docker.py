@@ -102,7 +102,7 @@ def run_docker(
 def run_docker_background(
     image_cfg: ImageConfig, command: str, mounts: list[Mount], working_dir: str, interval: float = 1.0, **kwargs
 ):
-    """后台运行docker容器, 并实时返回容器资源占用信息。
+    """后台运行docker容器, 并实时返回容器资源占用信息.
 
     在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
     包括CPU、内存、网络I/O、块I/O等关键指标。
@@ -112,11 +112,11 @@ def run_docker_background(
         command: 容器内执行的命令
         mounts: 文件挂载列表
         working_dir: 工作目录
-        interval: 资源采样间隔（秒）, 默认1.0秒
+        interval: 资源采样间隔 (秒), 默认1.0秒
         **kwargs: 其他容器参数
 
     Yields:
-        dict[str, Any]: 当前时刻容器的资源占用信息（如CPU、内存等）
+        dict[str, Any]: 当前时刻容器的资源占用信息 (如CPU、内存等)
 
     Raises:
         docker.errors.ContainerError: 容器运行失败时抛出
@@ -166,7 +166,7 @@ def run_docker_background(
 
 
 def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwargs) -> str:
-    """创建容器并返回其ID
+    """创建容器并返回其ID.
 
     Args:
         image_cfg: 所使用的镜像
@@ -179,7 +179,6 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     Raises:
         RuntimeError: 容器启动失败时抛出
     """
-
     _check_image(image_cfg)
 
     container = client.containers.create(
@@ -208,7 +207,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
 
 
 def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = None) -> tuple[int, str]:
-    """在特定容器中运行命令并返回结果
+    """在特定容器中运行命令并返回结果.
 
     Args:
         container_id: 目标容器ID
@@ -233,7 +232,7 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
 
 
 def remove_container(container_id: str):
-    """停止并移除容器
+    """停止并移除容器.
 
     Args:
         container_id: 要移除的容器ID
@@ -248,13 +247,13 @@ def remove_container(container_id: str):
 
 
 def calculate_docker_stats(stats: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """提取容器日志中的监控内容
+    """提取容器日志中的监控内容.
 
     从 Docker stats 输出中提取关键的监控指标, 包括CPU利用率、内存利用率、
     实际内存占用、网络I/O状态、块I/O状态等。
 
     Args:
-        stats (dict[str, Any]): Podman stats 原始输出数据
+        stats (dict[str, Any]): Docker stats 原始输出数据
 
     Returns:
         dict[str, float]: 格式化后的监控指标

@@ -1,94 +1,208 @@
+import json
 import platform
 import socket
-from datetime import datetime
+import time
+from datetime import UTC, datetime
 
 import celery
 from loguru import logger
+from redis import Redis
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
+import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
+import app.crud.task_monitor as monitor_crud
 from app.core.session import engine
 from app.models.tools import ToolDefine
-from app.models.workflow import Status
+from app.models.workflow import Status, TaskMonitor
+from app.schemas.run_instance import RunUpdate
 from app.schemas.task_instance import TaskUpdate
 from app.schemas.tools import ToolTaskInfo
 
 
 class BaseBioTask(celery.Task):
-    def before_start(self, task_id, args, kwargs):
-        """任务开始前的钩子 - 直接更新数据库"""
+    def before_start(self, task_id: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+        """任务开始前的钩子 - 更新 DB 状态并维护 Redis 计数."""
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
                 task.status = Status.RUNNING
                 task.system = platform.platform()
                 task.hostname = socket.gethostname()
-                task.start_time = datetime.now()
-
+                task.start_time = datetime.now(UTC)
                 session.add(task)
                 session.commit()
                 logger.debug(f'任务 {task_id} 状态已更新为 RUNNING')
+
+                instance_uid = str(task.instance_uid)
+
+            _update_run_stats(instance_uid, Status.WAITING, Status.RUNNING)
+            _check_and_update_run_instance_running(instance_uid)
         except Exception as e:
             logger.error(f'更新任务 {task_id} 启动状态失败: {e}')
 
-    def on_success(self, retval, task_id, args, kwargs):
-        """任务成功后的钩子 - 直接更新数据库"""
+    def on_success(self, retval, task_id, args, kwargs) -> None:  # noqa: ANN001
+        """任务成功后的钩子 - 更新 DB 状态、Redis 计数、flush 监控日志."""
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
                 task.status = Status.SUCCESS
                 task.tool_output = retval
                 task.end_time = datetime.now()
-
                 session.add(task)
                 session.commit()
                 logger.success(f'任务 {task_id} 状态已更新为 SUCCESS')
+
+                instance_uid = str(task.instance_uid)
+
+            _update_run_stats(instance_uid, Status.RUNNING, Status.SUCCESS)
+            _check_and_update_run_instance_success(instance_uid)
         except Exception as e:
             logger.error(f'更新任务 {task_id} 成功状态失败: {e}')
 
-        # 更新 Redis 监控日志（用于实时推送）
         try:
-            update_monitor_redis(task_id)
+            _flush_monitor_to_db(task_id)
         except Exception as e:
-            logger.warning(f'更新 Redis 监控日志失败: {e}')
+            logger.warning(f'flush 监控日志失败: {e}')
 
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        """任务失败后的钩子 - 直接更新数据库"""
+    def on_failure(self, exc, task_id, args, kwargs, einfo) -> None:  # noqa: ANN001
+        """任务失败后的钩子 - 更新 DB 状态、Redis 计数、flush 监控日志."""
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
                 task.status = Status.ERROR
                 task.end_time = datetime.now()
-
                 session.add(task)
                 session.commit()
                 logger.debug(f'任务 {task_id} 状态已更新为 ERROR')
+
+                instance_uid = str(task.instance_uid)
+
+            _update_run_stats(instance_uid, Status.RUNNING, Status.ERROR)
+            _check_and_update_run_instance_error(instance_uid)
         except Exception as e:
             logger.error(f'更新任务 {task_id} 失败状态失败: {e}')
 
-        # 更新 Redis 监控日志（用于实时推送）
         try:
-            update_monitor_redis(task_id)
+            _flush_monitor_to_db(task_id)
         except Exception as e:
-            logger.warning(f'更新 Redis 监控日志失败: {e}')
+            logger.warning(f'flush 监控日志失败: {e}')
+
+
+# ---------------------------------------------------------------------------
+# Redis helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_redis() -> Redis:
+    from worker import monitor_redis_client  # noqa: PLC0415
+
+    return monitor_redis_client
+
+
+def _ensure_run_stats(redis_client: Redis, run_uid: str) -> str:
+    """确保 Redis Hash run-stats-{run_uid} 存在, 不存在则从 DB 初始化."""
+    key = f'run-stats-{run_uid}'
+    if not redis_client.exists(key):
+        with Session(engine) as session:
+            stats = run_crud.get_run_task_stats(session, run_uid)
+        redis_client.hset(
+            key,
+            mapping={
+                'total': stats.total,
+                'waiting': stats.waiting or 0,
+                'running': stats.running or 0,
+                'success': stats.success or 0,
+                'error': stats.error or 0,
+            },
+        )
+        redis_client.expire(key, 86400)
+    return key
+
+
+def _update_run_stats(run_uid: str, from_status: Status, to_status: Status) -> None:
+    """原子更新 Redis Hash 中的运行统计计数."""
+    try:
+        redis = _get_redis()
+        key = _ensure_run_stats(redis, run_uid)
+        redis.hincrby(key, from_status.name.lower(), -1)
+        redis.hincrby(key, to_status.name.lower(), 1)
+    except Exception as e:
+        logger.warning(f'更新 Redis run-stats 失败: {e}')
+
+
+def _check_and_update_run_instance_running(run_uid: str) -> None:
+    """如果是第一个 RUNNING 任务, 将 RunInstance 状态更新为 RUNNING."""
+    try:
+        redis = _get_redis()
+        key = f'run-stats-{run_uid}'
+        running_count = redis.hget(key, 'running')
+        if running_count and int(running_count) == 1:
+            with Session(engine) as session:
+                run_crud.update(session, run_uid, RunUpdate(status=Status.RUNNING, start_time=datetime.now(tz=UTC)))
+    except Exception as e:
+        logger.warning(f'更新 RunInstance RUNNING 状态失败: {e}')
+
+
+def _check_and_update_run_instance_success(run_uid: str) -> None:
+    """如果所有任务都 SUCCESS, 将 RunInstance 标记为 SUCCESS."""
+    try:
+        redis = _get_redis()
+        key = f'run-stats-{run_uid}'
+        stats = redis.hgetall(key)
+        total = int(stats.get(b'total', 0))
+        success = int(stats.get(b'success', 0))
+        if total > 0 and success == total:
+            with Session(engine) as session:
+                run_crud.update(session, run_uid, RunUpdate(status=Status.SUCCESS, end_time=datetime.now(tz=UTC)))
+    except Exception as e:
+        logger.warning(f'更新 RunInstance SUCCESS 状态失败: {e}')
+
+
+def _check_and_update_run_instance_error(run_uid: str) -> None:
+    """有任务失败时, 将 RunInstance 标记为 ERROR."""
+    try:
+        with Session(engine) as session:
+            run_crud.update(session, run_uid, RunUpdate(status=Status.ERROR, end_time=datetime.now(tz=UTC)))
+    except Exception as e:
+        logger.warning(f'更新 RunInstance ERROR 状态失败: {e}')
+
+
+def _flush_monitor_to_db(task_id: str) -> None:
+    """将 Redis list task-monitor-{task_id} 原子 flush 到 DB, 然后删除 key."""
+    redis = _get_redis()
+    key = f'task-monitor-{task_id}'
+    pipe = redis.pipeline()
+    pipe.lrange(key, 0, -1)
+    pipe.delete(key)
+    logs, _ = pipe.execute()
+
+    monitors = []
+    for raw in logs:
+        stat_data = json.loads(raw)
+        if stat_data is not None:
+            stat_data['task_uid'] = task_id
+            monitors.append(TaskMonitor.model_validate(stat_data))
+
+    if monitors:
+        with Session(engine) as session:
+            monitor_crud.insert_list(session, monitors)
+
+
+# ---------------------------------------------------------------------------
+# Public helpers used by task modules
+# ---------------------------------------------------------------------------
 
 
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
-    """从数据库获取工具信息
-
-    Args:
-        tool_uid: 工具 UID
-
-    Returns:
-        ToolTaskInfo: 工具任务信息
-    """
+    """从数据库获取工具信息."""
     with Session(engine) as session:
         statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))
-
         tool = session.exec(statement).one_or_none()
         if not tool:
-            raise ValueError(f'工具 {tool_uid} 不存在')
+            error_msg = f'工具 {tool_uid} 不存在'
+            raise ValueError(error_msg)
 
         return ToolTaskInfo(
             uid=tool.uid,
@@ -103,15 +217,7 @@ def get_tool_data(tool_uid: str) -> ToolTaskInfo:
 
 
 def update_task(uid: str, data: TaskUpdate) -> bool:
-    """更新任务状态
-
-    Args:
-        uid: 任务 UID
-        data: 更新数据
-
-    Returns:
-        bool: 是否更新成功
-    """
+    """更新任务状态."""
     try:
         with Session(engine) as session:
             task_crud.update(session, uid, data)
@@ -121,71 +227,17 @@ def update_task(uid: str, data: TaskUpdate) -> bool:
         return False
 
 
-def update_monitor_redis(uid: str) -> bool:
-    """更新 Redis 监控日志（用于实时通知）
-
-    Args:
-        uid: 任务 UID
-
-    Returns:
-        bool: 是否更新成功
-    """
-    try:
-        from worker import monitor_redis_client
-
-        # 从数据库获取任务信息
-        with Session(engine) as session:
-            task = task_crud.get(session, uid)
-
-            # 更新 Redis 中的运行实例统计
-            run_stats_key = f'run-stats-{task.instance_uid}'
-
-            if task.status == Status.RUNNING:
-                monitor_redis_client.hincrby(run_stats_key, 'waiting', -1)
-                monitor_redis_client.hincrby(run_stats_key, 'running', 1)
-            elif task.status == Status.SUCCESS:
-                monitor_redis_client.hincrby(run_stats_key, 'running', -1)
-                monitor_redis_client.hincrby(run_stats_key, 'success', 1)
-            elif task.status == Status.ERROR:
-                monitor_redis_client.hincrby(run_stats_key, 'running', -1)
-                monitor_redis_client.hincrby(run_stats_key, 'error', 1)
-
-            return True
-    except Exception as e:
-        logger.error(f'更新 Redis 监控日志失败: {e}')
-        return False
-
-
-def get_tool_output(uid: str, k: str, max_retries: int = 30, retry_interval: float = 2.0) -> str:
-    """从数据库获取任务输出，带轮询重试机制
-
-    用于处理任务间的依赖关系。如果输出尚未就绪，会进行轮询重试。
-
-    Args:
-        uid: 任务 UID
-        k: 输出字段名称
-        max_retries: 最大重试次数（默认 30 次）
-        retry_interval: 重试间隔（秒，默认 2 秒）
-
-    Returns:
-        str: 任务输出的文件路径
-
-    Raises:
-        TimeoutError: 超过最大重试次数仍未获取到输出
-        ValueError: 任务不存在或输出字段不存在
-    """
-    import time
-
+def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: float = 3.0) -> str:
+    """从数据库获取任务输出, 带轮询重试机制."""
     for attempt in range(max_retries):
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, uid)
 
-                # 检查任务状态
                 if task.status == Status.ERROR:
-                    raise ValueError(f'任务 {uid} 执行失败，无法获取输出')
+                    error_msg = f'任务 {uid} 执行失败, 无法获取输出'
+                    raise ValueError(error_msg)  # noqa: TRY301
 
-                # 检查输出是否存在
                 if task.tool_output is not None:
                     all_files = task.tool_output.all_files()
                     if k in all_files:
@@ -193,14 +245,12 @@ def get_tool_output(uid: str, k: str, max_retries: int = 30, retry_interval: flo
                         logger.debug(f'成功获取输出 {k}: {result}')
                         return result
 
-                # 输出尚未就绪，等待重试
                 if attempt < max_retries - 1:
                     logger.debug(
                         f'任务 {uid} 的输出 {k} 尚未就绪 '
                         f'(状态: {task.status.name}, 尝试 {attempt + 1}/{max_retries})，等待重试...'
                     )
                     time.sleep(retry_interval)
-
         except Exception as e:
             if attempt < max_retries - 1:
                 logger.warning(f'获取任务输出失败 (尝试 {attempt + 1}/{max_retries}): {e}')
@@ -208,6 +258,5 @@ def get_tool_output(uid: str, k: str, max_retries: int = 30, retry_interval: flo
             else:
                 raise
 
-    raise TimeoutError(
-        f'无法获取任务 {uid} 的输出 {k}，已重试 {max_retries} 次（总等待时间: {max_retries * retry_interval:.0f}秒）'
-    )
+    err_msg = f'无法获取任务 {uid} 的输出 {k}, 已重试 {max_retries} 次'
+    raise TimeoutError(err_msg)

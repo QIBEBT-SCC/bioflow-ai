@@ -7,7 +7,6 @@ from celery import Task
 from docker.types import Mount
 from loguru import logger
 
-from app.core.config import get_settings
 from app.models.tools import FileMount, ImageConfig
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
@@ -16,9 +15,9 @@ from app.tasks.base.base_task import (
     BaseBioTask,
     get_tool_data,
     get_tool_output,
-    update_monitor_redis,
     update_task,
 )
+from app.utils.container import run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
 from worker import celery_app, monitor_redis_client
 
@@ -54,7 +53,7 @@ def _resolve_mount_path(
         # 回溯更新 param_inputs 中所有引用了旧路径的条目
         for k, v in param_inputs.items():
             if v == container_mount_path or v.startswith(container_mount_path + '/'):
-                relative = v[len(container_mount_path):]
+                relative = v[len(container_mount_path) :]
                 param_inputs[k] = old_sub + relative
 
     # 4. 为当前挂载分配子目录
@@ -86,12 +85,16 @@ def build_mounts(
             if host_file_path.is_dir():
                 # 文件夹: 整目录挂载
                 host_mount_path = host_file_path
-                actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+                actual = _resolve_mount_path(
+                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
+                )
                 container_file_path = actual
             else:
                 # 文件或前缀: 挂载父目录, 保留伴生文件
                 host_mount_path = host_file_path.parent
-                actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+                actual = _resolve_mount_path(
+                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
+                )
                 container_file_path = f'{actual}/{host_file_path.name}'
 
             if actual not in mount_paths:
@@ -188,32 +191,11 @@ def docker_task(
     )
     update_task(self.request.id, data)
 
-    # 运行docker命令
-    log_count = 0
-    if get_settings().docker.CONTAINER == 'podman':
-        from app.utils.container.podman import run_podman_background  # noqa: PLC0415
-
-        for stats in run_podman_background(
-            docker_image, command=tool_command, mounts=volume_binds, workdir='/data/output'
-        ):
-            monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
-            monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
-            log_count += 1
-
-            if log_count % 100 == 0:
-                update_monitor_redis(self.request.id)
-    else:
-        from app.utils.container.docker import run_docker_background  # noqa: PLC0415
-
-        for stats in run_docker_background(
-            docker_image, command=tool_command, mounts=volume_binds, working_dir='/data/output'
-        ):
-            monitor_redis_client.rpush(f'task-monitor-{self.request.id}', json.dumps(stats))
-            monitor_redis_client.expire(f'task-monitor-{self.request.id}', 60 * 60 * 24)
-            log_count += 1
-
-            if log_count % 100 == 0:
-                update_monitor_redis(self.request.id)
+    # 运行容器命令并采集监控数据
+    redis_key = f'task-monitor-{self.request.id}'
+    for stats in run_command_background(docker_image, tool_command, volume_binds, working_dir='/data/output'):
+        monitor_redis_client.rpush(redis_key, json.dumps(stats))
+    monitor_redis_client.expire(redis_key, 60 * 60 * 24)
 
     # 验证输出文件是否生成
     missing_outputs = [str(path) for name, path in expected_output.all_files().items() if not path.exists()]

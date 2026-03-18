@@ -11,7 +11,20 @@ def run_command(
     command: str,
     *,
     ensure_ascii: bool = True,
-):
+) -> tuple[int, str]:
+    """Execute shell commands within a specified container environment.
+
+    Args:
+        image_cfg: An image configuration object containing the name of the image to run and related metadata.
+        mounts: A list of mount configurations defining file/directory
+        command: The full command string to be executed inside the container.
+        ensure_ascii: Whether to ensure the output is ASCII-encoded. Defaults to True.
+
+    Returns:
+        A tuple containing two elements:
+            - status (int): The exit status code after command execution (0 typically indicates success).
+            - output (str): The standard output and standard error content after command execution.
+    """
     logger.debug(f'Running  command "{command}" by image {image_cfg.get_image()}')
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman  # noqa: PLC0415
@@ -29,4 +42,22 @@ def run_command(
     return status, output
 
 
-__all__ = ['run_command']
+def run_command_background(  # noqa: ANN201
+    image_cfg: ImageConfig,
+    command: str,
+    mounts: list[Mount],
+    working_dir: str,
+    interval: float = 1.0,
+):
+    """后台运行容器命令, 实时 yield 资源占用统计, 自动分发到 podman 或 docker."""
+    if get_settings().docker.CONTAINER == 'podman':
+        from app.utils.container.podman import run_podman_background  # noqa: PLC0415
+
+        yield from run_podman_background(image_cfg, command, mounts, interval=interval, workdir=working_dir)
+    else:
+        from app.utils.container.docker import run_docker_background  # noqa: PLC0415
+
+        yield from run_docker_background(image_cfg, command, mounts, working_dir, interval=interval)
+
+
+__all__ = ['run_command', 'run_command_background']

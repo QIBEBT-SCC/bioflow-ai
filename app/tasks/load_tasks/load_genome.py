@@ -22,6 +22,7 @@ from app.utils.api.ncbi_datasets import (
     search_reference_genomes,
     search_reference_genomes_by_tax_id,
 )
+from app.utils.container import run_command
 from app.utils.network import download_gz_files
 from worker import celery_app
 
@@ -56,27 +57,6 @@ MM39_FILES: dict[str, dict[str, str]] = {
 }
 
 
-def _run_command(image_cfg: ImageConfig, mounts: list[Mount], command: str) -> tuple[int, str]:
-    if get_settings().docker.CONTAINER == 'podman':
-        from app.utils.container.podman import run_podman  # noqa: PLC0415
-
-        status, output = run_podman(
-            image_cfg,
-            command,
-            mounts,
-        )
-    else:
-        from app.utils.container.docker import run_docker  # noqa: PLC0415
-
-        status, output = run_docker(
-            image_cfg,
-            command,
-            mounts,
-        )
-
-    return status, output
-
-
 def build_bowtie2_index(genome_fasta: str) -> str:
     """构建 bowtie2 索引."""
     genome_fasta = Path(genome_fasta)
@@ -89,7 +69,7 @@ def build_bowtie2_index(genome_fasta: str) -> str:
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/bowtie2:2.5.4--he96a11b_6')
-    status, output = _run_command(
+    status, output = run_command(
         image_cfg,
         mounts,
         f'bowtie2-build --threads {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
@@ -113,7 +93,7 @@ def build_bwa_index(genome_fasta: str) -> str:
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/bwa:0.7.19--h577a1d6_1')
-    status, output = _run_command(
+    status, output = run_command(
         image_cfg,
         mounts,
         f'bwa index /data/raw/{genome_fasta.name}',
@@ -140,7 +120,7 @@ def build_hisat2_index(genome_fasta: str) -> str:
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/hisat2:2.2.1--h503566f_8')
-    status, output = _run_command(
+    status, output = run_command(
         image_cfg,
         mounts,
         f'hisat2-build -p {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
@@ -168,7 +148,7 @@ def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/star:2.7.11b--h5ca1c30_7')
-    status, output = _run_command(
+    status, output = run_command(
         image_cfg,
         mounts,
         f'STAR --runThreadN {get_settings().persistent.MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
@@ -195,7 +175,7 @@ def build_minimap2_index(genome_fasta: str) -> str:
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/minimap2:2.30--h577a1d6_0')
-    status, output = _run_command(
+    status, output = run_command(
         image_cfg,
         mounts,
         f'minimap2 -t {get_settings().persistent.MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
