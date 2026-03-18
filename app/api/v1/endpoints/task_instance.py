@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated
@@ -6,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
+from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import ToolOutput
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic
@@ -51,9 +53,25 @@ def get_task_result(uid: str, session: SessionDep) -> ToolOutput:
 
 
 @router.get('/{uid}/monitor')
-def get_monitor_log(uid: str, session: SessionDep) -> list[MonitorPublic]:
-    """Get monitor log entries for a task instance."""
-    return monitor_crud.get(session, uid)
+async def get_monitor_log(
+    uid: str,
+    session: SessionDep,
+    max_points: Annotated[int, Query(le=1000)] = 300,
+) -> list[MonitorPublic]:
+    """Get monitor log entries; reads from Redis if task is running, DB otherwise."""
+    raw_list = await monitor_redis_client.lrange(f'task-monitor-{uid}', 0, -1)
+
+    if raw_list:
+        records: list = [MonitorPublic.model_validate(json.loads(r)) for r in raw_list]
+    else:
+        records = list(monitor_crud.get(session, uid))
+
+    n = len(records)
+    if n > max_points:
+        step = n // max_points
+        records = records[::step]
+
+    return records
 
 
 @router.get('/{uid}/log')

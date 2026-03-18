@@ -10,5 +10,5 @@ def insert_list(session: Session, monitor_list: list[TaskMonitor]):
 
 
 def get(session: Session, task_uid: str):
-    statement: Select = select(TaskMonitor).where(TaskMonitor.task_uid == task_uid)
+    statement: Select = select(TaskMonitor).where(TaskMonitor.task_uid == task_uid).order_by(TaskMonitor.time)
     return session.exec(statement).all()

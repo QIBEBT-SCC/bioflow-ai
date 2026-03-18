@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import UUID7, BaseModel
+from pydantic import UUID7, BaseModel, ConfigDict
 
 from app.models.workflow import Status, ToolOutput
 from app.schemas.user import UserPublic
@@ -63,6 +63,8 @@ class TaskUpdate(BaseModel):
 
 
 class MonitorPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     cpu_usage: float
     mem_usage: float
     mem_used: float

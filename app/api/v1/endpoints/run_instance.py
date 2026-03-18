@@ -30,18 +30,23 @@ async def get_all_runs(
     """获取所有运行实例(包含从 Redis 读取的实时统计信息)."""
     runs = run_crud.get_all_runs(session, limit, offset, current_user.id)
 
-    # 利用 Pydantic 自动转换 ORM 对象
-    result = []
-    for run in runs:
-        # Pydantic 会自动处理 ORM -> Schema 的转换
-        run_data = RunPublic.model_validate(run)
+    result = [RunPublic.model_validate(run) for run in runs]
 
-        # 尝试从 Redis 读取统计信息(覆盖 model_validator 计算的值)
-        stats = await get_run_stats_from_redis(monitor_redis_client, str(run.uid))
-        if stats:
-            run_data.task_statistics = stats
+    if result:
+        pipe = monitor_redis_client.pipeline()
+        for run in runs:
+            pipe.hgetall(f'run-stats-{run.uid}')
+        stats_list = await pipe.execute()
 
-        result.append(run_data)
+        for run_data, raw_stats in zip(result, stats_list, strict=True):
+            if raw_stats:
+                run_data.task_statistics = Statistics(
+                    total=int(raw_stats.get(b'total', 0)),
+                    waiting=int(raw_stats.get(b'waiting', 0)),
+                    running=int(raw_stats.get(b'running', 0)),
+                    success=int(raw_stats.get(b'success', 0)),
+                    error=int(raw_stats.get(b'error', 0)),
+                )
 
     return result
 
