@@ -6,166 +6,87 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from app.core.redis_client import llm_cache
-from llm.agents.reproduction.mamagers import (
-    code_manager_agent,
-    processor_manager_agent,
-    resource_manager_agent,
-    tool_manager_agent,
-)
 from llm.models import get_agent_model
-from llm.states import BuildContext, BuildSchema, UserContext
-from llm.tools.workflow import assist_tool, save_workflow, view_workflow
+from llm.states import BuildContext, BuildSchema
+from llm.tools.human import ask_human
+from llm.tools.managers import (
+    other_node_manager,
+    processor_node_manager,
+    resource_node_manager,
+    tool_node_manager,
+    workflow_manager,
+)
+from llm.tools.workflow import assist_tool
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
-    InitedTodoMiddleware,
     SkillMiddleware,
     StatusBarMiddleware,
     TodoMiddleware,
     TokenStatisticMiddleware,
 )
 
-BUILD_FLOW_SYSTEM = """You are a bioinformatics expert using a visual bioinformatics analysis platform based on a node-based editor.
-Your task is to call the corresponding tools to add appropriate nodes to the panel to design a bioinformatics analysis workflow that meets user needs.
+BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于节点式编辑器的可视化生物信息分析平台。
+您的任务是调用相应的工具, 向面板中添加适当的节点, 以设计满足用户需求的生物信息学分析工作流。
 
-## Task Flow
-You will see a prepared plan and the user's description of the tasks. Based on the user's description and the plan, gradually complete the following:
-1. Read the plan and call the `add_todos` tool to initialize the todo list.
-2. Check the Todo list, select the next `pending` task and call `update_todo(..., status='in_progress')` to update its status.
-3. According to different task types, call the corresponding manager tools to prepare the required resources or tools.
-    - For every workflow, you need to first understand what is used as input data for this workflow, and then call the `call_resource_manager` tool to request adding resource nodes.
-    - If it is a task to process or analyze data, call the `call_tool_manager` tool to request adding corresponding bioinformatics tool nodes.
-    - Once an upstream workflow is built, call the `save_workflow` tool to save the current workflow to the database.
-4. After the current task is completed:
-    1. First Call the `summarize_work` tool to draft handover information for the next round of tasks.
-        - It should include two parts: 1. A summary of the current workflow panel status; 2. An explanation of the work completed in this round.
-        - In the handover information, it is particularly necessary to specify the node IDs of certain key nodes.
-    2. Then call `update_todo(..., status='completed')` to update the task status.
-5. Repeat the above steps until all upstream workflows in the plan have been built, then summarize and end your work.
+## 编辑器介绍
+### 节点类型
+此编辑器中包括以下几种类型的节点:
+- 资源(resource)节点: 包括加载原始数据、数据库、参考基因组, 输入变量等
+- 工具(tool)节点: 生物信息分析工具或算法
+- 处理器(processor)节点: 一些用于辅助数据处理的节点, 如格式转换、数据过滤、文件拷贝等
+- 代码(code)节点: 执行自定义的脚本或代码片段
+- 备注(note)节点: 不参与运算, 用于对部分节点进行备注
 
-## Editor Description
-This editor includes the following types of nodes:
-- Resource nodes: including loading raw data, databases, reference genomes, etc.
-- Tool nodes: bioinformatics analysis tools or algorithms.
-- Processor nodes: some nodes used to assist data processing, such as format conversion, data filtering, file copying, etc.
-- Code nodes: execute custom bash scripts or R, Python code.
+### 节点数据
+不同类型的节点的内容不同, 通常包含如下信息。带有*的字段是添加到面板上后才有的:
+- `id*`: 已经添加到面板上的节点会被自动赋予一个唯一的id
+- `name`: 此节点的名称
+- `type`: 此节点的类型
+- `input_handles`: 节点所需的输入连接, 来自之前的节点
+- `output_handles`: 此节点提供的输出, 可以用于之后的节点使用
+- `data`: 节点具体的数据, 不同类型的节点有所不同
+- `pos*`: 节点在面板上的位置
 
-You cannot directly operate nodes; you can only request to add nodes by calling the corresponding manager tools. You need to pass the specific requirements of the current task to the appropriate manager tools so that they can correctly add the required nodes.
-Generally, you ONLY need to decide to add Resource nodes, Processor nodes, and Code nodes when reading initial data or in special scenarios within other SKILLs; in other cases, tool_manager will automatically add other types of nodes required by the tool.
+### 互动工具
+所有互动工具(XX_manager)均采用 `action + params` 的渐进式披露模式:
+- `action="help", params={}` — 列出该工具的所有可用 action 及说明
+- `action="help", params={"action": "<name>"}` — 查看指定 action 的参数 schema
 
-## Notes
-- Only one task can be processed at a time. Ensure that the current task has been marked as `completed` before starting the next task.
-- When a task is marked as `completed`, the current context information will be cleared. You can obtain necessary information by viewing the todo list and the current workflow status.
-- To allow the manager to focus solely on adding nodes, you need to tell them in detail what needs to be done, as only you can see the current task list and workflow status.
+各工具负责的交互对象:
+- `tool_node_manager` — 工具(tool)节点
+- `resource_node_manager` — 资源(resource)节点
+- `processor_node_manager` — 处理器(processor)节点
+- `other_node_manager` — 代码(code)节点和备注(note)节点
+- `workflow_manager` — 工作流面板操作(查看、删除节点、保存工作流等)
+
+
+## 任务流程
+您将看到一份已准备好的计划以及用户最初的任务需求。基于用户的描述和该计划, 逐步完成以下内容:
+1. 阅读计划并调用 `add_todos` 工具, 初始化 Todo List。
+2. 检查Todo List, 选择下一个 `pending`(待处理)任务, 并调用 `update_todo(..., status='in_progress')` 将其状态更新为进行中
+3. 根据不同的任务类型, 调用相应的工具对面板进行操作, 添加合适的节点
+    - 如果任务中没有明确说明使用什么工具, 或者给了多个选择。根据自身知识以及搜索返回的结果, 自主选择一款合适的工具来完成任务。
+    - 如果原始要求中指明了某个工具, 但是你觉得不合适, 也可以使用更好的工具替换他, 并添加一个note节点加以说明。
+4. 当前任务完成后:
+    1. 首先调用 `summarize_work` 工具, 为后续任务撰写交接文档
+        - 该信息应包含两部分: 1. 当前工作流面板状态的总结; 2. 本轮已完成工作的说明。
+        - 在交接信息中, 特别需要注明某些资源节点的作用是什么(如: sequence节点A, 用于接受原始双端序列), 无论是来自之前的交接信息还是本轮中新增的操作
+    2. 然后调用 `update_todo(..., status='completed')` 更新任务状态。
+5. 一旦一个上游工作流构建完成, 调用相应工具将当前工作流保存到数据库
+6. 重复上述步骤, 直到计划中的所有上游工作流均已构建完成, 最后进行总结并结束工作。
+
+
+## 注意事项
+- 一次只能处理一个任务。在开始下一个任务之前, 请确保当前任务已标记为“completed”。
+- 当任务标记为“completed”时, 当前上下文信息将被清除。您可以通过查看待办事项列表、交接信息和当前工作流状态来获取必要信息。
+- 在使用任何交互操作(XX_manager)前, 务必先使用 action="help" 并传入 params={"action": "<action_name>"} 明确特定操作的参数说明。**禁止在不了解操作参数的情况下直接进行操作!**
+- 节点间的边是有方向的, 因此在添加任意一个结点之前, 务必保证该节点所需的来源节点已经都存在在面板上 (如: 在添加比对工具前, 该节点所需的序列文件和参考基因组索引相关的节点必须先被添加到面板上)
+- 节点的位置安排:
+    - 当前面板上没有节点时, 新添加的节点放在面板中央位置 (x=0, y=0)
+    - 当前面板上已有节点时, 按照分析执行的顺序, 将新添加的节点放在右侧 (x+1), y坐标与相关联的上游节点保持一致
+    - 如果当前位置已经有节点了, 视情况向上或向下调整 y 坐标 (±1), 避免节点重叠
+- 当碰到你无法处理的情况(如缺少数据库、没有可用的工具等)时, 调用 `ask_human` 工具请求人工帮助
 """
-
-
-@tool
-async def call_tool_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
-    """Tool manager, call to add tool nodes."""
-    exist_nodes = runtime.state.get('exist_nodes', [])
-    exist_edges = runtime.state.get('exist_edges', [])
-    global_marks = runtime.state.get('global_marks', [])
-
-    response = await tool_manager_agent.ainvoke(
-        {  # type: ignore
-            'paper_id': runtime.state.get('paper_id', None),
-            'exist_nodes': exist_nodes,
-            'exist_edges': exist_edges,
-            'global_marks': global_marks,
-            'messages': [HumanMessage(content=request)],
-        },
-        context=BuildContext(user_id=runtime.context.user_id, has_reference=runtime.context.has_reference),  # type: ignore
-    )
-
-    return Command(
-        update={
-            'messages': [ToolMessage(content=response['messages'][-1].content, tool_call_id=runtime.tool_call_id)],
-            'exist_nodes': response['exist_nodes'],
-            'exist_edges': response['exist_edges'],
-            'global_marks': response['global_marks'],
-        }
-    )
-
-
-@tool
-async def call_resource_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
-    """Resource manager, call to add resource nodes."""
-    exist_nodes = runtime.state.get('exist_nodes', [])
-    exist_edges = runtime.state.get('exist_edges', [])
-    global_marks = runtime.state.get('global_marks', [])
-
-    response = await resource_manager_agent.ainvoke(
-        {  # type: ignore
-            'paper_id': runtime.state.get('paper_id', None),
-            'exist_nodes': exist_nodes,
-            'exist_edges': exist_edges,
-            'global_marks': global_marks,
-            'messages': [HumanMessage(content=request)],
-        },
-        context=UserContext(user_id=runtime.context.user_id),  # type: ignore
-    )
-    return Command(
-        update={
-            'messages': [ToolMessage(content=response['messages'][-1].content, tool_call_id=runtime.tool_call_id)],
-            'exist_nodes': response['exist_nodes'],
-            'exist_edges': response['exist_edges'],
-            'global_marks': response['global_marks'],
-        }
-    )
-
-
-@tool
-async def call_processor_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
-    """Processor manager, call to add processor nodes."""
-    exist_nodes = runtime.state.get('exist_nodes', [])
-    exist_edges = runtime.state.get('exist_edges', [])
-    global_marks = runtime.state.get('global_marks', [])
-
-    response = await processor_manager_agent.ainvoke(
-        {  # type: ignore
-            'paper_id': runtime.state.get('paper_id', None),
-            'exist_nodes': exist_nodes,
-            'exist_edges': exist_edges,
-            'global_marks': global_marks,
-            'messages': [HumanMessage(content=request)],
-        },
-        context=UserContext(user_id=runtime.context.user_id),  # type: ignore
-    )
-    return Command(
-        update={
-            'messages': [ToolMessage(content=response['messages'][-1].content, tool_call_id=runtime.tool_call_id)],
-            'exist_nodes': response['exist_nodes'],
-            'exist_edges': response['exist_edges'],
-            'global_marks': response['global_marks'],
-        }
-    )
-
-
-@tool
-async def call_code_manager(request: str, runtime: ToolRuntime[BuildContext, BuildSchema]) -> Command:
-    """Code manager, call to add code nodes."""
-    exist_nodes = runtime.state.get('exist_nodes', [])
-    exist_edges = runtime.state.get('exist_edges', [])
-    global_marks = runtime.state.get('global_marks', [])
-
-    response = await code_manager_agent.ainvoke(
-        {  # type: ignore
-            'paper_id': runtime.state.get('paper_id', None),
-            'exist_nodes': exist_nodes,
-            'exist_edges': exist_edges,
-            'global_marks': global_marks,
-            'messages': [HumanMessage(content=request)],
-        },
-        context=UserContext(user_id=runtime.context.user_id),  # type: ignore
-    )
-    return Command(
-        update={
-            'messages': [ToolMessage(content=response['messages'][-1].content, tool_call_id=runtime.tool_call_id)],
-            'exist_nodes': response['exist_nodes'],
-            'exist_edges': response['exist_edges'],
-            'global_marks': response['global_marks'],
-        }
-    )
 
 
 @tool
@@ -187,19 +108,24 @@ async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
 build_workflow_agent: CompiledStateGraph = create_agent(
     get_agent_model(),
     [
-        view_workflow,
-        call_tool_manager,
-        call_resource_manager,
-        call_processor_manager,
-        call_code_manager,
+        tool_node_manager,
+        resource_node_manager,
+        processor_node_manager,
+        other_node_manager,
+        workflow_manager,
         summarize_work,
         assist_tool,
-        save_workflow,
+        ask_human,
     ],
     system_prompt=BUILD_FLOW_SYSTEM,
     middleware=[
         TodoMiddleware(),
-        SkillMiddleware(['CROSS_WORKFLOW_FILE_TRANSFER', 'MODIFY_WITH_AWK']),
+        SkillMiddleware(
+            [
+                # 'CROSS_WORKFLOW_FILE_TRANSFER',
+                'MODIFY_WITH_AWK',
+            ]
+        ),
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
         TokenStatisticMiddleware(agent_name='reproduction_agent', **get_agent_model().metadata),

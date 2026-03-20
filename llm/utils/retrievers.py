@@ -1,15 +1,21 @@
-from typing import Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from langchain_core.documents import Document
-from langchain_milvus import Milvus
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from sqlmodel import Session, col, select
 
+import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.document import ParentDocument
+from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
+from llm.utils.uid_mapper import BidirectionalMapper
+
+if TYPE_CHECKING:
+    from app.models.tools import ToolDefine
 
 
 def insert_documents(document_content: str, doc_id: str) -> None:
@@ -67,7 +73,7 @@ def insert_documents(document_content: str, doc_id: str) -> None:
                 vectorstore.add_documents(batch)
 
 
-async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 8) -> list[Document]:
+async def retrieve_documents(query: str, doc_id: str | None = None, k: int = 8) -> list[Document]:
     """从 Milvus 查子文档, 根据 parent_uid 从数据库取父文档."""
     embedding = qwen3_embedding()
     vectorstore = Milvus(
@@ -111,3 +117,67 @@ async def retrieve_documents(query: str, doc_id: Optional[str] = None, k: int = 
         )
         for p in parent_docs
     ]
+
+
+async def retrieve_tools(
+    query: str, image_uid: UUID | None = None
+) -> tuple[list[ToolNodePublic], BidirectionalMapper | None]:
+    """Search existing tools from the vector database based on functionality."""
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='ToolCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding,
+        builtin_function=BM25BuiltInFunction(),
+        vector_field=['dense', 'sparse'],
+        consistency_level='Strong',
+    )
+
+    task = 'Provide a search query to search for tools with relevant functions'
+    query = f'Instruct: {task}\nQuery:{query}'
+
+    if image_uid:
+        results = await vectorstore.asimilarity_search(
+            query,
+            k=10,
+            param=[{'M': 64, 'efConstruction': 100}, {}],
+            expr=f'image_uid == "{image_uid!s}"',
+            ranker_type='weighted',
+            ranker_params={'weights': [0.85, 0.15]},
+        )
+    else:
+        results = await vectorstore.asimilarity_search(
+            query,
+            k=10,
+            param=[{'M': 64, 'efConstruction': 100}, {}],
+            ranker_type='weighted',
+            ranker_params={'weights': [0.85, 0.15]},
+        )
+
+    if not results:
+        return [], None
+
+    with Session(engine) as session:
+        exist_tools: list[ToolDefine] = tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results])
+        mappers = BidirectionalMapper(datas=exist_tools)
+
+    tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
+
+    return tool_nodes, mappers
+
+
+async def retrieve_processor(query: str) -> list[Document]:
+    """Search for the processor node corresponding to the function."""
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='ProcessorCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding,
+        search_params={'M': 64, 'efConstruction': 100},
+        consistency_level='Strong',
+    )
+
+    task = 'Provide a search query to search for data processors with relevant functions'
+    query = f'Instruct: {task}\nQuery:{query}'
+
+    return await vectorstore.amax_marginal_relevance_search(query, k=10)

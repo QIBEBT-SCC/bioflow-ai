@@ -1,12 +1,83 @@
 import json
 from typing import Any
 
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 from loguru import logger
+from pydantic import BaseModel, ValidationError
 
 from app.schemas.tools import Handle, ToolNodePublic
 from app.utils.input_format import build_command_template
 from llm.states import BuildNode, GlobalMarker, ToolGeneratorState
 from llm.utils.uid_mapper import BidirectionalMapper
+
+
+def schema_to_description(schema_cls: type[BaseModel]) -> str:
+    """Generate a human-readable description of a Pydantic model's fields."""
+    lines = ['Schema fields:']
+    for field_name, field_info in schema_cls.model_fields.items():
+        annotation = field_info.annotation
+        desc = field_info.description or ''
+        default = '' if field_info.is_required() else f' (optional, default: {field_info.default})'
+        lines.append(f'  - {field_name} ({annotation}){default}: {desc}')
+    return '\n'.join(lines)
+
+
+def format_validation_error(action: str, e: ValidationError, schema_cls: type[BaseModel]) -> str:
+    """Format a ValidationError into a structured, LLM-friendly message."""
+    error_lines = []
+    for err in e.errors():
+        field = '.'.join(str(loc) for loc in err['loc'])
+        msg = err['msg']
+        actual = err.get('input', '<missing>')
+        error_lines.append(f'  - {field}: {msg} (got: {actual!r})')
+    errors_str = '\n'.join(error_lines)
+    return f'Invalid params for "{action}":\n{errors_str}\n\n{schema_to_description(schema_cls)}'
+
+
+def manager_help_command(
+    params: dict[str, Any],
+    help_cls: type[BaseModel],
+    valid_operates: dict[str, type[BaseModel]],
+    help_msg: str,
+    tool_call_id: str,
+) -> Command:
+    """Automatically generate help information from Pydantic data classes."""
+    if params:
+        try:
+            validate_param = help_cls.model_validate(params)
+        except ValidationError as e:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=format_validation_error('help', e, help_cls),
+                            tool_call_id=tool_call_id,
+                        )
+                    ]
+                }
+            )
+
+        action_name = validate_param.action
+        if action_name not in valid_operates:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'Unknown action: "{action_name}". Available: {list(valid_operates.keys())}',
+                            tool_call_id=tool_call_id,
+                        )
+                    ]
+                }
+            )
+
+        schema_cls = valid_operates[action_name]
+        content = (
+            f'Action "{action_name}" takes no parameters.' if schema_cls is None else schema_to_description(schema_cls)
+        )
+        return Command(update={'messages': [ToolMessage(content=content, tool_call_id=tool_call_id)]})
+
+    return Command(update={'messages': [ToolMessage(content=help_msg, tool_call_id=tool_call_id)]})
 
 
 def tool_config_formatter(state: ToolGeneratorState) -> str:
@@ -59,8 +130,10 @@ def node_formatter(node: BuildNode) -> str:
         'type': node.type,
     }
     if node.type == 'tool':
-        data_obj['command'] = node.command
-        data_obj['tool_uid'] = node.data.get('tool_uid')
+        data_obj['data'] = {
+            'command': node.command,
+            'tool_uid': node.data.get('tool_uid'),
+        }
     else:
         data_obj['data'] = node.data
 

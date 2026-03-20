@@ -177,10 +177,11 @@ class BuildSchema(AgentState, total=False):
     todos: list[Todo]
     previous_summary: str
 
-    exist_nodes: list[BuildNode]
-    exist_edges: list[BuildEdge]
+    id_mapper: BidirectionalMapper
+    exist_nodes: Annotated[list[BuildNode], operator.add]
+    exist_edges: Annotated[list[BuildEdge], operator.add]
 
-    global_marks: list[GlobalMarker]
+    global_marks: Annotated[list[GlobalMarker], operator.add]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
 
