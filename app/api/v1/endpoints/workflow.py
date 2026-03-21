@@ -9,7 +9,7 @@ import app.crud.workflow as wf_crud
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Status, Workflow
 from app.schemas.react_flow import WorkflowDefinition
-from app.schemas.workflow import WorkflowCreateProp
+from app.schemas.workflow import WorkflowCreateProp, WorkflowUpdate
 from app.utils.input_format import get_sample_name
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
@@ -96,15 +96,23 @@ async def save_workflow(
     return uid
 
 
+@router.delete('/{uid}', status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workflow(
+    uid: str,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> None:
+    """Delete a workflow by its UID."""
+    wf_crud.delete(session, uid)
+
+
 @router.patch('/{uid}')
 async def update_workflow(
     uid: str,
-    workflow: WorkflowDefinition,
+    data: WorkflowUpdate,
     session: SessionDep,
     _current_user: UserDep,
 ) -> str:
-    """Update an existing workflow's definition."""
-    # TODO: 合法性检查
-
-    wf_crud.update(session, uid, workflow)
+    """Update an existing workflow's name and/or definition."""
+    wf_crud.update(session, uid, data)
     return uid

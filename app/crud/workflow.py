@@ -1,7 +1,7 @@
 from sqlalchemy import Select, func
 from sqlmodel import Session, select, or_
 
-from app.schemas.react_flow import WorkflowDefinition
+from app.schemas.workflow import WorkflowUpdate
 from app.models.workflow import Workflow
 
 
@@ -13,15 +13,24 @@ def insert(session: Session, workflow: Workflow) -> Workflow:
     return workflow
 
 
-def update(session: Session, uid: str, workflow: WorkflowDefinition) -> Workflow:
+def update(session: Session, uid: str, data: WorkflowUpdate) -> Workflow:
     db_flow = get(session, uid)
 
-    db_flow.workflow = workflow
+    if data.name is not None:
+        db_flow.name = data.name
+    if data.workflow is not None:
+        db_flow.workflow = data.workflow
     session.add(db_flow)
     session.commit()
     session.refresh(db_flow)
 
     return db_flow
+
+
+def delete(session: Session, uid: str) -> None:
+    db_flow = get(session, uid)
+    session.delete(db_flow)
+    session.commit()
 
 
 def workflow_name_exists(session: Session, name: str) -> bool:

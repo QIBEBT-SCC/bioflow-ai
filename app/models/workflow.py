@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import uuid_extensions
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import UUID, Column, ForeignKey
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -67,6 +67,8 @@ class RunInstance(SQLModel, table=True):
 
 
 class ToolOutput(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     result: dict[str, Path] = Field(default_factory=dict)
     log: Optional[Path] = None
     reports: dict[str, Path] = Field(default_factory=dict)

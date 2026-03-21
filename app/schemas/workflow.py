@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 from app.models.workflow import WorkflowType
@@ -12,4 +14,5 @@ class WorkflowCreateProp(BaseModel):
 
 
 class WorkflowUpdate(BaseModel):
-    workflow: WorkflowDefinition
+    name: Optional[str] = None
+    workflow: Optional[WorkflowDefinition] = None
