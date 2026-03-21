@@ -56,6 +56,9 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
 
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         last_message = state['messages'][-1]
+        if not isinstance(last_message, AIMessage):
+            return None
+
         if not last_message.tool_calls or len(last_message.tool_calls) == 1:
             return None
 
