@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from langchain_core.documents import Document
-from langchain_milvus import Milvus
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.tools.image as image_crud
@@ -174,7 +174,9 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _curren
         collection_name='ToolCollection',
         connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding_model,
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        builtin_function=BM25BuiltInFunction(),
+        vector_field=['dense', 'sparse'],
+        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
         consistency_level='Strong',
         drop_old=False,
         auto_id=True,
