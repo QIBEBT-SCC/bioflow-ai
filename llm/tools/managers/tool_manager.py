@@ -1,11 +1,12 @@
 from typing import Any
 
 import nanoid
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.config import get_stream_writer
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
+from langgraph.types import Command, Overwrite
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
@@ -65,7 +66,7 @@ class CreateToolSchema(BaseModel):
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'search_by_name': NameSearchSchema,
-    'search_by_function': FunctionSearchSchema,
+    # 'search_by_function': FunctionSearchSchema,
     'add': AddToolSchema,
     'create': CreateToolSchema,
 }
@@ -73,7 +74,6 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
 HELP_MESSAGE = """## Actions
 tool_node_manager 中包括了以下操作:
 - `search_by_name`: 基于名称搜索工具
-- `search_by_function`: 基于功能描述搜索工具
 - `add`: 向面板添加一个工具节点
 - `create`: 新建一个工具节点 (当没有满足需求的节点时)
 
@@ -103,7 +103,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     """
     match action:
         case 'help':
-            logger.info(f'Tool Manager(action="{action}")')
+            logger.info(f'Tool Manager(action="{action} {params}")')
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
         case 'search_by_name':
             try:

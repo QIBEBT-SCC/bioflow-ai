@@ -85,7 +85,7 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
     """
     match action:
         case 'help':
-            logger.info(f'Resource Manager(action="{action}")')
+            logger.info(f'Resource Manager(action="{action} {params}")')
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view':

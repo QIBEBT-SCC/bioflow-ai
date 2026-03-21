@@ -65,7 +65,7 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
         action: Action to be performed
         params: Parameters used in the action
     """
-    logger.info(f'Workflow Manager(action="{action}")')
+    logger.info(f'Workflow Manager(action="{action} {params}")')
     match action:
         case 'help':
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)

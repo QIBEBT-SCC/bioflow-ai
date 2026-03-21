@@ -65,7 +65,7 @@ async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolR
         action: Action to be performed
         params: Parameters used in the action
     """
-    logger.info(f'Other Manager(action="{action}")')
+    logger.info(f'Other Manager(action="{action} {params}")')
     match action:
         case 'help':
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)

@@ -73,7 +73,7 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
     """
     match action:
         case 'help':
-            logger.info(f'Processor Manager(action="{action}")')
+            logger.info(f'Processor Manager(action="{action} {params}")')
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view_processor':
