@@ -1,5 +1,6 @@
+import inspect
 import json
-from typing import Any
+from typing import Any, get_args
 
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
@@ -12,14 +13,37 @@ from llm.states import BuildNode, GlobalMarker, ToolGeneratorState
 from llm.utils.uid_mapper import BidirectionalMapper
 
 
-def schema_to_description(schema_cls: type[BaseModel]) -> str:
-    """Generate a human-readable description of a Pydantic model's fields."""
-    lines = ['Schema fields:']
+def _extract_nested_model(annotation: Any) -> type[BaseModel] | None:
+    """Extract a BaseModel subclass from an annotation, handling generics like list[X] or Optional[X]."""
+    if annotation is None:
+        return None
+    if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
+        return annotation
+    for arg in get_args(annotation):
+        result = _extract_nested_model(arg)
+        if result is not None:
+            return result
+    return None
+
+
+def schema_to_description(schema_cls: type[BaseModel], indent: int = 0, _visited: set | None = None) -> str:
+    """Generate a human-readable description of a Pydantic model's fields, recursively expanding nested models."""
+    if _visited is None:
+        _visited = set()
+    if schema_cls in _visited:
+        return ''
+    _visited.add(schema_cls)
+
+    pad = '  ' * indent
+    lines = [f'{pad}Schema fields ({schema_cls.__name__}):']
     for field_name, field_info in schema_cls.model_fields.items():
         annotation = field_info.annotation
         desc = field_info.description or ''
         default = '' if field_info.is_required() else f' (optional, default: {field_info.default})'
-        lines.append(f'  - {field_name} ({annotation}){default}: {desc}')
+        lines.append(f'{pad}  - {field_name} ({annotation}){default}: {desc}')
+        nested = _extract_nested_model(annotation)
+        if nested is not None:
+            lines.append(schema_to_description(nested, indent + 2, _visited))
     return '\n'.join(lines)
 
 
