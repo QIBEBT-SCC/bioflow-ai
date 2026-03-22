@@ -23,7 +23,7 @@ from llm.utils.formatters import (
     search_nodes_formatter,
 )
 from llm.utils.retrievers import retrieve_tools
-from llm.utils.uid_mapper import BidirectionalMapper, generate_char_index
+from llm.utils.uid_mapper import BidirectionalMapper, generate_char_index, merge_mappers
 
 # ---- Schemas ----
 
@@ -211,9 +211,10 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
 def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
     with Session(engine) as session:
         exist_tools = tool_crud.get_by_name_fuzzy(session, query, 15, 0)
-        mappers = BidirectionalMapper(datas=exist_tools)
+        new_mapper = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
+        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
         tool_nodes = []
         for exist_tool in exist_tools:
             try:
@@ -223,14 +224,12 @@ def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Comm
 
         return Command(
             update={
-                'id_mapper': mappers,
+                'id_mapper': merged_mapper,
                 'messages': [
                     ToolMessage(
                         content=(
-                            f'Based on the keywords, the following tool nodes are available '
-                            f'(each tool node has an additional <command> field indicating the command executed):\n'
-                            f'{search_nodes_formatter(tool_nodes, mappers)}\n'
-                            f'Note that tool_id is only valid for this search; if search is called again, previous IDs become invalid.'
+                            f'Based on the keywords, the following tool nodes are available:\n'
+                            f'{search_nodes_formatter(tool_nodes, merged_mapper)}'
                         ),
                         tool_call_id=runtime.tool_call_id,
                     )
@@ -254,7 +253,7 @@ def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Comm
 
 
 async def _search_tools_by_function(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
-    tool_nodes, mappers = await retrieve_tools(query)
+    tool_nodes, new_mapper = await retrieve_tools(query)
 
     if not tool_nodes:
         return Command(
@@ -268,12 +267,14 @@ async def _search_tools_by_function(query: str, runtime: ToolRuntime[BuildContex
             }
         )
 
+    merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
+
     return Command(
         update={
-            'id_mapper': mappers,
+            'id_mapper': merged_mapper,
             'messages': [
                 ToolMessage(
-                    content=search_nodes_formatter(tool_nodes, mappers),
+                    content=search_nodes_formatter(tool_nodes, merged_mapper),
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

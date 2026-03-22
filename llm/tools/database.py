@@ -19,7 +19,7 @@ from app.core.session import engine
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import ToolNodePublic
 from llm.utils.formatters import search_nodes_formatter
-from llm.utils.uid_mapper import BidirectionalMapper
+from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
 
 if TYPE_CHECKING:
     from app.models.resource import BioDb
@@ -36,13 +36,14 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
     """
     with Session(engine) as session:
         images: list[ToolImage] = image_crud.get_by_name_fuzzy(session, query, 50, 0)
-        mappers = BidirectionalMapper(datas=images)
+        new_mapper = BidirectionalMapper(datas=images)
 
     if images:
+        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
         image_blocks = [
             (
                 f'  <image>\n'
-                f'    <id>{mappers.get_index_by_uid(str(image.uid))}</id>\n'
+                f'    <id>{merged_mapper.get_index_by_uid(str(image.uid))}</id>\n'
                 f'    <name>{image.name}</name>\n'
                 f'    <description>{image.description}</description>\n'
                 f'    <url>{image.image.get_image()}</url>\n'
@@ -53,7 +54,7 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
 
         return Command(
             update={
-                'id_mapper': mappers,
+                'id_mapper': merged_mapper,
                 'messages': [
                     ToolMessage(
                         content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
@@ -158,13 +159,14 @@ def list_docs(runtime: ToolRuntime) -> Command:
 
     with Session(engine) as session:
         docs: list[ToolHelpDoc] = doc_crud.get_by_image(session, str(image_uid))
-        mappers = BidirectionalMapper(datas=docs)
+        new_mapper = BidirectionalMapper(datas=docs)
 
     if docs:
+        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
         doc_blocks = [
             (
                 f'  <doc>\n'
-                f'    <id>{mappers.get_index_by_uid(str(d.uid))}</id>\n'
+                f'    <id>{merged_mapper.get_index_by_uid(str(d.uid))}</id>\n'
                 f'    <desc>{d.description}</desc>\n'
                 f'    <command>{d.help_command}</command>\n'
                 f'  </doc>'
@@ -174,7 +176,7 @@ def list_docs(runtime: ToolRuntime) -> Command:
 
         return Command(
             update={
-                'id_mapper': mappers,
+                'id_mapper': merged_mapper,
                 'messages': [
                     ToolMessage(
                         content=f'Under this image, we found {len(docs)} corresponding help document records:\n\n<docs>\n{"\n".join(doc_blocks)}\n</docs>',
@@ -290,9 +292,10 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
     """
     with Session(engine) as session:
         exist_tools: list[ToolDefine] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
-        mappers = BidirectionalMapper(datas=exist_tools)
+        new_mapper = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
+        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
         tool_nodes = []
         for exist_tool in exist_tools:
             try:
@@ -302,13 +305,13 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
 
         return Command(
             update={
-                'id_mapper': mappers,
+                'id_mapper': merged_mapper,
                 'messages': [
                     ToolMessage(
                         f'Based on the keywords, the following tool nodes are available '
                         f'(To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n'
-                        f'{search_nodes_formatter(tool_nodes, mappers)}'
-                        f'Note that tool_id is only valid for this search; if this tool is called again, the tool_id from the previous search will become invalid.',
+                        f'{search_nodes_formatter(tool_nodes, merged_mapper)}'
+                        f'Note that tool_id accumulates across searches; previously returned IDs remain valid.',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ],
@@ -422,27 +425,6 @@ def select_group(group_id: int, runtime: ToolRuntime) -> Command:
             ],
         }
     )
-
-
-@tool(parse_docstring=True)
-def add_group(name: str, parent_id: Optional[int] = None) -> str:
-    """Create new tool group.
-
-    Args:
-        name: group name
-        parent_id: Leave None if it is a top-level group, otherwise it is the ID of its parent group if it is a sub-group.
-    """
-    with Session(engine) as session:
-        tag = ToolTag(name=name)
-        tag = tag_crud.insert(session, tag)
-
-        if parent_id is not None:
-            group = ToolGroup(name=name, tag_id=tag.id, parent_id=parent_id)
-        else:
-            group = ToolGroup(name=name, tag_id=tag.id)
-        group = group_crud.insert(session, group)
-
-        return f'Create new group "{group.name}", id: {group.id}'
 
 
 @tool(parse_docstring=True)

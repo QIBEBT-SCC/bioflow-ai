@@ -15,7 +15,7 @@ from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
 from llm.utils.formatters import search_nodes_formatter
 from llm.utils.retrievers import retrieve_documents
-from llm.utils.uid_mapper import BidirectionalMapper
+from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
 
 if TYPE_CHECKING:
     from app.models.tools import ToolDefine
@@ -85,16 +85,17 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
 
     with Session(engine) as session:
         exist_tools: list[ToolDefine] = tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results])
-        mappers = BidirectionalMapper(datas=exist_tools)
+        new_mapper = BidirectionalMapper(datas=exist_tools)
 
     tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
+    merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
 
     return Command(
         update={
-            'id_mapper': mappers,
+            'id_mapper': merged_mapper,
             'messages': [
                 ToolMessage(
-                    content=search_nodes_formatter(tool_nodes, mappers),
+                    content=search_nodes_formatter(tool_nodes, merged_mapper),
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
