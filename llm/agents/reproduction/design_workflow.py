@@ -89,8 +89,8 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 
 ## 3. Standardized Analysis Workflow (Upstream)
 ### Workflow Plan
-- **Step 1: [Functional Name]** - [Detailed description of the scientific necessity and operational logic of this step]
-- **Step 2: [Functional Name]** - [Describe logic...]
+- **Step 1: [Functional Name]** - [What tool should be used to complete this step?]
+- **Step 2: [Functional Name]** - [...]
 - ... (Complete all necessary steps until result files available for analysis are produced)
 
 ### Key Output Files
@@ -103,10 +103,10 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 ```
 
 ## Notes
-1. In the upstream analysis workflow description, your task is only to provide the general analysis step planning; specific tools to be used will be selected by subsequent work based on your planning, **you do not need to decide on specific tools**
-2. The plan must include "invisible but necessary" steps, such as: BUSCO/QUAST evaluation after assembly, repeat sequence marking after alignment, mitochondrial filtering for single cells, etc.
+1. When planning upstream analysis tasks, decide independently which tool to use at each step based on your knowledge. When multiple tools can accomplish a given step, choose the newer and more efficient one.
+2. The plan should "invisible but necessary" steps, such as: BUSCO/QUAST evaluation after assembly, repeat sequence marking after alignment, mitochondrial filtering for single cells, etc.
 3. Before calling `ask_human` and obtaining user confirmation, the task is not considered complete
-4. Upstream planning is for subsequent tool selection and workflow boundaries, requiring only clear logic; downstream suggestions are for the user to see and must be actionable
+4. The upstream analysis plan is intended for subsequent actual workflow construction and requires clear organization; the downstream suggestions are for user reference and only need to provide general recommendations.
 5. Only one tool call is allowed at a time; calling multiple tools at once is strictly prohibited!
 """
 
