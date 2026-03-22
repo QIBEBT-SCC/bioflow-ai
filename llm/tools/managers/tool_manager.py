@@ -1,10 +1,9 @@
 from typing import Any
 
 import nanoid
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.config import get_stream_writer
-from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from loguru import logger
@@ -14,7 +13,9 @@ from sqlmodel import Session
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine
 from app.schemas.tools import ToolNodePublic
+from app.utils.input_format import build_command_template
 from llm.agents.tool_manager import CreateToolAgent
+from llm.prebuild.chains import check_update_args
 from llm.states import BuildContext, BuildEdge, BuildNode, CreateToolContext, CreateToolState
 from llm.utils.formatters import (
     format_validation_error,
@@ -56,6 +57,14 @@ class AddToolSchema(BaseModel):
     pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
 
 
+class UpdateArgsSchema(BaseModel):
+    """Update the editable parameters of the specified tool node that has been added to the panel."""
+
+    node_id: str = Field(description='Tool Node ID on the panel to be deleted')
+    new_args: str = Field(description='New parameters to update')
+    reason: str = Field(description='The reason you made this parameter modification')
+
+
 class CreateToolSchema(BaseModel):
     """Create a new tool node."""
 
@@ -68,6 +77,7 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'search_by_name': NameSearchSchema,
     # 'search_by_function': FunctionSearchSchema,
     'add': AddToolSchema,
+    'update_args': UpdateArgsSchema,
     'create': CreateToolSchema,
 }
 
@@ -75,6 +85,7 @@ HELP_MESSAGE = """## Actions
 tool_node_manager 中包括了以下操作:
 - `search_by_name`: 基于名称搜索工具
 - `add`: 向面板添加一个工具节点
+- `update_args`: 更新节点参数
 - `create`: 新建一个工具节点 (当没有满足需求的节点时)
 
 在使用对应操作前, 务必使用 action="help" 并传入 params={"action": "<action_name>"} 以获取特定操作的参数说明
@@ -84,7 +95,7 @@ tool_node_manager 中包括了以下操作:
 怎样判断搜索到的工具节点是否合适:
 - 满足需求
     - 找到了可用的工具, 且其功能完美符合用户需求
-    - 找到了可用工具, 虽然参数设置不完全符合用户需求, 但是可以通过增加或调整可修改参数来实现
+    - 找到了可用工具, 虽然参数设置不完全符合用户需求, 但是可以通过增加或调整可修改参数(args_editable)来实现
 - 不满足需求
     - 搜索工具返回结果为空
     - 搜索工具返回了结果, 但是其中完全没有符合用户要求的工具
@@ -162,6 +173,27 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                 runtime,
             )
 
+        case 'update_args':
+            try:
+                validate_param = UpdateArgsSchema.model_validate(params)
+            except ValidationError as e:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=format_validation_error('update_args', e, UpdateArgsSchema),
+                                tool_call_id=runtime.tool_call_id,
+                            )
+                        ]
+                    }
+                )
+            logger.info(f'Tool Manager(action="{action}" node="{validate_param.node_id}")')
+            return await _update_tool_node(
+                validate_param.node_id,
+                validate_param.new_args,
+                validate_param.reason,
+                runtime,
+            )
         case 'create':
             try:
                 validate_param = CreateToolSchema.model_validate(params)
@@ -323,4 +355,77 @@ def _add_tool_node(
                 )
             ],
         }
+    )
+
+
+async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: ToolRuntime[BuildContext]) -> Command:
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes')
+    tool_node: BuildNode | None = next((n for n in exist_nodes if n.id == node_id), None)
+
+    if tool_node is None:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='The provided `node_id` is not a valid panel node ID.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    if tool_node.type != 'tool':
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='This node is not a tool node; please check if the ID you provided is correct.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    tool_uid = tool_node.data['tool_uid']
+    with Session(engine) as session:
+        db_tool = tool_crud.get(session, tool_uid)
+        tool_doc = db_tool.help_doc.content
+
+    origin_command = tool_node.command
+    if db_tool.modifiable_static_params:
+        origin_command = origin_command.replace(
+            db_tool.modifiable_static_params, f'[{db_tool.modifiable_static_params}]'
+        )
+    if db_tool.immutable_static_params:
+        origin_command = origin_command.replace(db_tool.immutable_static_params, f'({db_tool.immutable_static_params})')
+    check_response = await check_update_args(tool_doc, origin_command, new_args, reason, runtime.context.user_id)
+
+    if check_response.approve:
+        new_command = build_command_template(
+            db_tool.command_template,
+            db_tool.dynamic_params,
+            db_tool.immutable_static_params,
+            new_args,
+            db_tool.file_mounts,
+        )
+        new_nodes = [
+            n.model_copy(update={'data': {'tool_uid': tool_uid, 'args': new_args}, 'command': new_command})
+            if n.id == node_id
+            else n
+            for n in exist_nodes
+        ]
+
+        return Command(
+            update={
+                'exist_nodes': Overwrite(new_nodes),
+                'messages': [
+                    ToolMessage(
+                        content='The modifiable parameters of the tool node have been updated.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
+    return Command(
+        update={'messages': [ToolMessage(content=check_response.feedback, tool_call_id=runtime.tool_call_id)]}
     )

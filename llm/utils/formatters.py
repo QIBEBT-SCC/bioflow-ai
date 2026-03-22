@@ -157,6 +157,7 @@ def node_formatter(node: BuildNode) -> str:
         data_obj['data'] = {
             'command': node.command,
             'tool_uid': node.data.get('tool_uid'),
+            'args_editable': node.data.get('args'),
         }
     else:
         data_obj['data'] = node.data
