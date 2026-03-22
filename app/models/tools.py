@@ -1,6 +1,6 @@
 import uuid
 from enum import IntEnum
-from typing import Literal, Optional
+from typing import Literal, Optional, Self
 
 import uuid_extensions
 from pydantic import BaseModel, ValidationError
@@ -41,31 +41,30 @@ class ImageConfig(BaseModel):
     tag: str = 'latest'
 
     def get_image(self) -> str:
+        """Return docker image url."""
         return f'{self.registry}/{self.namespace}/{self.repository}:{self.tag}'
 
-    @staticmethod
-    def from_str(image_str: str):
-        try:
-            image_group = image_str.split(':')
-            assert len(image_group) <= 2
+    @classmethod
+    def from_str(cls, image_str: str) -> Self:
+        """Obtain ImageConfig object from the image url."""
+        image_group = image_str.split(':')
+        if len(image_group) > 2:  # noqa: PLR2004
+            err_msg = ''
+            raise ValidationError(err_msg)
 
-            if len(image_group) == 1:
-                tag = 'latest'
-            else:
-                tag = image_group[1]
+        tag = 'latest' if len(image_group) == 1 else image_group[1]
 
-            url_group = image_group[0].split('/')
-            match len(url_group):
-                case 3:
-                    return ImageConfig(registry=url_group[0], namespace=url_group[1], repository=url_group[2], tag=tag)
-                case 2:
-                    return ImageConfig(namespace=url_group[0], repository=url_group[1], tag=tag)
-                case 1:
-                    return ImageConfig(repository=url_group[0], tag=tag)
-                case _:
-                    raise AssertionError
-        except AssertionError:
-            raise ValidationError('Incorrect image format. It MUST be like `[registry]/[namespace]/<repository>:[tag]`')
+        url_group = image_group[0].split('/')
+        match len(url_group):
+            case 3:
+                return cls(registry=url_group[0], namespace=url_group[1], repository=url_group[2], tag=tag)
+            case 2:
+                return cls(namespace=url_group[0], repository=url_group[1], tag=tag)
+            case 1:
+                return cls(repository=url_group[0], tag=tag)
+            case _:
+                err_msg = 'Incorrect image format. It MUST be like `[registry]/[namespace]/<repository>:[tag]`'
+                raise ValidationError(err_msg)
 
 
 class ToolGroup(SQLModel, table=True):
@@ -107,7 +106,10 @@ class ToolImage(SQLModel, table=True):
     paper_link: Optional[str] = Field(default=None)
     image: ImageConfig = Field(sa_column=Column(PydanticJson(ImageConfig)))
 
-    tools: list['ToolDefine'] = Relationship(back_populates='image')
+    tools: list['ToolDefine'] = Relationship(
+        back_populates='image',
+        sa_relationship_kwargs={'order_by': 'ToolDefine.name'},
+    )
     docs: list['ToolHelpDoc'] = Relationship(back_populates='image')
 
 
