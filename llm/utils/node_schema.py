@@ -1,4 +1,4 @@
-from typing import NotRequired, Type, TypedDict
+from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel
 
@@ -13,6 +13,11 @@ class NodeSchema(TypedDict):
     output_handles: list[Handle]
 
 
+class SimpleSchema(BaseModel):
+    pass
+
+
+# 处理器节点
 class GlobalMarkSchema(BaseModel):
     mark_name: str
     description: str
@@ -22,29 +27,25 @@ class SelectFileInFolderSchema(BaseModel):
     file_name: str
 
 
+class MoveFilesToFolderSchema(BaseModel):
+    folder_name: str
+
+
 class RenameFileSchema(BaseModel):
     new_file_name: str
 
 
+class BindParamSchema(BaseModel):
+    parameter: str
+
+
 # 资源节点
-class SequenceResourceSchema(BaseModel):
-    pass
-
-
-class FileResourceSchema(BaseModel):
-    pass
-
-
 class GlobalFileSchema(BaseModel):
     mark_name: str
 
 
 class DbResourceSchema(BaseModel):
     db_id: int
-
-
-class GenomeResourceSchema(BaseModel):
-    pass
 
 
 class ValueStringResourceSchema(BaseModel):
@@ -59,12 +60,33 @@ PROCESSORS: dict[str, NodeSchema] = {
         'input_handles': [Handle(name='file', description='Files to be marked for cross-workflow use')],
         'output_handles': [],
     },
+    'bind_param': {
+        'name': 'Bind Parameter',
+        'description': 'This node is used to select a specific file from a folder. Connect the input handle of this node to the output handle representing the folder. Use the `file_name` parameter to specify the name of the file you want to select within the folder. The output handle of this node will provide the path to the selected file.',
+        'args': BindParamSchema,
+        'input_handles': [Handle(name='file', description='File corresponding to the parameter')],
+        'output_handles': [Handle(name='file_with_param', description='Available for code node input')],
+    },
     'select_file_in_folder': {
         'name': 'Select File in Folder',
         'description': 'This node is used to select a specific file from a folder. Connect the input handle of this node to the output handle representing the folder. Use the `file_name` parameter to specify the name of the file you want to select within the folder. The output handle of this node will provide the path to the selected file.',
         'args': SelectFileInFolderSchema,
         'input_handles': [Handle(name='folder_path', description='Folder path')],
         'output_handles': [Handle(name='file_path', description='Selected file path')],
+    },
+    'copy2folder': {
+        'name': 'Copy Files to Folder',
+        'description': 'This node is used to copy multiple files connected to the input handle into same folder. Use the `folder_name` parameter to specify the name of the output folder.',
+        'args': MoveFilesToFolderSchema,
+        'input_handles': [Handle(name='files', description='Input files')],
+        'output_handles': [Handle(name='folder_path', description='Folder path')],
+    },
+    'gzip': {
+        'name': 'Gzip',
+        'description': 'This node is used to compress the input file using Gzip.',
+        'args': SimpleSchema,
+        'input_handles': [Handle(name='file', description='Origin file')],
+        'output_handles': [Handle(name='zipped_file', description='Gzipped file')],
     },
     'rename_file': {
         'name': 'Rename File',
@@ -79,7 +101,7 @@ RESOURCES: dict[str, NodeSchema] = {
     'sequence': {
         'name': 'Pair-end Reads Input',
         'description': 'This node is used for input of common paired-end biological sequencing files. No additional parameters are required. For non-paired-end data, use file node instead.',
-        'args': SequenceResourceSchema,
+        'args': SimpleSchema,
         'input_handles': [],
         'output_handles': [
             Handle(name='r1', description='r1 Raw sequence data'),
@@ -89,7 +111,7 @@ RESOURCES: dict[str, NodeSchema] = {
     'file': {
         'name': 'File Input',
         'description': 'This node is used for input of general files. No additional parameters are required. A note node can be added as appropriate to describe what the input file is.',
-        'args': FileResourceSchema,
+        'args': SimpleSchema,
         'input_handles': [],
         'output_handles': [Handle(name='file_path', description='file path')],
     },
@@ -110,7 +132,7 @@ RESOURCES: dict[str, NodeSchema] = {
     'ncbi_genome': {
         'name': 'NCBI Reference Genome',
         'description': 'This node is used to load a standard reference genome from NCBI RefSeq. It requires a preceding string variable node input to specify the species name or TaxID of the reference genome to be used.',
-        'args': GenomeResourceSchema,
+        'args': SimpleSchema,
         'input_handles': [
             Handle(
                 name='species_name',
@@ -135,7 +157,7 @@ RESOURCES: dict[str, NodeSchema] = {
     'GRCh38': {
         'name': 'GRCh38',
         'description': 'This node loads the human reference genome sequence and annotation released by Gencode, based on the GRCh38 assembly.',
-        'args': GenomeResourceSchema,
+        'args': SimpleSchema,
         'input_handles': [],
         'output_handles': [
             Handle(name='genome_fasta', description='Gene fasta file of the reference genome'),
@@ -151,7 +173,7 @@ RESOURCES: dict[str, NodeSchema] = {
     'GRCm39': {
         'name': 'GRCm39',
         'description': 'This node is used to loads Gencode mouse reference genome data based on the GRCm39 assembly',
-        'args': GenomeResourceSchema,
+        'args': SimpleSchema,
         'input_handles': [],
         'output_handles': [
             Handle(name='genome_fasta', description='Gene fasta file of the reference genome'),

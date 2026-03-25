@@ -6,6 +6,7 @@
 import uuid
 from typing import Optional
 
+import nanoid
 from celery import Signature
 
 import app.crud.resource.bio_db as db_crud
@@ -15,6 +16,7 @@ from app.core.config import get_settings
 from app.models.resource import SampleFileType
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
+from app.tasks.file_operation import collect_files_task, gzip_file_task, select_file_task
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
 from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, load_ncbi_genome_task
 from app.tasks.load_tasks.static_value import set_value_task
@@ -227,27 +229,58 @@ class ValueStringTaskHandler(BaseTaskHandler):
         return set_value_task.s(value=task_node.data.get('value', ''), value_type='string').set(task_id=task_node.id)
 
 
-@register_handler('process_copy2folder')
+@register_handler('copy2folder')
 class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
-    """复制到文件夹任务处理器(占位)."""
+    """复制到文件夹任务处理器."""
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
-        # 暂时创建一个空的 TaskInstance
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
             instance_uid=context.run_uid,
             owner_id=context.owner.id,
-            name='copy_to_folder',
+            name='copy2folder',
             status=Status.WAITING,
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        # 当前未实现, 返回 None
-        return None
+        output_dir = f'{get_settings().persistent.STORAGE_PATH}/{context.owner.username}/{context.output_base}/{task_node.data.get("folder_name", nanoid.generate(size=8))}'
+        return collect_files_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
 
-    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
-        """Copy2Folder 目前不创建任务."""
-        return None, context.task_index
+
+@register_handler('select_file_in_folder')
+class SelectTaskHandler(BaseTaskHandler):
+    """提取文件任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='select_file',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        return select_file_task.s(inputs=task_node.kwarg, file_name=task_node.data.get('file_name')).set(
+            task_id=task_node.id
+        )
+
+
+@register_handler('gzip')
+class GzipTaskHandler(BaseTaskHandler):
+    """gzip压缩任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='gzip',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        return gzip_file_task.s(inputs=task_node.kwarg).set(task_id=task_node.id)
 
 
 @register_handler('code_python', 'code_R')
