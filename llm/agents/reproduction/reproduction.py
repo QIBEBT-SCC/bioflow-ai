@@ -1,5 +1,5 @@
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
@@ -16,7 +16,6 @@ from llm.tools.managers import (
     tool_node_manager,
     workflow_manager,
 )
-from llm.tools.workflow import assist_tool
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
     SkillMiddleware,
@@ -114,7 +113,6 @@ build_workflow_agent: CompiledStateGraph = create_agent(
         other_node_manager,
         workflow_manager,
         summarize_work,
-        assist_tool,
         ask_human,
     ],
     system_prompt=BUILD_FLOW_SYSTEM,
@@ -123,7 +121,7 @@ build_workflow_agent: CompiledStateGraph = create_agent(
         SkillMiddleware(
             [
                 # 'CROSS_WORKFLOW_FILE_TRANSFER',
-                'MODIFY_WITH_AWK',
+                'USING_BASH_NODE',
             ]
         ),
         DisableParallelToolCallsMiddleware(),
