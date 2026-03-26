@@ -2,6 +2,7 @@ import os
 import re
 import string
 import unicodedata
+from itertools import takewhile
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +11,8 @@ from app.schemas.react_flow import TaskNode
 
 
 class PartialFormatter(string.Formatter):
-    def get_value(self, key, args, kwargs):
+    def get_value(self, key: str, args, kwargs) -> str:  # noqa: ANN001
+        """允许缺省的模板填充."""
         try:
             return super().get_value(key, args, kwargs)
         except (KeyError, IndexError):
@@ -24,8 +26,7 @@ def build_command_template(
     modifiable_static_params: Optional[str],
     file_mounts: list[FileMount],
 ) -> str:
-    """构建到最后一级的指令模板字符串"""
-
+    """构建到最后一级的指令模板字符串."""
     position_params: list[ParamDefine] = sorted(
         [param for param in dynamic_params if param.is_position], key=lambda x: x.index
     )
@@ -33,7 +34,7 @@ def build_command_template(
 
     immutable_static_params = immutable_static_params if immutable_static_params else ''
     modifiable_static_params = modifiable_static_params if modifiable_static_params else ''
-    static_params = ' '.join([immutable_static_params, modifiable_static_params])
+    static_params = f'{immutable_static_params} {modifiable_static_params}'.strip()
 
     formatter = PartialFormatter()
     command_template = formatter.format(
@@ -43,12 +44,11 @@ def build_command_template(
         static_params=static_params,
     )
     final_template = formatter.format(command_template, **{file.name: file.file_path for file in file_mounts})
-    final_template = ' '.join(final_template.split())
-    return final_template
+    return ' '.join(final_template.split())
 
 
 def get_path(r1: str | Path, r2: str | Path, *, output_dir: str | Path) -> tuple[Path, Path, Path, str]:
-    """将输入的双端文件转换为pathlib格式
+    """将输入的双端文件转换为pathlib格式.
 
     Args:
         r1: pair-end 文件 1
@@ -66,23 +66,23 @@ def get_path(r1: str | Path, r2: str | Path, *, output_dir: str | Path) -> tuple
     return r1_file, r2_file, output_path, sample_name
 
 
-def get_sample_name_by_seq_input(r1: str, r2: str):
-    r1_file = Path(r1)
-    r2_file = Path(r2)
-    sample_name = os.path.commonprefix([r1_file.name, r2_file.name]).strip('_R').strip('_r').strip('_')
-
-    return sample_name
+def get_sample_name_by_seq_input(r1: str, r2: str) -> str:
+    """基于路径前缀判断样本名称."""
+    n1, n2 = Path(r1).name, Path(r2).name
+    common = ''.join(c[0] for c in takewhile(lambda x: x[0] == x[1], zip(n1, n2, strict=True)))
+    return re.split(r'[_.]R[12]', common, flags=re.IGNORECASE)[0].rstrip('_')
 
 
 def get_sample_name(first_layer: list[TaskNode]) -> str:
+    """自动推断样本名称."""
     files = []
     for node in first_layer:
         if node.type == 'resource_sequence':
-            return get_sample_name_by_seq_input(**node.args)
-        elif node.type == 'resource_file':
-            files.append(node.args)
+            return get_sample_name_by_seq_input(**node.data)
+        if node.type == 'resource_file':
+            files.append(node.data.get('file_path'))
 
-    # TODO 基于LLM的复杂处理
+    # TODO: 基于LLM的复杂处理
     return 'unknown'
 
 
