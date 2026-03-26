@@ -39,6 +39,10 @@ class BindParamSchema(BaseModel):
     parameter: str
 
 
+class BashCodeSchema(BaseModel):
+    code: str
+
+
 # 资源节点
 class GlobalFileSchema(BaseModel):
     mark_name: str
@@ -62,7 +66,7 @@ PROCESSORS: dict[str, NodeSchema] = {
     },
     'bind_param': {
         'name': 'Bind Parameter',
-        'description': 'This node is used to select a specific file from a folder. Connect the input handle of this node to the output handle representing the folder. Use the `file_name` parameter to specify the name of the file you want to select within the folder. The output handle of this node will provide the path to the selected file.',
+        'description': '这个节点的作用是将一个来自其他节点的文件绑定上指定的参数名称供 CODE 节点使用。输出只能够作为code节点的输入。',
         'args': BindParamSchema,
         'input_handles': [Handle(name='file', description='File corresponding to the parameter')],
         'output_handles': [Handle(name='file_with_param', description='Available for code node input')],
@@ -94,6 +98,13 @@ PROCESSORS: dict[str, NodeSchema] = {
         'args': RenameFileSchema,
         'input_handles': [Handle(name='old_file', description='Old file to be renamed')],
         'output_handles': [Handle(name='renamed_file', description='Renamed file')],
+    },
+    'code_bash': {
+        'name': 'Bash Code',
+        'description': 'This node executes a bash script in a container. Connect one or more `bind_param` node outputs to the `input_files` handle to pass files as named parameters. Write the bash script in the `code` parameter using `getopts` syntax to receive the parameters. The output of this node is the working directory folder, from which specific files can be extracted using `select_file_in_folder` nodes.',
+        'args': BashCodeSchema,
+        'input_handles': [Handle(name='input_files', description='Bound parameter files from bind_param nodes')],
+        'output_handles': [Handle(name='folder_path', description='Working directory containing output files')],
     },
 }
 

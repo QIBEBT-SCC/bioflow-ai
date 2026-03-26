@@ -33,7 +33,7 @@ class BaseBioTask(celery.Task):
                 task.start_time = datetime.now(UTC)
                 session.add(task)
                 session.commit()
-                logger.debug(f'任务 {task_id} 状态已更新为 RUNNING')
+                logger.info(f'Task {task.name}({task_id}) START')
 
                 instance_uid = str(task.instance_uid)
 
@@ -49,10 +49,10 @@ class BaseBioTask(celery.Task):
                 task = task_crud.get(session, task_id)
                 task.status = Status.SUCCESS
                 task.tool_output = retval
-                task.end_time = datetime.now()
+                task.end_time = datetime.now(UTC)
                 session.add(task)
                 session.commit()
-                logger.success(f'任务 {task_id} 状态已更新为 SUCCESS')
+                logger.success(f'Task {task.name}({task_id}) SUCCESS')
 
                 instance_uid = str(task.instance_uid)
 
@@ -72,10 +72,10 @@ class BaseBioTask(celery.Task):
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
                 task.status = Status.ERROR
-                task.end_time = datetime.now()
+                task.end_time = datetime.now(UTC)
                 session.add(task)
                 session.commit()
-                logger.debug(f'任务 {task_id} 状态已更新为 ERROR')
+                logger.error(f'Task {task.name}({task_id}) ERROR')
 
                 instance_uid = str(task.instance_uid)
 
@@ -248,7 +248,7 @@ def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: floa
                 if attempt < max_retries - 1:
                     logger.debug(
                         f'任务 {uid} 的输出 {k} 尚未就绪 '
-                        f'(状态: {task.status.name}, 尝试 {attempt + 1}/{max_retries})，等待重试...'
+                        f'(状态: {task.status.name}, 尝试 {attempt + 1}/{max_retries}), 等待重试...'
                     )
                     time.sleep(retry_interval)
         except Exception as e:

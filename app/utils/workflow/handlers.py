@@ -16,7 +16,8 @@ from app.core.config import get_settings
 from app.models.resource import SampleFileType
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
-from app.tasks.file_operation import collect_files_task, gzip_file_task, select_file_task
+from app.tasks.code import bash_task
+from app.tasks.file_operation import bind_param_task, collect_files_task, gzip_file_task, select_file_task
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
 from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, load_ncbi_genome_task
 from app.tasks.load_tasks.static_value import set_value_task
@@ -229,6 +230,26 @@ class ValueStringTaskHandler(BaseTaskHandler):
         return set_value_task.s(value=task_node.data.get('value', ''), value_type='string').set(task_id=task_node.id)
 
 
+@register_handler('bind_param')
+class BindParamTaskHandler(BaseTaskHandler):
+    """绑定参数名任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='bind_param',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        return bind_param_task.s(
+            inputs=task_node.kwarg,
+            parameter=task_node.data.get('parameter'),
+        ).set(task_id=task_node.id)
+
+
 @register_handler('copy2folder')
 class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
     """复制到文件夹任务处理器."""
@@ -281,6 +302,38 @@ class GzipTaskHandler(BaseTaskHandler):
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
         return gzip_file_task.s(inputs=task_node.kwarg).set(task_id=task_node.id)
+
+
+@register_handler('code_bash')
+class BashCodeTaskHandler(BaseTaskHandler):
+    """Bash 脚本执行任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='code_bash',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = (
+            f'{get_settings().persistent.STORAGE_PATH}/'
+            f'{context.owner.username}/'
+            f'{context.output_base}/'
+            f'{context.task_index}_bash'
+        )
+        return bash_task.s(
+            inputs=task_node.kwarg,
+            code=task_node.data.get('code', ''),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """Bash 任务产生独立输出目录, 需要递增 task_index."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
 
 
 @register_handler('code_python', 'code_R')

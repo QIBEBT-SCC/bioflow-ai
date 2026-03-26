@@ -1,4 +1,5 @@
 import gzip
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -78,3 +79,17 @@ def gzip_file_task(
         return ToolOutput(result={'zipped_file': zipped_file})
 
     raise FileNotFoundError(origin_file)
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def bind_param_task(
+    self: Task,  # noqa: ARG001
+    result_dict: dict[str, Any] | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput],
+    parameter: str,
+) -> ToolOutput:
+    """将文件绑定到指定参数名, 输出为 JSON 字符串."""
+    kwarg = inputs.get('file')
+    file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
+    return ToolOutput(result={'file_with_param': json.dumps({parameter: str(file_path)})})

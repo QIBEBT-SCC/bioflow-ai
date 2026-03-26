@@ -132,6 +132,27 @@ def _add_code(
     runtime: ToolRuntime[BuildContext],
     code: Optional[str] = None,
 ) -> Command:
+    if language == 'bash' and input_edges:
+        exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+        node_type_map = {node.id: node.type for node in exist_nodes}
+        invalid_edges = [e for e in input_edges if node_type_map.get(e.source_node) != 'bind_param']
+        if invalid_edges:
+            invalid_node_ids = [e.source_node for e in invalid_edges]
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=(
+                                f'Error: The input of a bash code node must come from `bind_param` processor nodes. '
+                                f'The following source nodes are not `bind_param`: {invalid_node_ids}. '
+                                f'Please refer to the USING_BASH_NODE skill for the correct usage pattern.'
+                            ),
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
+
     node_count = len(runtime.state.get('exist_nodes', []))
     node_id = generate_char_index(node_count + 1)
 
