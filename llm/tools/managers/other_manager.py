@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.schemas.tools import Handle
 from llm.states import BuildContext, BuildEdge, BuildNode
+from llm.utils.edge_validation import check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
 
@@ -132,8 +133,10 @@ def _add_code(
     runtime: ToolRuntime[BuildContext],
     code: Optional[str] = None,
 ) -> Command:
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    code_input_handles = [Handle(name='input_files', description='The files required by this code')]
+
     if language == 'bash' and input_edges:
-        exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
         node_type_map = {node.id: node.type for node in exist_nodes}
         invalid_edges = [e for e in input_edges if node_type_map.get(e.source_node) != 'bind_param']
         if invalid_edges:
@@ -153,8 +156,12 @@ def _add_code(
                 }
             )
 
-    node_count = len(runtime.state.get('exist_nodes', []))
-    node_id = generate_char_index(node_count + 1)
+    if error := check_edge_handles(input_edges, code_input_handles, exist_nodes):
+        return Command(
+            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
+        )
+
+    node_id = generate_char_index(len(exist_nodes) + 1)
 
     new_node = BuildNode(
         id=node_id,

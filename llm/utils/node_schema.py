@@ -1,8 +1,11 @@
-from typing import NotRequired, TypedDict
+from typing import Callable, NotRequired, TypedDict
 
 from pydantic import BaseModel
 
 from app.schemas.tools import Handle
+
+# Forward declaration for type hint
+from llm.states import BuildEdge
 
 
 class NodeSchema(TypedDict):
@@ -11,6 +14,7 @@ class NodeSchema(TypedDict):
     args: type[BaseModel]
     input_handles: list[Handle]
     output_handles: list[Handle]
+    edge_check: NotRequired[Callable[[list[BuildEdge], list[Handle]], str | None]]
 
 
 class SimpleSchema(BaseModel):
@@ -205,3 +209,13 @@ RESOURCES: dict[str, NodeSchema] = {
         'output_handles': [Handle(name='value', description='string value')],
     },
 }
+
+# Import edge check functions at the end to avoid circular imports
+from llm.utils.edge_validation import check_ncbi_genome_edges, check_processor_edges
+
+# Add edge_check to all processor nodes
+for processor_name in PROCESSORS:
+    PROCESSORS[processor_name]['edge_check'] = check_processor_edges
+
+# Add edge_check to ncbi_genome resource node
+RESOURCES['ncbi_genome']['edge_check'] = check_ncbi_genome_edges

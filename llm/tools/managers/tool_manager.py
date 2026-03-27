@@ -17,6 +17,7 @@ from app.utils.input_format import build_command_template
 from llm.agents.tool_manager import CreateToolAgent
 from llm.prebuild.chains import check_update_args
 from llm.states import BuildContext, BuildEdge, BuildNode, CreateToolContext, CreateToolState
+from llm.utils.edge_validation import check_edge_handles, check_tool_node_edges
 from llm.utils.formatters import (
     format_validation_error,
     manager_help_command,
@@ -321,25 +322,34 @@ def _add_tool_node(
     pos_y: int,
     runtime: ToolRuntime[BuildContext],
 ) -> Command:
-    node_count = len(runtime.state.get('exist_nodes', []))
-    node_id = generate_char_index(node_count + 1)
     tool_uid = runtime.state['id_mapper'].get_uid_by_index(selected_id)
 
     with Session(engine) as session:
         db_tool = tool_crud.get(session, tool_uid)
         db_node = ToolNodePublic.model_validate(db_tool.model_dump())  # type: ignore[union-attr]
 
-        new_node = BuildNode(
-            id=node_id,
-            name=db_node.name,
-            type='tool',
-            input_handles=db_node.input_handles,
-            output_handles=db_node.output_handles,
-            data={'tool_uid': tool_uid, 'args': db_node.modifiable_static_params},
-            command=db_node.complete_command,
-            x=pos_x,
-            y=pos_y,
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    if error := check_edge_handles(input_edges, db_node.input_handles, exist_nodes):
+        return Command(
+            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
         )
+    if error := check_tool_node_edges(input_edges, db_node.input_handles):
+        return Command(
+            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
+        )
+
+    node_id = generate_char_index(len(exist_nodes) + 1)
+    new_node = BuildNode(
+        id=node_id,
+        name=db_node.name,
+        type='tool',
+        input_handles=db_node.input_handles,
+        output_handles=db_node.output_handles,
+        data={'tool_uid': tool_uid, 'args': db_node.modifiable_static_params},
+        command=db_node.complete_command,
+        x=pos_x,
+        y=pos_y,
+    )
 
     for edge in input_edges:
         edge.target_node = node_id

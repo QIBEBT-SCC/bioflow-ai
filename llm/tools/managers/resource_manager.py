@@ -12,6 +12,7 @@ from sqlmodel import Session
 import app.crud.resource.bio_db as db_crud
 from app.core.session import engine
 from llm.states import BuildContext, BuildEdge, BuildNode
+from llm.utils.edge_validation import check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import RESOURCES
 from llm.utils.uid_mapper import generate_char_index
@@ -230,8 +231,8 @@ def _add_resource(
     runtime: ToolRuntime[BuildContext],
     arguments: Optional[dict[str, Any]] = None,
 ) -> Command:
-    node_count = len(runtime.state.get('exist_nodes', []))
-    node_id = generate_char_index(node_count + 1)
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    node_id = generate_char_index(len(exist_nodes) + 1)
 
     if resource_type not in RESOURCES:
         return Command(
@@ -269,6 +270,18 @@ def _add_resource(
                 ]
             }
         )
+
+    if error := check_edge_handles(input_edges, resource_schema['input_handles'], exist_nodes):
+        return Command(
+            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
+        )
+
+    # Call custom edge_check if defined in schema
+    if edge_check := resource_schema.get('edge_check'):
+        if error := edge_check(input_edges, resource_schema['input_handles']):
+            return Command(
+                update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
+            )
 
     node_data = {}
     match resource_type:
