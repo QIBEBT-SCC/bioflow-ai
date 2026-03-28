@@ -138,7 +138,7 @@ class ResourceSequenceTaskHandler(BaseTaskHandler):
         return load_sequence_task.s(args=task_node.data).set(task_id=task_node.id)
 
 
-@register_handler('resource_genome')
+@register_handler('resource_ncbi_genome')
 class ResourceGenomeTaskHandler(BaseTaskHandler):
     """参考基因组资源任务处理器."""
 
