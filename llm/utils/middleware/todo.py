@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal, NotRequired, Optional
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import ModelRequest, ModelResponse
-from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput, StateT
+from langchain.agents.middleware.types import AgentMiddleware, ModelCallResult, OmitFromInput, StateT, hook_config
 from langchain_core.messages import AIMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
@@ -392,6 +392,7 @@ class TodoMiddleware(AgentMiddleware):
         new_system_message = SystemMessage(content=new_content)
         return await handler(request.override(system_message=new_system_message))
 
+    @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         if not self.limit_add:
             return None
@@ -420,6 +421,7 @@ class TodoMiddleware(AgentMiddleware):
             ],
         }
 
+    @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 

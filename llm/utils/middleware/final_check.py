@@ -3,7 +3,7 @@ from typing import Any, NotRequired, TypedDict, cast
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import StateT
+from langchain.agents.middleware.types import StateT, hook_config
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -86,6 +86,7 @@ class CheckReportMiddleware(AgentMiddleware):
     def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
         return {'check_failed_count': 0}
 
+    @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
         last_message = cast('AIMessage', state['messages'][-1])
 
@@ -122,6 +123,7 @@ class CheckReportMiddleware(AgentMiddleware):
         logger.success('Check passed')
         return None
 
+    @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
         last_message = cast('AIMessage', state['messages'][-1])
 
@@ -171,6 +173,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
     def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
         return {'check_failed_count': 0}
 
+    @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
         last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
@@ -241,6 +244,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         logger.success('Check passed')
         return None
 
+    @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
         return self.after_model(state, runtime)
 
@@ -256,6 +260,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
 
         self.error_time = error_time
 
+    @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
         last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
@@ -285,11 +290,13 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         logger.success('Check passed')
         return None
 
+    @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
         return self.after_model(state, runtime)
 
 
 class CheckPlanConfirmMiddleware(AgentMiddleware):
+    @hook_config(can_jump_to=['model'])
     def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         messages = state['messages']
         last_message = cast('AIMessage', messages[-1])
@@ -326,5 +333,6 @@ class CheckPlanConfirmMiddleware(AgentMiddleware):
             ],
         }
 
+    @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
         return self.after_model(state, runtime)

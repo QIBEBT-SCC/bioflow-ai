@@ -1,7 +1,7 @@
 from typing import Any, Awaitable, Callable, Optional
 
 from langchain.agents.middleware import AgentMiddleware, ExtendedModelResponse, ModelRequest, ModelResponse
-from langchain.agents.middleware.types import ResponseT, StateT
+from langchain.agents.middleware.types import ResponseT, StateT, hook_config
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.runtime import Runtime
@@ -54,6 +54,7 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
         request = self._disable_specific_tools_parallel(request)
         return await handler(request)
 
+    @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         last_message = state['messages'][-1]
         if not isinstance(last_message, AIMessage):
@@ -87,6 +88,7 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
 
         return {'jump_to': 'model', 'messages': messages}
 
+    @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
