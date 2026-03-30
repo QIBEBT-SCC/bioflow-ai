@@ -33,7 +33,7 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于�
 - 资源(resource)节点: 包括加载原始数据、数据库、参考基因组, 输入变量等
 - 工具(tool)节点: 生物信息分析工具或算法
 - 处理器(processor)节点: 与生物信息分析无关的系统操作, 如文件拷贝、重命名、文本提取等
-- 代码(code)节点: 执行自定义的脚本或代码片段
+- 代码(code)节点: 执行自定义的bash脚本
 - 备注(note)节点: 不参与运算, 用于对部分节点进行备注
 
 ### 节点数据
@@ -55,7 +55,7 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于�
 - `tool_node_manager` — 工具(tool)节点
 - `resource_node_manager` — 资源(resource)节点
 - `processor_node_manager` — 处理器(processor)节点
-- `other_node_manager` — 代码(code)节点和备注(note)节点
+- `other_node_manager` — 代码(code)节点、备注(note)节点和下游分析总结(downstream_summary)节点
 - `workflow_manager` — 工作流面板操作(查看、删除节点、保存工作流等)
 
 
@@ -71,9 +71,9 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于�
         - 该信息应包含两部分: 1. 使用mermaid描述当前面板上的; 2. 本轮已完成工作的说明。
         - 在交接信息中, 特别需要注明某些资源节点的作用是什么(如: sequence节点A, 用于接受原始双端序列), 无论是来自之前的交接信息还是本轮中新增的操作
     2. 然后调用 `update_todo(..., status='completed')` 更新任务状态。
-5. 当上游分析的命令行工具节点全部添加完毕后, 如果计划中有相应的下游分析, 添加一个合适类型(python或R)代码节点:
+5. 当上游分析的命令行工具节点全部添加完毕后, 如果计划中有相应的下游分析, 添加一个 downstream_summary 节点:
     - 将下游分析所需要使用的所有文件连至该节点
-    - 填写 `prompt` 字段, 该字段的值将写入 Agent.md 文件用于指导后续下游分析代码编写
+    - 填写 `prompt` 字段, 用于指导后续下游分析代码编写
 5. 一旦一个上游工作流构建完成, 调用相应工具将当前工作流保存到数据库
 6. 重复上述步骤, 直到计划中的所有上游工作流均已构建完成, 最后进行总结并结束工作。
 
@@ -123,8 +123,8 @@ build_workflow_agent: CompiledStateGraph = create_agent(
         TodoMiddleware(),
         SkillMiddleware(
             [
-                # 'CROSS_WORKFLOW_FILE_TRANSFER',
                 'USING_BASH_NODE',
+                'WRITE_DOWNSTREAM_SUMMARY',
             ]
         ),
         DisableParallelToolCallsMiddleware(),

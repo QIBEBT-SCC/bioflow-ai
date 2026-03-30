@@ -12,8 +12,7 @@ To implement this functionality in the workflow system, you need to use three ty
 
 ### Code Node
 
-To execute native Linux commands, you must use a bash-type code node. Unlike R and Python nodes, these nodes are actively executed, so you must write the actual bash code to be executed in the `code`
-parameter.  
+To execute native Linux commands, you must use a bash code node, and write the actual bash code to be executed in the `code` parameter.  
 Since the node cannot accept input parameters in a predefined order, you must use the `getopts` syntax to specify all input files and their corresponding parameters.
 
 ### bind_param Node
@@ -62,7 +61,7 @@ cut -f1,2 "$FAI" > chrom_sizes.txt
 ```
 
 1. In the workflow, add a `bind_param` node and set its `parameter` field to `-f`.
-2. In the workflow, add a bash-type `code` node and fill in the specific `code` field.
+2. In the workflow, add a bash `code` node and fill in the specific `code` field.
 3. In the workflow, add a `select_file_in_folder` node and set its `file_name` field to `chrom_sizes.txt`.
 
 Preceding nodes must be added before the code node. Therefore, you must first determine which parameters are needed, add the `bind_param` nodes accordingly, and then write the code and add the code

@@ -23,12 +23,12 @@ def check_edge_handles(
         if edge.source_handle not in src_handles:
             return (
                 f"Source node '{edge.source_node}' has no output handle named '{edge.source_handle}'. "
-                f"Available handles: {sorted(src_handles)}."
+                f'Available handles: {sorted(src_handles)}.'
             )
         if edge.target_handle not in target_handle_names:
             return (
                 f"This node has no input handle named '{edge.target_handle}'. "
-                f"Available handles: {sorted(target_handle_names)}."
+                f'Available handles: {sorted(target_handle_names)}.'
             )
 
     return None
@@ -51,6 +51,21 @@ def check_tool_node_edges(
     missing = [h.name for h in new_node_input_handles if h.name not in connected]
     if missing:
         return f'All input handles must be connected. Missing edges for: {missing}.'
+
+    return None
+
+
+def check_code_node_edges(input_edges: list[BuildEdge], exist_nodes: list[BuildNode]) -> str | None:
+    """Code-node-specific edge checks: all inputs must originate from the bind_param node."""
+    node_type_map = {node.id: node.type for node in exist_nodes}
+    invalid_edges = [e for e in input_edges if node_type_map.get(e.source_node) != 'bind_param']
+    if invalid_edges:
+        invalid_node_ids = [e.source_node for e in invalid_edges]
+        return (
+            f'Error: The input of a bash code node must come from `bind_param` processor nodes. '
+            f'The following source nodes are not `bind_param`: {invalid_node_ids}. '
+            f'Please refer to the USING_BASH_NODE skill for the correct usage pattern.'
+        )
 
     return None
 
