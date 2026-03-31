@@ -1,6 +1,8 @@
-from typing import Sequence
+import uuid
+from collections.abc import Sequence
+from typing import Optional
 
-from sqlalchemy import Select
+from sqlalchemy import Select, delete
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, case, col, func, select
 
@@ -74,15 +76,7 @@ def get(session: Session, uid: str) -> RunInstance:
 
 
 def get_run_task_stats(session: Session, uid: str) -> Statistics:
-    """获取运行实例的任务统计信息
-    
-    Args:
-        session: 数据库会话
-        uid: 运行实例 UID
-        
-    Returns:
-        Statistics: 任务统计信息
-    """
+    """获取运行实例的任务统计信息."""
     statement: Select = (
         select(  # type: ignore
             func.count().label('total'),
@@ -99,20 +93,8 @@ def get_run_task_stats(session: Session, uid: str) -> Statistics:
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
-def get_runs_by_project(
-    session: Session, project_id: int, limit: int = 20, offset: int = 0
-) -> Sequence[RunInstance]:
-    """获取项目的所有运行实例
-    
-    Args:
-        session: 数据库会话
-        project_id: 项目 ID
-        limit: 限制数量
-        offset: 偏移量
-        
-    Returns:
-        运行实例列表
-    """
+def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
+    """获取项目的所有运行实例."""
     statement: Select = (
         select(RunInstance)
         .where(RunInstance.project_id == project_id)
@@ -121,21 +103,19 @@ def get_runs_by_project(
         .limit(limit)
         .offset(offset)
     )
-    
+
     return session.exec(statement).all()
 
 
-def get_runs_by_sample(
-    session: Session, sample_uid: str, limit: int = 20, offset: int = 0
-) -> Sequence[RunInstance]:
-    """获取样本的所有运行实例
-    
+def get_runs_by_sample(session: Session, sample_uid: str, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
+    """获取样本的所有运行实例.
+
     Args:
         session: 数据库会话
         sample_uid: 样本 UID
         limit: 限制数量
         offset: 偏移量
-        
+
     Returns:
         运行实例列表
     """
@@ -147,24 +127,63 @@ def get_runs_by_sample(
         .limit(limit)
         .offset(offset)
     )
-    
+
     return session.exec(statement).all()
 
 
 def get_project_run_count(session: Session, project_id: int) -> int:
-    """获取项目的运行实例数量
-    
+    """获取项目的运行实例数量.
+
     Args:
         session: 数据库会话
         project_id: 项目 ID
-        
+
     Returns:
         运行实例数量
     """
-    statement: Select = (
-        select(func.count())
-        .select_from(RunInstance)
-        .where(RunInstance.project_id == project_id)
-    )
-    
+    statement: Select = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
+
     return session.exec(statement).one()
+
+
+def get_latest_run_by_sample_and_workflow(
+    session: Session, sample_uid: uuid.UUID, workflow_uid: uuid.UUID
+) -> Optional[RunInstance]:
+    """获取样本和工作流组合的最新运行实例.
+
+    Args:
+        session: 数据库会话
+        sample_uid: 样本 UID
+        workflow_uid: 工作流模板 UID
+
+    Returns:
+        最新的运行实例, 若不存在则返回 None
+    """
+    statement: Select = (
+        select(RunInstance)
+        .where(RunInstance.sample_uid == sample_uid)
+        .where(RunInstance.workflow_uid == workflow_uid)
+        .options(selectinload(RunInstance.tasks))  # type: ignore
+        .order_by(col(RunInstance.create_time).desc())
+        .limit(1)
+    )
+    return session.exec(statement).first()
+
+
+def clear_run_for_rerun(session: Session, run: RunInstance) -> None:
+    """清除运行实例的执行数据.
+
+    - 删除所有 TaskInstance 记录 (级联删除 TaskMonitor)
+    - 重置运行状态为 WAITING
+    - 清除 start_time 和 end_time
+
+    Args:
+        session: 数据库会话
+        run: 要清除的运行实例
+    """
+    session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid) == run.uid))  # type: ignore
+    run.status = Status.WAITING
+    run.start_time = None
+    run.end_time = None
+    session.add(run)
+    session.flush()

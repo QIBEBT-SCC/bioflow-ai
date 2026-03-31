@@ -9,16 +9,18 @@ from typing import Optional
 from fastapi import HTTPException
 from loguru import logger
 from sqlmodel import Session
-from starlette.status import HTTP_404_NOT_FOUND
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 import app.crud.resource.sample as sample_crud
 from app.crud import project as proj_crud
+from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
 from app.models.user import User
 from app.models.workflow import RunInstance, Status
 from app.schemas.project_workflow import WorkflowRunResult
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
+from app.utils.workflow.stats import reset_run_stats_in_redis
 from worker import monitor_redis_client
 
 
@@ -70,25 +72,44 @@ def create_runs_from_samples(
         # 更新工作流节点 ID
         workflow_definition = update_node_id(workflow.workflow)
 
-        # 构建运行名称
-        if run_name_prefix:
-            run_name = f'{run_name_prefix}-{sample.sample_name}'
+        # 检查该样本+工作流组合是否已有运行实例
+        existing_run = run_crud.get_latest_run_by_sample_and_workflow(session, sample.uid, workflow_uid)
+
+        if existing_run:
+            # 如果正在运行, 拒绝重跑
+            if existing_run.status == Status.RUNNING:
+                raise HTTPException(
+                    HTTP_409_CONFLICT,
+                    f'Sample {sample.sample_name} already has a running instance, please wait for it to finish',
+                )
+
+            # 清除旧的执行数据并重用现有实例
+            run_crud.clear_run_for_rerun(session, existing_run)
+            existing_run.workflow = workflow_definition
+            session.add(existing_run)
+            session.flush()
+            run = existing_run
+            logger.debug(f'重用运行实例 {run.uid} (样本: {sample.sample_name})')
         else:
-            run_name = f'{project.name}-{workflow.name}-{sample.sample_name}'
+            # 构建运行名称
+            if run_name_prefix:
+                run_name = f'{run_name_prefix}-{sample.sample_name}'
+            else:
+                run_name = f'{project.name}-{workflow.name}-{sample.sample_name}'
 
-        # 创建运行实例
-        run = RunInstance(
-            project_id=project_id,
-            workflow_uid=workflow_uid,
-            sample_uid=sample.uid,
-            owner_id=current_user.id,
-            workflow=workflow_definition,
-            name=run_name,
-            status=Status.WAITING,
-        )
+            # 创建新运行实例
+            run = RunInstance(
+                project_id=project_id,
+                workflow_uid=workflow_uid,
+                sample_uid=sample.uid,
+                owner_id=current_user.id,
+                workflow=workflow_definition,
+                name=run_name,
+                status=Status.WAITING,
+            )
 
-        session.add(run)
-        session.flush()  # 获取 run.uid
+            session.add(run)
+            session.flush()  # 获取 run.uid
 
         # 构建任务列表
         task_list = build_task_list(workflow_definition)
@@ -96,24 +117,8 @@ def create_runs_from_samples(
         # 计算总任务数
         total_tasks = sum(len(sub_group) for sub_group in task_list)
 
-        # 在 Redis 中初始化运行实例的任务统计信息 (使用 Hash 结构)
-        try:
-            redis_key = f'run-stats-{run.uid}'
-            monitor_redis_client.hset(
-                redis_key,
-                mapping={
-                    'total': total_tasks,
-                    'waiting': total_tasks,
-                    'running': 0,
-                    'success': 0,
-                    'error': 0,
-                },
-            )
-            # 设置过期时间为 24 小时
-            monitor_redis_client.expire(redis_key, 86400)
-            logger.debug(f'已初始化运行实例 {run.uid} 的统计信息: total={total_tasks}')
-        except Exception as e:
-            logger.error(f'初始化 Redis 统计信息失败: {e}')
+        # 在 Redis 中初始化/重置运行实例的任务统计信息
+        reset_run_stats_in_redis(monitor_redis_client, str(run.uid), total_tasks)
 
         # 提交当前运行实例到数据库
         session.commit()
