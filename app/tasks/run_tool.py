@@ -77,53 +77,60 @@ def build_mounts(
     conflicted_paths: set[str] = set()  # 已发生过冲突的容器路径
 
     for file in file_mounts:
-        if file.file_type == 'INPUT':
+        if file.file_path.startswith('value:'):
             kwarg = inputs[file.name]
-            file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
-            host_file_path = Path(file_path)
+            value = get_tool_output(kwarg.source_uid, kwarg.source_k)
+            param_inputs[file.name] = value
 
-            if host_file_path.is_dir():
-                # 文件夹: 整目录挂载
-                host_mount_path = host_file_path
-                actual = _resolve_mount_path(
-                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
-                )
-                container_file_path = actual
+        else:
+            if file.file_type == 'INPUT':
+                kwarg = inputs[file.name]
+                file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
+                host_file_path = Path(file_path)
+
+                if host_file_path.is_dir():
+                    # 文件夹: 整目录挂载
+                    host_mount_path = host_file_path
+                    actual = _resolve_mount_path(
+                        mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
+                    )
+                    container_file_path = actual
+                else:
+                    # 文件或前缀: 挂载父目录, 保留伴生文件
+                    host_mount_path = host_file_path.parent
+                    actual = _resolve_mount_path(
+                        mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
+                    )
+                    container_file_path = f'{actual}/{host_file_path.name}'
+
+                if actual not in mount_paths:
+                    mount_paths[actual] = host_mount_path.absolute()
+
             else:
-                # 文件或前缀: 挂载父目录, 保留伴生文件
-                host_mount_path = host_file_path.parent
+                # 输出文件
+                try:
+                    host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
+                except KeyError as e:
+                    logger.error(file.file_path)
+                    logger.exception(e)
+                    sys.exit(1)
+
+                host_mount_path = Path(host_output_dir)
                 actual = _resolve_mount_path(
                     mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
                 )
                 container_file_path = f'{actual}/{host_file_path.name}'
+                if actual not in mount_paths:
+                    mount_paths[actual] = host_mount_path.absolute()
 
-            if actual not in mount_paths:
-                mount_paths[actual] = host_mount_path.absolute()
+                if file.is_log:
+                    expected_output.log = host_file_path.absolute()
+                elif file.is_report:
+                    expected_output.reports[file.name] = host_file_path.absolute()
+                else:
+                    expected_output.result[file.name] = host_file_path.absolute()
 
-        else:
-            # 输出文件
-            try:
-                host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
-            except KeyError as e:
-                logger.error(file.file_path)
-                logger.exception(e)
-                sys.exit(1)
-
-            host_mount_path = Path(host_output_dir)
-            actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
-            container_file_path = f'{actual}/{host_file_path.name}'
-            if actual not in mount_paths:
-                mount_paths[actual] = host_mount_path.absolute()
-
-            if file.is_log:
-                expected_output.log = host_file_path.absolute()
-            elif file.is_report:
-                expected_output.reports[file.name] = host_file_path.absolute()
-            else:
-                expected_output.result[file.name] = host_file_path.absolute()
-
-        # 添加指令组成(容器内路径)
-        param_inputs[file.name] = container_file_path
+            param_inputs[file.name] = container_file_path
 
     return param_inputs, mount_paths, expected_output
 
