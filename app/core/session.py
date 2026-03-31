@@ -1,4 +1,5 @@
-from typing import Annotated, TypeAlias
+from collections.abc import Generator
+from typing import Annotated
 
 from fastapi import Depends
 from langgraph.checkpoint.redis import RedisSaver
@@ -8,26 +9,30 @@ from sqlmodel import Session, SQLModel
 
 from app.core.config import get_settings
 
+settings = get_settings().persistent
+
 # 配置数据库连接池以支持并发任务
 engine = create_engine(
-    get_settings().persistent.DB_URL,
-    pool_size=20,              # 连接池大小
-    max_overflow=40,           # 最大溢出连接数
-    pool_pre_ping=True,        # 连接前检查可用性
-    pool_recycle=3600,         # 连接回收时间（1小时）
-    echo=False,                # 不打印 SQL 语句（生产环境）
+    settings.database.DB_URL,
+    pool_size=20,  # 连接池大小
+    max_overflow=40,  # 最大溢出连接数
+    pool_pre_ping=True,  # 连接前检查可用性
+    pool_recycle=3600,  # 连接回收时间
+    echo=False,  # 不打印 SQL 语句
 )
 
 
 @logger.catch
-def create_db_and_tables():
+def create_db_and_tables() -> None:
+    """初始化数据库."""
     SQLModel.metadata.create_all(engine)
 
-    with RedisSaver.from_conn_string(get_settings().persistent.LLM_CACHE) as checkpoint:
+    with RedisSaver.from_conn_string(settings.cache.LLM_CACHE) as checkpoint:
         checkpoint.setup()
 
 
-def drop_table(table_name: str):
+def drop_table(table_name: str) -> None:
+    """删表."""
     metadata = MetaData()
     metadata.reflect(bind=engine)
     table = metadata.tables[table_name]
@@ -35,9 +40,9 @@ def drop_table(table_name: str):
         SQLModel.metadata.drop_all(engine, [table])
 
 
-def get_session():
+def _get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
         yield session
 
 
-SessionDep: TypeAlias = Annotated[Session, Depends(get_session)]
+type SessionDep = Annotated[Session, Depends(_get_session)]

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from llm.agents.tool_manager.searcher.image import search_image_agent
-from llm.models import get_high_performance_model, get_long_context_model, get_simple_model
+from llm.models import get_high_performance_model, get_long_context_model
 from llm.states import TestRunContext, TestRunState
 from llm.tools.container import (
     build_container,
@@ -25,6 +25,9 @@ from llm.utils.middleware import (
     TokenLimitMiddleware,
 )
 from llm.utils.middleware.statistic import TokenStatisticMiddleware
+
+MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
+MAX_MEM = get_settings().persistent.resource.MAX_MEM
 
 TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 您的核心目标是根据用户的需求运行生物信息学工具, 并生成一份全面的工具分析报告。
@@ -69,7 +72,7 @@ TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 ### 生物信息学工具参数选择
 - **核心原则**: 构建的命令只需要包含最基本和必要的参数, 能让工具成功运行并输出结果就够了。
 - **参数添加策略**: 在满足上述核心原则的基础上, 检查工具是否支持以下类型的参数。**如果支持, 则必须添加**:
-    - 与线程(设置为{get_settings().persistent.MAX_THREAD})和内存(设置为{get_settings().persistent.MAX_MEM})相关的参数
+    - 与线程(设置为{MAX_THREAD})和内存(设置为{MAX_MEM})相关的参数
     - 与输出路径、文件名相关的参数 (如`--prefix`、`--name`), 目的是不要让工具使用默认的输出路径和输出名称, 保证我们对输出结果的可控性
     - 添加与强制覆盖现有数据相关的参数 (如`--rewrite`), 目的是防止重复运行工具时报错
     - 添加与内置日志功能相关的参数 (如`--log-file`、`-l`)
@@ -238,7 +241,7 @@ PRE_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 ### 生物信息学工具参数选择
 - **核心原则**: 构建的命令只需要包含最基本和必要的参数, 能让工具成功运行并输出结果就够了。
 - **参数添加策略**: 在满足上述核心原则的基础上, 检查工具是否支持以下类型的参数。**如果支持, 则必须添加**:
-    - 与线程(设置为{get_settings().persistent.MAX_THREAD})和内存(设置为{get_settings().persistent.MAX_MEM})相关的参数
+    - 与线程(设置为{MAX_THREAD})和内存(设置为{MAX_MEM})相关的参数
     - 与输出路径、文件名相关的参数 (如`--prefix`、`--name`), 目的是不要让工具使用默认的输出路径和输出名称, 保证我们对输出结果的可控性
     - 添加与强制覆盖现有数据相关的参数 (如`--rewrite`), 目的是防止重复运行工具时报错
     - 添加与内置日志功能相关的参数 (如`--log-file`、`-l`)

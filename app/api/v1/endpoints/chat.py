@@ -175,7 +175,7 @@ async def generate_reproduction_stream(
         thread_id = uuid7()
         chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, checkpoint_uid=thread_id))
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().persistent.LLM_CACHE) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE) as checkpoint:
         try:
             agent = WorkflowDesigner(history=history).build(memory=checkpoint)
             config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=500)

@@ -26,6 +26,8 @@ from app.tasks.run_tool import docker_task
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.handler_base import BaseTaskHandler, TaskContext, register_handler
 
+STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
+
 
 class EmptyToolUIDError(ValueError):
     pass
@@ -59,7 +61,7 @@ class ToolTaskHandler(BaseTaskHandler):
             tool_data = tool_crud.get(context.session, tool_uid)
 
             output_dir = (
-                f'{get_settings().persistent.STORAGE_PATH}/'
+                f'{STORAGE_PATH}/'
                 f'{context.owner.username}/'
                 f'{context.output_base}/'
                 f'{context.task_index}_{to_safe_path_segment(tool_data.name)}'
@@ -264,7 +266,7 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        output_dir = f'{get_settings().persistent.STORAGE_PATH}/{context.owner.username}/{context.output_base}/{task_node.data.get("folder_name", nanoid.generate(size=8))}'
+        output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/{task_node.data.get("folder_name", nanoid.generate(size=8))}'
         return collect_files_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
 
 
@@ -318,12 +320,7 @@ class BashCodeTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        output_dir = (
-            f'{get_settings().persistent.STORAGE_PATH}/'
-            f'{context.owner.username}/'
-            f'{context.output_base}/'
-            f'{context.task_index}_bash'
-        )
+        output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/{context.task_index}_bash'
         return bash_task.s(
             inputs=task_node.kwarg,
             code=task_node.data.get('code', ''),
@@ -380,9 +377,7 @@ class SummaryHandler(BaseTaskHandler):
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
         if context.downstream_files:
             downstream_files = list(set(context.downstream_files))
-            output_dir = (
-                f'{get_settings().persistent.STORAGE_PATH}/{context.owner.username}/{context.output_base}/summary'
-            )
+            output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/summary'
 
             return package_task.s(
                 run_uid=f'{context.run_uid}',

@@ -3,15 +3,18 @@ from redis.asyncio import Redis
 
 from app.core.config import get_settings
 
-monitor_redis_client = Redis.from_url(get_settings().persistent.MONITOR_CACHE)
-llm_cache = RedisCache(redis_url=get_settings().persistent.LLM_CACHE)
+settings = get_settings().persistent.cache
+monitor_redis_client = Redis.from_url(settings.MONITOR_CACHE)
+llm_cache = RedisCache(redis_url=settings.LLM_CACHE)
 
 
 async def setup_cache_redis() -> Redis:
-    redis = Redis.from_url(get_settings().persistent.API_CACHE, decode_responses=True)
+    """初始化缓存."""
+    redis = Redis.from_url(settings.API_CACHE, decode_responses=True)
     await redis.ping()
     return redis
 
 
-async def close_cache_regis(redis: Redis):
+async def close_cache_regis(redis: Redis) -> None:
+    """关闭缓存链接."""
     await redis.aclose()

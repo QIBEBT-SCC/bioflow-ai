@@ -318,7 +318,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
     # 删除运行目录
     for thread_id in thread_ids_to_delete:
-        output_path = Path(get_settings().persistent.STORAGE_PATH).absolute() / 'testrun' / thread_id
+        output_path = Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
         if output_path.exists():
             shutil.rmtree(output_path)
             logger.info(f'清理了运行目录：{output_path}')

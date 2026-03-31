@@ -19,7 +19,7 @@ from app.models.tools import (  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.workflow import RunInstance, TaskInstance, TaskMonitor, Workflow  # noqa: F401
 
-monitor_redis_client = Redis.from_url(get_settings().persistent.MONITOR_CACHE)
+monitor_redis_client = Redis.from_url(get_settings().persistent.cache.MONITOR_CACHE)
 celery_app = Celery('tasks', broker=get_settings().celery.BROKER, backend=get_settings().celery.BACKEND)
 
 celery_app.conf.update(

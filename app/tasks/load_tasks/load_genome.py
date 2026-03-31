@@ -26,6 +26,9 @@ from app.utils.container import run_command
 from app.utils.network import download_gz_files
 from worker import celery_app
 
+GENOME_PATH = get_settings().persistent.storage.GENOME_PATH
+MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
+
 HG38_FILES: dict[str, dict[str, str]] = {
     'genome_fasta': {
         'url': 'https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_49/GRCh38.primary_assembly.genome.fa.gz',
@@ -72,7 +75,7 @@ def build_bowtie2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'bowtie2-build --threads {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
+        f'bowtie2-build --threads {MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
     )
 
     if status == 0:
@@ -123,7 +126,7 @@ def build_hisat2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'hisat2-build -p {get_settings().persistent.MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
+        f'hisat2-build -p {MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
     )
 
     if status == 0:
@@ -151,7 +154,7 @@ def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'STAR --runThreadN {get_settings().persistent.MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
+        f'STAR --runThreadN {MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
     )
 
     if status == 0:
@@ -178,7 +181,7 @@ def build_minimap2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'minimap2 -t {get_settings().persistent.MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
+        f'minimap2 -t {MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
     )
 
     if status == 0:
@@ -194,9 +197,7 @@ def _create_genome_record(
     session: Session, genome: NCBIAssemblyDataReport, species_info: Any, alias_name: Optional[str] = None
 ) -> ReferenceGenomes:
     """创建基因组数据库记录."""
-    download_result = download_genome_data(
-        genome.accession, get_settings().persistent.GENOME_PATH, include_annotation=True, timeout=3600
-    )
+    download_result = download_genome_data(genome.accession, GENOME_PATH, include_annotation=True, timeout=3600)
 
     genome_record = ReferenceGenomes(
         ncbi_tax_id=species_info.tax_id,
@@ -298,7 +299,7 @@ def load_mm39_task(
     required_index: list[str],
 ) -> ToolOutput:
     """下载 MM39 基因组任务实例(从 Gencode 下载, 不依赖数据库)."""
-    mm39_dir = Path(get_settings().persistent.GENOME_PATH) / 'MM39'
+    mm39_dir = Path(GENOME_PATH) / 'MM39'
     files = download_gz_files(MM39_FILES, mm39_dir)
     load_result = {
         'genome_fasta': files['genome_fasta'],
@@ -475,7 +476,7 @@ def load_hg38_task(
     required_index: list[str],
 ) -> ToolOutput:
     """下载 HG38 基因组任务实例(从 Gencode 下载, 不依赖数据库)."""
-    hg38_dir = Path(get_settings().persistent.GENOME_PATH) / 'HG38'
+    hg38_dir = Path(GENOME_PATH) / 'HG38'
     files = download_gz_files(HG38_FILES, hg38_dir)
     load_result = {
         'genome_fasta': files['genome_fasta'],

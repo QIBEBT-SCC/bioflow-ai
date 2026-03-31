@@ -1,6 +1,8 @@
 import os
 import secrets
+import sys
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 import tomli_w
@@ -29,7 +31,7 @@ class LogConfig(BaseSectionConfig):
 
 
 class NetworkConfig(BaseSectionConfig):
-    HOST: str = '0.0.0.0'
+    HOST: str = 'localhost'
     PORT: int = 8000
     PROXY_TYPE: Literal['http', 'socks5'] = 'http'
     PROXY_HOST: str = 'localhost'
@@ -37,6 +39,7 @@ class NetworkConfig(BaseSectionConfig):
     USE_PROXY: bool = False
 
     def get_proxy_url(self) -> str:
+        """返回代理链接."""
         return f'{self.PROXY_TYPE}://{self.PROXY_HOST}:{self.PROXY_PORT}'
 
 
@@ -77,43 +80,6 @@ class PersistenceConfig(BaseSectionConfig):
     cache: CacheConfig = CacheConfig()
     storage: StorageConfig = StorageConfig()
     resource: ResourceConfig = ResourceConfig()
-
-    # 兼容旧访问方式，便于逐步迁移
-    @property
-    def DB_URL(self) -> str:
-        return self.database.DB_URL
-
-    @property
-    def LLM_CACHE(self) -> str:
-        return self.cache.LLM_CACHE
-
-    @property
-    def MONITOR_CACHE(self) -> str:
-        return self.cache.MONITOR_CACHE
-
-    @property
-    def API_CACHE(self) -> str:
-        return self.cache.API_CACHE
-
-    @property
-    def STORAGE_PATH(self) -> str:
-        return self.storage.STORAGE_PATH
-
-    @property
-    def GENOME_PATH(self) -> str:
-        return self.storage.GENOME_PATH
-
-    @property
-    def TEST_DATA_PATH(self) -> str:
-        return self.storage.TEST_DATA_PATH
-
-    @property
-    def MAX_THREAD(self) -> int:
-        return self.resource.MAX_THREAD
-
-    @property
-    def MAX_MEM(self) -> str:
-        return self.resource.MAX_MEM
 
 
 class DockerConfig(BaseSectionConfig):
@@ -198,14 +164,20 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # 环境变量最高优先，其次 toml，最后初始化参数
-        return env_settings, TomlConfigSettingsSource(settings_cls), init_settings
+        """环境变量最高优先, 其次 toml, 最后初始化参数."""
+        return (
+            env_settings,
+            dotenv_settings,
+            TomlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+            init_settings,
+        )
 
-    def save_to_file(self, file_path: str):
-        """将当前配置保存到TOML文件"""
+    def save_to_file(self, file_path: str) -> None:
+        """将当前配置保存到TOML文件."""
         config_dict = self.model_dump(by_alias=True, mode='json', exclude_none=True)
 
-        with open(file_path, 'wb') as f:
+        with Path(file_path).open('wb') as f:
             tomli_w.dump(config_dict, f)
 
         logger.info(f'配置已保存到 {file_path}')
@@ -213,21 +185,14 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    config_path = 'config.toml'
-    if not os.path.exists(config_path):
+    """全局配置对象."""
+    config_path = Path('config.toml')
+    if not config_path.exists():
         settings = Settings()
         settings.save_to_file('config.example.toml')
-        logger.warning(f'配置文件"{config_path}"不存在，已自动初始化默认配置，请完善相关设置')
-        exit(-1)
+        logger.warning(
+            f'The configuration file "{config_path}" does not exist. Default settings have been initialized automatically; please complete the relevant configuration.'
+        )
+        sys.exit(-1)
 
-    settings = Settings()
-    return settings
-
-
-def main() -> None:
-    setting = get_settings()
-    print(setting)
-
-
-if __name__ == '__main__':
-    main()
+    return Settings()
