@@ -120,6 +120,8 @@ class DockerConfig(BaseSectionConfig):
     CONTAINER: Literal['docker', 'podman'] = 'docker'
     USERNAME: str = ''
     PASSWORD: SecretStr = SecretStr('')
+    ENABLE_GPU: bool = False
+    GPU_DEVICES: str = 'all'  # 'all' 或指定设备如 '0,1' 或 '0'
 
 
 class CeleryConfig(BaseSectionConfig):

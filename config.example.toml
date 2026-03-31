@@ -49,6 +49,8 @@ max_mem = "64G"
 container = "docker"
 username = ""
 password = ""
+enable_gpu = false
+gpu_devices = "all"  # "all" 表示所有GPU，或指定设备如 "0,1" 或 "0"
 
 [celery]
 broker = "amqp://bioflow_ai:123456@localhost:5672//"

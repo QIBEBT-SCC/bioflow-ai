@@ -1,11 +1,12 @@
 import datetime
 import time
+from collections.abc import Generator
 from typing import Any, Optional
 
 import docker
 import requests
 from docker.errors import ImageNotFound
-from docker.types import Mount
+from docker.types import DeviceRequest, Mount
 from loguru import logger
 
 from app.core.config import get_settings
@@ -14,6 +15,7 @@ from app.utils.container._general import _strip_ansi_escape_sequences
 from app.utils.system import get_current_user_identity
 
 client = docker.from_env()
+settings = get_settings().docker
 
 
 def _check_image(image_cfg: ImageConfig) -> None:
@@ -26,8 +28,8 @@ def _check_image(image_cfg: ImageConfig) -> None:
                 f'{image_cfg.registry}/{image_cfg.namespace}/{image_cfg.repository}',
                 image_cfg.tag,
                 auth_config={
-                    'username': get_settings().docker.USERNAME,
-                    'password': get_settings().docker.PASSWORD.get_secret_value(),
+                    'username': settings.USERNAME,
+                    'password': settings.PASSWORD.get_secret_value(),
                 },
             )
         else:
@@ -73,6 +75,14 @@ def run_docker(
     """
     _check_image(image_cfg)
 
+    # 处理 GPU 配置
+    device_requests = None
+    if settings.ENABLE_GPU:
+        gpu_count = -1 if settings.GPU_DEVICES == 'all' else len(settings.GPU_DEVICES.split(','))
+        device_requests = [DeviceRequest(count=gpu_count, capabilities=[['gpu']])]
+        if settings.GPU_DEVICES != 'all':
+            device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
+
     container = client.containers.run(
         image_cfg.get_image(),
         f'"{command}"',
@@ -83,6 +93,7 @@ def run_docker(
         auto_remove=False,
         detach=True,
         mounts=mounts,
+        device_requests=device_requests,
         *kwargs,  # noqa: B026
     )
 
@@ -100,8 +111,13 @@ def run_docker(
 
 
 def run_docker_background(
-    image_cfg: ImageConfig, command: str, mounts: list[Mount], working_dir: str, interval: float = 1.0, **kwargs
-):
+    image_cfg: ImageConfig,
+    command: str,
+    mounts: list[Mount],
+    working_dir: str,
+    interval: float = 1.0,
+    **kwargs: int,
+) -> Generator[dict[str, Any], None, None]:
     """后台运行docker容器, 并实时返回容器资源占用信息.
 
     在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
@@ -130,6 +146,14 @@ def run_docker_background(
     _check_image(image_cfg)
     container = None
 
+    # 处理 GPU 配置
+    device_requests = None
+    if settings.ENABLE_GPU:
+        gpu_count = -1 if settings.GPU_DEVICES == 'all' else len(settings.GPU_DEVICES.split(','))
+        device_requests = [DeviceRequest(count=gpu_count, capabilities=[['gpu']])]
+        if settings.GPU_DEVICES != 'all':
+            device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
+
     try:
         container = client.containers.run(
             image_cfg.get_image(),
@@ -140,7 +164,8 @@ def run_docker_background(
             user=get_current_user_identity(),
             auto_remove=False,
             detach=True,
-            *kwargs,
+            device_requests=device_requests,
+            **kwargs,
         )
 
         while True:
@@ -165,7 +190,7 @@ def run_docker_background(
             container.remove(force=True)
 
 
-def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwargs) -> str:
+def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwargs: int) -> str:
     """创建容器并返回其ID.
 
     Args:
@@ -181,6 +206,14 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     """
     _check_image(image_cfg)
 
+    # 处理 GPU 配置
+    device_requests = None
+    if settings.ENABLE_GPU:
+        gpu_count = -1 if settings.GPU_DEVICES == 'all' else len(settings.GPU_DEVICES.split(','))
+        device_requests = [DeviceRequest(count=gpu_count, capabilities=[['gpu']])]
+        if settings.GPU_DEVICES != 'all':
+            device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
+
     container = client.containers.create(
         image_cfg.get_image(),
         command='"tail -f /dev/null"',  # 保证容器常驻
@@ -188,6 +221,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
         entrypoint=['/bin/sh', '-c'],
         detach=True,
         user=get_current_user_identity(),
+        device_requests=device_requests,
         **kwargs,
     )
     container.start()
@@ -199,7 +233,8 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     if container.status != 'running':
         logs = container.logs().decode('utf-8', errors='replace')
         container.remove(force=True)
-        raise RuntimeError(f'容器启动失败, 状态: {container.status}, 镜像: {image_cfg.get_image()}, 日志: {logs}')
+        err_msg = f'Container startup failed, status: {container.status}, image: {image_cfg.get_image()}, logs: {logs}'
+        raise RuntimeError(err_msg)
 
     logger.debug(f'create container {container.name}')
 
@@ -216,7 +251,7 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
 
     Returns:
         - int: 运行的状态码
-        - str: 日志输出结果（已去除 ANSI 转义序列）
+        - str: 日志输出结果 (去除 ANSI 转义序列)
     """
     container = client.containers.get(container_id)
 
@@ -231,7 +266,7 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
     return code, result
 
 
-def remove_container(container_id: str):
+def remove_container(container_id: str) -> None:
     """停止并移除容器.
 
     Args:

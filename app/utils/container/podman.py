@@ -1,6 +1,7 @@
 import datetime
 import time
-from typing import Any, Generator, Optional
+from collections.abc import Generator
+from typing import Any, Optional
 
 import psutil
 from docker.types import Mount
@@ -14,10 +15,10 @@ from app.utils.container._general import _strip_ansi_escape_sequences
 from app.utils.system import get_cpu_cores
 
 
-def _check_image(client: PodmanClient, image_cfg: ImageConfig):
-    """检查镜像是否存在
+def _check_image(client: PodmanClient, image_cfg: ImageConfig) -> None:
+    """检查镜像是否存在.
 
-    若不存在镜像，会进行拉取，并根据registry设置相应的身份验证
+    若不存在镜像, 会进行拉取, 并根据registry设置相应的身份验证
 
     Args:
         client: Podman client
@@ -44,23 +45,23 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig):
 
 
 def run_podman(
-    image_cfg: ImageConfig, command: str, mounts: list[Mount], workdir: Optional[str] = None, **kwargs
+    image_cfg: ImageConfig, command: str, mounts: list[Mount], workdir: Optional[str] = None, **kwargs: int
 ) -> tuple[int, str]:
-    """在podman容器中运行命令并返回执行结果。
+    """在podman容器中运行命令并返回执行结果.
 
-    同步运行容器命令，等待命令执行完成后返回退出状态码和输出日志。
-    适用于短时间运行的命令，容器会在命令执行完成后自动清理。
+    同步运行容器命令, 等待命令执行完成后返回退出状态码和输出日志。
+    适用于短时间运行的命令, 容器会在命令执行完成后自动清理。
 
     Args:
         image_cfg: 容器镜像设置
         command: 容器内执行的命令
         mounts: 文件挂载列表
         workdir: 命令运行的工作目录
-        **kwargs: 其他容器参数，如环境变量、端口映射等
+        **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
         tuple[int, str]: (容器退出状态码, 命令输出日志)
-            - 退出状态码: 0表示成功，非0表示失败
+            - 退出状态码: 0表示成功, 非0表示失败
             - 输出日志: 命令的标准输出和错误输出
 
     Raises:
@@ -74,9 +75,20 @@ def run_podman(
         Status: 0, Output: Hello World
     """
     with PodmanClient() as client:
-        assert client.ping()
+        if not client.ping():
+            raise RuntimeError
 
         _check_image(client, image_cfg)
+
+        # 处理 GPU 配置
+        device = None
+        settings = get_settings()
+        if settings.docker.ENABLE_GPU:
+            if settings.docker.GPU_DEVICES == 'all':
+                device = ['nvidia.com/gpu=all']
+            else:
+                # 指定具体设备, 如 '0,1' -> ['nvidia.com/gpu=0', 'nvidia.com/gpu=1']
+                device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
 
         try:
             container = client.containers.run(
@@ -87,6 +99,7 @@ def run_podman(
                 remove=False,
                 detach=True,
                 workdir=workdir,
+                device=device,
                 **kwargs,
             )
             status_code = container.wait()
@@ -103,23 +116,23 @@ def run_podman_background(
     mounts: list[Mount],
     interval: float = 1.0,
     workdir: Optional[str] = None,
-    **kwargs,
+    **kwargs: int,
 ) -> Generator[dict[str, Any], None, None]:
-    """后台运行podman容器，并实时返回容器资源占用信息。
+    """后台运行podman容器, 并实时返回容器资源占用信息.
 
-    在容器内运行长耗时任务，定期采样并返回容器的资源使用情况，
+    在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
     包括CPU、内存、网络I/O、块I/O等关键指标。
 
     Args:
         image_cfg: 容器镜像设置
         command: 容器内执行的命令
         mounts: 文件挂载列表
-        interval: 资源采样间隔（秒），默认1.0秒
+        interval: 资源采样间隔 (s), 默认1.0秒
         workdir: 命令运行的工作目录
         **kwargs: 其他容器参数
 
     Yields:
-        dict[str, Any]: 当前时刻容器的资源占用信息（如CPU、内存等）
+        dict[str, Any]: 当前时刻容器的资源占用信息 (如CPU、内存等)
 
     Raises:
         podman.errors.ContainerError: 容器运行失败时抛出
@@ -130,10 +143,20 @@ def run_podman_background(
         ...     print(f'CPU: {stats["cpu_percent"]:.2f}%, Memory: {stats["mem_usage_mb"]:.2f}MB')
     """
     with PodmanClient() as client:
-        assert client.ping()
+        if not client.ping():
+            raise RuntimeError
 
         _check_image(client, image_cfg)
         container = None
+
+        # 处理 GPU 配置
+        device = None
+        settings = get_settings()
+        if settings.docker.ENABLE_GPU:
+            if settings.docker.GPU_DEVICES == 'all':
+                device = ['nvidia.com/gpu=all']
+            else:
+                device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
 
         try:
             container = client.containers.run(
@@ -144,6 +167,7 @@ def run_podman_background(
                 remove=False,
                 detach=True,
                 workdir=workdir,
+                device=device,
                 **kwargs,
             )
 
@@ -173,8 +197,8 @@ def run_podman_background(
                 container.remove()
 
 
-def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: bool = False, **kwargs) -> str:
-    """创建容器并返回其ID
+def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], *, debug: bool = False, **kwargs: int) -> str:
+    """创建容器并返回其ID.
 
     Args:
         image_cfg: 所使用的镜像
@@ -186,8 +210,20 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: 
         容器的ID
     """
     with PodmanClient() as client:
-        assert client.ping()
+        if not client.ping():
+            raise RuntimeError
+
         _check_image(client, image_cfg)
+
+        # 处理 GPU 配置
+        device = None
+        settings = get_settings()
+        if settings.docker.ENABLE_GPU:
+            if settings.docker.GPU_DEVICES == 'all':
+                device = ['nvidia.com/gpu=all']
+            else:
+                device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
+
         container = client.containers.create(
             image_cfg.get_image(),
             command='tail -f /dev/null',  # 保证容器常驻
@@ -195,6 +231,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: 
             entrypoint=['/bin/sh', '-c'],
             remove=False,
             detach=True,
+            device=device,
             **kwargs,
         )
         container.start()
@@ -205,7 +242,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], debug: 
 
 
 def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = None) -> tuple[int, str]:
-    """在特定容器中运行命令并返回结果
+    """在特定容器中运行命令并返回结果.
 
     Args:
         container_id: 目标容器ID
@@ -217,7 +254,8 @@ def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = N
         - str: 日志输出结果
     """
     with PodmanClient() as client:
-        assert client.ping()
+        if not client.ping():
+            raise RuntimeError
 
         container = client.containers.get(container_id)
         code, result = container.exec_run(['/bin/sh', '-c', command], tty=False, stream=False, workdir=workdir)
@@ -231,23 +269,24 @@ def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = N
         return code, result
 
 
-def remove_container(container_id: str):
-    """停止并移除容器
+def remove_container(container_id: str) -> None:
+    """停止并移除容器.
 
     Args:
         container_id: 要移除的容器ID
     """
     with PodmanClient() as client:
-        assert client.ping()
+        if not client.ping():
+            raise RuntimeError
 
         container = client.containers.get(container_id)
         container.remove(force=True)
 
 
 def calculate_podman_stats(stats: dict[str, Any], start_time: datetime.datetime, pid: int) -> Optional[dict[str, Any]]:
-    """提取容器日志中的监控内容
+    """提取容器日志中的监控内容.
 
-    从 Podman stats 输出中提取关键的监控指标，包括CPU利用率、内存利用率、
+    从 Podman stats 输出中提取关键的监控指标, 包括CPU利用率、内存利用率、
     实际内存占用、网络I/O状态、块I/O状态等。
 
     Args:
@@ -268,10 +307,11 @@ def calculate_podman_stats(stats: dict[str, Any], start_time: datetime.datetime,
         KeyError: 当 stats 数据结构不符合预期时抛出
         ValueError: 当数值转换失败时抛出
     """
-    try:
-        if 'Stats' not in stats or not stats['Stats']:
-            raise KeyError("Stats data is empty or missing 'Stats' key")
+    if 'Stats' not in stats or not stats['Stats']:
+        logger.error("Stats data is empty or missing 'Stats' key")
+        return None
 
+    try:
         container_stats: dict[str, Any] = stats['Stats'][0]
 
         # CPU 相关指标
