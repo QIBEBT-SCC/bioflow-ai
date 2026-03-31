@@ -10,10 +10,8 @@ import nanoid
 from celery import Signature
 
 import app.crud.resource.bio_db as db_crud
-import app.crud.resource.sample as sample_crud
 import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings
-from app.models.resource import SampleFileType
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
 from app.tasks.code import bash_task
@@ -25,6 +23,7 @@ from app.tasks.package_result import package_task
 from app.tasks.run_tool import docker_task
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.handler_base import BaseTaskHandler, TaskContext, register_handler
+from app.utils.workflow.path_resolver import resolve_path
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
@@ -115,28 +114,18 @@ class ResourceSequenceTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        # 检查是否使用自动填充或手动路径
         if context.auto_fill:
-            sample_uid = context.auto_fill.split(':')[1]
-            sample = sample_crud.get_with_files(context.session, sample_uid)  # type: ignore
+            # 新的灵活解析逻辑
+            r1_ref = task_node.data.get('r1', 'sample:r1')  # 默认为 sample:r1
+            r2_ref = task_node.data.get('r2', 'sample:r2')  # 默认为 sample:r2
 
-            r1_path = next(
-                (f.file_path for f in sample.sample_files if f.data_type == SampleFileType.SEQUENCING_R1),
-                None,
-            )
-            r2_path = next(
-                (f.file_path for f in sample.sample_files if f.data_type == SampleFileType.SEQUENCING_R2),
-                None,
-            )
-
-            if r1_path is None:
-                err_msg = 'Sample missing r1 sequencing file'
-                raise MissingReadError(err_msg)
-            if r2_path is None:
-                err_msg = 'Sample missing r2 sequencing file'
-                raise MissingReadError(err_msg)
+            r1_path = resolve_path(r1_ref, context, context.session, context.project_id)
+            r2_path = resolve_path(r2_ref, context, context.session, context.project_id)
 
             return load_sequence_task.s(args={'r1': r1_path, 'r2': r2_path}).set(task_id=task_node.id)
 
+        # 回退: 使用手动指定的路径
         return load_sequence_task.s(args=task_node.data).set(task_id=task_node.id)
 
 
@@ -212,7 +201,10 @@ class ResourceFileTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        return load_file_task.s(file_path=task_node.data.get('file_path')).set(task_id=task_node.id)
+        file_path_ref = task_node.data.get('file_path', '')
+        # 解析路径引用（支持 proj: 和 sample: 前缀）
+        file_path = resolve_path(file_path_ref, context, context.session, context.project_id)
+        return load_file_task.s(file_path=file_path).set(task_id=task_node.id)
 
 
 @register_handler('value_string')

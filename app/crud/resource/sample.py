@@ -19,7 +19,7 @@ from app.utils.system import get_file_size
 
 
 def _update_project_time(session: Session, project_id: int) -> None:
-    """更新项目的 update_time
+    """更新项目的 update_time.
 
     Args:
         session: 数据库会话
@@ -34,7 +34,7 @@ def _update_project_time(session: Session, project_id: int) -> None:
 
 
 def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
-    """计算文件信息
+    """计算文件信息.
 
     Args:
         file_path: 文件路径
@@ -72,8 +72,26 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
     return file_format, file_size, md5_checksum
 
 
+def _assign_default_tag(sample_file: SampleFiles) -> None:
+    """为样本文件分配默认标签（如果未指定）.
+
+    Args:
+        sample_file: 样本文件对象
+    """
+    if sample_file.tag is None:
+        # 根据 data_type 分配默认标签
+        default_tags = {
+            SampleFileType.SEQUENCING_R1: 'r1',
+            SampleFileType.SEQUENCING_R2: 'r2',
+            SampleFileType.SEQUENCING: 'single',
+            SampleFileType.SPECTRUM: 'spectrum',
+            SampleFileType.IMAGE: 'image',
+        }
+        sample_file.tag = default_tags.get(sample_file.data_type, 'unknown')
+
+
 def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] = None) -> Sample:
-    """创建新样本，自动计算文件信息，并更新项目时间"""
+    """创建新样本，自动计算文件信息，并更新项目时间."""
     session.add(sample)
     session.commit()
     session.refresh(sample)
@@ -81,6 +99,8 @@ def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] 
     if files:
         for file in files:
             file.sample_uid = sample.uid
+            # 分配默认标签（如果未指定）
+            _assign_default_tag(file)
             # 自动计算文件信息
             file_format, file_size, md5_checksum = _calculate_file_info(file.file_path)
             file.file_format = file_format
@@ -97,7 +117,7 @@ def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] 
 
 
 def delete(session: Session, sample_uid: uuid.UUID) -> None:
-    """删除样本及其关联的文件，并更新项目时间"""
+    """删除样本及其关联的文件，并更新项目时间."""
     sample = get(session, sample_uid, with_files=True)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
@@ -116,7 +136,7 @@ def delete(session: Session, sample_uid: uuid.UUID) -> None:
 
 
 def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate) -> Sample:
-    """更新样本信息，并更新项目时间"""
+    """更新样本信息，并更新项目时间."""
     sample = get(session, sample_uid)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
@@ -136,7 +156,7 @@ def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate)
 
 
 def get(session: Session, sample_uid: uuid.UUID, with_files: bool = False) -> Optional[Sample]:
-    """根据 UID 获取样本
+    """根据 UID 获取样本.
 
     Args:
         session: 数据库会话
@@ -150,10 +170,7 @@ def get(session: Session, sample_uid: uuid.UUID, with_files: bool = False) -> Op
 
 
 def get_with_files(session: Session, sample_uid: uuid.UUID) -> Optional[Sample]:
-    """获取样本及其关联文件（利用 Relationship 优化查询）
-
-    直接返回 Sample 对象，由 FastAPI 根据 response_model 自动序列化
-    """
+    """获取样本及其关联文件."""
     return get(session, sample_uid, with_files=True)
 
 
@@ -164,7 +181,7 @@ def get_all(session: Session, sample_uids: list[str]):
 
 
 def get_all_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
-    """获取项目下的所有样本"""
+    """获取项目下的所有样本."""
     query: Select = (
         select(
             Sample.uid,
@@ -198,7 +215,7 @@ def get_all_by_project(session: Session, project_id: int, limit: int = 20, offse
 
 
 def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
-    """获取用户的所有样本"""
+    """获取用户的所有样本."""
     query: Select = (
         select(
             Sample.uid,
@@ -232,24 +249,26 @@ def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int
 
 
 def get_count_by_project(session: Session, project_id: int) -> int:
-    """获取项目下的样本数量"""
+    """获取项目下的样本数量."""
     query: Select = select(func.count()).select_from(Sample).where(Sample.project_id == project_id)
     return session.exec(query).one()
 
 
 def get_count_by_user(session: Session, user_id: int) -> int:
-    """获取用户的样本数量"""
+    """获取用户的样本数量."""
     query: Select = select(func.count()).select_from(Sample).where(Sample.owner_id == user_id)
     return session.exec(query).one()
 
 
 def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
-    """为样本添加文件，自动计算文件信息，并更新项目时间"""
+    """为样本添加文件，自动计算文件信息，并更新项目时间."""
     # 验证样本是否存在
     sample = get(session, sample_file.sample_uid)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
 
+    # 分配默认标签（如果未指定）
+    _assign_default_tag(sample_file)
     # 自动计算文件信息
     file_format, file_size, md5_checksum = _calculate_file_info(sample_file.file_path)
     sample_file.file_format = file_format
@@ -267,7 +286,7 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
 
 
 def delete_file(session: Session, file_uid: uuid.UUID) -> None:
-    """删除样本文件，并更新项目时间"""
+    """删除样本文件，并更新项目时间."""
     query: Select = select(SampleFiles).where(SampleFiles.uid == file_uid)
     file = session.exec(query).one_or_none()
 
@@ -289,7 +308,7 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
 
 
 def get_files(session: Session, sample_uid: uuid.UUID) -> list[SampleFiles]:
-    """获取样本的所有文件（利用 Relationship 优化）
+    """获取样本的所有文件.
 
     直接返回 SampleFiles 列表，由 FastAPI 根据 response_model 自动序列化
     """
@@ -302,7 +321,7 @@ def get_files(session: Session, sample_uid: uuid.UUID) -> list[SampleFiles]:
 def batch_import_from_csv(
     session: Session, csv_content: bytes, project_id: int, owner_id: int
 ) -> SampleBatchImportResult:
-    """从 CSV 文件批量导入样本
+    """从 CSV 文件批量导入样本.
 
     Args:
         session: 数据库会话

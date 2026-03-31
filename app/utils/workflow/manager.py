@@ -132,6 +132,7 @@ def create_runs_from_samples(
             f'{to_safe_path_segment(project.name)}/{to_safe_path_segment(workflow.name)}/{sample.sample_name}',
             run.uid,
             current_user,
+            project_id,
             f'sample:{sample.uid}',
         )
 

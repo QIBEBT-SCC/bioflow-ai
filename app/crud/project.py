@@ -1,10 +1,13 @@
+from datetime import UTC, datetime
 from typing import Optional
 
+from fastapi import HTTPException
 from sqlalchemy import Select
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, or_, select
+from starlette.status import HTTP_404_NOT_FOUND
 
-from app.models.project import Project, ProjectStar
+from app.models.project import Project, ProjectFileMapping, ProjectStar
 from app.schemas.project import ProjectPublic, ProjectUpdate
 from app.schemas.user import UserPublic
 
@@ -132,3 +135,67 @@ def get_recent(session: Session, user_id: int) -> Optional[ProjectPublic]:
     statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project.id)
     starred = session.exec(statement).first() is not None
     return _to_project_public(project, starred)
+
+
+# ==================== Project File Mapping CRUD ====================
+
+
+def create_file_mapping(
+    session: Session, project_id: int, keyword: str, file_path: str, description: str = ''
+) -> ProjectFileMapping:
+    """创建项目文件映射"""
+    mapping = ProjectFileMapping(
+        project_id=project_id, keyword=keyword, file_path=file_path, description=description
+    )
+    session.add(mapping)
+    session.commit()
+    session.refresh(mapping)
+    return mapping
+
+
+def get_file_mapping(session: Session, project_id: int, keyword: str) -> Optional[ProjectFileMapping]:
+    """根据关键字获取项目文件映射"""
+    statement: Select = select(ProjectFileMapping).where(
+        ProjectFileMapping.project_id == project_id, ProjectFileMapping.keyword == keyword
+    )
+    return session.exec(statement).one_or_none()
+
+
+def get_all_file_mappings(session: Session, project_id: int) -> list[ProjectFileMapping]:
+    """获取项目的所有文件映射"""
+    statement: Select = select(ProjectFileMapping).where(ProjectFileMapping.project_id == project_id)
+    return list(session.exec(statement).all())
+
+
+def update_file_mapping(
+    session: Session, mapping_id: int, file_path: Optional[str] = None, description: Optional[str] = None
+) -> ProjectFileMapping:
+    """更新项目文件映射"""
+    statement: Select = select(ProjectFileMapping).where(ProjectFileMapping.id == mapping_id)
+    mapping = session.exec(statement).one_or_none()
+
+    if not mapping:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File mapping not found')
+
+    if file_path is not None:
+        mapping.file_path = file_path
+    if description is not None:
+        mapping.description = description
+
+    mapping.update_time = datetime.now(UTC)
+    session.add(mapping)
+    session.commit()
+    session.refresh(mapping)
+    return mapping
+
+
+def delete_file_mapping(session: Session, mapping_id: int) -> None:
+    """删除项目文件映射"""
+    statement: Select = select(ProjectFileMapping).where(ProjectFileMapping.id == mapping_id)
+    mapping = session.exec(statement).one_or_none()
+
+    if not mapping:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File mapping not found')
+
+    session.delete(mapping)
+    session.commit()

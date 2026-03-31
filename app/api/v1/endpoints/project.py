@@ -17,7 +17,15 @@ from app.models.project import (
     ProjectTag,
 )
 from app.models.resource import Sample, SampleFiles
-from app.schemas.project import ProjectCreateProp, ProjectPublic, TagProp, TagWithCount
+from app.schemas.project import (
+    ProjectCreateProp,
+    ProjectFileMappingCreate,
+    ProjectFileMappingPublic,
+    ProjectFileMappingUpdate,
+    ProjectPublic,
+    TagProp,
+    TagWithCount,
+)
 from app.schemas.project_workflow import (
     ProjectWorkflowAdd,
     ProjectWorkflowPublic,
@@ -538,3 +546,70 @@ async def get_project_run(
         run_data.task_statistics = run_crud.get_run_task_stats(session, str(run_uid))
 
     return run_data
+
+
+# ==================== 项目文件映射管理端点 ====================
+
+
+@router.post('/{project_id}/file-mappings')
+async def create_project_file_mapping(
+    project_id: int,
+    mapping: ProjectFileMappingCreate,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> ProjectFileMappingPublic:
+    """为项目创建新的文件映射."""
+    result = project_crud.create_file_mapping(
+        session, project_id, mapping.keyword, mapping.file_path, mapping.description
+    )
+    return ProjectFileMappingPublic.model_validate(result)
+
+
+@router.get('/{project_id}/file-mappings')
+async def get_project_file_mappings(
+    project_id: int,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> list[ProjectFileMappingPublic]:
+    """获取项目的所有文件映射."""
+    mappings = project_crud.get_all_file_mappings(session, project_id)
+    return [ProjectFileMappingPublic.model_validate(m) for m in mappings]
+
+
+@router.get('/{project_id}/file-mappings/{keyword}')
+async def get_project_file_mapping(
+    project_id: int,
+    keyword: str,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> ProjectFileMappingPublic:
+    """根据关键字获取特定的文件映射."""
+    mapping = project_crud.get_file_mapping(session, project_id, keyword)
+    if not mapping:
+        raise HTTPException(HTTP_404_NOT_FOUND, f'File mapping not found: {keyword}')
+    return ProjectFileMappingPublic.model_validate(mapping)
+
+
+@router.put('/{project_id}/file-mappings/{mapping_id}')
+async def update_project_file_mapping(
+    project_id: int,  # noqa: ARG001
+    mapping_id: int,
+    mapping_update: ProjectFileMappingUpdate,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> ProjectFileMappingPublic:
+    """更新文件映射."""
+    result = project_crud.update_file_mapping(session, mapping_id, mapping_update.file_path, mapping_update.description)
+    return ProjectFileMappingPublic.model_validate(result)
+
+
+@router.delete('/{project_id}/file-mappings/{mapping_id}')
+async def delete_project_file_mapping(
+    project_id: int,  # noqa: ARG001
+    mapping_id: int,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> dict:
+    """删除文件映射."""
+    project_crud.delete_file_mapping(session, mapping_id)
+    return {'message': 'File mapping deleted successfully'}

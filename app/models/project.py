@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import func
+from sqlalchemy import UniqueConstraint, func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
-from app.models.user import User
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class ProjectTagLink(SQLModel, table=True):
@@ -59,3 +60,21 @@ class Project(SQLModel, table=True):
 
     tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
     owner: Optional['User'] = Relationship()
+    file_mappings: list['ProjectFileMapping'] = Relationship(back_populates='project', cascade_delete=True)
+
+
+class ProjectFileMapping(SQLModel, table=True):
+    __tablename__ = 'project_file_mappings'
+    __table_args__ = (
+        UniqueConstraint('project_id', 'keyword', name='uq_project_file_mapping'),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
+    keyword: str = Field(max_length=50, index=True)
+    file_path: str = Field(max_length=500)
+    description: str = Field(default='')
+    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    project: Optional['Project'] = Relationship(back_populates='file_mappings')

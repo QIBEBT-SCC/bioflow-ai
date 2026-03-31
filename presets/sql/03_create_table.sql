@@ -14,13 +14,13 @@ CREATE TABLE IF NOT EXISTS users
 
 CREATE TABLE IF NOT EXISTS chat_sessions
 (
-    uid            uuid      NOT NULL,
-    owner_id       INTEGER   NOT NULL,
-    description    VARCHAR   NOT NULL,
+    uid            uuid                     NOT NULL,
+    owner_id       INTEGER                  NOT NULL,
+    description    VARCHAR                  NOT NULL,
     checkpoint_uid uuid,
-    interrupted    BOOLEAN   NOT NULL,
-    create_time    TIMESTAMP NOT NULL,
-    update_time    TIMESTAMP NOT NULL,
+    interrupted    BOOLEAN                  NOT NULL,
+    create_time    TIMESTAMP WITH TIME ZONE NOT NULL,
+    update_time    TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users
 );
@@ -65,14 +65,14 @@ CREATE TABLE IF NOT EXISTS llm_settings
 CREATE TABLE IF NOT EXISTS llm_statistics
 (
     id            SERIAL,
-    agent_name    VARCHAR NOT NULL,
+    agent_name    VARCHAR                  NOT NULL,
     model_id      INTEGER,
     setting_key   VARCHAR,
-    input_tokens  INTEGER NOT NULL,
-    output_tokens INTEGER NOT NULL,
+    input_tokens  INTEGER                  NOT NULL,
+    output_tokens INTEGER                  NOT NULL,
     cache_read    INTEGER,
-    price         NUMERIC NOT NULL,
-    time          TIMESTAMP,
+    price         NUMERIC                  NOT NULL,
+    time          TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (model_id) REFERENCES llm_models,
     FOREIGN KEY (setting_key) REFERENCES llm_settings
@@ -83,12 +83,12 @@ CREATE TABLE IF NOT EXISTS llm_statistics
 CREATE TABLE IF NOT EXISTS projects
 (
     id          SERIAL,
-    owner_id    INTEGER   NOT NULL,
-    name        VARCHAR   NOT NULL,
-    description VARCHAR   NOT NULL,
-    public      BOOLEAN   NOT NULL,
-    create_time TIMESTAMP NOT NULL,
-    update_time TIMESTAMP NOT NULL,
+    owner_id    INTEGER                  NOT NULL,
+    name        VARCHAR                  NOT NULL,
+    description VARCHAR                  NOT NULL,
+    public      BOOLEAN                  NOT NULL,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    update_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (owner_id) REFERENCES users
 );
@@ -154,12 +154,12 @@ CREATE TABLE IF NOT EXISTS reference_genomes
 
 CREATE TABLE IF NOT EXISTS samples
 (
-    uid         uuid      NOT NULL,
-    owner_id    INTEGER   NOT NULL,
-    project_id  INTEGER   NOT NULL,
-    sample_name VARCHAR   NOT NULL,
+    uid         uuid                     NOT NULL,
+    owner_id    INTEGER                  NOT NULL,
+    project_id  INTEGER                  NOT NULL,
+    sample_name VARCHAR                  NOT NULL,
     meta_data   jsonb,
-    create_time TIMESTAMP NOT NULL,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
     FOREIGN KEY (project_id) REFERENCES projects
@@ -168,25 +168,40 @@ CREATE TABLE IF NOT EXISTS samples
 CREATE TYPE samplefiletype AS ENUM ('SEQUENCING_R1','SEQUENCING_R2','SEQUENCING','SPECTRUM','IMAGE');
 CREATE TABLE IF NOT EXISTS sample_files
 (
-    uid           uuid           NOT NULL,
+    uid           uuid                     NOT NULL,
     sample_uid    uuid,
-    data_type     samplefiletype NOT NULL,
-    file_path     VARCHAR        NOT NULL,
-    file_format   VARCHAR        NOT NULL,
-    file_size     BIGINT         NOT NULL,
-    md5_checksum  VARCHAR        NOT NULL,
-    uploaded_time TIMESTAMP      NOT NULL,
+    data_type     samplefiletype           NOT NULL,
+    tag           VARCHAR(50)              NOT NULL,
+    file_path     VARCHAR                  NOT NULL,
+    file_format   VARCHAR                  NOT NULL,
+    file_size     BIGINT                   NOT NULL,
+    md5_checksum  VARCHAR                  NOT NULL,
+    uploaded_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
-    FOREIGN KEY (sample_uid) REFERENCES samples
+    FOREIGN KEY (sample_uid) REFERENCES samples,
+    CONSTRAINT uq_sample_file_tag UNIQUE (sample_uid, tag)
+);
+
+CREATE TABLE IF NOT EXISTS project_file_mappings
+(
+    id          SERIAL,
+    project_id  INTEGER                  NOT NULL,
+    keyword     VARCHAR(50)              NOT NULL,
+    file_path   VARCHAR(500)             NOT NULL,
+    description VARCHAR                  NOT NULL,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    update_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_project_file_mapping UNIQUE (project_id, keyword)
 );
 
 CREATE TABLE IF NOT EXISTS files
 (
-    id          SERIAL    NOT NULL,
-    sha256      VARCHAR   NOT NULL,
-    file_name   VARCHAR   NOT NULL,
-    s3_path     VARCHAR   NOT NULL,
-    upload_time TIMESTAMP NOT NULL,
+    id          SERIAL                   NOT NULL,
+    sha256      VARCHAR                  NOT NULL,
+    file_name   VARCHAR                  NOT NULL,
+    s3_path     VARCHAR                  NOT NULL,
+    upload_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
     UNIQUE (sha256)
 );
@@ -287,9 +302,9 @@ CREATE TABLE IF NOT EXISTS run_instances
     owner_id    INTEGER NOT NULL,
     workflow    jsonb,
     status      status  NOT NULL,
-    create_time TIMESTAMP,
-    start_time  TIMESTAMP,
-    end_time    TIMESTAMP,
+    create_time TIMESTAMP WITH TIME ZONE,
+    start_time  TIMESTAMP WITH TIME ZONE,
+    end_time    TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (uid),
     FOREIGN KEY (project_id) REFERENCES projects,
     FOREIGN KEY (owner_id) REFERENCES users
@@ -307,9 +322,9 @@ CREATE TABLE IF NOT EXISTS task_instances
     status       status  NOT NULL,
     system       VARCHAR,
     hostname     VARCHAR,
-    create_time  TIMESTAMP,
-    start_time   TIMESTAMP,
-    end_time     TIMESTAMP,
+    create_time  TIMESTAMP WITH TIME ZONE,
+    start_time   TIMESTAMP WITH TIME ZONE,
+    end_time     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (uid),
     FOREIGN KEY (instance_uid) REFERENCES run_instances,
     FOREIGN KEY (tool_uid) REFERENCES tools,
@@ -333,12 +348,12 @@ CREATE TABLE IF NOT EXISTS task_monitor_logs
 -- 文档相关
 CREATE TABLE IF NOT EXISTS parent_documents
 (
-    uid         uuid      NOT NULL,
-    doc_id      VARCHAR   NOT NULL,
-    content     TEXT      NOT NULL,
+    uid         uuid                     NOT NULL,
+    doc_id      VARCHAR                  NOT NULL,
+    content     TEXT                     NOT NULL,
     title       VARCHAR,
     section     VARCHAR,
-    create_time TIMESTAMP NOT NULL,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid)
 );
 

@@ -27,6 +27,7 @@ class TaskContext:
         output_base: str,
         run_uid: uuid.UUID,
         owner: User,
+        project_id: int,
         auto_fill: Optional[str] = None,
         task_index: int = 1,
     ):
@@ -35,6 +36,7 @@ class TaskContext:
         self.output_base = output_base
         self.run_uid = run_uid
         self.owner = owner
+        self.project_id = project_id
         self.auto_fill = auto_fill
         self.task_index = task_index
 

@@ -108,6 +108,7 @@ def send_task(
     output_base: str,
     run_uid: uuid.UUID,
     owner: User,
+    project_id: int,
     auto_fill: Optional[str] = None,
 ) -> None:
     """构建实际任务队列, 并发送至celery worker.
@@ -119,6 +120,7 @@ def send_task(
         output_base: 根输出目录
         run_uid: 运行实例UID
         owner: 任务创建者
+        project_id: 项目 ID
         auto_fill: 自动填充输入序列
     """
     rich.print(task_nodes)
@@ -130,6 +132,7 @@ def send_task(
         output_base=output_base,
         run_uid=run_uid,
         owner=owner,
+        project_id=project_id,
         auto_fill=auto_fill,
         task_index=1,
     )

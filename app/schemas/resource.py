@@ -127,6 +127,7 @@ class SampleFileCreate(BaseModel):
 
     data_type: SampleFileType
     file_path: str
+    tag: Optional[str] = None
 
 
 class SampleFilePublic(BaseModel):
@@ -141,6 +142,7 @@ class SampleFilePublic(BaseModel):
     file_format: str
     file_size: int
     md5_checksum: str
+    tag: Optional[str] = None
     uploaded_time: datetime
 
 
