@@ -5,30 +5,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-import aiosqlite
 import click
-import docker
-import polars as pl
-import rich
-from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage
-from langchain_milvus import BM25BuiltInFunction, Milvus
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.types import Command
 from loguru import logger
-from sqlmodel import Session, col, select
-from tqdm import tqdm
-
-import app.crud.tools.image as image_crud
-import app.crud.tools.tool as tool_crud
-import app.crud.tools.tool_doc as doc_crud
-from app.core.config import get_settings
-from app.core.session import engine
-from app.models.tools import ImageConfig, ToolDefine, ToolHelpDoc, ToolImage
-from app.utils.container.docker import run_docker
-from llm.agents.tool_manager import CreateToolAgent, CreateToolContext, CreateToolState
-from llm.models import qwen3_embedding
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
@@ -38,7 +16,9 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 
-def _clear_container():
+def _clear_container() -> None:
+    import docker
+
     client = docker.from_env()
     for container in client.containers.list():
         image_name = ''.join(container.image.tags)
@@ -46,13 +26,27 @@ def _clear_container():
             container.remove(force=True)
 
 
-async def init_images(drop_old: bool = True):
+async def init_images(*, drop_old: bool = True) -> None:
+    """刷新镜像向量索引."""
+    import polars as pl
+    from langchain_core.documents import Document
+    from langchain_milvus import Milvus
+    from sqlmodel import Session
+    from tqdm import tqdm
+
+    import app.crud.tools.image as image_crud
+    from app.core.config import get_settings
+    from app.core.session import engine
+    from app.models.tools import ImageConfig, ToolImage
+    from llm.models import qwen3_embedding
+
     with Session(engine) as session:
         if drop_old:
             delete_count = image_crud.drop_all(session)
             logger.info(f'Delete {delete_count} data')
 
         image_df = pl.read_parquet('../presets/images.parquet')
+
         images: list[ToolImage] = []
         for row in image_df.iter_rows(named=True):
             try:
@@ -81,6 +75,7 @@ async def init_images(drop_old: bool = True):
 
     for i in tqdm(range(0, len(images), batch_size)):
         batch_images = images[i : i + batch_size]
+
         docs = [
             Document(page_content=img.description, metadata={'image_uid': str(img.uid), 'name': img.name})
             for img in batch_images
@@ -91,6 +86,22 @@ async def init_images(drop_old: bool = True):
 
 async def init_tools(index: Optional[int] = None) -> None:
     """初始化工具节点."""
+    import aiosqlite
+    import polars as pl
+    import rich
+    from langchain_core.messages import HumanMessage
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from sqlmodel import Session
+
+    import app.crud.tools.image as image_crud
+    import app.crud.tools.tool_doc as doc_crud
+    from app.core.session import engine
+    from app.models.tools import ToolHelpDoc
+    from app.utils.container import run_command
+    from llm.agents.tool_manager import CreateToolAgent
+    from llm.states import CreateToolContext
+
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
@@ -124,15 +135,15 @@ async def init_tools(index: Optional[int] = None) -> None:
 
             with Session(engine) as session:
                 tool_image = image_crud.get_by_name(session, tool_name)
-                assert tool_image is not None
+                assert tool_image is not None  # noqa: S101
 
                 tool_doc = doc_crud.get_by_command(session, help_command)
                 if tool_doc is None:
-                    code, result = run_docker(tool_image.image, help_command, [])
+                    code, result = run_command(tool_image.image, [], help_command)
                     tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
                     tool_doc = doc_crud.insert(session, tool_doc)
 
-                agent_input: CreateToolState = {
+                agent_input = {
                     'messages': [
                         HumanMessage(
                             content=f'<Require>\n'
@@ -181,7 +192,6 @@ async def init_tools(index: Optional[int] = None) -> None:
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
                 _clear_container()
-                # break
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row_index)
@@ -193,7 +203,16 @@ async def init_tools(index: Optional[int] = None) -> None:
                 logger.success(f'{thread_id} done')
 
 
-async def read_interrupt(index: int):
+async def read_interrupt(index: int) -> None:
+    """加载指定中断信息."""
+    import aiosqlite
+    import polars as pl
+    import rich
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    from llm.agents.tool_manager import CreateToolAgent
+
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     tool_info: dict[str, Any] = function_df.row(index=index, named=True)
 
@@ -208,7 +227,18 @@ async def read_interrupt(index: int):
         rich.print(response.interrupts)
 
 
-async def continue_run(index: int, message: Optional[str] = None, approve: bool = False):
+async def continue_run(index: int, message: Optional[str] = None, *, approve: bool = False) -> None:
+    """响应中断信息."""
+    import aiosqlite
+    import polars as pl
+    import rich
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.types import Command
+
+    from llm.agents.tool_manager import CreateToolAgent
+    from llm.states import CreateToolContext
+
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     function_df = function_df.with_columns(
         pl.when(pl.col('index') == index)
@@ -262,6 +292,18 @@ async def continue_run(index: int, message: Optional[str] = None, approve: bool 
 
 async def delete_prebuild_tool(indices: list[int]) -> None:
     """删除现有节点."""
+    import aiosqlite
+    import polars as pl
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from sqlmodel import Session
+
+    import app.crud.tools.tool as tool_crud
+    from app.core.config import get_settings
+    from app.core.session import engine
+    from app.utils.container import remove_container
+    from llm.agents.tool_manager import CreateToolAgent
+
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     thread_ids_to_delete: list[str] = []
 
@@ -291,14 +333,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                 ):
                     # 删除残余容器
                     try:
-                        if get_settings().docker.CONTAINER == 'docker':
-                            from app.utils.container.docker import remove_container  # noqa: PLC0415
-
-                            remove_container(response.tasks[0].state.values['container_id'])
-                        else:
-                            from app.utils.container.podman import remove_container  # noqa: PLC0415
-
-                            remove_container(response.tasks[0].state.values['container_id'])
+                        remove_container(response.tasks[0].state.values['container_id'])
                         logger.info('清理了残余容器')
                     except Exception as e:
                         logger.warning(e)
@@ -321,20 +356,32 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
         output_path = Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
         if output_path.exists():
             shutil.rmtree(output_path)
-            logger.info(f'清理了运行目录：{output_path}')
+            logger.info(f'清理了运行目录: {output_path}')
 
     # 批量更新 DataFrame
     indices_condition = pl.col('index').is_in(indices)
     function_df = function_df.with_columns(
         pl.when(indices_condition).then(None).otherwise(pl.col('thread')).alias('thread'),
         pl.when(indices_condition).then(None).otherwise(pl.col('tool_node')).alias('tool_node'),
-        pl.when(indices_condition).then(False).otherwise(pl.col('interrupted')).alias('interrupted'),
+        pl.when(indices_condition).then(False).otherwise(pl.col('interrupted')).alias('interrupted'),  # noqa: FBT003
     )
     function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
     logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 
-async def rebuild_vector_store():
+async def rebuild_vector_store() -> None:
+    """重建工具库向量索引."""
+    import polars as pl
+    from langchain_core.documents import Document
+    from langchain_milvus import BM25BuiltInFunction, Milvus
+    from sqlmodel import Session, col, select
+    from tqdm import tqdm
+
+    from app.core.config import get_settings
+    from app.core.session import engine
+    from app.models.tools import ToolDefine
+    from llm.models import qwen3_embedding
+
     embedding = qwen3_embedding()
     vectorstore = Milvus(
         collection_name='ToolCollection',
@@ -396,6 +443,9 @@ async def rebuild_vector_store():
 
 def statistic() -> None:
     """统计生成情况."""
+    import polars as pl
+    import rich
+
     last_tool = 0
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
     print(function_df.height)
@@ -429,7 +479,7 @@ def cli() -> None:
 @click.option('--drop-old', is_flag=True, default=False, help='删除旧数据 (默认: 不删除)')
 def init_images_cmd(*, drop_old: bool) -> None:
     """初始化镜像数据."""
-    asyncio.run(init_images(drop_old))
+    asyncio.run(init_images(drop_old=drop_old))
 
 
 @cli.command()
@@ -452,7 +502,7 @@ def read_interrupt_cmd(index: int) -> None:
 @click.option('--approve', is_flag=True, default=False, help='批准标志')
 def continue_run_cmd(index: int, message: Optional[str], *, approve: bool) -> None:
     """继续运行指定索引的工具创建任务."""
-    asyncio.run(continue_run(index, message, approve))
+    asyncio.run(continue_run(index, message, approve=approve))
 
 
 @cli.command()
