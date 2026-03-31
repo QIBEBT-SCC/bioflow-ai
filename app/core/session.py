@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 from fastapi import Depends
 from langgraph.checkpoint.redis import RedisSaver
@@ -45,4 +45,4 @@ def _get_session() -> Generator[Session, None, None]:
         yield session
 
 
-type SessionDep = Annotated[Session, Depends(_get_session)]
+SessionDep: TypeAlias = Annotated[Session, Depends(_get_session)]  # noqa: UP040

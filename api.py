@@ -1,11 +1,7 @@
-import io
 from contextlib import asynccontextmanager
-from functools import lru_cache
 
 import uvicorn
-import yaml
 from fastapi import FastAPI
-from fastapi.responses import Response
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -61,15 +57,6 @@ app.add_middleware(
     CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=['*'], allow_headers=['*']
 )
 # app.add_middleware(LogRequestMiddleware)
-
-
-@app.get('/openapi.yaml', include_in_schema=False)
-@lru_cache()
-def read_openapi_yaml() -> Response:
-    openapi_json = app.openapi()
-    yaml_s = io.StringIO()
-    yaml.dump(openapi_json, yaml_s)
-    return Response(yaml_s.getvalue(), media_type='text/yaml')
 
 
 app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])

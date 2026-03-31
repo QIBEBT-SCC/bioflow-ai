@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_ENTITY
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 import app.crud.resource.reference_genome as genome_crud
 from app.core.redis_client import monitor_redis_client
@@ -132,7 +132,7 @@ async def download_reference(
     """
     if request.ncbi_tax_id is None and request.species_name is None:
         raise HTTPException(
-            HTTP_422_UNPROCESSABLE_ENTITY,
+            HTTP_422_UNPROCESSABLE_CONTENT,
             "Either 'ncbi_tax_id' or 'species_name' must be provided.",
         )
 
@@ -146,7 +146,7 @@ async def download_reference(
     except ValueError as e:
         raise HTTPException(HTTP_404_NOT_FOUND, str(e)) from e
     except Exception as e:
-        raise HTTPException(HTTP_422_UNPROCESSABLE_ENTITY, f'NCBI lookup failed: {e}') from e
+        raise HTTPException(HTTP_422_UNPROCESSABLE_CONTENT, f'NCBI lookup failed: {e}') from e
 
     # Check if already in DB
     existing = genome_crud.get_by_taxid(session, species_info.tax_id)
