@@ -446,7 +446,10 @@ def statistic() -> None:
     )
     print('=' * 50)
     print('最新运行记录为: ')
-    rich.print(function_df.top_k(1, by='index').row(0, named=True))
+    rich.print(function_df.filter(pl.col('thread').is_not_null()).top_k(1, by='index').row(0, named=True))
+    print('=' * 50)
+    print('最新中断为: ')
+    rich.print(function_df.filter(pl.col('interrupted')).sort('index', descending=False).head(1).row(0, named=True))
 
 
 def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]) -> None:
