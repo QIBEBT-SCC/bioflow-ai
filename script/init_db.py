@@ -16,16 +16,6 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 
-def _clear_container() -> None:
-    import docker
-
-    client = docker.from_env()
-    for container in client.containers.list():
-        image_name = ''.join(container.image.tags)
-        if 'biocontainers' in image_name:
-            container.remove(force=True)
-
-
 async def init_images(*, drop_old: bool = True) -> None:
     """刷新镜像向量索引."""
     import polars as pl
@@ -183,7 +173,7 @@ async def init_tools(index: Optional[int] = None) -> None:
             if response.interrupts:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row_index)
-                    .then(pl.lit(True))
+                    .then(pl.lit(True))  # noqa: FBT003
                     .otherwise(pl.col('interrupted'))
                     .alias('interrupted'),
                 )
@@ -191,7 +181,6 @@ async def init_tools(index: Optional[int] = None) -> None:
 
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
-                _clear_container()
             else:
                 function_df = function_df.with_columns(
                     pl.when(pl.col('index') == row_index)
@@ -446,18 +435,18 @@ def statistic() -> None:
     import polars as pl
     import rich
 
-    last_tool = 0
     function_df = pl.read_parquet('tool_functions_deepseek.parquet')
-    print(function_df.height)
-    analysed = function_df.filter(pl.col('index') > last_tool).filter(pl.col('thread').is_not_null())
-    tool_results = analysed.filter(pl.col('tool_node').is_not_null())
-
-    print(f'从上次统计, 已分析{analysed.height}条数据')
-    print(f'其中成功得到有效工具节点的有: {tool_results.height}条')
-    print(f'新生成节点{tool_results["tool_node"].n_unique()}个')
+    print(f'共计 {function_df.height} 条记录')
+    print(f'当前已处理 {function_df.filter(pl.col("thread").is_not_null()).height} 条数据')
+    print(
+        f'成功 {function_df.filter(pl.col("tool_node").is_not_null()).height} 条, 共计生成 {function_df["tool_node"].unique().count()} 个节点'
+    )
+    print(
+        f'失败 {function_df.filter(pl.col("thread").is_not_null() & pl.col("tool_node").is_null()).height} 条, 其中中断 {function_df["interrupted"].sum()} 条'
+    )
     print('=' * 50)
     print('最新运行记录为: ')
-    rich.print(analysed.top_k(1, by='index').row(0, named=True))
+    rich.print(function_df.top_k(1, by='index').row(0, named=True))
 
 
 def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]) -> None:

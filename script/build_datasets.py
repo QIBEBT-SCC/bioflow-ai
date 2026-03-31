@@ -45,18 +45,5 @@ def search_tool() -> None:
         print('=' * 10)
 
 
-def statistic() -> None:
-    """统计生产信息."""
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
-    print(f'共计 {function_df.height} 条记录')
-    print(f'当前已处理 {function_df.filter(pl.col("thread").is_not_null()).height} 条数据')
-    print(
-        f'成功 {function_df.filter(pl.col("tool_node").is_not_null()).height} 条, 共计生成 {function_df["tool_node"].unique().count()} 个节点'
-    )
-    print(
-        f'失败 {function_df.filter(pl.col("thread").is_not_null() & pl.col("tool_node").is_null()).height} 条, 其中中断 {function_df["interrupted"].sum()} 条'
-    )
-
-
 if __name__ == '__main__':
-    statistic()
+    search_tool()
