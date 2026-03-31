@@ -11,6 +11,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.utils.container import remove_container
 from llm.states import TestRunContext
 
 if TYPE_CHECKING:
@@ -281,15 +282,7 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
 def stop_and_rm_container(runtime: ToolRuntime) -> Command:
     """Stop and remove container."""
     container_id = runtime.state.get('container_id')
-
-    if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import remove_container  # noqa: PLC0415
-
-        remove_container(container_id)
-    else:
-        from app.utils.container.podman import remove_container  # noqa: PLC0415
-
-        remove_container(container_id)
+    remove_container(container_id)
 
     return Command(
         update={

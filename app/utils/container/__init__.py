@@ -27,7 +27,7 @@ def run_command(
     """
     logger.debug(f'Running  command "{command}" by image {image_cfg.get_image()}')
     if get_settings().docker.CONTAINER == 'podman':
-        from app.utils.container.podman import run_podman  # noqa: PLC0415
+        from app.utils.container.podman import run_podman
 
         status, output = run_podman(
             image_cfg,
@@ -35,7 +35,7 @@ def run_command(
             mounts,
         )
     else:
-        from app.utils.container.docker import run_docker  # noqa: PLC0415
+        from app.utils.container.docker import run_docker
 
         status, output = run_docker(image_cfg, command, mounts, ensure_ascii=ensure_ascii)
 
@@ -51,13 +51,25 @@ def run_command_background(  # noqa: ANN201
 ):
     """后台运行容器命令, 实时 yield 资源占用统计, 自动分发到 podman 或 docker."""
     if get_settings().docker.CONTAINER == 'podman':
-        from app.utils.container.podman import run_podman_background  # noqa: PLC0415
+        from app.utils.container.podman import run_podman_background
 
         yield from run_podman_background(image_cfg, command, mounts, interval=interval, workdir=working_dir)
     else:
-        from app.utils.container.docker import run_docker_background  # noqa: PLC0415
+        from app.utils.container.docker import run_docker_background
 
         yield from run_docker_background(image_cfg, command, mounts, working_dir, interval=interval)
 
 
-__all__ = ['run_command', 'run_command_background']
+def remove_container(container_id: str) -> None:
+    """移除指定容器."""
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import remove_container
+
+        remove_container(container_id)
+    else:
+        from app.utils.container.podman import remove_container
+
+        remove_container(container_id)
+
+
+__all__ = ['remove_container', 'run_command', 'run_command_background']
