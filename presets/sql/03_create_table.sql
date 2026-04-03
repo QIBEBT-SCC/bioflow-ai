@@ -93,6 +93,17 @@ CREATE TABLE IF NOT EXISTS projects
     FOREIGN KEY (owner_id) REFERENCES users
 );
 
+CREATE TABLE IF NOT EXISTS project_workflows
+(
+    project_id   INTEGER   NOT NULL,
+    workflow_uid uuid,
+    import_time  TIMESTAMP NOT NULL,
+    enabled      BOOLEAN   NOT NULL,
+    PRIMARY KEY (project_id),
+    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+    FOREIGN KEY (workflow_uid) REFERENCES projects (id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS project_tags
 (
     id    SERIAL,
@@ -281,14 +292,16 @@ CREATE TABLE IF NOT EXISTS tool_tag_link
 
 -- 工作流相关
 CREATE TYPE workflowtype AS ENUM ('SUBMODULE','TEMPLATE');
+CREATE TYPE executionscope AS ENUM ('SAMPLE_LEVEL','PROJECT_LEVEL');
 CREATE TABLE IF NOT EXISTS workflows
 (
-    uid      uuid         NOT NULL,
-    name     VARCHAR      NOT NULL,
-    owner_id INTEGER      NOT NULL,
-    wf_type  workflowtype NOT NULL,
-    workflow jsonb,
-    public   BOOLEAN      NOT NULL,
+    uid             uuid           NOT NULL,
+    name            VARCHAR        NOT NULL,
+    owner_id        INTEGER        NOT NULL,
+    wf_type         workflowtype   NOT NULL,
+    execution_scope executionscope NOT NULL,
+    workflow        jsonb,
+    public          BOOLEAN        NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users
 );

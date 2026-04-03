@@ -1,14 +1,15 @@
 import uuid
 from datetime import UTC, datetime
 from enum import IntEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import uuid_extensions
 from sqlalchemy import BigInteger, Column, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.user import User
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class SampleFileType(IntEnum):
@@ -30,7 +31,7 @@ class Sample(SQLModel, table=True):
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     owner: Optional['User'] = Relationship()
-    sample_files: list['SampleFiles'] = Relationship(back_populates='sample')
+    sample_files: list['SampleFiles'] = Relationship(back_populates='sample', cascade_delete=True)
 
 
 class SampleFiles(SQLModel, table=True):
@@ -38,7 +39,7 @@ class SampleFiles(SQLModel, table=True):
     __table_args__ = (UniqueConstraint('sample_uid', 'tag', name='uq_sample_file_tag'),)
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    sample_uid: uuid.UUID = Field(foreign_key='samples.uid')
+    sample_uid: uuid.UUID = Field(foreign_key='samples.uid', ondelete='CASCADE')
     data_type: SampleFileType
     file_path: str
     file_format: str
@@ -68,7 +69,7 @@ class ReferenceGenomes(SQLModel, table=True):
     ncbi_tax_id: int = Field(unique=True)
     name: str = Field(unique=True)
     accession: str
-    aliases: Optional[str] = Field(default=None, description='物种别名，多个别名用|分隔')
+    aliases: Optional[str] = Field(default=None, description='物种别名, 多个别名用|分隔')
     genome_sequences: str
     annotation_gff: str
     annotation_gtf: str

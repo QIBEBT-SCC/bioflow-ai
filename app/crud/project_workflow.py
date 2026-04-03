@@ -1,17 +1,17 @@
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import Select
-from sqlmodel import Session, select
+from sqlalchemy import Delete, Select, delete
+from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
-from app.models.project_workflow import ProjectWorkflow
-from app.models.workflow import Workflow
+from app.models.project import ProjectWorkflow
+from app.models.workflow import RunInstance, Workflow
 from app.schemas.project_workflow import ProjectWorkflowPublic
 
 
 def add_workflow_to_project(session: Session, project_id: int, workflow_uid: uuid.UUID):
-    """将工作流模板添加到项目中
+    """将工作流模板添加到项目中.
 
     Args:
         session: 数据库会话
@@ -48,7 +48,7 @@ def add_workflow_to_project(session: Session, project_id: int, workflow_uid: uui
 
 
 def remove_workflow_from_project(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
-    """从项目中移除工作流模板
+    """从项目中移除工作流模板.
 
     Args:
         session: 数据库会话
@@ -58,6 +58,12 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
     Raises:
         HTTPException: 工作流不在项目中
     """
+    # 先移除运行实例
+    stmt: Delete = delete(RunInstance).where(
+        col(RunInstance.project_id) == project_id, col(RunInstance.workflow_uid) == workflow_uid
+    )
+    session.exec(stmt)
+
     stmt: Select = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id, ProjectWorkflow.workflow_uid == workflow_uid
     )
@@ -67,13 +73,14 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
 
     session.delete(project_workflow)
+
     session.commit()
 
 
 def get_project_workflows(
     session: Session, project_id: int, limit: int = 20, offset: int = 0
 ) -> list[ProjectWorkflowPublic]:
-    """获取项目中的所有工作流模板
+    """获取项目中的所有工作流模板.
 
     Args:
         session: 数据库会话
@@ -104,7 +111,7 @@ def get_project_workflows(
 
 
 def is_workflow_in_project(session: Session, project_id: int, workflow_uid: uuid.UUID) -> bool:
-    """检查工作流是否在项目中
+    """检查工作流是否在项目中.
 
     Args:
         session: 数据库会话
@@ -123,7 +130,7 @@ def is_workflow_in_project(session: Session, project_id: int, workflow_uid: uuid
 def toggle_workflow_enabled(
     session: Session, project_id: int, workflow_uid: uuid.UUID, enabled: bool
 ) -> ProjectWorkflow:
-    """启用或禁用项目中的工作流
+    """启用或禁用项目中的工作流.
 
     Args:
         session: 数据库会话
