@@ -170,6 +170,31 @@ def get_latest_run_by_sample_and_workflow(
     return session.exec(statement).first()
 
 
+def get_latest_run_by_project_and_workflow(
+    session: Session, project_id: int, workflow_uid: uuid.UUID
+) -> Optional[RunInstance]:
+    """获取项目和工作流组合的最新运行实例（项目级）.
+
+    Args:
+        session: 数据库会话
+        project_id: 项目 ID
+        workflow_uid: 工作流 UID
+
+    Returns:
+        最新的项目级运行实例, 若不存在则返回 None
+    """
+    statement: Select = (
+        select(RunInstance)
+        .where(RunInstance.project_id == project_id)
+        .where(RunInstance.workflow_uid == workflow_uid)
+        .where(RunInstance.sample_uid == None)  # noqa: E711
+        .options(selectinload(RunInstance.tasks))  # type: ignore
+        .order_by(col(RunInstance.create_time).desc())
+        .limit(1)
+    )
+    return session.exec(statement).first()
+
+
 def clear_run_for_rerun(session: Session, run: RunInstance) -> None:
     """清除运行实例的执行数据.
 

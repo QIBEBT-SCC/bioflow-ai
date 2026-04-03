@@ -68,7 +68,10 @@ def _resolve_sample_path(reference: str, context: TaskContext, session: Session)
     仅使用精确标签匹配 - 不支持通配符或模式
     """
     if not context.auto_fill or not context.auto_fill.startswith('sample:'):
-        raise ValueError('Sample path resolution requires auto_fill context')
+        raise ValueError(
+            f'Cannot resolve {reference}: this is a project-level workflow. '
+            'Use proj:keyword references instead of sample:tag references.'
+        )
 
     tag = reference.split(':', 1)[1]
     sample_uid_str = context.auto_fill.split(':', 1)[1]

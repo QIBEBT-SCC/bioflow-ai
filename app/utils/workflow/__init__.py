@@ -17,7 +17,7 @@ from app.utils.workflow.handler_base import (  # noqa: I001
 from app.utils.workflow import handlers  # noqa: F401
 
 # 最后导入核心逻辑
-from app.utils.workflow.manager import create_runs_from_samples
+from app.utils.workflow.manager import create_project_level_run, create_runs_from_samples
 from app.utils.workflow.scheduler import (
     build_task_list,
     send_task,
@@ -41,6 +41,7 @@ __all__ = [
     'build_task_list',
     'send_task',
     'create_runs_from_samples',
+    'create_project_level_run',
     'get_run_stats_from_redis',
     'get_run_stats_from_redis_sync',
 ]

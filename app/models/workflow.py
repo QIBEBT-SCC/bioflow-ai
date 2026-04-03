@@ -2,18 +2,20 @@ import uuid
 from datetime import UTC, datetime
 from enum import IntEnum
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import uuid_extensions
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import UUID, Column, ForeignKey
+from sqlalchemy import Column
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
-from app.models.resource import Sample
-from app.models.tools import ToolDefine
-from app.models.user import User
 from app.schemas.react_flow import WorkflowDefinition
+
+if TYPE_CHECKING:
+    from app.models.resource import Sample
+    from app.models.tools import ToolDefine
+    from app.models.user import User
 
 
 class Status(IntEnum):
@@ -28,6 +30,11 @@ class WorkflowType(IntEnum):
     TEMPLATE = 1
 
 
+class ExecutionScope(IntEnum):
+    SAMPLE_LEVEL = 0
+    PROJECT_LEVEL = 1
+
+
 class Workflow(SQLModel, table=True):
     __tablename__ = 'workflows'
 
@@ -35,6 +42,7 @@ class Workflow(SQLModel, table=True):
     name: str
     owner_id: int = Field(foreign_key='users.id')
     wf_type: WorkflowType
+    execution_scope: ExecutionScope = Field(default=ExecutionScope.SAMPLE_LEVEL)
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
     public: bool = False
 
@@ -48,9 +56,9 @@ class RunInstance(SQLModel, table=True):
     name: str
 
     # 项目关联 (可选, 调试模式下为 None)
-    project_id: Optional[int] = Field(default=None, foreign_key='projects.id', ondelete='CASCADE')
+    project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
     workflow_uid: Optional[uuid.UUID] = Field(default=None)
-    sample_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='samples.uid', ondelete='CASCADE')
+    sample_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='samples.uid')
 
     owner_id: int = Field(foreign_key='users.id')
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
@@ -87,7 +95,7 @@ class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    instance_uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, foreign_key='run_instances.uid')
+    instance_uid: uuid.UUID = Field(foreign_key='run_instances.uid', ondelete='CASCADE')
     tool_uid: Optional[uuid.UUID] = Field(foreign_key='tools.uid')
     owner_id: int = Field(foreign_key='users.id')
     name: str

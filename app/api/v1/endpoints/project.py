@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from loguru import logger
-from starlette.status import HTTP_404_NOT_FOUND
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
@@ -11,12 +11,14 @@ from app.crud import project as project_crud
 from app.crud import project_workflow as project_workflow_crud
 from app.crud import projetc_tag as tag_crud
 from app.crud import run_instance as run_crud
+from app.crud import workflow as wf_crud
 from app.crud.resource import sample as sample_crud
 from app.models.project import (
     Project,
     ProjectTag,
 )
 from app.models.resource import Sample, SampleFiles
+from app.models.workflow import ExecutionScope
 from app.schemas.project import (
     ProjectCreateProp,
     ProjectFileMappingCreate,
@@ -43,7 +45,7 @@ from app.schemas.resource import (
 )
 from app.schemas.run_instance import SimpleRunPublic
 from app.utils.security import UserDep
-from app.utils.workflow import create_runs_from_samples, get_run_stats_from_redis
+from app.utils.workflow import create_project_level_run, create_runs_from_samples, get_run_stats_from_redis
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -437,14 +439,15 @@ async def run_workflow_on_samples(
     session: SessionDep,
     current_user: UserDep,
 ) -> WorkflowRunResult:
-    """在选定的样本上运行工作流.
+    """运行工作流.
 
-    为每个样本创建一个独立的 RunInstance.
+    - 样本级工作流: 需要提供 sample_uids, 为每个样本创建一个运行实例
+    - 项目级工作流: 不需要 sample_uids, 只创建一个运行实例
 
     Args:
         project_id: 项目 ID
         workflow_uid: 工作流模板 UID
-        run_request: 包含样本 UID 列表和可选的运行名称前缀
+        run_request: 包含样本 UID 列表(可选)和可选的运行名称前缀
 
     Returns:
         WorkflowRunResult: 包含创建的运行实例 UID 列表.
@@ -453,7 +456,34 @@ async def run_workflow_on_samples(
     if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
 
-    # 批量创建运行实例
+    # 获取工作流以确定执行范围
+    workflow = wf_crud.get(session, workflow_uid)
+    if not workflow:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
+
+    # 根据执行范围分发
+    if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
+        # 项目级执行
+        if run_request.sample_uids:
+            raise HTTPException(
+                HTTP_400_BAD_REQUEST,
+                'Project-level workflows do not accept sample_uids',
+            )
+
+        return create_project_level_run(
+            session,
+            project_id,
+            workflow_uid,
+            current_user,
+            run_request.run_name_prefix,
+        )
+    # 样本级执行
+    if not run_request.sample_uids:
+        raise HTTPException(
+            HTTP_400_BAD_REQUEST,
+            'Sample-level workflows require sample_uids',
+        )
+
     logger.debug(run_request)
     return create_runs_from_samples(
         session, project_id, workflow_uid, run_request.sample_uids, current_user, run_request.run_name_prefix
