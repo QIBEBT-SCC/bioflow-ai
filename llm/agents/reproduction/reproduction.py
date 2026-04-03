@@ -36,6 +36,8 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于�
 - 代码(code)节点: 执行自定义的bash脚本
 - 备注(note)节点: 不参与运算, 用于对部分节点进行备注
 
+特别说明: 本系统中所有提供参考基因组的资源节点还附带提供 BWA、STAR、HISAT2、Bowtie2 和 minimap2 的索引, 使用这五个工具一般时无需再额外构建索引, 可以直接使用资源节点提供的
+
 ### 节点数据
 不同类型的节点的内容不同, 通常包含如下信息。带有*的字段是添加到面板上后才有的:
 - `id*`: 已经添加到面板上的节点会被自动赋予一个唯一的id
@@ -45,6 +47,12 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于�
 - `output_handles`: 此节点提供的输出, 可以用于之后的节点使用
 - `data`: 节点具体的数据, 不同类型的节点有所不同
 - `pos*`: 节点在面板上的位置
+
+### 文件系统
+此系统支持使用 `proj:<keyword>` 和 `sample:<tag>` 自动加载文件
+- `proj:<keyword>`: 全项目通用的文件
+- `sample:<tag>`: 样本级别的文件
+当需要加载或保存文件时可以使用, 具体信息可以阅读 **FILE_SYSTEM** 技能了解
 
 ### 互动工具
 所有互动工具(XX_manager)均采用 `action + params` 的渐进式披露模式:
@@ -124,6 +132,7 @@ build_workflow_agent: CompiledStateGraph = create_agent(
         SkillMiddleware(
             [
                 'USING_BASH_NODE',
+                'FILE_SYSTEM',
                 'WRITE_DOWNSTREAM_SUMMARY',
             ]
         ),
