@@ -58,9 +58,6 @@ processor_node_manager 中包括了以下操作:
 
 在使用对应操作前, 务必使用 action="help" 并传入 params={"action": "<action_name>"} 以获取特定操作的参数说明
 (e.g. processor_node_manager(action="help" params={"action": "view_processor"}))
-
-## 说明
-
 """
 
 
@@ -239,9 +236,7 @@ def _add_processor(
         )
 
     if error := check_edge_handles(input_edges, PROCESSORS[processor_name]['input_handles'], exist_nodes):
-        return Command(
-            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
-        )
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     # Call custom edge_check if defined in schema
     if edge_check := PROCESSORS[processor_name].get('edge_check'):

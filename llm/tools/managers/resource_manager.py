@@ -272,12 +272,10 @@ def _add_resource(
         )
 
     if error := check_edge_handles(input_edges, resource_schema['input_handles'], exist_nodes):
-        return Command(
-            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
-        )
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     # Call custom edge_check if defined in schema
-    if edge_check := resource_schema.get('edge_check'):
+    if edge_check := resource_schema.get('edge_check'):  # noqa: SIM102
         if error := edge_check(input_edges, resource_schema['input_handles']):
             return Command(
                 update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
@@ -318,10 +316,6 @@ def _add_resource(
                     ]
                 }
             )
-        case 'sequence':
-            node_data = {'r1': '', 'r2': ''}
-        case 'file':
-            node_data = {'file_path': ''}
         case 'ncbi_genome' | 'GRCh38' | 'GRCm39':
             node_data = {'required_index': []}
         case 'db':
@@ -345,7 +339,6 @@ def _add_resource(
     for edge in input_edges:
         edge.target_node = node_id
 
-    # global_file: add node normally, skip global_marks update (to be handled manually)
     return Command(
         update={
             'exist_nodes': [new_node],

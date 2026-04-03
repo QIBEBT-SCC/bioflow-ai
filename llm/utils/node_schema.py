@@ -1,4 +1,5 @@
-from typing import Callable, NotRequired, TypedDict
+from collections.abc import Callable
+from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel
 
@@ -48,10 +49,6 @@ class BashCodeSchema(BaseModel):
 
 
 # 资源节点
-class GlobalFileSchema(BaseModel):
-    mark_name: str
-
-
 class DbResourceSchema(BaseModel):
     db_id: int
 
@@ -60,10 +57,19 @@ class ValueStringResourceSchema(BaseModel):
     value: str
 
 
+class SequenceResourceSchema(BaseModel):
+    r1: str
+    r2: str
+
+
+class FileInputSchema(BaseModel):
+    file_path: str
+
+
 PROCESSORS: dict[str, NodeSchema] = {
     'global_mark': {
         'name': 'Global Mark',
-        'description': 'This node is used to mark a file for cross-workflow usage. By connecting the input handle of this node to the output handle representing the corresponding file. Need two parameters: `mark_name`, which is a unique identifier for the file that other workflows will use to reference it, and `description`, which provides a brief explanation of the file, including which workflow it comes from and what type of file it is.',
+        'description': 'This node is used to mark a file as a project file. By connecting the input handle of this node to the output handle representing the corresponding file. Need two parameters: `mark_name`, which is a unique identifier for the file that other workflows will use to reference it, and `description`, which provides a brief explanation of the file',
         'args': GlobalMarkSchema,
         'input_handles': [Handle(name='file', description='Files to be marked for cross-workflow use')],
         'output_handles': [],
@@ -115,8 +121,8 @@ PROCESSORS: dict[str, NodeSchema] = {
 RESOURCES: dict[str, NodeSchema] = {
     'sequence': {
         'name': 'Pair-end Reads Input',
-        'description': 'This node is used for input of common paired-end biological sequencing files. No additional parameters are required. For non-paired-end data, use file node instead.',
-        'args': SimpleSchema,
+        'description': 'This node is used for input of common paired-end biological sequencing files. For non-paired-end data, use file node instead.',
+        'args': SequenceResourceSchema,
         'input_handles': [],
         'output_handles': [
             Handle(name='r1', description='r1 Raw sequence data'),
@@ -125,15 +131,8 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'file': {
         'name': 'File Input',
-        'description': 'This node is used for input of general files. No additional parameters are required. A note node can be added as appropriate to describe what the input file is.',
-        'args': SimpleSchema,
-        'input_handles': [],
-        'output_handles': [Handle(name='file_path', description='file path')],
-    },
-    'global_file': {
-        'name': 'Global File Input',
-        'description': 'This node is used to reference files marked in other workflows. Set the `mark_name` parameter of this node to the identifier of the file you want to reference. This operation will bring in all files with the corresponding identifier from all executed workflow instances in the project and place them in a folder. The output of this node is the folder path containing all these files.',
-        'args': GlobalFileSchema,
+        'description': 'This node is used for input of general files. A note node can be added as appropriate to describe what the input file is.',
+        'args': FileInputSchema,
         'input_handles': [],
         'output_handles': [Handle(name='file_path', description='file path')],
     },
