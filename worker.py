@@ -4,8 +4,7 @@ from redis import Redis
 from app.core.config import get_settings
 from app.models.chat import ChatMessages, ChatSessions  # noqa: F401
 from app.models.document import ParentDocument  # noqa: F401
-from app.models.project import Project, ProjectStar, ProjectTag, ProjectTagLink  # noqa: F401
-from app.models.project_workflow import ProjectWorkflow  # noqa: F401
+from app.models.project import Project, ProjectStar, ProjectTag, ProjectTagLink, ProjectWorkflow  # noqa: F401
 from app.models.resource import BioDb, File, ReferenceGenomes, Sample, SampleFiles  # noqa: F401
 from app.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic  # noqa: F401
 from app.models.tools import (  # noqa: F401
