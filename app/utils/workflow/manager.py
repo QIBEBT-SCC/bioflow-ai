@@ -1,6 +1,6 @@
-"""运行实例管理器.
+"""Run instance manager.
 
-负责批量创建和管理工作流运行实例
+Responsible for batch creating and managing workflow run instances.
 """
 
 import uuid
@@ -32,68 +32,69 @@ def create_runs_from_samples(
     current_user: User,
     run_name_prefix: Optional[str] = None,
 ) -> WorkflowRunResult:
-    """从样本列表批量创建运行实例.
+    """Batch create run instances from a list of samples.
 
-    为每个样本创建一个独立的 RunInstance, 并提交任务执行
+    Creates an independent RunInstance for each sample and submits tasks for execution.
 
     Args:
-        session: 数据库会话
-        project_id: 项目 ID
-        workflow_uid: 工作流模板 UID
-        sample_uids: 样本 UID 列表
-        current_user: 当前用户
-        run_name_prefix: 运行名称前缀 (可选)
+        session: Database session
+        project_id: Project ID
+        workflow_uid: Workflow template UID
+        sample_uids: List of sample UIDs
+        current_user: Current user
+        run_name_prefix: Run name prefix (optional)
 
     Returns:
-        WorkflowRunResult: 包含创建的运行实例 UID 列表
+        WorkflowRunResult: Contains the list of created run instance UIDs
 
     Raises:
-        HTTPException: 项目、工作流或样本不存在
+        HTTPException: Project, workflow, or sample not found
     """
-    # 获取项目
+    # Get project
     project = proj_crud.get(session, current_user.id, project_id)
     if not project:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
 
-    # 获取工作流模板
+    # Get workflow template
     workflow = wf_crud.get(session, workflow_uid)
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
 
-    # 获取所有样本
+    # Get all samples
     samples = sample_crud.get_all(session, sample_uids)
     if len(samples) != len(sample_uids):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Some samples not found')
 
-    # 为每个样本创建运行实例
+    # Create run instances for each sample
     run_uids = []
 
     for sample in samples:
-        # 检查该样本+工作流组合是否已有运行实例
+        # Check if a run instance already exists for this sample+workflow combination
         existing_run = run_crud.get_latest_run_by_sample_and_workflow(session, sample.uid, workflow_uid)
+        # Update workflow node IDs
+        workflow_definition = update_node_id(workflow.workflow.model_copy(deep=True))
 
         if existing_run:
-            # 如果正在运行, 拒绝重跑
+            # If running, reject rerun
             if existing_run.status == Status.RUNNING:
                 raise HTTPException(
                     HTTP_409_CONFLICT,
                     f'Sample {sample.sample_name} already has a running instance, please wait for it to finish',
                 )
 
-            # 清除旧的执行数据并重用现有实例
-            run_crud.clear_run_for_rerun(session, existing_run)
-            logger.debug(f'重用运行实例 {existing_run.uid} (样本: {sample.sample_name})')
-        else:
-            # 更新工作流节点 ID
-            workflow_definition = update_node_id(workflow.workflow)
+            # Clear old execution data and reuse the existing instance
+            run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
+            logger.debug(f'Reusing run instance {existing_run.uid} (Sample: {sample.sample_name})')
 
-            # 构建运行名称
+            run = existing_run
+        else:
+            # Build run name
             if run_name_prefix:
                 run_name = f'{run_name_prefix}-{sample.sample_name}'
             else:
                 run_name = f'{project.name}-{workflow.name}-{sample.sample_name}'
 
-            # 创建新运行实例
+            # Create a new run instance
             run = RunInstance(
                 project_id=project_id,
                 workflow_uid=workflow_uid,
@@ -107,20 +108,20 @@ def create_runs_from_samples(
             session.add(run)
             session.flush()  # 获取 run.uid
 
-        # 构建任务列表
+        # Build task list
         task_list = build_task_list(workflow_definition)
 
-        # 计算总任务数
+        # Calculate total tasks
         total_tasks = sum(len(sub_group) for sub_group in task_list)
 
-        # 在 Redis 中初始化/重置运行实例的任务统计信息
+        # Initialize/reset task statistics for the run instance in Redis
         reset_run_stats_in_redis(monitor_redis_client, str(run.uid), total_tasks)
 
-        # 提交当前运行实例到数据库
+        # Commit the current run instance to the database
         session.commit()
-        logger.debug(f'运行实例 {run.uid} 已提交到数据库')
+        logger.debug(f'Run instance {run.uid} committed to database')
 
-        # 提交任务到 Celery
+        # Submit tasks to Celery
         send_task(
             task_list,
             session,
@@ -144,67 +145,66 @@ def create_project_level_run(
     current_user: User,
     run_name_prefix: Optional[str] = None,
 ) -> WorkflowRunResult:
-    """创建项目级工作流运行实例.
+    """Create a project-level workflow run instance.
 
-    项目级工作流不绑定样本, 只运行一次, 使用 proj:keyword 引用
+    Project-level workflows are not bound to samples, run only once, and are referenced using proj:keyword.
 
     Args:
-        session: 数据库会话
-        project_id: 项目 ID
-        workflow_uid: 工作流模板 UID
-        current_user: 当前用户
-        run_name_prefix: 运行名称前缀 (可选)
+        session: Database session
+        project_id: Project ID
+        workflow_uid: Workflow template UID
+        current_user: Current user
+        run_name_prefix: Run name prefix (optional)
 
     Returns:
-        WorkflowRunResult: 包含创建的运行实例 UID
+        WorkflowRunResult: Contains the created run instance UID
 
     Raises:
-        HTTPException: 项目或工作流不存在, 或工作流不是项目级
+        HTTPException: Project or workflow not found, or workflow is not project-level
     """
-    # 获取项目
+    # Get project
     project = proj_crud.get(session, current_user.id, project_id)
     if not project:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
 
-    # 获取工作流模板
+    # Get workflow template
     workflow = wf_crud.get(session, workflow_uid)
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
 
-    # 验证工作流是项目级
+    # Verify the workflow is project-level
     if workflow.execution_scope != ExecutionScope.PROJECT_LEVEL:
         raise HTTPException(HTTP_400_BAD_REQUEST, 'Workflow is not project-level')
 
-    # 更新工作流节点 ID
-    workflow_definition = update_node_id(workflow.workflow)
+    # Update workflow node IDs
+    workflow_definition = update_node_id(workflow.workflow.model_copy(deep=True))
 
-    # 检查该项目+工作流组合是否已有运行实例
+    # Check if a run instance already exists for this project+workflow combination
     existing_run = run_crud.get_latest_run_by_project_and_workflow(session, project_id, workflow_uid)
 
     if existing_run:
-        # 如果正在运行, 拒绝重跑
+        # If running, reject rerun
         if existing_run.status == Status.RUNNING:
             raise HTTPException(
                 HTTP_409_CONFLICT,
                 'Project already has a running instance of this workflow',
             )
 
-        # 清除旧的执行数据并重用现有实例
-        run_crud.clear_run_for_rerun(session, existing_run)
-        existing_run.workflow = workflow_definition
+        # Clear old execution data and reuse the existing instance
+        run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
         session.add(existing_run)
         session.flush()
         run = existing_run
-        logger.debug(f'重用项目级运行实例 {run.uid}')
+        logger.debug(f'Reusing project-level run instance {run.uid}')
     else:
-        # 构建运行名称
+        # Build run name
         run_name = f'{run_name_prefix}-{project.name}' if run_name_prefix else f'{project.name}-{workflow.name}'
 
-        # 创建新运行实例 (sample_uid=None)
+        # Create a new run instance (sample_uid=None)
         run = RunInstance(
             project_id=project_id,
             workflow_uid=workflow_uid,
-            sample_uid=None,  # 项目级工作流不绑定样本
+            sample_uid=None,  # Project-level workflows are not bound to samples
             owner_id=current_user.id,
             workflow=workflow_definition,
             name=run_name,
@@ -214,20 +214,20 @@ def create_project_level_run(
         session.add(run)
         session.flush()
 
-    # 构建任务列表
+    # Build task list
     task_list = build_task_list(workflow_definition)
 
-    # 计算总任务数
+    # Calculate total tasks
     total_tasks = sum(len(sub_group) for sub_group in task_list)
 
-    # 在 Redis 中初始化/重置运行实例的任务统计信息
+    # Initialize/reset task statistics for the run instance in Redis
     reset_run_stats_in_redis(monitor_redis_client, str(run.uid), total_tasks)
 
-    # 提交当前运行实例到数据库
+    # Commit the current run instance to the database
     session.commit()
-    logger.debug(f'项目级运行实例 {run.uid} 已提交到数据库')
+    logger.debug(f'Project-level run instance {run.uid} committed to database')
 
-    # 提交任务到 Celery (无样本上下文)
+    # Submit tasks to Celery (no sample context)
     send_task(
         task_list,
         session,

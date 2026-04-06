@@ -4,14 +4,25 @@ from typing import Optional
 
 from sqlalchemy import Select, delete
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, case, col, func, select
 
-from app.models.workflow import RunInstance, Status, TaskInstance
+from app.models.workflow import RunInstance, Status, TaskInstance, TaskMonitor
 from app.schemas.common import Statistics
+from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.run_instance import RunUpdate
 
 
 def insert(session: Session, run: RunInstance) -> RunInstance:
+    """Insert a new run instance into the database.
+
+    Args:
+        session: Database session
+        run: Run instance to insert
+
+    Returns:
+        The inserted run instance
+    """
     session.add(run)
     session.commit()
     session.refresh(run)
@@ -20,6 +31,16 @@ def insert(session: Session, run: RunInstance) -> RunInstance:
 
 
 def update(session: Session, uid: str, run_update: RunUpdate) -> RunInstance:
+    """Update an existing run instance in the database.
+
+    Args:
+        session: Database session
+        uid: UID of the run instance to update
+        run_update: Data to update
+
+    Returns:
+        The updated run instance
+    """
     db_run = get(session, uid)
     update_data = run_update.model_dump(exclude_unset=True)
     db_run.sqlmodel_update(update_data)
@@ -30,6 +51,15 @@ def update(session: Session, uid: str, run_update: RunUpdate) -> RunInstance:
 
 
 def get_run_counts(session: Session, user_id: int):
+    """Get the total count of run instances for a specific user.
+
+    Args:
+        session: Database session
+        user_id: ID of the user
+
+    Returns:
+        Total count of run instances
+    """
     statement: Select = select(func.count()).select_from(RunInstance).where(col(RunInstance.owner_id) == user_id)
 
     return session.exec(statement).one()
@@ -54,6 +84,17 @@ def get_run_status(session: Session, user_id: int) -> Statistics:
 
 
 def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> Sequence[RunInstance]:
+    """Get a paginated list of all run instances for a specific user.
+
+    Args:
+        session: Database session
+        limit: Number of items to return
+        offset: Offset for pagination
+        user_id: ID of the user
+
+    Returns:
+        A sequence of run instances
+    """
     statement: Select = (
         select(RunInstance)
         .where(RunInstance.owner_id == user_id)
@@ -67,6 +108,15 @@ def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> Seq
 
 
 def get(session: Session, uid: str) -> RunInstance:
+    """Get a run instance by its UID.
+
+    Args:
+        session: Database session
+        uid: UID of the run instance
+
+    Returns:
+        The requested run instance
+    """
     statement: Select = (
         select(RunInstance)
         .where(RunInstance.uid == uid)
@@ -76,7 +126,7 @@ def get(session: Session, uid: str) -> RunInstance:
 
 
 def get_run_task_stats(session: Session, uid: str) -> Statistics:
-    """获取运行实例的任务统计信息."""
+    """Get task statistics for a specific run instance."""
     statement: Select = (
         select(  # type: ignore
             func.count().label('total'),
@@ -94,7 +144,7 @@ def get_run_task_stats(session: Session, uid: str) -> Statistics:
 
 
 def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
-    """获取项目的所有运行实例."""
+    """Get all run instances for a specific project."""
     statement: Select = (
         select(RunInstance)
         .where(RunInstance.project_id == project_id)
@@ -108,16 +158,16 @@ def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offs
 
 
 def get_runs_by_sample(session: Session, sample_uid: str, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
-    """获取样本的所有运行实例.
+    """Get all run instances for a specific sample.
 
     Args:
-        session: 数据库会话
-        sample_uid: 样本 UID
-        limit: 限制数量
-        offset: 偏移量
+        session: Database session
+        sample_uid: Sample UID
+        limit: Max number of instances to return
+        offset: Offset for pagination
 
     Returns:
-        运行实例列表
+        List of run instances
     """
     statement: Select = (
         select(RunInstance)
@@ -132,14 +182,14 @@ def get_runs_by_sample(session: Session, sample_uid: str, limit: int = 20, offse
 
 
 def get_project_run_count(session: Session, project_id: int) -> int:
-    """获取项目的运行实例数量.
+    """Get the total count of run instances for a project.
 
     Args:
-        session: 数据库会话
-        project_id: 项目 ID
+        session: Database session
+        project_id: Project ID
 
     Returns:
-        运行实例数量
+        Number of run instances
     """
     statement: Select = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
 
@@ -149,15 +199,15 @@ def get_project_run_count(session: Session, project_id: int) -> int:
 def get_latest_run_by_sample_and_workflow(
     session: Session, sample_uid: uuid.UUID, workflow_uid: uuid.UUID
 ) -> Optional[RunInstance]:
-    """获取样本和工作流组合的最新运行实例.
+    """Get the latest run instance for a specific sample and workflow combination.
 
     Args:
-        session: 数据库会话
-        sample_uid: 样本 UID
-        workflow_uid: 工作流模板 UID
+        session: Database session
+        sample_uid: Sample UID
+        workflow_uid: Workflow template UID
 
     Returns:
-        最新的运行实例, 若不存在则返回 None
+        The latest run instance, or None if not found
     """
     statement: Select = (
         select(RunInstance)
@@ -173,15 +223,15 @@ def get_latest_run_by_sample_and_workflow(
 def get_latest_run_by_project_and_workflow(
     session: Session, project_id: int, workflow_uid: uuid.UUID
 ) -> Optional[RunInstance]:
-    """获取项目和工作流组合的最新运行实例（项目级）.
+    """Get the latest run instance for a specific project and workflow combination (project level).
 
     Args:
-        session: 数据库会话
-        project_id: 项目 ID
-        workflow_uid: 工作流 UID
+        session: Database session
+        project_id: Project ID
+        workflow_uid: Workflow UID
 
     Returns:
-        最新的项目级运行实例, 若不存在则返回 None
+        The latest project-level run instance, or None if not found
     """
     statement: Select = (
         select(RunInstance)
@@ -195,18 +245,31 @@ def get_latest_run_by_project_and_workflow(
     return session.exec(statement).first()
 
 
-def clear_run_for_rerun(session: Session, run: RunInstance) -> None:
-    """清除运行实例的执行数据.
+def clear_run_for_rerun(session: Session, run: RunInstance, new_workflow: WorkflowDefinition) -> None:
+    """Clear execution data of a run instance for rerun.
 
-    - 删除所有 TaskInstance 记录 (级联删除 TaskMonitor)
-    - 重置运行状态为 WAITING
-    - 清除 start_time 和 end_time
+    - Delete all TaskInstance records (cascading delete TaskMonitor)
+    - Reset run status to WAITING
+    - Clear start_time and end_time
 
     Args:
-        session: 数据库会话
-        run: 要清除的运行实例
+        session: Database session
+        run: Run instance to clear
+        new_workflow: New workflow definition
     """
-    session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid) == run.uid))  # type: ignore
+    # 1. Delete task monitor logs (TaskMonitor)
+    subquery = select(TaskInstance.uid).where(col(TaskInstance.instance_uid) == run.uid)
+    session.exec(delete(TaskMonitor).where(col(TaskMonitor.task_uid).in_(subquery)))
+
+    # 2. Delete task instances (TaskInstance)
+    session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid) == run.uid))
+    session.expire(run)
+
+    # 3. Reset workflow definition (RunInstance)
+    run.workflow = new_workflow
+    flag_modified(run, 'workflow')
+
+    # 4. Reset run status
     run.status = Status.WAITING
     run.start_time = None
     run.end_time = None

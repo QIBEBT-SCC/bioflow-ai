@@ -117,15 +117,15 @@ def unstar_project(
 def get_project_list(
     session: SessionDep,
     current_user: UserDep,
-    filter_type: Annotated[Optional[str], Query(description='过滤条件: starred, my, all', alias='filter')] = 'all',
+    filter_type: Annotated[Optional[str], Query(description='Filter: starred, my, all', alias='filter')] = 'all',
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[ProjectPublic]:
-    """获取项目列表.
+    """Get project list.
 
-    - filter=all: 获取所有可见项目(公开的或用户拥有的)
-    - filter=starred: 获取用户收藏的项目
-    - filter=my: 获取用户拥有的项目
+    - filter=all: Get all visible projects (public or user-owned)
+    - filter=starred: Get user's starred projects
+    - filter=my: Get user's owned projects
     """
     match filter_type:
         case 'starred':
@@ -140,7 +140,7 @@ def get_project_list(
 
 @router.get('/recent')
 def get_recent_project(session: SessionDep, current_user: UserDep) -> ProjectPublic:
-    """获取用户最近更新的项目."""
+    """Get user's recently updated projects."""
     return project_crud.get_recent(session, current_user.id)
 
 
@@ -154,7 +154,7 @@ def get_project(
     return project_crud.get(session, current_user.id, project_id)
 
 
-# ==================== 样本管理端点(在项目下) ====================
+# ==================== Sample Management Endpoints (Under Project) ====================
 
 
 @router.post('/{project_id}/samples')
@@ -164,8 +164,8 @@ async def create_sample_in_project(
     session: SessionDep,
     current_user: UserDep,
 ) -> SamplePublic:
-    """在指定项目中创建新样本."""
-    # 确保样本属于指定的项目
+    """Create a new sample in the specified project."""
+    # Ensure the sample belongs to the specified project
     if sample_prop.project_id != project_id:
         raise HTTPException(400, 'Project ID mismatch')
 
@@ -176,18 +176,18 @@ async def create_sample_in_project(
         meta_data=sample_prop.meta_data or {},
     )
 
-    # 如果提供了文件信息, 创建文件记录(文件信息由后端自动计算)
+    # If file info is provided, create file records (file info is calculated automatically by the backend)
     files = []
     if sample_prop.files:
         for file_prop in sample_prop.files:
-            # 只需要 data_type 和 file_path, 其他信息由 CRUD 层自动计算
+            # Only data_type and file_path are required, other info is calculated automatically by the CRUD layer
             sample_file = SampleFiles(
                 sample_uid=sample.uid,
                 data_type=file_prop.data_type,
                 file_path=file_prop.file_path,
-                file_format='',  # 将由 CRUD 自动计算
-                file_size=0,  # 将由 CRUD 自动计算
-                md5_checksum='',  # 将由 CRUD 自动计算
+                file_format='',  # Calculated automatically by CRUD
+                file_size=0,  # Calculated automatically by CRUD
+                md5_checksum='',  # Calculated automatically by CRUD
             )
             files.append(sample_file)
 
@@ -203,7 +203,7 @@ async def get_project_samples(
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
 ) -> list[SampleListItem]:
-    """获取项目下的所有样本."""
+    """Get all samples under the project."""
     return sample_crud.get_all_by_project(session, project_id, limit, offset)
 
 
@@ -213,7 +213,7 @@ async def get_project_sample_count(
     session: SessionDep,
     _current_user: UserDep,
 ) -> int:
-    """获取项目下的样本数量."""
+    """Get the number of samples under the project."""
     return sample_crud.get_count_by_project(session, project_id)
 
 
@@ -224,32 +224,32 @@ async def batch_import_samples(
     current_user: UserDep,
     file: Annotated[UploadFile, File()],
 ) -> SampleBatchImportResult:
-    """批量导入样本.
+    """Batch import samples.
 
-    上传 CSV 文件批量创建样本。CSV 文件格式要求:
-    - 编码: UTF-8
-    - 必需列: sample_name
-    - 可选文件列: r1, r2, single, spectrum, image(文件路径)
-    - 其他列: 自定义元数据, 将存储在 meta_data 中
+    Upload a CSV file to batch create samples. CSV file format requirements:
+    - Encoding: UTF-8
+    - Required column: sample_name
+    - Optional file columns: r1, r2, single, spectrum, image (file path)
+    - Other columns: Custom metadata, will be stored in meta_data
 
-    示例 CSV:
+    Example CSV:
     ```
     sample_name,condition,batch,r1,r2
     Sample-001,control,2024-01,/data/s1_R1.fq.gz,/data/s1_R2.fq.gz
     Sample-002,treatment,2024-01,/data/s2_R1.fq.gz,/data/s2_R2.fq.gz
     ```
     """
-    # 验证文件类型
+    # Validate file type
     if not file.filename or not file.filename.endswith('.csv'):
-        raise HTTPException(400, '只支持 CSV 文件')
+        raise HTTPException(400, 'Only CSV files are supported')
 
-    # 读取文件内容
+    # Read file content
     try:
         content = await file.read()
     except Exception as e:
-        raise HTTPException(400, f'读取文件失败: {e!s}') from e
+        raise HTTPException(400, f'Failed to read file: {e!s}') from e
 
-    # 批量导入
+    # Batch import
     return sample_crud.batch_import_from_csv(session, content, project_id, current_user.id)
 
 
@@ -260,7 +260,7 @@ async def get_project_sample(
     session: SessionDep,
     _current_user: UserDep,
 ) -> SamplePublic:
-    """获取项目下的指定样本详情."""
+    """Get the specified sample details under the project."""
     sample = sample_crud.get_with_files(session, sample_uid)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
@@ -277,7 +277,7 @@ async def update_project_sample(
     session: SessionDep,
     _current_user: UserDep,
 ) -> SamplePublic:
-    """更新项目下的样本信息."""
+    """Update sample information under the project."""
     existing_sample = sample_crud.get(session, sample_uid)
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
@@ -293,7 +293,7 @@ async def delete_project_sample(
     session: SessionDep,
     _current_user: UserDep,
 ) -> dict:
-    """删除项目下的样本."""
+    """Delete a sample under the project."""
     existing_sample = sample_crud.get(session, sample_uid)
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
@@ -310,19 +310,19 @@ async def add_file_to_project_sample(
     session: SessionDep,
     _current_user: UserDep,
 ) -> SampleFilePublic:
-    """为项目下的样本添加文件."""
+    """Add a file to a sample under the project."""
     existing_sample = sample_crud.get(session, sample_uid)
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    # 只需要提供 data_type 和 file_path, 其他信息由后端自动计算
+    # Only data_type and file_path are required, other info is calculated automatically by the backend
     sample_file = SampleFiles(
         sample_uid=sample_uid,
         data_type=file_prop.data_type,
         file_path=file_prop.file_path,
-        file_format='',  # 将由 CRUD 自动计算
-        file_size=0,  # 将由 CRUD 自动计算
-        md5_checksum='',  # 将由 CRUD 自动计算
+        file_format='',  # Calculated automatically by CRUD
+        file_size=0,  # Calculated automatically by CRUD
+        md5_checksum='',  # Calculated automatically by CRUD
     )
 
     return sample_crud.add_file(session, sample_file)
@@ -336,7 +336,7 @@ async def delete_file_from_project_sample(
     session: SessionDep,
     _current_user: UserDep,
 ) -> dict:
-    """删除项目下样本的文件."""
+    """Delete a file from a sample under the project."""
     existing_sample = sample_crud.get(session, sample_uid)
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
@@ -352,7 +352,7 @@ async def get_project_sample_files(
     session: SessionDep,
     _current_user: UserDep,
 ) -> list[SampleFilePublic]:
-    """获取项目下样本的所有文件."""
+    """Get all files of a sample under the project."""
     existing_sample = sample_crud.get(session, sample_uid)
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
@@ -360,7 +360,7 @@ async def get_project_sample_files(
     return sample_crud.get_files(session, sample_uid)
 
 
-# ==================== 工作流管理端点(在项目下) ====================
+# ==================== Workflow Management Endpoints (Under Project) ====================
 
 
 @router.post('/{project_id}/workflows')
@@ -370,18 +370,18 @@ async def add_workflow_to_project(
     session: SessionDep,
     _current_user: UserDep,
 ) -> ProjectWorkflowPublic:
-    """将工作流模板添加到项目中.
+    """Add a workflow template to the project.
 
     Args:
-        project_id: 项目 ID
-        workflow_add: 包含 workflow_uid 的请求体
+        project_id: Project ID
+        workflow_add: Request body containing workflow_uid
 
     Returns:
-        ProjectWorkflowPublic: 添加的工作流信息.
+        ProjectWorkflowPublic: The added workflow information.
     """
     project_workflow_crud.add_workflow_to_project(session, project_id, workflow_add.workflow_uid)
 
-    # 返回工作流信息
+    # Return workflow information
     workflows = project_workflow_crud.get_project_workflows(session, project_id, limit=1000)
     for wf in workflows:
         if wf.workflow_uid == workflow_add.workflow_uid:
@@ -398,15 +398,15 @@ async def get_project_workflows(
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
 ) -> list[ProjectWorkflowPublic]:
-    """获取项目中的所有工作流模板.
+    """Get all workflow templates in the project.
 
     Args:
-        project_id: 项目 ID
-        offset: 偏移量
-        limit: 限制数量
+        project_id: Project ID
+        offset: Offset
+        limit: Limit count
 
     Returns:
-        list[ProjectWorkflowPublic]: 工作流列表.
+        list[ProjectWorkflowPublic]: List of workflows.
     """
     return project_workflow_crud.get_project_workflows(session, project_id, limit, offset)
 
@@ -418,14 +418,14 @@ async def remove_workflow_from_project(
     session: SessionDep,
     _current_user: UserDep,
 ) -> dict:
-    """从项目中移除工作流模板.
+    """Remove a workflow template from the project.
 
     Args:
-        project_id: 项目 ID
-        workflow_uid: 工作流模板 UID
+        project_id: Project ID
+        workflow_uid: Workflow template UID
 
     Returns:
-        成功消息.
+        Success message.
     """
     project_workflow_crud.remove_workflow_from_project(session, project_id, workflow_uid)
     return {'message': 'Workflow removed successfully'}
@@ -439,31 +439,31 @@ async def run_workflow_on_samples(
     session: SessionDep,
     current_user: UserDep,
 ) -> WorkflowRunResult:
-    """运行工作流.
+    """Run a workflow.
 
-    - 样本级工作流: 需要提供 sample_uids, 为每个样本创建一个运行实例
-    - 项目级工作流: 不需要 sample_uids, 只创建一个运行实例
+    - Sample-level workflow: Requires sample_uids, creates a run instance for each sample
+    - Project-level workflow: Does not require sample_uids, creates only one run instance
 
     Args:
-        project_id: 项目 ID
-        workflow_uid: 工作流模板 UID
-        run_request: 包含样本 UID 列表(可选)和可选的运行名称前缀
+        project_id: Project ID
+        workflow_uid: Workflow template UID
+        run_request: Contains optional list of sample UIDs and optional run name prefix
 
     Returns:
-        WorkflowRunResult: 包含创建的运行实例 UID 列表.
+        WorkflowRunResult: Contains the list of created run instance UIDs.
     """
-    # 检查工作流是否在项目中
+    # Check if workflow is in the project
     if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
 
-    # 获取工作流以确定执行范围
+    # Get workflow to determine execution scope
     workflow = wf_crud.get(session, workflow_uid)
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
 
-    # 根据执行范围分发
+    # Dispatch based on execution scope
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
-        # 项目级执行
+        # Project-level execution
         if run_request.sample_uids:
             raise HTTPException(
                 HTTP_400_BAD_REQUEST,
@@ -477,7 +477,7 @@ async def run_workflow_on_samples(
             current_user,
             run_request.run_name_prefix,
         )
-    # 样本级执行
+    # Sample-level execution
     if not run_request.sample_uids:
         raise HTTPException(
             HTTP_400_BAD_REQUEST,
@@ -498,29 +498,29 @@ async def get_project_runs(
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
 ) -> list[SimpleRunPublic]:
-    """获取项目的所有运行实例.
+    """Get all run instances of the project.
 
     Args:
-        project_id: 项目 ID
-        offset: 偏移量
-        limit: 限制数量
+        project_id: Project ID
+        offset: Offset
+        limit: Limit count
 
     Returns:
-        list[SimpleRunPublic]: 运行实例列表(包含从 Redis 读取的实时统计信息).
+        list[SimpleRunPublic]: List of run instances (including real-time stats from Redis).
     """
     runs = run_crud.get_runs_by_project(session, project_id, limit, offset)
 
-    # 从 Redis 读取每个运行实例的统计信息
+    # Read statistics for each run instance from Redis
     result = []
     for run in runs:
         run_data = SimpleRunPublic.model_validate(run)
 
-        # 尝试从 Redis 读取统计信息
+        # Try to read stats from Redis
         stats = await get_run_stats_from_redis(monitor_redis_client, str(run.uid))
         if stats:
             run_data.task_statistics = stats
         else:
-            # 如果 Redis 中没有, 从数据库计算
+            # If not in Redis, calculate from database
             run_data.task_statistics = run_crud.get_run_task_stats(session, str(run.uid))
 
         result.append(run_data)
@@ -534,13 +534,13 @@ async def get_project_run_count(
     session: SessionDep,
     _current_user: UserDep,
 ) -> int:
-    """获取项目的运行实例数量.
+    """Get the number of run instances of the project.
 
     Args:
-        project_id: 项目 ID
+        project_id: Project ID
 
     Returns:
-        int: 运行实例数量.
+        int: Number of run instances.
     """
     return run_crud.get_project_run_count(session, project_id)
 
@@ -552,14 +552,14 @@ async def get_project_run(
     session: SessionDep,
     _current_user: UserDep,
 ) -> SimpleRunPublic:
-    """获取项目中的指定运行实例详情.
+    """Get the details of the specified run instance in the project.
 
     Args:
-        project_id: 项目 ID
-        run_uid: 运行实例 UID
+        project_id: Project ID
+        run_uid: Run instance UID
 
     Returns:
-        SimpleRunPublic: 运行实例详情(包含从 Redis 读取的实时统计信息).
+        SimpleRunPublic: Details of the run instance (including real-time stats from Redis).
     """
     run = run_crud.get(session, str(run_uid))
     if not run or run.project_id != project_id:
@@ -567,18 +567,18 @@ async def get_project_run(
 
     run_data = SimpleRunPublic.model_validate(run)
 
-    # 尝试从 Redis 读取统计信息
+    # Try to read stats from Redis
     stats = await get_run_stats_from_redis(monitor_redis_client, str(run_uid))
     if stats:
         run_data.task_statistics = stats
     else:
-        # 如果 Redis 中没有, 从数据库计算
+        # If not in Redis, calculate from database
         run_data.task_statistics = run_crud.get_run_task_stats(session, str(run_uid))
 
     return run_data
 
 
-# ==================== 项目文件映射管理端点 ====================
+# ==================== Project File Mapping Management Endpoints ====================
 
 
 @router.post('/{project_id}/file-mappings')
@@ -588,7 +588,7 @@ async def create_project_file_mapping(
     session: SessionDep,
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
-    """为项目创建新的文件映射."""
+    """Create a new file mapping for the project."""
     result = project_crud.create_file_mapping(
         session, project_id, mapping.keyword, mapping.file_path, mapping.description
     )
@@ -601,7 +601,7 @@ async def get_project_file_mappings(
     session: SessionDep,
     _current_user: UserDep,
 ) -> list[ProjectFileMappingPublic]:
-    """获取项目的所有文件映射."""
+    """Get all file mappings of the project."""
     mappings = project_crud.get_all_file_mappings(session, project_id)
     return [ProjectFileMappingPublic.model_validate(m) for m in mappings]
 
@@ -613,7 +613,7 @@ async def get_project_file_mapping(
     session: SessionDep,
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
-    """根据关键字获取特定的文件映射."""
+    """Get a specific file mapping by keyword."""
     mapping = project_crud.get_file_mapping(session, project_id, keyword)
     if not mapping:
         raise HTTPException(HTTP_404_NOT_FOUND, f'File mapping not found: {keyword}')
@@ -628,7 +628,7 @@ async def update_project_file_mapping(
     session: SessionDep,
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
-    """更新文件映射."""
+    """Update file mapping."""
     result = project_crud.update_file_mapping(session, mapping_id, mapping_update.file_path, mapping_update.description)
     return ProjectFileMappingPublic.model_validate(result)
 
@@ -640,6 +640,6 @@ async def delete_project_file_mapping(
     session: SessionDep,
     _current_user: UserDep,
 ) -> dict:
-    """删除文件映射."""
+    """Delete file mapping."""
     project_crud.delete_file_mapping(session, mapping_id)
     return {'message': 'File mapping deleted successfully'}

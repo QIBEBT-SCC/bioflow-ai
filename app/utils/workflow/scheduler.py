@@ -1,10 +1,9 @@
-"""任务调度器.
+"""Task Scheduler.
 
-负责工作流节点的排序、DAG 构建和任务分发
+Responsible for workflow node sorting, DAG construction, and task distribution.
 """
 
 import uuid
-from typing import Optional
 
 import rich
 import rustworkx as rx
@@ -19,20 +18,20 @@ from app.utils.workflow import TaskContext, get_handler
 
 
 def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
-    """刷新节点ID.
+    """Refresh node IDs.
 
-    用于从模板中实例化节点时刷新节点ID
+    Used to refresh node IDs when instantiating nodes from a template.
 
     Args:
-        workflow: 从模板中解析出的react-flow对象
+        workflow: The react-flow object parsed from the template.
 
     Returns:
-        更新节点uid后的react-flow对象
+        The react-flow object with updated node UIDs.
     """
     for node in workflow.nodes:
         old_id = node.id
         new_id = uuid7str()
-        # 不用刷新edge id, 这玩意没用
+        # No need to refresh edge ID, it's useless
         for edge in workflow.edges:
             if edge.source == old_id:
                 edge.source = new_id
@@ -48,23 +47,23 @@ def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
 
 
 def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
-    """对任务队列进行重组排序.
+    """Reorganize and sort the task queue.
 
-    分析react-flow原始数据, 转换为DAG
-    剔除单独节点 (出入度为0) , 按深度分层排序
+    Analyze raw react-flow data, convert to DAG.
+    Remove isolated nodes (in-degree and out-degree are 0), and sort by depth layers.
 
     Args:
-        workflow: 原始react-flow数据
+        workflow: Raw react-flow data.
 
     Returns:
-        排序后的任务节点队列
+        Sorted task node queue.
     """
-    # rustworkx DAG对象
+    # rustworkx DAG object
     graph = rx.PyDiGraph()
-    # 节点uuid到rustworkx node_index映射
+    # Mapping from node uuid to rustworkx node_index
     node_index_map: dict[str, int] = {}
 
-    # 构建TaskNode
+    # Build TaskNode
     node_map: dict[str, TaskNode] = {}
     for node in workflow.nodes:
         node_map[node.id] = TaskNode(id=node.id, type=node.type, data=node.data)
@@ -72,20 +71,20 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
         target_param = edge.targetHandle.split('-in-')[-1]
         task_input = TaskInput(source_uid=edge.source, source_k=edge.sourceHandle.split('-out-')[-1])
 
-        # 检查该参数是否已存在输入
+        # Check if this parameter already has an input
         if target_param in node_map[edge.target].kwarg:
             existing = node_map[edge.target].kwarg[target_param]
-            # 如果已经是列表, 追加
+            # If already a list, append
             if isinstance(existing, list):
                 existing.append(task_input)
-            # 如果是单个TaskInput, 转换为列表
+            # If single TaskInput, convert to list
             else:
                 node_map[edge.target].kwarg[target_param] = [existing, task_input]
         else:
-            # 首次添加, 保持单个TaskInput
+            # First time adding, keep as single TaskInput
             node_map[edge.target].kwarg[target_param] = task_input
 
-    # DAG排序
+    # DAG sorting
     edge_set = [(edge.source, edge.target) for edge in workflow.edges]
     for source_uid, target_uid in edge_set:
         if source_uid not in node_index_map:
@@ -111,20 +110,20 @@ def send_task(
     output_base: str,
     run_uid: uuid.UUID,
 ) -> None:
-    """构建实际任务队列, 并发送至celery worker.
+    """Build the actual task queue and send it to celery worker.
 
     Args:
-        task_nodes: 排序后的任务节点队列
-        session: SQLModel 会话
-        project_id: 项目 ID
-        sample_uid: 此次分析的样本uid
-        sample_name: 此次分析的样本名称
-        owner: 任务创建者
-        output_base: 根输出目录
-        run_uid: 运行实例UID
+        task_nodes: Sorted task node queue.
+        session: SQLModel session.
+        project_id: Project ID.
+        sample_uid: Sample UID for this analysis.
+        sample_name: Sample name for this analysis.
+        owner: Task creator.
+        output_base: Root output directory.
+        run_uid: Run instance UID.
     """
-    if sample_name is None:
-        # 对于样本级工作流添加自动总结任务
+    if sample_name is not None:
+        # Add automatic summary task for sample-level workflows
         task_nodes.append([TaskNode(id=uuid7str(), type='upstream_summary', data={})])
 
     rich.print(task_nodes)
@@ -147,7 +146,7 @@ def send_task(
             handler = get_handler(task_node.type)
 
             if handler is None:
-                logger.warning(f'未找到节点类型 {task_node.type} 的处理器')
+                logger.warning(f'Handler not found for node type {task_node.type}')
                 continue
 
             celery_task, new_task_index = handler.handle(task_node, context)
@@ -158,7 +157,7 @@ def send_task(
 
         if sub_tasks:
             # tasks.append(group(*sub_tasks))
-            tasks.extend(sub_tasks)  # celery 目前不支持多个group
+            tasks.extend(sub_tasks)  # celery currently does not support multiple groups
 
     if tasks:
         workflow = chain(*tasks)
