@@ -40,7 +40,7 @@ class BaseBioTask(celery.Task):
             _update_run_stats(instance_uid, Status.WAITING, Status.RUNNING)
             _check_and_update_run_instance_running(instance_uid)
         except Exception as e:
-            logger.error(f'更新任务 {task_id} 启动状态失败: {e}')
+            logger.exception(f'更新任务 {task_id} 启动状态失败: {e}')
 
     def on_success(self, retval, task_id, args, kwargs) -> None:  # noqa: ANN001
         """任务成功后的钩子 - 更新 DB 状态、Redis 计数、flush 监控日志."""
@@ -59,7 +59,7 @@ class BaseBioTask(celery.Task):
             _update_run_stats(instance_uid, Status.RUNNING, Status.SUCCESS)
             _check_and_update_run_instance_success(instance_uid)
         except Exception as e:
-            logger.error(f'更新任务 {task_id} 成功状态失败: {e}')
+            logger.exception(f'更新任务 {task_id} 成功状态失败: {e}')
 
         try:
             _flush_monitor_to_db(task_id)
@@ -96,7 +96,7 @@ class BaseBioTask(celery.Task):
 
 
 def _get_redis() -> Redis:
-    from worker import monitor_redis_client  # noqa: PLC0415
+    from worker import monitor_redis_client
 
     return monitor_redis_client
 
@@ -153,7 +153,7 @@ def _check_and_update_run_instance_success(run_uid: str) -> None:
         stats = redis.hgetall(key)
         total = int(stats.get(b'total', 0))
         success = int(stats.get(b'success', 0))
-        if total > 0 and success == total:
+        if 0 < total == success:
             with Session(engine) as session:
                 run_crud.update(session, run_uid, RunUpdate(status=Status.SUCCESS, end_time=datetime.now(tz=UTC)))
     except Exception as e:
@@ -202,7 +202,7 @@ def get_tool_data(tool_uid: str) -> ToolTaskInfo:
         tool = session.exec(statement).one_or_none()
         if not tool:
             error_msg = f'工具 {tool_uid} 不存在'
-            raise ValueError(error_msg)
+            raise RuntimeError(error_msg)
 
         return ToolTaskInfo(
             uid=tool.uid,
