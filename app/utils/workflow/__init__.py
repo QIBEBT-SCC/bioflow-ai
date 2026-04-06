@@ -1,9 +1,9 @@
-"""Workflow 模块
+"""Workflow 模块.
 
 工作流处理和任务节点处理器
 """
 
-# 先导入基础框架（注册表、装饰器、基类）
+# 先导入基础框架
 from app.utils.workflow.handler_base import (  # noqa: I001
     BaseTaskHandler,
     TaskContext,
@@ -13,7 +13,7 @@ from app.utils.workflow.handler_base import (  # noqa: I001
     register_handler,
 )
 
-# 再导入具体处理器实现（会自动注册）
+# 再导入具体处理器实现
 from app.utils.workflow import handlers  # noqa: F401
 
 # 最后导入核心逻辑
@@ -29,19 +29,17 @@ from app.utils.workflow.stats import (
 )
 
 __all__ = [
-    # 基础框架
     'BaseTaskHandler',
     'TaskContext',
-    'register_handler',
-    'register_alias',
-    'get_handler',
-    'get_all_handlers',
-    # 核心功能
-    'update_node_id',
     'build_task_list',
-    'send_task',
-    'create_runs_from_samples',
     'create_project_level_run',
+    'create_runs_from_samples',
+    'get_all_handlers',
+    'get_handler',
     'get_run_stats_from_redis',
     'get_run_stats_from_redis_sync',
+    'register_alias',
+    'register_handler',
+    'send_task',
+    'update_node_id',
 ]

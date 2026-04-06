@@ -56,10 +56,19 @@ async def run_workflow(
     task_list = build_task_list(workflow)
     sample_name = get_sample_name(task_list[0])
 
-    run.name = f'temporarily-{template_name}-{sample_name}'
+    run.name = f'temporarily-{template_name}'
     run = run_crud.insert(session, run)
 
-    send_task(session, task_list, sample_name, f'temporarily/{template_name}-{sample_name}', run.uid, current_user)
+    send_task(
+        task_list,
+        session,
+        None,
+        None,
+        None,
+        current_user,
+        f'temporarily/{template_name}-{sample_name}',
+        run.uid,
+    )
 
     return run
 

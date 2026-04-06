@@ -19,8 +19,8 @@ from app.tasks.file_operation import bind_param_task, collect_files_task, gzip_f
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
 from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, load_ncbi_genome_task
 from app.tasks.load_tasks.static_value import set_value_task
-from app.tasks.package_result import package_task
 from app.tasks.run_tool import docker_task
+from app.tasks.summary_task.summary import downstream_summary_task, upstream_summary_task
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.handler_base import BaseTaskHandler, TaskContext, register_handler
 from app.utils.workflow.path_resolver import resolve_path
@@ -82,9 +82,9 @@ class ToolTaskHandler(BaseTaskHandler):
         return celery_task, context.task_index + 1
 
 
-@register_handler('resource_db')
-class ResourceDbTaskHandler(BaseTaskHandler):
-    """数据库资源任务处理器."""
+@register_handler('resource_file')
+class ResourceFileTaskHandler(BaseTaskHandler):
+    """文件资源任务处理器."""
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
@@ -96,8 +96,9 @@ class ResourceDbTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        db_path = db_crud.get(context.session, int(task_node.data.get('db_id'))).path
-        return load_file_task.s(file_path=db_path).set(task_id=task_node.id)
+        file_path_ref = task_node.data.get('file_path', '')
+        file_path = resolve_path(file_path_ref, context, context.session, context.project_id)
+        return load_file_task.s(file_path=file_path).set(task_id=task_node.id)
 
 
 @register_handler('resource_sequence')
@@ -114,19 +115,31 @@ class ResourceSequenceTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        # 检查是否使用自动填充或手动路径
-        if context.auto_fill:
-            # 新的灵活解析逻辑
-            r1_ref = task_node.data.get('r1', 'sample:r1')  # 默认为 sample:r1
-            r2_ref = task_node.data.get('r2', 'sample:r2')  # 默认为 sample:r2
+        r1_ref = task_node.data.get('r1', 'sample:r1')
+        r2_ref = task_node.data.get('r2', 'sample:r2')
 
-            r1_path = resolve_path(r1_ref, context, context.session, context.project_id)
-            r2_path = resolve_path(r2_ref, context, context.session, context.project_id)
+        r1_path = resolve_path(r1_ref, context, context.session, context.project_id)
+        r2_path = resolve_path(r2_ref, context, context.session, context.project_id)
 
-            return load_sequence_task.s(args={'r1': r1_path, 'r2': r2_path}).set(task_id=task_node.id)
+        return load_sequence_task.s(r1=r1_path, r2=r2_path).set(task_id=task_node.id)
 
-        # 回退: 使用手动指定的路径
-        return load_sequence_task.s(args=task_node.data).set(task_id=task_node.id)
+
+@register_handler('resource_db')
+class ResourceDbTaskHandler(BaseTaskHandler):
+    """数据库资源任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='read_file',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        db_path = db_crud.get(context.session, int(task_node.data.get('db_id'))).path
+        return load_file_task.s(file_path=db_path).set(task_id=task_node.id)
 
 
 @register_handler('resource_ncbi_genome')
@@ -185,26 +198,6 @@ class ResourceMM39TaskHandler(BaseTaskHandler):
         return load_mm39_task.s(
             required_index=task_node.data.get('required_index', []),
         ).set(task_id=task_node.id)
-
-
-@register_handler('resource_file')
-class ResourceFileTaskHandler(BaseTaskHandler):
-    """文件资源任务处理器."""
-
-    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
-        return TaskInstance(
-            uid=uuid.UUID(task_node.id),
-            instance_uid=context.run_uid,
-            owner_id=context.owner.id,
-            name='read_file',
-            status=Status.WAITING,
-        )
-
-    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        file_path_ref = task_node.data.get('file_path', '')
-        # 解析路径引用（支持 proj: 和 sample: 前缀）
-        file_path = resolve_path(file_path_ref, context, context.session, context.project_id)
-        return load_file_task.s(file_path=file_path).set(task_id=task_node.id)
 
 
 @register_handler('value_string')
@@ -349,33 +342,41 @@ class SimpleCodeTaskHandler(BaseTaskHandler):
         return None, context.task_index
 
 
-@register_handler('summary')
-class SummaryHandler(BaseTaskHandler):
-    """处理下游分析代码节点.
-
-    这个处理器不创建 Celery 任务和 TaskInstance
-    只将代码信息添加到 context.downstream_files 中供后续使用
-    """
+@register_handler('downstream_summary')
+class DownSummaryHandler(BaseTaskHandler):
+    """处理下游分析总结节点."""
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
-            uid=context.run_uid,  # 最终打包节点的任务uuid与运行实例的uuid一致
+            uid=uuid.UUID(task_node.id),
             instance_uid=context.run_uid,
             owner_id=context.owner.id,
-            name='package',
+            name='summary',
             status=Status.WAITING,
         )
 
-    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        if context.downstream_files:
-            downstream_files = list(set(context.downstream_files))
-            output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/summary'
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/downstream'
+        return downstream_summary_task.s(
+            inputs=task_node.kwarg,
+            prompt=task_node.data.get('prompt', ''),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
 
-            return package_task.s(
-                run_uid=f'{context.run_uid}',
-                inputs=task_node.kwarg,
-                output_dir=output_dir,
-                sample_name=context.sample_name,
-            ).set(task_id=context.run_uid)  # 最终打包节点的任务uuid与运行实例的uuid一致
 
-        return None
+@register_handler('upstream_summary')
+class UpSummaryHandler(BaseTaskHandler):
+    """上游分析总结."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=context.run_uid,  # 这一步没有实际节点, uid与运行实例的uuid一致
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='summary',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}'
+        return upstream_summary_task.s(base_dir=output_dir).set(task_id=str(context.run_uid))

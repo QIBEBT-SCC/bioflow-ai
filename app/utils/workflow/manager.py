@@ -122,14 +122,14 @@ def create_runs_from_samples(
 
         # 提交任务到 Celery
         send_task(
-            session,
             task_list,
+            session,
+            project_id,
+            sample.uid,
             sample.sample_name,
+            current_user,
             f'{to_safe_path_segment(project.name)}/{to_safe_path_segment(workflow.name)}/{sample.sample_name}',
             run.uid,
-            current_user,
-            project_id,
-            f'sample:{sample.uid}',
         )
 
         run_uids.append(run.uid)
@@ -198,10 +198,7 @@ def create_project_level_run(
         logger.debug(f'重用项目级运行实例 {run.uid}')
     else:
         # 构建运行名称
-        if run_name_prefix:
-            run_name = f'{run_name_prefix}-{project.name}'
-        else:
-            run_name = f'{project.name}-{workflow.name}'
+        run_name = f'{run_name_prefix}-{project.name}' if run_name_prefix else f'{project.name}-{workflow.name}'
 
         # 创建新运行实例 (sample_uid=None)
         run = RunInstance(
@@ -232,14 +229,14 @@ def create_project_level_run(
 
     # 提交任务到 Celery (无样本上下文)
     send_task(
-        session,
         task_list,
-        project.name,  # 使用项目名作为 sample_name
+        session,
+        project_id,
+        None,
+        None,
+        current_user,
         f'{to_safe_path_segment(project.name)}/{to_safe_path_segment(workflow.name)}',
         run.uid,
-        current_user,
-        project_id,
-        None,  # auto_fill=None 表示项目级执行
     )
 
     return WorkflowRunResult(run_uids=[run.uid], count=1)

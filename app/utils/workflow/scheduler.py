@@ -102,38 +102,41 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
 
 
 def send_task(
-    session: Session,
     task_nodes: list[list[TaskNode]],
-    sample_name: str,
+    session: Session,
+    project_id: int | None,
+    sample_uid: uuid.UUID | None,
+    sample_name: str | None,
+    owner: User,
     output_base: str,
     run_uid: uuid.UUID,
-    owner: User,
-    project_id: int,
-    auto_fill: Optional[str] = None,
 ) -> None:
     """构建实际任务队列, 并发送至celery worker.
 
     Args:
-        session: SQLModel 会话
         task_nodes: 排序后的任务节点队列
+        session: SQLModel 会话
+        project_id: 项目 ID
+        sample_uid: 此次分析的样本uid
         sample_name: 此次分析的样本名称
+        owner: 任务创建者
         output_base: 根输出目录
         run_uid: 运行实例UID
-        owner: 任务创建者
-        project_id: 项目 ID
-        auto_fill: 自动填充输入序列
     """
+    if sample_name is None:
+        # 对于样本级工作流添加自动总结任务
+        task_nodes.append([TaskNode(id=uuid7str(), type='upstream_summary', data={})])
+
     rich.print(task_nodes)
 
-    # 创建任务上下文
     context = TaskContext(
         session=session,
+        project_id=project_id,
+        sample_uid=sample_uid,
         sample_name=sample_name,
+        owner=owner,
         output_base=output_base,
         run_uid=run_uid,
-        owner=owner,
-        project_id=project_id,
-        auto_fill=auto_fill,
         task_index=1,
     )
 
@@ -141,34 +144,22 @@ def send_task(
     for sub_group in task_nodes:
         sub_tasks = []
         for task_node in sub_group:
-            # 获取对应的处理器
             handler = get_handler(task_node.type)
 
             if handler is None:
                 logger.warning(f'未找到节点类型 {task_node.type} 的处理器')
                 continue
 
-            # 使用处理器处理任务节点
             celery_task, new_task_index = handler.handle(task_node, context)
-
-            # 更新任务索引
             context.task_index = new_task_index
 
-            # 添加到子任务列表 (如果任务不为空)
             if celery_task is not None:
                 sub_tasks.append(celery_task)
 
-        # 只有当子任务列表不为空时才添加到任务组
         if sub_tasks:
             # tasks.append(group(*sub_tasks))
             tasks.extend(sub_tasks)  # celery 目前不支持多个group
 
-    # if context.downstream_files:
-    #     handler = get_handler('summary')
-    #     summary_task, _ = handler.handle(None, context)
-    #     tasks.append(summary_task)
-
-    # 构建并发送工作流
     if tasks:
         workflow = chain(*tasks)
         workflow.delay()

@@ -5,6 +5,7 @@
 
 import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Optional
 
 from celery import Signature
@@ -17,30 +18,21 @@ from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode
 
 
+@dataclass
 class TaskContext:
     """任务处理上下文, 封装处理器需要的所有共享数据."""
 
-    def __init__(
-        self,
-        session: Session,
-        sample_name: str,
-        output_base: str,
-        run_uid: uuid.UUID,
-        owner: User,
-        project_id: int,
-        auto_fill: Optional[str] = None,
-        task_index: int = 1,
-    ):
-        self.session = session
-        self.sample_name = sample_name
-        self.output_base = output_base
-        self.run_uid = run_uid
-        self.owner = owner
-        self.project_id = project_id
-        self.auto_fill = auto_fill
-        self.task_index = task_index
+    session: Session
+    project_id: int
+    sample_uid: uuid.UUID | None
+    sample_name: str | None
+    owner: User
 
-        self.downstream_files = []
+    output_base: str
+    run_uid: uuid.UUID
+    task_index: int
+
+    downstream_files: list[str] = field(default_factory=list)
 
 
 # ==================== 任务处理器注册表 ====================
@@ -57,7 +49,7 @@ class NotRegisterError(Exception):
     pass
 
 
-def register_handler(*node_types: str):
+def register_handler(*node_types: str):  # noqa: ANN201
     """装饰器: 注册任务处理器.
 
     支持单个或多个节点类型注册到同一个处理器
