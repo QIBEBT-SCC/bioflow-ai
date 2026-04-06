@@ -194,5 +194,8 @@ class BuildContext(UserContext):
 # =====================summary agent state==========================
 @dataclass
 class FolderContext(UserContext):
-    root_path: str
-    allowed_files: list[str]
+    output_path: str
+
+
+class SummaryState(AgentState):
+    container_id: NotRequired[str]

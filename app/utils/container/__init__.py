@@ -1,8 +1,43 @@
 from docker.types import Mount
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.models.tools import ImageConfig
+
+
+class ContainerMount(BaseModel):
+    target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
+    source: str = Field(description='Source path on host')
+    read_only: bool
+
+
+def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
+    mount_configs = [{'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only} for m in mounts]
+
+    if get_settings().docker.CONTAINER == 'podman':
+        from app.utils.container.podman import create_container
+
+        # Podman specific relabeling
+        for m in mount_configs:
+            m['relabel'] = 'z'
+
+        container_id = create_container(image, mount_configs)
+    else:
+        from app.utils.container.docker import create_container
+
+        final_mounts = [
+            Mount(
+                target=m['target'],
+                source=m['source'],
+                type='bind',
+                read_only=m.get('read_only', False),
+            )
+            for m in mount_configs
+        ]
+        container_id = create_container(image, final_mounts)
+
+    return container_id
 
 
 def run_command(
@@ -60,6 +95,20 @@ def run_command_background(  # noqa: ANN201
         yield from run_docker_background(image_cfg, command, mounts, working_dir, interval=interval)
 
 
+def run_command_in_container(container_id: str, command: str, workdir: str | None = None) -> tuple[int, str]:
+    """在已经创建的容器中运行命令."""
+    if get_settings().docker.CONTAINER == 'docker':
+        from app.utils.container.docker import run_docker_by_id
+
+        code, out = run_docker_by_id(container_id, command, workdir)
+    else:
+        from app.utils.container.podman import run_podman_by_id
+
+        code, out = run_podman_by_id(container_id, command, workdir)
+
+    return code, out
+
+
 def remove_container(container_id: str) -> None:
     """移除指定容器."""
     if get_settings().docker.CONTAINER == 'docker':
@@ -72,4 +121,4 @@ def remove_container(container_id: str) -> None:
         remove_container(container_id)
 
 
-__all__ = ['remove_container', 'run_command', 'run_command_background']
+__all__ = ['ContainerMount', 'remove_container', 'run_command', 'run_command_background']

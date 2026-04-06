@@ -268,27 +268,21 @@ class CheckTaskReportMiddleware(AgentMiddleware):
 
         check_failed_count = state.get('check_failed_count', 0)
 
-        missing_files = []
-        for file_name in runtime.context.allowed_files:
-            file_path = Path(runtime.context.root_path) / file_name
-            if not file_path.exists():
-                missing_files.append(file_name)
+        summary_md = Path(runtime.context.output_path) / 'summary.md'
+        if summary_md.exists():
+            logger.success('Check passed')
+            return None
 
-        if missing_files:
-            missing = ', '.join(missing_files)
-            logger.warning(f'Check failed. Missing files: {missing}')
-            # return _handle_check_failed(
-            #     check_failed_count,
-            #     [
-            #         HumanMessage(
-            #             content=f'Could not find the expected output files "{missing}". Please check if you did not generate them or used incorrect file names or paths.'
-            #         )
-            #     ],
-            #     self.error_time,
-            # )
-
-        logger.success('Check passed')
-        return None
+        logger.warning('Check failed. summary.md not fount')
+        return _handle_check_failed(
+            check_failed_count,
+            [
+                HumanMessage(
+                    content='The summary.md file is not found in the data/output directory. Please ensure the report has been written to this file and that the file name is correct, including its case sensitivity.'
+                )
+            ],
+            self.error_time,
+        )
 
     @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
