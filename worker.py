@@ -1,7 +1,9 @@
 from celery import Celery
+from celery.signals import worker_process_init
 from redis import Redis
 
 from app.core.config import get_settings
+from app.core.session import engine
 from app.models.chat import ChatMessages, ChatSessions  # noqa: F401
 from app.models.document import ParentDocument  # noqa: F401
 from app.models.project import Project, ProjectStar, ProjectTag, ProjectTagLink, ProjectWorkflow  # noqa: F401
@@ -34,12 +36,19 @@ celery_app.autodiscover_tasks(
         'app.tasks.load_tasks.load_file',
         'app.tasks.load_tasks.load_genome',
         'app.tasks.load_tasks.static_value',
+        'app.tasks.summary_task.summary',
         'app.tasks.code',
         'app.tasks.file_operation',
         'app.tasks.run_tool',
     ],
     None,
 )
+
+
+@worker_process_init.connect
+def on_worker_process_init(**kwargs) -> None:  # noqa: ANN003
+    """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
+    engine.dispose()
 
 
 if __name__ == '__main__':
