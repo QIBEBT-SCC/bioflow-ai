@@ -75,11 +75,11 @@ def download_gz_files(
     for key, info in files_spec.items():
         target = target_dir / info['filename']
         if target.exists():
-            logger.info(f'{key} already exists: {target}')
+            logger.debug(f'{key} already exists: {target}')
             result[key] = str(target)
             continue
 
-        logger.info(f'Downloading {key} from {info["url"]}')
+        logger.debug(f'Downloading {key} from {info["url"]}')
         with tempfile.TemporaryDirectory() as tmp:
             gz_path = Path(tmp) / f'{info["filename"]}.gz'
             with httpx.Client(timeout=3600, proxy=proxy) as client, client.stream('GET', info['url']) as resp:
@@ -87,11 +87,11 @@ def download_gz_files(
                 with gz_path.open('wb') as f:
                     f.writelines(resp.iter_bytes(chunk_size=8192))
 
-            logger.info(f'Decompressing {gz_path.name}')
+            logger.debug(f'Decompressing {gz_path.name}')
             with gzip.open(gz_path, 'rb') as f_in, target.open('wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
         result[key] = str(target)
-        logger.success(f'{key} ready: {target}')
+        logger.debug(f'{key} ready: {target}')
 
     return result

@@ -236,7 +236,7 @@ def load_ncbi_genome_task(
                 species_info = get_species_info(genome.organism.tax_id)
                 genome_record = _create_genome_record(session, genome, species_info)
             else:
-                logger.info(f'Found existed genome record for tax_id: "{tax_id}"')
+                logger.debug(f'Found existed genome record for tax_id: "{tax_id}"')
         elif 'species_name' in inputs:
             species_name = get_tool_output(inputs['species_name'].source_uid, inputs['species_name'].source_k)
             genome_records = genome_crud.search(session, species_name)
@@ -251,7 +251,7 @@ def load_ncbi_genome_task(
                 else:
                     genome_record = _create_genome_record(session, genome, species_info, species_name)
             else:
-                logger.info(f'Found existed genome record for species: "{species_name}"')
+                logger.debug(f'Found existed genome record for species: "{species_name}"')
                 genome_record = genome_records[0]
 
         else:
@@ -292,6 +292,47 @@ def load_ncbi_genome_task(
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def load_hg38_task(
+    self: Task,  # noqa: ARG001
+    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    *,
+    required_index: list[str],
+) -> ToolOutput:
+    """下载 HG38 基因组任务实例(从 Gencode 下载, 不依赖数据库)."""
+    hg38_dir = Path(GENOME_PATH) / 'HG38'
+    files = download_gz_files(HG38_FILES, hg38_dir)
+    load_result = {
+        'genome_fasta': files['genome_fasta'],
+        'annotation_gff': files['annotation_gff'],
+        'annotation_gtf': files['annotation_gtf'],
+    }
+
+    genome_fasta = files['genome_fasta']
+    annotation_gff = files['annotation_gff']
+    hg38_dir = Path(genome_fasta).parent
+
+    index_builders = {
+        'bowtie2_index': lambda: build_bowtie2_index(genome_fasta),
+        'bwa_index': lambda: build_bwa_index(genome_fasta),
+        'hisat2_index': lambda: build_hisat2_index(genome_fasta),
+        'star_index': lambda: build_star_index(genome_fasta, annotation_gff),
+        'minimap2_index': lambda: build_minimap2_index(genome_fasta),
+    }
+
+    logger.debug(f'加载索引: {required_index}')
+    for index_name in required_index:
+        if index_name in index_builders:
+            if _index_exists(hg38_dir, index_name, Path(genome_fasta)):
+                # 根据索引类型推导已有路径
+                load_result[index_name] = _get_existing_index_path(hg38_dir, index_name, Path(genome_fasta))
+                logger.debug(f'{index_name} already exists, skipping build')
+            else:
+                load_result[index_name] = index_builders[index_name]()
+
+    return ToolOutput(result=load_result)
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_mm39_task(
     self: Task,  # noqa: ARG001
     result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
@@ -319,12 +360,12 @@ def load_mm39_task(
         'minimap2_index': lambda: build_minimap2_index(genome_fasta),
     }
 
-    logger.info(f'加载索引: {required_index}')
+    logger.debug(f'加载索引: {required_index}')
     for index_name in set(required_index):
         if index_name in index_builders:
             if _index_exists(genome_dir, index_name, Path(genome_fasta)):
                 load_result[index_name] = _get_existing_index_path(genome_dir, index_name, Path(genome_fasta))
-                logger.info(f'{index_name} already exists, skipping build')
+                logger.debug(f'{index_name} already exists, skipping build')
             else:
                 load_result[index_name] = index_builders[index_name]()
 
@@ -466,44 +507,3 @@ def build_genome_index_admin_task(
                     load_result[index_name] = getattr(genome_record, index_name)
 
     return load_result
-
-
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_hg38_task(
-    self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
-    *,
-    required_index: list[str],
-) -> ToolOutput:
-    """下载 HG38 基因组任务实例(从 Gencode 下载, 不依赖数据库)."""
-    hg38_dir = Path(GENOME_PATH) / 'HG38'
-    files = download_gz_files(HG38_FILES, hg38_dir)
-    load_result = {
-        'genome_fasta': files['genome_fasta'],
-        'annotation_gff': files['annotation_gff'],
-        'annotation_gtf': files['annotation_gtf'],
-    }
-
-    genome_fasta = files['genome_fasta']
-    annotation_gff = files['annotation_gff']
-    hg38_dir = Path(genome_fasta).parent
-
-    index_builders = {
-        'bowtie2_index': lambda: build_bowtie2_index(genome_fasta),
-        'bwa_index': lambda: build_bwa_index(genome_fasta),
-        'hisat2_index': lambda: build_hisat2_index(genome_fasta),
-        'star_index': lambda: build_star_index(genome_fasta, annotation_gff),
-        'minimap2_index': lambda: build_minimap2_index(genome_fasta),
-    }
-
-    logger.info(f'加载索引: {required_index}')
-    for index_name in required_index:
-        if index_name in index_builders:
-            if _index_exists(hg38_dir, index_name, Path(genome_fasta)):
-                # 根据索引类型推导已有路径
-                load_result[index_name] = _get_existing_index_path(hg38_dir, index_name, Path(genome_fasta))
-                logger.info(f'{index_name} already exists, skipping build')
-            else:
-                load_result[index_name] = index_builders[index_name]()
-
-    return ToolOutput(result=load_result)
