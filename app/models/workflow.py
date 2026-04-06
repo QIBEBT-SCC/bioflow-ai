@@ -71,7 +71,7 @@ class RunInstance(SQLModel, table=True):
 
     owner: Optional['User'] = Relationship()
     sample: Optional['Sample'] = Relationship()
-    tasks: list['TaskInstance'] = Relationship(back_populates='run_instance', cascade_delete=True)
+    tasks: list['TaskInstance'] = Relationship(back_populates='run_instance')
 
 
 class ToolOutput(BaseModel):
@@ -95,7 +95,7 @@ class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    instance_uid: uuid.UUID = Field(foreign_key='run_instances.uid', ondelete='CASCADE')
+    instance_uid: uuid.UUID = Field(foreign_key='run_instances.uid')
     tool_uid: Optional[uuid.UUID] = Field(foreign_key='tools.uid')
     owner_id: int = Field(foreign_key='users.id')
     name: str
@@ -119,11 +119,7 @@ class TaskMonitor(SQLModel, table=True):
     __tablename__ = 'task_monitor_logs'
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    task_uid: uuid.UUID = Field(
-        default_factory=uuid_extensions.uuid7,
-        foreign_key='task_instances.uid',
-        ondelete='CASCADE',
-    )
+    task_uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, foreign_key='task_instances.uid')
     cpu_usage: float
     mem_usage: float
     mem_used: float

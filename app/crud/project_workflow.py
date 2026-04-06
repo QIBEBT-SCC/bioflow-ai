@@ -1,16 +1,16 @@
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import Delete, Select, delete
+from sqlalchemy import Select, delete
 from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 from app.models.project import ProjectWorkflow
-from app.models.workflow import RunInstance, Workflow
+from app.models.workflow import RunInstance, TaskInstance, TaskMonitor, Workflow
 from app.schemas.project_workflow import ProjectWorkflowPublic
 
 
-def add_workflow_to_project(session: Session, project_id: int, workflow_uid: uuid.UUID):
+def add_workflow_to_project(session: Session, project_id: int, workflow_uid: uuid.UUID) -> ProjectWorkflow:
     """将工作流模板添加到项目中.
 
     Args:
@@ -58,11 +58,28 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
     Raises:
         HTTPException: 工作流不在项目中
     """
-    # 先移除运行实例
-    stmt: Delete = delete(RunInstance).where(
-        col(RunInstance.project_id) == project_id, col(RunInstance.workflow_uid) == workflow_uid
-    )
-    session.exec(stmt)
+    # 手动处理运行实例及其关联数据的级联删除
+    run_instance_uids = session.exec(
+        select(RunInstance.uid).where(
+            col(RunInstance.project_id) == project_id, col(RunInstance.workflow_uid) == workflow_uid
+        )
+    ).all()
+
+    if run_instance_uids:
+        # 获取所有关联的任务实例 UID
+        task_instance_uids = session.exec(
+            select(TaskInstance.uid).where(col(TaskInstance.instance_uid).in_(run_instance_uids))
+        ).all()
+
+        if task_instance_uids:
+            # 1. 删除任务监控日志 (TaskMonitor)
+            session.exec(delete(TaskMonitor).where(col(TaskMonitor.task_uid).in_(task_instance_uids)))
+
+        # 2. 删除任务实例 (TaskInstance)
+        session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid).in_(run_instance_uids)))
+
+        # 3. 删除运行实例 (RunInstance)
+        session.exec(delete(RunInstance).where(col(RunInstance.uid).in_(run_instance_uids)))
 
     stmt: Select = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id, ProjectWorkflow.workflow_uid == workflow_uid

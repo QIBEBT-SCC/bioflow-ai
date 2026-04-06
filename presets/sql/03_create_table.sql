@@ -100,8 +100,8 @@ CREATE TABLE IF NOT EXISTS project_workflows
     import_time  TIMESTAMP NOT NULL,
     enabled      BOOLEAN   NOT NULL,
     PRIMARY KEY (project_id),
-    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
-    FOREIGN KEY (workflow_uid) REFERENCES projects (id) ON DELETE SET NULL
+    FOREIGN KEY (project_id) REFERENCES projects (id),
+    FOREIGN KEY (workflow_uid) REFERENCES projects (id)
 );
 
 CREATE TABLE IF NOT EXISTS project_tags

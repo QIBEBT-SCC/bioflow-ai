@@ -61,8 +61,8 @@ class Project(SQLModel, table=True):
 
     tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
     owner: Optional['User'] = Relationship()
-    file_mappings: list['ProjectFileMapping'] = Relationship(back_populates='project', cascade_delete=True)
-    workflows: list['ProjectWorkflow'] = Relationship(back_populates='project', cascade_delete=True)
+    file_mappings: list['ProjectFileMapping'] = Relationship(back_populates='project')
+    workflows: list['ProjectWorkflow'] = Relationship(back_populates='project')
 
 
 class ProjectFileMapping(SQLModel, table=True):
@@ -70,7 +70,7 @@ class ProjectFileMapping(SQLModel, table=True):
     __table_args__ = (UniqueConstraint('project_id', 'keyword', name='uq_project_file_mapping'),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
+    project_id: int = Field(foreign_key='projects.id')
     keyword: str = Field(max_length=50, index=True)
     file_path: str = Field(max_length=500)
     description: str = Field(default='')
@@ -85,7 +85,7 @@ class ProjectWorkflow(SQLModel, table=True):
 
     __tablename__ = 'project_workflows'
 
-    project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
+    project_id: int = Field(foreign_key='projects.id', primary_key=True)
     workflow_uid: Optional[uuid.UUID] = Field(foreign_key='workflows.uid', ondelete='SET NULL')
     import_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
     enabled: bool = Field(default=True, description='是否启用该工作流')
