@@ -121,4 +121,4 @@ def remove_container(container_id: str) -> None:
         remove_container(container_id)
 
 
-__all__ = ['ContainerMount', 'remove_container', 'run_command', 'run_command_background']
+__all__ = ['ContainerMount', 'create_container', 'remove_container', 'run_command', 'run_command_background']
