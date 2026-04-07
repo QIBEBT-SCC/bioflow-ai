@@ -309,39 +309,44 @@ CREATE TABLE IF NOT EXISTS workflows
 CREATE TYPE status AS ENUM ('WAITING','RUNNING','ERROR','SUCCESS');
 CREATE TABLE IF NOT EXISTS run_instances
 (
-    uid         uuid    NOT NULL,
-    name        VARCHAR NOT NULL,
-    project_id  INTEGER,
-    owner_id    INTEGER NOT NULL,
-    workflow    jsonb,
-    status      status  NOT NULL,
-    create_time TIMESTAMP WITH TIME ZONE,
-    start_time  TIMESTAMP WITH TIME ZONE,
-    end_time    TIMESTAMP WITH TIME ZONE,
+    uid          uuid    NOT NULL,
+    name         VARCHAR NOT NULL,
+    owner_id     INTEGER NOT NULL,
+    project_id   INTEGER,
+    workflow_uid uuid,
+    sample_uid   uuid,
+    base_dir     VARCHAR,
+    workflow     jsonb,
+    status       status  NOT NULL,
+    create_time  TIMESTAMP WITH TIME ZONE,
+    start_time   TIMESTAMP WITH TIME ZONE,
+    end_time     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (uid),
+    FOREIGN KEY (owner_id) REFERENCES users,
     FOREIGN KEY (project_id) REFERENCES projects,
-    FOREIGN KEY (owner_id) REFERENCES users
+    FOREIGN KEY (sample_uid) REFERENCES samples
 );
 
 CREATE TABLE IF NOT EXISTS task_instances
 (
     uid          uuid    NOT NULL,
-    instance_uid uuid,
-    tool_uid     uuid,
-    owner_id     INTEGER NOT NULL,
     name         VARCHAR NOT NULL,
+    instance_uid uuid    NOT NULL,
+    owner_id     INTEGER NOT NULL,
+    tool_uid     uuid,
     commands     VARCHAR,
+    base_dir     VARCHAR,
     tool_output  jsonb,
-    status       status  NOT NULL,
     system       VARCHAR,
     hostname     VARCHAR,
+    status       status  NOT NULL,
     create_time  TIMESTAMP WITH TIME ZONE,
     start_time   TIMESTAMP WITH TIME ZONE,
     end_time     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (uid),
     FOREIGN KEY (instance_uid) REFERENCES run_instances,
-    FOREIGN KEY (tool_uid) REFERENCES tools,
-    FOREIGN KEY (owner_id) REFERENCES users
+    FOREIGN KEY (owner_id) REFERENCES users,
+    FOREIGN KEY (tool_uid) REFERENCES tools
 );
 
 CREATE TABLE IF NOT EXISTS task_monitor_logs

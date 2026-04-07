@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import Any, Optional, Self
+from typing import Annotated, Any, Literal, Optional, Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.workflow import Status
 from app.schemas.common import Statistics
@@ -43,9 +43,10 @@ class SimpleRunPublic(BaseModel):
     workflow_uid: Optional[uuid.UUID] = None
     sample_uid: Optional[uuid.UUID] = None
 
+    base_dir: Optional[str] = None
+
     status: Status
     task_statistics: Optional[Statistics] = None
-
     create_time: Optional[datetime]
     start_time: Optional[datetime]
     end_time: Optional[datetime]
@@ -55,7 +56,7 @@ class RunPublic(SimpleRunPublic):
     tasks: list[TaskInfo4Run]
 
     @model_validator(mode='after')
-    def get_task_stats(self) -> Self:
+    def _get_task_stats(self) -> Self:
         if self.task_statistics is None:
             total = len(self.tasks)
             success = sum(1 for task in self.tasks if task.status == Status.SUCCESS)
@@ -81,24 +82,47 @@ class RunPublic(SimpleRunPublic):
 class RunDetailPublic(SimpleRunPublic):
     """详情接口返回, 包含 workflow 图结构和注入的运行状态."""
 
-    nodes: list[dict[str, Any]]
-    edges: list[Edge]
+    tasks: list[TaskInfo4Run] = Field(exclude=True)
+    workflow: WorkflowDefinition = Field(exclude=True)
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[Edge] = []
 
     @model_validator(mode='after')
-    def compute_task_stats(self) -> Self:
-        if self.task_statistics is None:
-            run_datas = [node['data'].get('run_data') for node in self.nodes if node.get('data')]
-            run_datas = [rd for rd in run_datas if rd and rd.get('status')]
+    def _inject_workflow_data(self) -> Self:
+        # 构建 task 查找表: {str(task.uid): task}
+        task_map = {str(task.uid): task for task in self.tasks}
 
-            total = len(run_datas)
-            success = sum(1 for rd in run_datas if rd['status'] == Status.SUCCESS)
-            error = sum(1 for rd in run_datas if rd['status'] == Status.ERROR)
-            running = sum(1 for rd in run_datas if rd['status'] == Status.RUNNING)
-            waiting = sum(1 for rd in run_datas if rd['status'] == Status.WAITING)
+        # 将 workflow nodes 转为 dict 并注入 run_data
+        nodes = []
+        for node in self.workflow.nodes:
+            node_dict = node.model_dump()
+            task = task_map.get(node.id)
+            if task:
+                if 'data' not in node_dict:
+                    node_dict['data'] = {}
+                node_dict['data']['run_data'] = RunData(
+                    status=task.status,
+                    create_time=task.create_time,
+                    start_time=task.start_time,
+                    end_time=task.end_time,
+                ).model_dump()
+            nodes.append(node_dict)
+
+        self.nodes = nodes
+        self.edges = self.workflow.edges
+
+        # 从 tasks 中直接读取以计算统计信息
+        if self.task_statistics is None:
+            total = len(self.tasks)
+            success = sum(1 for task in self.tasks if task.status == Status.SUCCESS)
+            error = sum(1 for task in self.tasks if task.status == Status.ERROR)
+            running = sum(1 for task in self.tasks if task.status == Status.RUNNING)
+            waiting = sum(1 for task in self.tasks if task.status == Status.WAITING)
 
             if running > 0:
                 self.status = Status.RUNNING
-            elif total > 0 and success == total:
+            elif 0 < total == success:
                 self.status = Status.SUCCESS
             elif error > 0:
                 self.status = Status.ERROR
@@ -106,6 +130,7 @@ class RunDetailPublic(SimpleRunPublic):
             self.task_statistics = Statistics(
                 total=total, success=success, error=error, running=running, waiting=waiting
             )
+
         return self
 
 
@@ -115,3 +140,20 @@ class RunUpdate(BaseModel):
 
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+
+
+class OutputFileItem(BaseModel):
+    type: Literal['file'] = 'file'
+    path: str
+    name: str
+
+
+class OutputFolderItem(BaseModel):
+    type: Literal['folder'] = 'folder'
+    path: str
+    name: str
+    children: list['OutputFileNode'] = Field(default_factory=list)
+
+
+OutputFileNode = Annotated[OutputFileItem | OutputFolderItem, Field(discriminator='type')]
+OutputFolderItem.model_rebuild()

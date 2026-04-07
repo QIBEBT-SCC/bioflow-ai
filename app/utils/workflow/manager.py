@@ -4,6 +4,7 @@ Responsible for batch creating and managing workflow run instances.
 """
 
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
@@ -12,6 +13,7 @@ from sqlmodel import Session
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 import app.crud.resource.sample as sample_crud
+from app.core.config import get_settings
 from app.crud import project as proj_crud
 from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
@@ -22,6 +24,8 @@ from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
 from app.utils.workflow.stats import reset_run_stats_in_redis
 from worker import monitor_redis_client
+
+STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
 
 def create_runs_from_samples(
@@ -94,14 +98,24 @@ def create_runs_from_samples(
             else:
                 run_name = f'{project.name}-{workflow.name}-{sample.sample_name}'
 
+            # Build run base path
+            base_dir = (
+                Path(STORAGE_PATH).absolute()
+                / f'{current_user.username}({current_user.id})'
+                / to_safe_path_segment(project.name)
+                / to_safe_path_segment(workflow.name)
+                / sample.sample_name
+            )
+
             # Create a new run instance
             run = RunInstance(
                 project_id=project_id,
                 workflow_uid=workflow_uid,
                 sample_uid=sample.uid,
                 owner_id=current_user.id,
-                workflow=workflow_definition,
                 name=run_name,
+                workflow=workflow_definition,
+                base_dir=str(base_dir),
                 status=Status.WAITING,
             )
 
@@ -129,7 +143,7 @@ def create_runs_from_samples(
             sample.uid,
             sample.sample_name,
             current_user,
-            f'{to_safe_path_segment(project.name)}/{to_safe_path_segment(workflow.name)}/{sample.sample_name}',
+            run.base_dir,
             run.uid,
         )
 
@@ -200,14 +214,23 @@ def create_project_level_run(
         # Build run name
         run_name = f'{run_name_prefix}-{project.name}' if run_name_prefix else f'{project.name}-{workflow.name}'
 
+        # Build run base path
+        base_dir = (
+            Path(STORAGE_PATH).absolute()
+            / f'{current_user.username}({current_user.id})'
+            / to_safe_path_segment(project.name)
+            / to_safe_path_segment(workflow.name)
+        )
+
         # Create a new run instance (sample_uid=None)
         run = RunInstance(
             project_id=project_id,
             workflow_uid=workflow_uid,
             sample_uid=None,  # Project-level workflows are not bound to samples
             owner_id=current_user.id,
-            workflow=workflow_definition,
             name=run_name,
+            workflow=workflow_definition,
+            base_dir=str(base_dir),
             status=Status.WAITING,
         )
 
@@ -235,7 +258,7 @@ def create_project_level_run(
         None,
         None,
         current_user,
-        f'{to_safe_path_segment(project.name)}/{to_safe_path_segment(workflow.name)}',
+        run.base_dir,
         run.uid,
     )
 

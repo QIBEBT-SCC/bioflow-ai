@@ -54,17 +54,17 @@ class RunInstance(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
+    owner_id: int = Field(foreign_key='users.id')
 
     # 项目关联 (可选, 调试模式下为 None)
     project_id: Optional[int] = Field(default=None, foreign_key='projects.id')
     workflow_uid: Optional[uuid.UUID] = Field(default=None)
     sample_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='samples.uid')
 
-    owner_id: int = Field(foreign_key='users.id')
+    base_dir: Optional[str] = Field(default=None)
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
 
     status: Status
-
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
@@ -95,17 +95,21 @@ class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    instance_uid: uuid.UUID = Field(foreign_key='run_instances.uid')
-    tool_uid: Optional[uuid.UUID] = Field(foreign_key='tools.uid')
-    owner_id: int = Field(foreign_key='users.id')
     name: str
+    instance_uid: uuid.UUID = Field(foreign_key='run_instances.uid')
+    owner_id: int = Field(foreign_key='users.id')
+
+    # 工具任务才有
+    tool_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='tools.uid')
     commands: Optional[str] = Field(default=None)
-    tool_output: Optional[ToolOutput] = Field(sa_column=Column(PydanticJson(ToolOutput)))
+
+    base_dir: Optional[str] = Field(default=None)
+    tool_output: Optional[ToolOutput] = Field(default=None, sa_column=Column(PydanticJson(ToolOutput)))
+
+    system: Optional[str] = Field(default=None)
+    hostname: Optional[str] = Field(default=None)
+
     status: Status
-
-    system: Optional[str]
-    hostname: Optional[str]
-
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)

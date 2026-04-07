@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -6,13 +7,16 @@ from uuid_extensions import uuid7
 
 import app.crud.run_instance as run_crud
 import app.crud.workflow as wf_crud
+from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Status, Workflow
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.workflow import WorkflowCreateProp, WorkflowUpdate
-from app.utils.input_format import get_sample_name
+from app.utils.input_format import get_sample_name, to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
+
+STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
 router = APIRouter()
 
@@ -45,20 +49,28 @@ async def run_workflow(
     if template_name is None:
         template_name = 'unname'
 
-    # TODO: 合法性检查
+    base_dir = (
+        Path(STORAGE_PATH).absolute()
+        / f'{current_user.username}({current_user.id})'
+        / 'temporarily'
+        / to_safe_path_segment(template_name)
+    )
 
     # 更新节点uid
     workflow = update_node_id(workflow)
 
     # 创建运行实例
-    run = RunInstance(project_id=None, owner_id=current_user.id, workflow=workflow, status=Status.WAITING)
-
-    task_list = build_task_list(workflow)
-    sample_name = get_sample_name(task_list[0])
-
-    run.name = f'temporarily-{template_name}'
+    run = RunInstance(
+        name=f'temporarily-{template_name}',
+        project_id=None,
+        owner_id=current_user.id,
+        workflow=workflow,
+        base_dir=str(base_dir),
+        status=Status.WAITING,
+    )
     run = run_crud.insert(session, run)
 
+    task_list = build_task_list(workflow)
     send_task(
         task_list,
         session,
@@ -66,7 +78,7 @@ async def run_workflow(
         None,
         None,
         current_user,
-        f'temporarily/{template_name}-{sample_name}',
+        f'{base_dir}',
         run.uid,
     )
 
