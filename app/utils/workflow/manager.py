@@ -3,6 +3,7 @@
 Responsible for batch creating and managing workflow run instances.
 """
 
+import shutil
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -88,6 +89,8 @@ def create_runs_from_samples(
 
             # Clear old execution data and reuse the existing instance
             run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
+            if Path(existing_run.base_dir).exists():
+                shutil.rmtree(existing_run.base_dir)
             logger.debug(f'Reusing run instance {existing_run.uid} (Sample: {sample.sample_name})')
 
             run = existing_run
@@ -206,10 +209,11 @@ def create_project_level_run(
 
         # Clear old execution data and reuse the existing instance
         run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
-        session.add(existing_run)
-        session.flush()
+        if Path(existing_run.base_dir).exists():
+            shutil.rmtree(existing_run.base_dir)
+        logger.debug(f'Reusing project-level run instance {existing_run.uid}')
+
         run = existing_run
-        logger.debug(f'Reusing project-level run instance {run.uid}')
     else:
         # Build run name
         run_name = f'{run_name_prefix}-{project.name}' if run_name_prefix else f'{project.name}-{workflow.name}'
