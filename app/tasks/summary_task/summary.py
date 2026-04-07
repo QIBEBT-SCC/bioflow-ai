@@ -1,12 +1,14 @@
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 import markdown
+import palitra
 from celery import Task
 from jinja2 import Environment, FileSystemLoader
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
 from app.models.tools import ImageConfig
@@ -17,9 +19,6 @@ from app.utils.container import ContainerMount, create_container, remove_contain
 from llm.agents.reporter.summary_analyse import summary_analyse_agent
 from llm.states import FolderContext
 from worker import celery_app
-
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -58,6 +57,21 @@ def downstream_summary_task(
     return ToolOutput(result={})
 
 
+async def _get_summary(agent_input: dict[str, Any], config: RunnableConfig, context: FolderContext) -> None:
+    async for namespace, mode, data in summary_analyse_agent.astream(
+        agent_input,  # type: ignore
+        config,
+        context=context,  # type: ignore
+        stream_mode=['custom', 'updates'],
+        subgraphs=True,
+    ):
+        if mode == 'custom':
+            logger.info(data)
+        else:
+            running_node = ','.join([n.split(':')[0] for n in namespace])
+            logger.debug(f'({running_node}) {data}')
+
+
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def upstream_summary_task(
     self: Task,  # noqa: ARG001
@@ -70,7 +84,8 @@ def upstream_summary_task(
     rawdata_path = Path(base_dir)
     summary_path = rawdata_path / 'summary'
 
-    summary_path.unlink(missing_ok=True)
+    if summary_path.exists():
+        shutil.rmtree(summary_path)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         work_dir = Path(temp_dir)
@@ -90,18 +105,7 @@ def upstream_summary_task(
             output_path=temp_dir,
             user_id=2,
         )
-        for namespace, mode, data in summary_analyse_agent.stream(
-            agent_input,  # type: ignore
-            config,
-            context=context,  # type: ignore
-            stream_mode=['custom', 'updates'],
-            subgraphs=True,
-        ):
-            if mode == 'custom':
-                logger.info(data)
-            else:
-                running_node = ','.join([n.split(':')[0] for n in namespace])
-                logger.debug(f'({running_node}) {data}')
+        palitra.run(_get_summary(agent_input, config, context))
 
         shutil.copytree(work_dir, summary_path, dirs_exist_ok=True)
 
