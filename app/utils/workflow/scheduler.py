@@ -159,6 +159,7 @@ def send_task(
             # tasks.append(group(*sub_tasks))
             tasks.extend(sub_tasks)  # celery currently does not support multiple groups
 
+    logger.debug(f'{len(tasks)} tasks have been submitted to the queue.')
     if tasks:
         workflow = chain(*tasks)
         workflow.delay()

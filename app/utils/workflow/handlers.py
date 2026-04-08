@@ -57,11 +57,16 @@ class ToolTaskHandler(BaseTaskHandler):
         if tool_uid := task_node.data.get('tool_uid'):
             tool_data = tool_crud.get(context.session, tool_uid)
 
+            tool_args = (
+                task_node.data.get('modifiable_params')
+                if 'modifiable_params' in task_node.data
+                else task_node.data.get('args')
+            )
             return docker_task.s(
                 tool_uid=tool_uid,
                 inputs=task_node.kwarg,
                 output_dir=f'{context.output_base}/{context.task_index}_{to_safe_path_segment(tool_data.name)}',
-                params=task_node.data.get('args'),
+                params=tool_args,
                 sample_name=context.sample_name,
             ).set(task_id=task_node.id)
 
@@ -242,7 +247,7 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/{task_node.data.get("folder_name", nanoid.generate(size=8))}'
+        output_dir = f'{context.output_base}/{task_node.data.get("folder_name", nanoid.generate(size=8))}'
         return collect_files_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
 
 
@@ -296,7 +301,7 @@ class BashCodeTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        output_dir = f'{STORAGE_PATH}/{context.owner.username}/{context.output_base}/{context.task_index}_bash'
+        output_dir = f'{context.output_base}/{context.task_index}_bash'
         return bash_task.s(
             inputs=task_node.kwarg,
             code=task_node.data.get('code', ''),
