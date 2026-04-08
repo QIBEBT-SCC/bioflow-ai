@@ -1,5 +1,4 @@
 import uuid
-from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -45,8 +44,7 @@ from app.schemas.resource import (
     SamplePublic,
     SampleUpdate,
 )
-from app.schemas.run_instance import OutputFileItem, OutputFileNode, OutputFolderItem, SimpleRunPublic
-from app.utils.input_format import to_safe_path_segment
+from app.schemas.run_instance import SimpleRunPublic
 from app.utils.security import UserDep
 from app.utils.workflow import create_project_level_run, create_runs_from_samples, get_run_stats_from_redis
 
@@ -55,26 +53,6 @@ tag_router = APIRouter()
 workflow_router = APIRouter()
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
-
-
-def _build_file_tree(base_dir: Path, current_dir: Path) -> list[OutputFileNode]:
-    """Recursively build a file tree from a directory."""
-    nodes: list[OutputFileNode] = []
-    try:
-        entries = sorted(current_dir.iterdir(), key=lambda e: (e.is_file(), e.name))
-    except PermissionError:
-        return nodes
-
-    for entry in entries:
-        rel_path = str(entry.relative_to(base_dir))
-        if entry.is_dir():
-            children = _build_file_tree(base_dir, entry)
-            nodes.append(OutputFolderItem(path=rel_path, name=entry.name, children=children))
-        else:
-            icon_type = 'json' if entry.suffix == '.json' else None
-            nodes.append(OutputFileItem(path=rel_path, name=entry.name, iconType=icon_type))
-
-    return nodes
 
 
 @tag_router.post('')
@@ -601,32 +579,6 @@ async def get_project_run(
         run_data.task_statistics = run_crud.get_run_task_stats(session, str(run_uid))
 
     return run_data
-
-
-@router.get('/{project_id}/runs/{run_uid}/files')
-async def get_run_output_files(
-    project_id: int,
-    run_uid: uuid.UUID,
-    session: SessionDep,
-    _current_user: UserDep,
-) -> list[OutputFileNode]:
-    """Get the file tree of the run instance output directory.
-
-    Args:
-        project_id: Project ID
-        run_uid: Run instance UID
-
-    Returns:
-        list[OutputFileNode]: Nested file tree of the run output directory.
-    """
-    run = run_crud.get(session, str(run_uid))
-    if not run or run.project_id != project_id:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
-
-    if not run.base_dir or not Path(run.base_dir).exists():
-        return []
-
-    return _build_file_tree(Path(run.base_dir), Path(run.base_dir))
 
 
 # ==================== Project File Mapping Management Endpoints ====================

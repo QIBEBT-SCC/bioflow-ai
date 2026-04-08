@@ -1,23 +1,21 @@
+import uuid
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
+from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.run_instance as run_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance
 from app.schemas.common import Statistics
-from app.schemas.run_instance import RunDetailPublic, RunPublic, RunUpdate
+from app.schemas.run_instance import OutputFileNode, RunDetailPublic, RunPublic, RunUpdate
 from app.utils.security import UserDep
+from app.utils.system import build_file_tree
 from app.utils.workflow import get_run_stats_from_redis
 
 router = APIRouter()
-
-
-@router.patch('/{uid}')
-def update_workflow(uid: str, run_update: RunUpdate, session: SessionDep) -> RunInstance:
-    """Update a run instance's status or metadata."""
-    return run_crud.update(session, uid, run_update)
 
 
 @router.get('')
@@ -63,6 +61,12 @@ def get_run_stats(session: SessionDep, current_user: UserDep) -> Statistics:
     return run_crud.get_run_status(session, current_user.id)
 
 
+@router.patch('/{uid}')
+def update_workflow(uid: str, run_update: RunUpdate, session: SessionDep) -> RunInstance:
+    """Update a run instance's status or metadata."""
+    return run_crud.update(session, uid, run_update)
+
+
 @router.get('/{uid}')
 async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunDetailPublic:
     """获取单个运行实例, 返回 workflow 图结构并注入运行状态."""
@@ -76,3 +80,27 @@ async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunD
         run_detail.task_statistics = stats
 
     return run_detail
+
+
+@router.get('/{uid}/files')
+async def get_run_output_files(
+    uid: uuid.UUID,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> list[OutputFileNode]:
+    """Get the file tree of the run instance output directory.
+
+    Args:
+        uid: Run instance UID
+
+    Returns:
+        list[OutputFileNode]: Nested file tree of the run output directory.
+    """
+    run = run_crud.get(session, str(uid))
+    if not run:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
+
+    if not run.base_dir or not Path(run.base_dir).exists():
+        return []
+
+    return build_file_tree(Path(run.base_dir), Path(run.base_dir))
