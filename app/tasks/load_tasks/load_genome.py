@@ -87,7 +87,7 @@ def build_bowtie2_index(genome_fasta: str) -> str:
     return f'{index_path}/{genome_fasta.stem}'
 
 
-def build_bwa_index(genome_fasta: str) -> str:
+def build_bwa_index(genome_fasta: str, *, is_long: bool = False) -> str:
     """构建 bwa 索引."""
     genome_fasta = Path(genome_fasta)
 
@@ -96,10 +96,13 @@ def build_bwa_index(genome_fasta: str) -> str:
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/bwa:0.7.19--h577a1d6_1')
+    command = (
+        f'bwa index -a bwtsw /data/raw/{genome_fasta.name}' if is_long else f'bwa index /data/raw/{genome_fasta.name}'
+    )
     status, output = run_command(
         image_cfg,
         mounts,
-        f'bwa index /data/raw/{genome_fasta.name}',
+        command,
     )
 
     if status == 0:
@@ -313,7 +316,7 @@ def load_hg38_task(
 
     index_builders = {
         'bowtie2_index': lambda: build_bowtie2_index(genome_fasta),
-        'bwa_index': lambda: build_bwa_index(genome_fasta),
+        'bwa_index': lambda: build_bwa_index(genome_fasta, is_long=True),
         'hisat2_index': lambda: build_hisat2_index(genome_fasta),
         'star_index': lambda: build_star_index(genome_fasta, annotation_gff),
         'minimap2_index': lambda: build_minimap2_index(genome_fasta),
@@ -354,7 +357,7 @@ def load_mm39_task(
 
     index_builders = {
         'bowtie2_index': lambda: build_bowtie2_index(genome_fasta),
-        'bwa_index': lambda: build_bwa_index(genome_fasta),
+        'bwa_index': lambda: build_bwa_index(genome_fasta, is_long=True),
         'hisat2_index': lambda: build_hisat2_index(genome_fasta),
         'star_index': lambda: build_star_index(genome_fasta, annotation_gff),
         'minimap2_index': lambda: build_minimap2_index(genome_fasta),
