@@ -85,7 +85,7 @@ def run_docker(
 
     container = client.containers.run(
         image_cfg.get_image(),
-        f'"{command}"',
+        [command],
         stderr=True,
         entrypoint=['/bin/sh', '-c'],
         working_dir=workdir,
@@ -157,7 +157,7 @@ def run_docker_background(
     try:
         container = client.containers.run(
             image_cfg.get_image(),
-            f'"{command}"',
+            [command],
             mounts=mounts,
             entrypoint=['/bin/sh', '-c'],
             working_dir=working_dir,
