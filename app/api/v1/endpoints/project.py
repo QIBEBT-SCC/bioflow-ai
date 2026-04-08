@@ -323,6 +323,7 @@ async def add_file_to_project_sample(
         sample_uid=sample_uid,
         data_type=file_prop.data_type,
         file_path=file_prop.file_path,
+        tag=file_prop.tag,
         file_format='',  # Calculated automatically by CRUD
         file_size=0,  # Calculated automatically by CRUD
         md5_checksum='',  # Calculated automatically by CRUD

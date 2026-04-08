@@ -50,14 +50,14 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
     """
     path = Path(file_path)
 
-    # 提取文件格式，处理压缩文件（.gz, .bz2, .xz 等）
+    # 提取文件格式, 处理压缩文件 (.gz, .bz2, .xz 等)
     compression_suffixes = {'.gz', '.bz2', '.xz', '.bz', '.zip'}
 
     if path.suffix.lower() in compression_suffixes and len(path.suffixes) >= 2:
-        # 对于压缩文件，取最后两个后缀，如 .fq.gz, .tar.bz2
+        # 对于压缩文件, 取最后两个后缀, 如 .fq.gz, .tar.bz2
         file_format = ''.join(path.suffixes[-2:]).lstrip('.')
     elif path.suffix:
-        # 普通文件，直接取后缀
+        # 普通文件, 直接取后缀
         file_format = path.suffix.lstrip('.')
     else:
         # 无后缀
@@ -73,7 +73,7 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
 
 
 def _assign_default_tag(sample_file: SampleFiles) -> None:
-    """为样本文件分配默认标签（如果未指定）.
+    """为样本文件分配默认标签 (如果未指定).
 
     Args:
         sample_file: 样本文件对象
@@ -91,7 +91,7 @@ def _assign_default_tag(sample_file: SampleFiles) -> None:
 
 
 def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] = None) -> Sample:
-    """创建新样本，自动计算文件信息，并更新项目时间."""
+    """创建新样本, 自动计算文件信息, 并更新项目时间."""
     session.add(sample)
     session.commit()
     session.refresh(sample)
@@ -99,7 +99,7 @@ def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] 
     if files:
         for file in files:
             file.sample_uid = sample.uid
-            # 分配默认标签（如果未指定）
+            # 分配默认标签 (如果未指定)
             _assign_default_tag(file)
             # 自动计算文件信息
             file_format, file_size, md5_checksum = _calculate_file_info(file.file_path)
@@ -117,14 +117,14 @@ def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] 
 
 
 def delete(session: Session, sample_uid: uuid.UUID) -> None:
-    """删除样本及其关联的文件，并更新项目时间."""
+    """删除样本及其关联的文件, 并更新项目时间."""
     sample = get(session, sample_uid, with_files=True)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
 
     project_id = sample.project_id
 
-    # 使用 Relationship 直接访问关联的文件，无需额外查询
+    # 使用 Relationship 直接访问关联的文件, 无需额外查询
     for file in sample.sample_files:
         session.delete(file)
 
@@ -136,7 +136,7 @@ def delete(session: Session, sample_uid: uuid.UUID) -> None:
 
 
 def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate) -> Sample:
-    """更新样本信息，并更新项目时间."""
+    """更新样本信息, 并更新项目时间."""
     sample = get(session, sample_uid)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
@@ -161,7 +161,7 @@ def get(session: Session, sample_uid: uuid.UUID, with_files: bool = False) -> Op
     Args:
         session: 数据库会话
         sample_uid: 样本 UID
-        with_files: 是否预加载关联的文件（使用 Relationship 优化查询）
+        with_files: 是否预加载关联的文件 (使用 Relationship 优化查询)
     """
     query: Select = select(Sample).where(Sample.uid == sample_uid)
     if with_files:
@@ -261,13 +261,13 @@ def get_count_by_user(session: Session, user_id: int) -> int:
 
 
 def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
-    """为样本添加文件，自动计算文件信息，并更新项目时间."""
+    """为样本添加文件, 自动计算文件信息, 并更新项目时间."""
     # 验证样本是否存在
     sample = get(session, sample_file.sample_uid)
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
 
-    # 分配默认标签（如果未指定）
+    # 分配默认标签
     _assign_default_tag(sample_file)
     # 自动计算文件信息
     file_format, file_size, md5_checksum = _calculate_file_info(sample_file.file_path)
@@ -286,7 +286,7 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
 
 
 def delete_file(session: Session, file_uid: uuid.UUID) -> None:
-    """删除样本文件，并更新项目时间."""
+    """删除样本文件, 并更新项目时间."""
     query: Select = select(SampleFiles).where(SampleFiles.uid == file_uid)
     file = session.exec(query).one_or_none()
 
@@ -302,7 +302,7 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
         _update_project_time(session, project_id)
         session.commit()
     else:
-        # 样本不存在，仍然删除文件
+        # 样本不存在, 仍然删除文件
         session.delete(file)
         session.commit()
 
@@ -310,7 +310,7 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
 def get_files(session: Session, sample_uid: uuid.UUID) -> list[SampleFiles]:
     """获取样本的所有文件.
 
-    直接返回 SampleFiles 列表，由 FastAPI 根据 response_model 自动序列化
+    直接返回 SampleFiles 列表, 由 FastAPI 根据 response_model 自动序列化
     """
     sample = get(session, sample_uid, with_files=True)
     if not sample:
@@ -325,7 +325,7 @@ def batch_import_from_csv(
 
     Args:
         session: 数据库会话
-        csv_content: CSV 文件内容（bytes）
+        csv_content: CSV 文件内容 (bytes)
         project_id: 项目 ID
         owner_id: 所有者 ID
 
@@ -430,7 +430,7 @@ def batch_import_from_csv(
                     }
                 )
 
-        # 批量导入完成后，更新项目的 update_time
+        # 批量导入完成后, 更新项目的 update_time
         if result.success > 0:
             _update_project_time(session, project_id)
             session.commit()
