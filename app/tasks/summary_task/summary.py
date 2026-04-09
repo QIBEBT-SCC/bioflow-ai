@@ -80,7 +80,7 @@ def upstream_summary_task(
     base_dir: str,
 ) -> ToolOutput:
     """生成上游分析总结报告."""
-    image = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.0.0')
+    image = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.1.0')
     rawdata_path = Path(base_dir)
     summary_path = rawdata_path / 'summary'
 

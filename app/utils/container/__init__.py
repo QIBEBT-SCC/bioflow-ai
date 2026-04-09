@@ -13,6 +13,7 @@ class ContainerMount(BaseModel):
 
 
 def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
+    """Create container by image."""
     mount_configs = [{'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only} for m in mounts]
 
     if get_settings().docker.CONTAINER == 'podman':
@@ -121,4 +122,11 @@ def remove_container(container_id: str) -> None:
         remove_container(container_id)
 
 
-__all__ = ['ContainerMount', 'create_container', 'remove_container', 'run_command', 'run_command_background']
+__all__ = [
+    'ContainerMount',
+    'create_container',
+    'remove_container',
+    'run_command',
+    'run_command_background',
+    'run_command_in_container',
+]
