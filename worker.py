@@ -46,7 +46,7 @@ celery_app.autodiscover_tasks(
 
 
 @worker_process_init.connect
-def on_worker_process_init(**kwargs) -> None:  # noqa: ANN003
+def on_worker_process_init(**kwargs) -> None:  # noqa: ANN003, ARG001
     """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
     engine.dispose()
 
