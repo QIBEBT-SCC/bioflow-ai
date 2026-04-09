@@ -79,11 +79,10 @@ def get_task_log(uid: str, session: SessionDep) -> dict:
     """Get the text log file content for a task instance."""
     task = task_crud.get(session, uid)
 
-    log_path = task.tool_output.log  # This will be replaced with actual log path
-    if log_path and Path(log_path).exists():
+    log_path = Path(task.tool_output.log) if hasattr(task.tool_output, 'log') else Path(task.base_dir) / '11_run.log'
+    if Path(log_path).exists():
         with Path(log_path).open('r', encoding='utf-8') as f:
             lines = f.read()
-
             return {'content': lines}
-    else:
-        raise HTTPException(status_code=404, detail='Log file not found')
+
+    return {'content': ''}
