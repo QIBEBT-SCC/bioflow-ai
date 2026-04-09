@@ -81,6 +81,8 @@ class ToolOutput(BaseModel):
     log: Optional[Path] = None
     reports: dict[str, Path] = Field(default_factory=dict)
 
+    sample_name: Optional[str] = None
+
     def all_files(self) -> dict[str, Path]:
         files = (self.result | self.reports).copy()
         if self.log:

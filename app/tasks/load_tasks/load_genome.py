@@ -229,7 +229,7 @@ def load_ncbi_genome_task(
     load_result = {}
     with Session(engine) as session:
         if 'ncbi_tax_id' in inputs:
-            tax_id = get_tool_output(inputs['ncbi_tax_id'].source_uid, inputs['ncbi_tax_id'].source_k)
+            tax_id, _ = get_tool_output(inputs['ncbi_tax_id'].source_uid, inputs['ncbi_tax_id'].source_k)
             # 首先尝试通过tax_id在数据库中查找
             genome_record = genome_crud.get_by_taxid(session, int(tax_id))
 
@@ -241,7 +241,7 @@ def load_ncbi_genome_task(
             else:
                 logger.debug(f'Found existed genome record for tax_id: "{tax_id}"')
         elif 'species_name' in inputs:
-            species_name = get_tool_output(inputs['species_name'].source_uid, inputs['species_name'].source_k)
+            species_name, _ = get_tool_output(inputs['species_name'].source_uid, inputs['species_name'].source_k)
             genome_records = genome_crud.search(session, species_name)
 
             if not genome_records:

@@ -13,6 +13,7 @@ from app.schemas.react_flow import TaskInput
 from app.schemas.task_instance import TaskUpdate
 from app.tasks.base.base_task import (
     BaseBioTask,
+    get_prefix,
     get_tool_data,
     get_tool_output,
     update_task,
@@ -68,69 +69,79 @@ def _resolve_mount_path(
 
 
 def build_mounts(
-    file_mounts: list[FileMount], host_output_dir: str, sample_name: str, inputs: dict[str, TaskInput]
+    file_mounts: list[FileMount],
+    host_output_dir: str,
+    sample_name: str,
+    inputs: dict[str, TaskInput],
 ) -> tuple[dict[str, str], dict[str, Path], ToolOutput]:
     """构建挂载映射."""
     param_inputs: dict[str, str] = {}  # 用于构建参数的文件路径
     mount_paths: dict[str, Path] = {}  # 存储挂载的路径映射 (始终目录级)
     expected_output = ToolOutput()  # 预期输出文件路径
     conflicted_paths: set[str] = set()  # 已发生过冲突的容器路径
+    source_sample_names: list[str | None] = []
 
-    for file in file_mounts:
+    input_files = [f for f in file_mounts if f.file_type == 'INPUT']
+    output_files = [f for f in file_mounts if f.file_type == 'OUTPUT']
+
+    for file in input_files:
         if file.file_path.startswith('value:'):
             kwarg = inputs[file.name]
-            value = get_tool_output(kwarg.source_uid, kwarg.source_k)
+            value = get_tool_output(kwarg.source_uid, kwarg.source_k)[0]
             param_inputs[file.name] = value
-
         else:
-            if file.file_type == 'INPUT':
-                kwarg = inputs[file.name]
-                file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
-                host_file_path = Path(file_path)
+            kwarg = inputs[file.name]
+            file_path, source_sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+            host_file_path = Path(file_path)
+            source_sample_names.append(source_sample_name)
 
-                if host_file_path.is_dir():
-                    # 文件夹: 整目录挂载
-                    host_mount_path = host_file_path
-                    actual = _resolve_mount_path(
-                        mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
-                    )
-                    container_file_path = actual
-                else:
-                    # 文件或前缀: 挂载父目录, 保留伴生文件
-                    host_mount_path = host_file_path.parent
-                    actual = _resolve_mount_path(
-                        mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
-                    )
-                    container_file_path = f'{actual}/{host_file_path.name}'
-
-                if actual not in mount_paths:
-                    mount_paths[actual] = host_mount_path.absolute()
-
+            if host_file_path.is_dir():
+                # 文件夹: 整目录挂载
+                host_mount_path = host_file_path
+                actual = _resolve_mount_path(
+                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
+                )
+                container_file_path = actual
             else:
-                # 输出文件
-                try:
-                    host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=sample_name))
-                except KeyError as e:
-                    logger.error(file.file_path)
-                    logger.exception(e)
-                    sys.exit(1)
-
-                host_mount_path = Path(host_output_dir)
+                # 文件或前缀: 挂载父目录, 保留伴生文件
+                host_mount_path = host_file_path.parent
                 actual = _resolve_mount_path(
                     mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
                 )
                 container_file_path = f'{actual}/{host_file_path.name}'
-                if actual not in mount_paths:
-                    mount_paths[actual] = host_mount_path.absolute()
 
-                if file.is_log:
-                    expected_output.log = host_file_path.absolute()
-                elif file.is_report:
-                    expected_output.reports[file.name] = host_file_path.absolute()
-                else:
-                    expected_output.result[file.name] = host_file_path.absolute()
+            if actual not in mount_paths:
+                mount_paths[actual] = host_mount_path.absolute()
 
             param_inputs[file.name] = container_file_path
+
+    # 刷新样本名称
+    common_sample_name = get_prefix(source_sample_names)
+    output_sample_name = common_sample_name if common_sample_name else sample_name
+    expected_output.sample_name = output_sample_name
+
+    for file in output_files:
+        try:
+            host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=output_sample_name))
+        except KeyError as e:
+            logger.error(file.file_path)
+            logger.exception(e)
+            sys.exit(1)
+
+        host_mount_path = Path(host_output_dir)
+        actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+        container_file_path = f'{actual}/{host_file_path.name}'
+        if actual not in mount_paths:
+            mount_paths[actual] = host_mount_path.absolute()
+
+        if file.is_log:
+            expected_output.log = host_file_path.absolute()
+        elif file.is_report:
+            expected_output.reports[file.name] = host_file_path.absolute()
+        else:
+            expected_output.result[file.name] = host_file_path.absolute()
+
+        param_inputs[file.name] = container_file_path
 
     return param_inputs, mount_paths, expected_output
 
@@ -184,7 +195,12 @@ def docker_task(
         file_mounts=tool_config.file_mounts,
     )
     formatter = PartialFormatter()
-    tool_command = formatter.format(final_template, output_dir='/data/output', sample_name=sample_name, **param_inputs)
+    tool_command = formatter.format(
+        final_template,
+        output_dir='/data/output',
+        sample_name=expected_output.sample_name,
+        **param_inputs,
+    )
 
     # 组合docker命令
     docker_image = ImageConfig.model_validate(tool_config.image.image)
@@ -207,7 +223,9 @@ def docker_task(
     # 验证输出文件是否生成
     missing_outputs = [str(path) for name, path in expected_output.all_files().items() if not path.exists()]
     if missing_outputs:
-        logger.warning(f'部分输出文件未生成: {missing_outputs}')
+        err_msg = f'部分输出文件未生成: {missing_outputs}'
+        logger.error(err_msg)
+        raise RuntimeError(err_msg)
 
     # 返回结果
     return expected_output

@@ -23,14 +23,14 @@ def select_file_task(
 ) -> ToolOutput:
     """从文件夹中提取指定文件."""
     kwarg = inputs.get('folder_path')
-    parent_dir = get_tool_output(kwarg.source_uid, kwarg.source_k)
+    parent_dir, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
 
     selected_file = Path(parent_dir) / file_name
 
     if not Path(selected_file).exists():
         raise FileNotFoundError(parent_dir)
 
-    return ToolOutput(result={'file_path': selected_file})
+    return ToolOutput(result={'file_path': selected_file}, sample_name=sample_name)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -49,7 +49,7 @@ def collect_files_task(
     output_folder.mkdir(parents=True, exist_ok=True)
 
     for kwarg in kwargs:
-        origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k))
+        origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k)[0])
         if origin_file.exists():
             new_file = output_folder / origin_file.name
             if new_file.exists():
@@ -70,13 +70,14 @@ def gzip_file_task(
 ) -> ToolOutput:
     """对原始文件进行压缩."""
     input_kwarg = inputs.get('file', '')
-    origin_file = Path(get_tool_output(input_kwarg.source_uid, input_kwarg.source_k))
+    file_path, sample_name = get_tool_output(input_kwarg.source_uid, input_kwarg.source_k)
+    origin_file = Path(file_path)
     if origin_file.exists():
         zipped_file = origin_file.with_name(f'{origin_file.name}.gz')
         with origin_file.open('rb') as f_in, gzip.open(zipped_file, 'wb') as f_out:
             shutil.copyfileobj(f_in, f_out)
 
-        return ToolOutput(result={'zipped_file': zipped_file})
+        return ToolOutput(result={'zipped_file': zipped_file}, sample_name=sample_name)
 
     raise FileNotFoundError(origin_file)
 
@@ -91,5 +92,5 @@ def bind_param_task(
 ) -> ToolOutput:
     """将文件绑定到指定参数名, 输出为 JSON 字符串."""
     kwarg = inputs.get('file')
-    file_path = get_tool_output(kwarg.source_uid, kwarg.source_k)
-    return ToolOutput(result={'file_with_param': json.dumps({parameter: str(file_path)})})
+    file_path, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+    return ToolOutput(result={'file_with_param': json.dumps({parameter: str(file_path)})}, sample_name=sample_name)

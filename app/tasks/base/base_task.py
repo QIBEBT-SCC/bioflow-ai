@@ -3,6 +3,8 @@ import platform
 import socket
 import time
 from datetime import UTC, datetime
+from itertools import takewhile
+from pathlib import Path
 
 import celery
 from loguru import logger
@@ -14,6 +16,8 @@ import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
 from app.core.session import engine
+from app.crud import project as project_crud
+from app.crud.resource import sample as sample_crud
 from app.models.tools import ToolDefine
 from app.models.workflow import Status, TaskMonitor
 from app.schemas.run_instance import RunUpdate
@@ -227,7 +231,7 @@ def update_task(uid: str, data: TaskUpdate) -> bool:
         return False
 
 
-def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: float = 3.0) -> str:
+def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: float = 3.0) -> tuple[str, str | None]:
     """从数据库获取任务输出, 带轮询重试机制."""
     for attempt in range(max_retries):
         try:
@@ -243,7 +247,7 @@ def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: floa
                     if k in all_files:
                         result = str(all_files[k])
                         logger.debug(f'成功获取输出 {k}: {result}')
-                        return result
+                        return result, task.tool_output.sample_name
 
                 if attempt < max_retries - 1:
                     logger.debug(
@@ -260,3 +264,90 @@ def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: floa
 
     err_msg = f'无法获取任务 {uid} 的输出 {k}, 已重试 {max_retries} 次'
     raise TimeoutError(err_msg)
+
+
+def resolve_path(
+    path_or_reference: str,
+    session: Session,
+    project_id: int | None,
+    sample_uid: str | None,
+) -> tuple[Path, str | None]:
+    """解析路径引用为实际文件路径.
+
+    Args:
+        path_or_reference: 普通路径或引用 (如 "proj:index" 或 "sample:r1")
+        session: 数据库会话
+        project_id: 项目 ID, 用于项目级查找
+        sample_uid: 样本UID, 用于获取样本文件
+
+    Returns:
+        解析后的文件路径
+
+    Raises:
+        ValueError: 如果引用无法解析 (在任务执行时抛出)
+
+    Note:
+        错误在运行时任务执行时抛出, 而非工作流验证时。
+        这允许在某些映射尚未配置时创建工作流。
+    """
+    if not path_or_reference.startswith(('proj:', 'sample:')):
+        return Path(path_or_reference), None
+
+    if path_or_reference.startswith('proj:'):
+        return _resolve_project_path(path_or_reference, session, project_id)
+
+    if path_or_reference.startswith('sample:'):
+        return _resolve_sample_path(path_or_reference, session, sample_uid)
+
+    err_msg = f'Invalid path reference: {path_or_reference}'
+    raise ValueError(err_msg)
+
+
+def get_prefix(strings: list[str | None]) -> str | None:
+    """获取两个字符串的共同前缀."""
+    valid_strs = [s for s in strings if s is not None]
+    if not valid_strs:
+        return None
+
+    pairs = zip(*valid_strs, strict=False)
+    common_gen = takewhile(lambda x: all(c == x[0] for c in x), pairs)
+    raw_prefix = ''.join(char_tuple[0] for char_tuple in common_gen)
+    return raw_prefix.rstrip('.-_rR')
+
+
+def _resolve_project_path(reference: str, session: Session, project_id: int | None) -> tuple[Path, str | None]:
+    """解析 proj:<keyword> 为项目文件映射中的文件路径."""
+    if project_id is None:
+        err_msg = f'Cannot resolve {reference}: this is a temporary workflow. Use file path directly.'
+        raise ValueError(err_msg)
+
+    keyword = reference.split(':', 1)[1]
+    mapping = project_crud.get_file_mapping(session, project_id, keyword)
+
+    if not mapping:
+        err_msg = f'Project file mapping not found: {keyword}'
+        raise FileNotFoundError(err_msg)
+
+    return Path(mapping.file_path).absolute(), keyword
+
+
+def _resolve_sample_path(reference: str, session: Session, sample_uid: str | None) -> tuple[Path, str | None]:
+    """解析 sample:<tag> 为样本文件路径."""
+    if sample_uid is None:
+        err_msg = f'Cannot resolve {reference}: this is a project-level workflow. Use proj:keyword references instead of sample:tag references.'
+        raise ValueError(err_msg)
+
+    tag = reference.split(':', 1)[1]
+    sample = sample_crud.get_with_files(session, sample_uid)
+
+    if not sample:
+        err_msg = f'Sample not found: {sample_uid}'
+        raise KeyError(err_msg)
+
+    matching_file = next((f for f in sample.sample_files if f.tag == tag), None)
+
+    if not matching_file:
+        err_msg = f'Sample file with tag "{tag}" not found'
+        raise KeyError(err_msg)
+
+    return Path(matching_file.file_path).absolute(), tag

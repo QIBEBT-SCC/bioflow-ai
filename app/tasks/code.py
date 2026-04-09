@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
-from app.tasks.base.base_task import BaseBioTask, get_tool_output
+from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
 from worker import celery_app
 
 
@@ -32,9 +32,11 @@ def bash_task(
         raw_inputs = [raw_inputs]
 
     param_args: dict[str, str] = {}
+    input_sample_names = []
     for kwarg in raw_inputs:
-        json_str = get_tool_output(kwarg.source_uid, kwarg.source_k)
+        json_str, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
         param_args.update(json.loads(json_str))
+        input_sample_names.append(sample_name)
 
     # 2. 准备输出目录并写入脚本
     output_path = Path(output_dir).absolute()
@@ -61,5 +63,9 @@ def bash_task(
     if result.returncode != 0:
         err_msg = f'bash script failed (exit {result.returncode}):\n{result.stderr}'
         raise RuntimeError(err_msg)
+
+    if input_sample_names:
+        common_sample_name = get_prefix(input_sample_names)
+        return ToolOutput(result={'output_folder': output_path}, sample_name=common_sample_name)
 
     return ToolOutput(result={'output_folder': output_path})

@@ -39,7 +39,7 @@ def downstream_summary_task(
     output_folder.mkdir(parents=True)
 
     for kwarg in kwargs:
-        origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k))
+        origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k)[0])
         if origin_file.exists():
             new_file = output_folder / origin_file.name
             if new_file.exists():

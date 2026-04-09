@@ -22,7 +22,6 @@ from app.tasks.run_tool import docker_task
 from app.tasks.summary_task.summary import downstream_summary_task, upstream_summary_task
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.handler_base import BaseTaskHandler, TaskContext, register_handler
-from app.utils.workflow.path_resolver import resolve_path
 
 
 class EmptyToolUIDError(ValueError):
@@ -93,8 +92,12 @@ class ResourceFileTaskHandler(BaseTaskHandler):
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
         file_path_ref = task_node.data.get('file_path', '')
-        file_path = resolve_path(file_path_ref, context, context.session, context.project_id)
-        return load_file_task.s(file_path=file_path).set(task_id=task_node.id)
+        return load_file_task.s(
+            file=file_path_ref,
+            project_id=context.project_id,
+            sample_uid=context.sample_uid,
+            sample_name=context.sample_name,
+        ).set(task_id=task_node.id)
 
 
 @register_handler('resource_sequence')
@@ -114,10 +117,13 @@ class ResourceSequenceTaskHandler(BaseTaskHandler):
         r1_ref = task_node.data.get('r1', 'sample:r1')
         r2_ref = task_node.data.get('r2', 'sample:r2')
 
-        r1_path = resolve_path(r1_ref, context, context.session, context.project_id)
-        r2_path = resolve_path(r2_ref, context, context.session, context.project_id)
-
-        return load_sequence_task.s(r1=r1_path, r2=r2_path).set(task_id=task_node.id)
+        return load_sequence_task.s(
+            r1=r1_ref,
+            r2=r2_ref,
+            project_id=context.project_id,
+            sample_uid=context.sample_uid,
+            sample_name=context.sample_name,
+        ).set(task_id=task_node.id)
 
 
 @register_handler('resource_db')
@@ -135,7 +141,7 @@ class ResourceDbTaskHandler(BaseTaskHandler):
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
         db_path = db_crud.get(context.session, int(task_node.data.get('db_id'))).path
-        return load_file_task.s(file_path=db_path).set(task_id=task_node.id)
+        return load_file_task.s(file=db_path).set(task_id=task_node.id)
 
 
 @register_handler('resource_ncbi_genome')
