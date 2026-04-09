@@ -1,4 +1,5 @@
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Optional
@@ -58,18 +59,14 @@ def downstream_summary_task(
 
 
 async def _get_summary(agent_input: dict[str, Any], config: RunnableConfig, context: FolderContext) -> None:
-    async for namespace, mode, data in summary_analyse_agent.astream(
+    async for _, _, data in summary_analyse_agent.astream(
         agent_input,  # type: ignore
         config,
         context=context,  # type: ignore
-        stream_mode=['custom', 'updates'],
+        stream_mode=['custom'],
         subgraphs=True,
     ):
-        if mode == 'custom':
-            logger.info(data)
-        else:
-            running_node = ','.join([n.split(':')[0] for n in namespace])
-            logger.debug(f'({running_node}) {data}')
+        logger.debug(data)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -100,7 +97,7 @@ def upstream_summary_task(
             'messages': [HumanMessage(content='请阅读当前目录下的分析项目, 给出分析报告')],
             'container_id': container_id,
         }
-        config: RunnableConfig = {'recursion_limit': 500}
+        config: RunnableConfig = {'recursion_limit': sys.maxsize}
         context = FolderContext(
             output_path=temp_dir,
             user_id=2,
