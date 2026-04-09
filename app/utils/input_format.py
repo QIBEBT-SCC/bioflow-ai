@@ -43,7 +43,15 @@ def build_command_template(
         dynamic_params=' '.join(dynamic_params),
         static_params=static_params,
     )
-    final_template = formatter.format(command_template, **{file.name: file.file_path for file in file_mounts})
+    final_template = formatter.format(
+        command_template,
+        **{
+            file.name: (
+                file.file_path.removeprefix('value:') if file.file_path.startswith('value:') else file.file_path
+            )
+            for file in file_mounts
+        },
+    )
     return ' '.join(final_template.split())
 
 
