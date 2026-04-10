@@ -56,11 +56,7 @@ class ToolTaskHandler(BaseTaskHandler):
         if tool_uid := task_node.data.get('tool_uid'):
             tool_data = tool_crud.get(context.session, tool_uid)
 
-            tool_args = (
-                task_node.data.get('modifiable_params')
-                if 'modifiable_params' in task_node.data
-                else task_node.data.get('args')
-            )
+            tool_args = task_node.data.get('modifiable_params')
             return docker_task.s(
                 tool_uid=tool_uid,
                 inputs=task_node.kwarg,

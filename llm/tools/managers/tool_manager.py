@@ -330,13 +330,9 @@ def _add_tool_node(
 
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     if error := check_edge_handles(input_edges, db_node.input_handles, exist_nodes):
-        return Command(
-            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
-        )
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
     if error := check_tool_node_edges(input_edges, db_node.input_handles):
-        return Command(
-            update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
-        )
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     node_id = generate_char_index(len(exist_nodes) + 1)
     new_node = BuildNode(
@@ -345,7 +341,7 @@ def _add_tool_node(
         type='tool',
         input_handles=db_node.input_handles,
         output_handles=db_node.output_handles,
-        data={'tool_uid': tool_uid, 'args': db_node.modifiable_static_params},
+        data={'tool_uid': tool_uid, 'modifiable_params': db_node.modifiable_static_params},
         command=db_node.complete_command,
         x=pos_x,
         y=pos_y,
@@ -419,7 +415,7 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
             db_tool.file_mounts,
         )
         new_nodes = [
-            n.model_copy(update={'data': {'tool_uid': tool_uid, 'args': new_args}, 'command': new_command})
+            n.model_copy(update={'data': {'tool_uid': tool_uid, 'modifiable_params': new_args}, 'command': new_command})
             if n.id == node_id
             else n
             for n in exist_nodes
