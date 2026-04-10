@@ -99,7 +99,7 @@ async def web_reader(url: str, query: Optional[str] = None) -> str:
             bm25_filter = BM25ContentFilter(
                 user_query=query,
                 # Adjust for stricter or looser results
-                bm25_threshold=1.2,
+                bm25_threshold=1.0,
             )
             md_generator = DefaultMarkdownGenerator(content_filter=bm25_filter)
             run_config = CrawlerRunConfig(verbose=False, markdown_generator=md_generator)
