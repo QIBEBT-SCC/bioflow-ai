@@ -157,3 +157,7 @@ class OutputFolderItem(BaseModel):
 
 OutputFileNode = Annotated[OutputFileItem | OutputFolderItem, Field(discriminator='type')]
 OutputFolderItem.model_rebuild()
+
+
+class FileContentRequest(BaseModel):
+    path: str

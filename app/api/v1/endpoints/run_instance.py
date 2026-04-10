@@ -3,16 +3,17 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from starlette.status import HTTP_404_NOT_FOUND
+from fastapi.responses import Response
+from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 import app.crud.run_instance as run_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance
 from app.schemas.common import Statistics
-from app.schemas.run_instance import OutputFileNode, RunDetailPublic, RunPublic, RunUpdate
+from app.schemas.run_instance import FileContentRequest, OutputFileNode, RunDetailPublic, RunPublic, RunUpdate
 from app.utils.security import UserDep
-from app.utils.system import build_file_tree
+from app.utils.system import build_file_tree, serve_file
 from app.utils.workflow import get_run_stats_from_redis
 
 router = APIRouter()
@@ -20,10 +21,10 @@ router = APIRouter()
 
 @router.get('')
 async def get_all_runs(
-    session: SessionDep,
-    current_user: UserDep,
-    offset: int = 0,
-    limit: Annotated[int, Query(le=20)] = 20,
+        session: SessionDep,
+        current_user: UserDep,
+        offset: int = 0,
+        limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[RunPublic]:
     """获取所有运行实例(包含从 Redis 读取的实时统计信息)."""
     runs = run_crud.get_all_runs(session, limit, offset, current_user.id)
@@ -84,9 +85,9 @@ async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunD
 
 @router.get('/{uid}/files')
 async def get_run_output_files(
-    uid: uuid.UUID,
-    session: SessionDep,
-    _current_user: UserDep,
+        uid: uuid.UUID,
+        session: SessionDep,
+        _current_user: UserDep,
 ) -> list[OutputFileNode]:
     """Get the file tree of the run instance output directory.
 
@@ -104,3 +105,42 @@ async def get_run_output_files(
         return []
 
     return build_file_tree(Path(run.base_dir), Path(run.base_dir))
+
+
+@router.post('/{uid}/files/content')
+async def get_run_output_file_content(
+        uid: uuid.UUID,
+        body: FileContentRequest,
+        session: SessionDep,
+        _current_user: UserDep,
+) -> Response:
+    """Serve the content of a single file from the run instance output directory.
+
+    Args:
+        uid: Run instance UID
+        body: Relative path from run base_dir (as returned by the /{uid}/files endpoint)
+
+    Returns:
+        Response: File content with appropriate Content-Type header.
+            - Text files (txt, log, csv, tsv, json, html, fasta, etc.) are returned inline.
+            - Binary files (images, PDF, etc.) are streamed with their native MIME type.
+            - Unknown binary files are returned as application/octet-stream with
+              Content-Disposition: attachment.
+    """
+    run = run_crud.get(session, str(uid))
+    if not run:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found')
+
+    if not run.base_dir:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Run has no output directory')
+
+    base = Path(run.base_dir).resolve()
+    full_path = (base / body.path).resolve()
+
+    if not full_path.is_relative_to(base):
+        raise HTTPException(HTTP_403_FORBIDDEN, 'Access denied')
+
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
+
+    return serve_file(full_path)
