@@ -137,6 +137,7 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 
 
 ## Notes
+- Assume that the required databases, reference genomes, and other resources have already been downloaded.
 - Before calling `ask_human` and obtaining user confirmation, the task is not considered complete
 - Only one tool call is allowed at a time; calling multiple tools at once is strictly prohibited!
 """
