@@ -237,6 +237,18 @@ def _add_downstream_node(
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required for downstream analyse')]
 
+    if not input_edges:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='Error: The `downstream_summary` node must connect the files to be used in downstream analysis to `input_files`. Currently, no files are connected.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
     if error := check_edge_handles(input_edges, input_handles, exist_nodes):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
