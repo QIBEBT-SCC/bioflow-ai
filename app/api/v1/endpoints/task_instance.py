@@ -1,19 +1,26 @@
+import asyncio
 import json
+from collections.abc import AsyncGenerator
 from datetime import timedelta
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from sqlmodel import Session
+from starlette.requests import Request
 
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
-from app.models.workflow import ToolOutput
+from app.models.workflow import Status, ToolOutput
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic
 from app.utils.security import UserDep
 
 router = APIRouter()
+
+IDLE_THRESHOLD = 3  # empty-read cycles before checking DB (~6s)
 
 
 @router.get('')
@@ -86,3 +93,78 @@ def get_task_log(uid: str, session: SessionDep) -> dict:
             return {'content': lines}
 
     return {'content': ''}
+
+
+async def _stream_task_log(uid: str, session: Session, request: Request) -> AsyncGenerator[str, None]:
+    """Yield SSE data lines with incremental log content until task reaches terminal state.
+
+    DB query strategy:
+    - Query once at start to resolve log_path (re-poll if task hasn't started yet).
+    - While the log file is actively producing content, skip DB queries entirely.
+    - Only re-query DB after IDLE_THRESHOLD consecutive empty reads (~6s of silence),
+      which naturally coincides with when a task has just finished writing.
+    """
+    terminal_states = {Status.ERROR, Status.SUCCESS}
+
+    file_offset = 0
+    idle_cycles = 0
+    log_path: Path | None = None
+
+    while True:
+        if await request.is_disconnected():
+            break
+
+        # Phase 1 — resolve log_path; re-poll each cycle until task starts
+        if log_path is None:
+            session.expire_all()
+            task = task_crud.get(session, uid)
+            if task.tool_output and hasattr(task.tool_output, 'log') and task.tool_output.log:
+                log_path = Path(task.tool_output.log)
+            elif task.base_dir:
+                log_path = Path(task.base_dir) / '11_run.log'
+            else:
+                # Task hasn't started yet (no base_dir); check terminal and keep waiting
+                if task.status in terminal_states:
+                    break
+                await asyncio.sleep(2)
+                continue
+
+        # Phase 2 — stream file content; query DB only on idle
+        new_content = ''
+        if log_path.exists():
+            with log_path.open('r', encoding='utf-8') as f:
+                f.seek(file_offset)
+                new_content = f.read()
+                file_offset = f.tell()
+
+        if new_content:
+            idle_cycles = 0
+            yield f'data: {json.dumps({"content": new_content})}\n\n'
+        else:
+            idle_cycles += 1
+            if idle_cycles >= IDLE_THRESHOLD:
+                session.expire_all()
+                task = task_crud.get(session, uid)
+                if task.status in terminal_states:
+                    break
+                idle_cycles = 0
+
+        await asyncio.sleep(2)
+
+
+@router.get('/{uid}/log/stream')
+async def stream_task_log(
+    uid: str,
+    request: Request,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> StreamingResponse:
+    """Stream task log content as SSE, sending only new lines on each tick."""
+    return StreamingResponse(
+        _stream_task_log(uid, session, request),
+        media_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        },
+    )

@@ -1,17 +1,28 @@
+import asyncio
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
+from sqlmodel import Session
+from starlette.requests import Request
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 import app.crud.run_instance as run_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
-from app.models.workflow import RunInstance
+from app.models.workflow import RunInstance, Status
 from app.schemas.common import Statistics
-from app.schemas.run_instance import FileContentRequest, OutputFileNode, RunDetailPublic, RunPublic, RunUpdate
+from app.schemas.run_instance import (
+    FileContentRequest,
+    OutputFileNode,
+    RunDetailPublic,
+    RunPublic,
+    RunUpdate,
+    SimpleRunPublic,
+)
 from app.utils.security import UserDep
 from app.utils.system import build_file_tree, serve_file
 from app.utils.workflow import get_run_stats_from_redis
@@ -21,10 +32,10 @@ router = APIRouter()
 
 @router.get('')
 async def get_all_runs(
-        session: SessionDep,
-        current_user: UserDep,
-        offset: int = 0,
-        limit: Annotated[int, Query(le=20)] = 20,
+    session: SessionDep,
+    current_user: UserDep,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[RunPublic]:
     """获取所有运行实例(包含从 Redis 读取的实时统计信息)."""
     runs = run_crud.get_all_runs(session, limit, offset, current_user.id)
@@ -83,11 +94,58 @@ async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunD
     return run_detail
 
 
+async def _stream_run_updates(
+    uid: str,
+    session: Session,
+    request: Request,
+) -> AsyncGenerator[str, None]:
+    """Yield SSE data lines for a run until terminal state or client disconnect."""
+    terminal_states = {Status.ERROR, Status.SUCCESS}
+
+    while True:
+        if await request.is_disconnected():
+            break
+
+        session.expire_all()  # Force fresh DB read each iteration
+
+        run = run_crud.get(session, uid)
+        run_data = RunDetailPublic.model_validate(run)
+
+        stats = await get_run_stats_from_redis(monitor_redis_client, uid)
+        if stats:
+            run_data.task_statistics = stats
+
+        yield f'data: {run_data.model_dump_json()}\n\n'
+
+        if run_data.status in terminal_states:
+            break
+
+        await asyncio.sleep(2)
+
+
+@router.get('/{uid}/stream')
+async def stream_run(
+    uid: str,
+    request: Request,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> StreamingResponse:
+    """Stream run status updates via SSE until the run reaches a terminal state."""
+    return StreamingResponse(
+        _stream_run_updates(uid, session, request),
+        media_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        },
+    )
+
+
 @router.get('/{uid}/files')
 async def get_run_output_files(
-        uid: uuid.UUID,
-        session: SessionDep,
-        _current_user: UserDep,
+    uid: uuid.UUID,
+    session: SessionDep,
+    _current_user: UserDep,
 ) -> list[OutputFileNode]:
     """Get the file tree of the run instance output directory.
 
@@ -109,10 +167,10 @@ async def get_run_output_files(
 
 @router.post('/{uid}/files/content')
 async def get_run_output_file_content(
-        uid: uuid.UUID,
-        body: FileContentRequest,
-        session: SessionDep,
-        _current_user: UserDep,
+    uid: uuid.UUID,
+    body: FileContentRequest,
+    session: SessionDep,
+    _current_user: UserDep,
 ) -> Response:
     """Serve the content of a single file from the run instance output directory.
 
