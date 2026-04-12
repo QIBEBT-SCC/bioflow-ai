@@ -209,6 +209,8 @@ def docker_task(
         for container_path, host_path in mount_paths.items()
     ]
 
+    volume_binds.append(Mount(type='bind', source='/tmp', target='/tmp'))  # noqa: S108
+
     data = TaskUpdate(
         commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Target']}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
     )
