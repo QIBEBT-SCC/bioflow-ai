@@ -358,12 +358,11 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 
-async def rebuild_vector_store() -> None:
+async def rebuild_tool_index() -> None:
     """重建工具库向量索引."""
-    import polars as pl
     from langchain_core.documents import Document
     from langchain_milvus import BM25BuiltInFunction, Milvus
-    from sqlmodel import Session, col, select
+    from sqlmodel import Session, select
     from tqdm import tqdm
 
     from app.core.config import get_settings
@@ -384,27 +383,21 @@ async def rebuild_vector_store() -> None:
         auto_id=True,
     )
 
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet').filter(pl.col('tool_node').is_not_null())
-    node_uids = function_df['tool_node'].unique().to_list()
-
     with Session(engine) as session:
         statement = select(
             ToolDefine.uid,
             ToolDefine.description,
             ToolDefine.image_uid,
             ToolDefine.name,
-        ).where(col(ToolDefine.uid).in_(node_uids))
+        )
         results = session.exec(statement).all()
-        tools_map = {str(row.uid): row for row in results}  # type: ignore[attr-defined]
 
     docs_to_add = []
     empty_tools = []
     batch_size = 10
 
-    for node_uid in tqdm(node_uids, total=len(node_uids)):
-        tool_data = tools_map.get(node_uid)
-
-        if tool_data and tool_data.description:  # type: ignore[attr-defined]
+    for tool_data in tqdm(results, total=len(results)):
+        if tool_data.description:  # type: ignore[attr-defined]
             docs_to_add.append(
                 Document(
                     page_content=tool_data.description,  # type: ignore[attr-defined]
@@ -420,7 +413,7 @@ async def rebuild_vector_store() -> None:
                 await vectorstore.aadd_documents(docs_to_add)
                 docs_to_add = []
         else:
-            empty_tools.append(node_uid)
+            empty_tools.append(str(tool_data.uid))  # type: ignore[attr-defined]
 
     if docs_to_add:
         await vectorstore.aadd_documents(docs_to_add)
@@ -428,6 +421,40 @@ async def rebuild_vector_store() -> None:
     if empty_tools:
         empty_file = Path('empty_tools.txt')
         empty_file.write_text('\n'.join(empty_tools) + '\n')
+
+
+async def rebuild_processor_index() -> None:
+    """重建处理器索引."""
+    from langchain_core.documents import Document
+    from langchain_milvus import BM25BuiltInFunction, Milvus
+    from tqdm import tqdm
+
+    from app.core.config import get_settings
+    from llm.models import qwen3_embedding
+    from llm.utils.node_schema import PROCESSORS
+
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='ProcessorCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding,
+        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        consistency_level='Strong',
+        drop_old=True,
+        auto_id=True,
+    )
+
+    for process_name in tqdm(PROCESSORS, total=len(PROCESSORS)):
+        description = PROCESSORS[process_name]['description']
+        docs = [
+            Document(
+                page_content=description,
+                metadata={
+                    'name': process_name,
+                },
+            ),
+        ]
+        await vectorstore.aadd_documents(docs)
 
 
 def statistic() -> None:
@@ -505,9 +532,15 @@ def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
 
 
 @cli.command()
-def rebuild_vector_store_cmd() -> None:
-    """重建向量存储."""
-    asyncio.run(rebuild_vector_store())
+def rebuild_tool_index_cmd() -> None:
+    """重建工具向量存储."""
+    asyncio.run(rebuild_tool_index())
+
+
+@cli.command()
+def rebuild_processor_index_cmd() -> None:
+    """重建工具向量存储."""
+    asyncio.run(rebuild_processor_index())
 
 
 @cli.command()
