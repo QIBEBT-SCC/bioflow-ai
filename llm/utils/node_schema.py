@@ -44,10 +44,6 @@ class BindParamSchema(BaseModel):
     parameter: str
 
 
-class BashCodeSchema(BaseModel):
-    code: str
-
-
 # 资源节点
 class DbResourceSchema(BaseModel):
     db_id: int
@@ -108,13 +104,6 @@ PROCESSORS: dict[str, NodeSchema] = {
         'args': RenameFileSchema,
         'input_handles': [Handle(name='old_file', description='Old file to be renamed')],
         'output_handles': [Handle(name='renamed_file', description='Renamed file')],
-    },
-    'code_bash': {
-        'name': 'Bash Code',
-        'description': 'This node executes a bash script in a container. Connect one or more `bind_param` node outputs to the `input_files` handle to pass files as named parameters. Write the bash script in the `code` parameter using `getopts` syntax to receive the parameters. The output of this node is the working directory folder, from which specific files can be extracted using `select_file_in_folder` nodes.',
-        'args': BashCodeSchema,
-        'input_handles': [Handle(name='input_files', description='Bound parameter files from bind_param nodes')],
-        'output_handles': [Handle(name='folder_path', description='Working directory containing output files')],
     },
 }
 
@@ -210,10 +199,10 @@ RESOURCES: dict[str, NodeSchema] = {
 }
 
 # Import edge check functions at the end to avoid circular imports
-from llm.utils.edge_validation import check_ncbi_genome_edges, check_processor_edges
+from llm.utils.edge_validation import check_ncbi_genome_edges, check_processor_edges  # noqa: E402
 
 # Add edge_check to all processor nodes
-for processor_name in PROCESSORS:
+for processor_name in PROCESSORS:  # noqa: PLC0206
     PROCESSORS[processor_name]['edge_check'] = check_processor_edges
 
 # Add edge_check to ncbi_genome resource node
