@@ -3,10 +3,12 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import click
 from loguru import logger
+
+from app.models.tools import ToolImage
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
@@ -358,6 +360,67 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 
+async def rebuild_image_index() -> None:
+    """重建镜像向量索引."""
+    from langchain_core.documents import Document
+    from langchain_milvus import Milvus
+    from sqlmodel import Session, select
+    from tqdm import tqdm
+
+    from app.core.config import get_settings
+    from app.core.session import engine
+    from llm.models import qwen3_embedding
+
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        embedding_function=embedding,
+        collection_name='ImageCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        search_params={'M': 64, 'efConstruction': 100},
+        consistency_level='Strong',
+        drop_old=True,
+        auto_id=True,
+    )
+
+    with Session(engine) as session:
+        statement = select(
+            ToolImage.uid,
+            ToolImage.name,
+            ToolImage.description,
+        )
+        results = session.exec(statement).all()
+
+    images_to_add = []
+    empty_images = []
+    batch_size = 10
+
+    for image_data in tqdm(results, total=len(results)):
+        if image_data.description:  # type: ignore[attr-defined]
+            images_to_add.append(
+                Document(
+                    page_content=image_data.description,  # type: ignore[attr-defined]
+                    metadata={
+                        'image_uid': str(image_data.uid),  # type: ignore[attr-defined]
+                        'name': image_data.name,  # type: ignore[attr-defined]
+                    },
+                )
+            )
+
+            if len(images_to_add) >= batch_size:
+                await vectorstore.aadd_documents(images_to_add)
+                images_to_add = []
+        else:
+            empty_images.append(str(image_data.uid))  # type: ignore[attr-defined]
+
+    if images_to_add:
+        await vectorstore.aadd_documents(images_to_add)
+
+    if empty_images:
+        empty_file = Path('empty_images.txt')
+        empty_file.write_text('\n'.join(empty_images) + '\n')
+
+
 async def rebuild_tool_index() -> None:
     """重建工具库向量索引."""
     from langchain_core.documents import Document
@@ -532,15 +595,31 @@ def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
 
 
 @cli.command()
-def rebuild_tool_index_cmd() -> None:
+@click.option(
+    '--collections',
+    '-c',
+    type=click.Choice(['all', 'tool', 'processor', 'image']),
+    default='all',
+    show_default=True,
+    help='指定要重建的向量索引集合',
+)
+def rebuild_index_cmd(collections: Literal['all', 'tool', 'processor', 'image']) -> None:
     """重建工具向量存储."""
-    asyncio.run(rebuild_tool_index())
 
+    async def _run() -> None:
+        if collections in ('all', 'image'):
+            logger.info('Rebuild image index...')
+            await rebuild_image_index()
 
-@cli.command()
-def rebuild_processor_index_cmd() -> None:
-    """重建工具向量存储."""
-    asyncio.run(rebuild_processor_index())
+        if collections in ('all', 'tool'):
+            logger.info('Rebuild tool index...')
+            await rebuild_tool_index()
+
+        if collections in ('all', 'processor'):
+            logger.info('Rebuild processor index...')
+            await rebuild_processor_index()
+
+    asyncio.run(_run())
 
 
 @cli.command()
