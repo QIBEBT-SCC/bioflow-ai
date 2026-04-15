@@ -3,7 +3,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_qwen3 import Qwen3Embeddings
+from loguru import logger
 from pydantic import SecretStr
 from sqlmodel import Session
 
@@ -176,8 +176,14 @@ def get_high_performance_model() -> BaseChatModel:
 
 
 @cache_model()
-def _local_embedding_model() -> Qwen3Embeddings:
+def _local_embedding_model() -> Embeddings:
     """有缓存的本地向量模型."""
+    try:
+        from langchain_qwen3 import Qwen3Embeddings
+    except Exception as e:
+        err_msg = 'Please install package langchain_qwen3 by "uv add langchain_qwen3"'
+        raise ImportError(err_msg) from e
+
     return Qwen3Embeddings(
         model=get_settings().knowledge_base.local.MODEL,
         use_modelscope=get_settings().knowledge_base.local.USE_MODELSCOPE,
