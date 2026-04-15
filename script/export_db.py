@@ -7,6 +7,7 @@ from tqdm import tqdm
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
+import app.models.user  # noqa: F401
 from app.core.session import engine
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ def export_docs() -> None:
                 {
                     'id': str(doc.uid),
                     'help_command': doc.help_command,
-                    'description': doc.description,
+                    'description': doc.description if doc.description else '',
                     'content': doc.content,
                     'image_uid': str(doc.image_uid),
                 }
