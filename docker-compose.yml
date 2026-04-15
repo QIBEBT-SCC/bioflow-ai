@@ -19,20 +19,26 @@ services:
     networks:
       - milvus-net
 
-  minio:
-    container_name: milvus-minio
-    image: docker.io/minio/minio:RELEASE.2024-05-28T17-19-04Z
+  rustfs:
+    container_name: milvus-rustfs
+    image: docker.io/rustfs/rustfs:latest
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      RUSTFS_ACCESS_KEY: minioadmin
+      RUSTFS_SECRET_KEY: minioadmin
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_REGION: us-east-1
+      # RUSTFS_SERVER_DOMAINS: localhost# Optional; not required for local deployments
     ports:
       - "9001:9001"
       - "9000:9000"
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rustfs:/data
+    command: >
+      --address :9000 
+      --console-enable 
+      /data
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/health" ]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -41,13 +47,17 @@ services:
 
   standalone:
     container_name: milvus-standalone
-    image: docker.io/milvusdb/milvus:v2.6.11
+    image: docker.io/milvusdb/milvus:v2.6.14
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
     environment:
+      MINIO_REGION: us-east-1
       ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
+      MINIO_ADDRESS: rustfs:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
       MQ_TYPE: woodpecker
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
@@ -62,7 +72,7 @@ services:
       - "9091:9091"
     depends_on:
       - "etcd"
-      - "minio"
+      - "rustfs"
     networks:
       - milvus-net
 

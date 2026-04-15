@@ -414,7 +414,7 @@ requires-dist = [
     { name = "langchain-anthropic", specifier = ">=1.3.0" },
     { name = "langchain-community", specifier = ">=0.4.0" },
     { name = "langchain-google-genai", specifier = ">=4.0.0" },
-    { name = "langchain-milvus", specifier = ">=0.3.0" },
+    { name = "langchain-milvus", git = "https://github.com/langchain-ai/langchain-milvus?subdirectory=libs%2Fmilvus&rev=refs%2Fpull%2F124%2Fhead" },
     { name = "langchain-model-profiles", specifier = ">=0.0.5" },
     { name = "langchain-openai", specifier = ">=1.1.10" },
     { name = "langchain-qwen3", specifier = ">=0.1.2" },
@@ -1952,14 +1952,10 @@ wheels = [
 [[package]]
 name = "langchain-milvus"
 version = "0.3.3"
-source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
+source = { git = "https://github.com/langchain-ai/langchain-milvus?subdirectory=libs%2Fmilvus&rev=refs%2Fpull%2F124%2Fhead#d51b042bc8edfeec3dda3dd1d6950ff9014c629d" }
 dependencies = [
     { name = "langchain-core" },
     { name = "pymilvus" },
-]
-sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/09/21/ecce785a24e61ba2c0f6249a5a68b969ccc053342f933aeab31a3f885f5e/langchain_milvus-0.3.3.tar.gz", hash = "sha256:406c2d88da133741f5cc3e2fea4b36386182b35500205c70d003382ded210e41", size = 35577, upload-time = "2026-01-05T10:01:16.386Z" }
-wheels = [
-    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/be/5d/6a0dac51ca2343332d5de9c79686d54f905d225b173a8e1b03ae6d35982a/langchain_milvus-0.3.3-py3-none-any.whl", hash = "sha256:6e12f15453372dd48836978faa4a149de79c721df3322229ad732a5e628e8e97", size = 38962, upload-time = "2026-01-05T10:01:15.186Z" },
 ]
 
 [[package]]
@@ -3781,19 +3777,21 @@ wheels = [
 
 [[package]]
 name = "pymilvus"
-version = "2.6.3"
+version = "2.6.12"
 source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
 dependencies = [
+    { name = "cachetools" },
     { name = "grpcio" },
     { name = "orjson" },
     { name = "pandas" },
     { name = "protobuf" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "setuptools" },
 ]
-sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/b6/c9/d83e22ae440f2331769e15f4d55e42af39215a04a412b0513a4e30a94089/pymilvus-2.6.3.tar.gz", hash = "sha256:10647808f201003d24eead2890722ffcba4b1ef713eff86c8da9623f93071ed9", size = 1343434, upload-time = "2025-10-31T06:26:07.985Z" }
+sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/2c/d7/c5d1381248a33975ccc864a0f980f93270ecc35354de8646c8a16443cccb/pymilvus-2.6.12.tar.gz", hash = "sha256:8323e990dc305e607fef525498eb779e42940a69e0691dde009cd02d48845f7a", size = 1584521, upload-time = "2026-04-09T07:49:11.374Z" }
 wheels = [
-    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/fb/33/b0309aefe3d2046262c6174dd5765449064e31ae364839f4eb572777f44e/pymilvus-2.6.3-py3-none-any.whl", hash = "sha256:c8551491a194ecfb0b22d44aa809ce749bf6969f2fa8d321523833e2d6c1313d", size = 273801, upload-time = "2025-10-31T06:26:06.002Z" },
+    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/ce/5d/44b0fa94c91503381e6f12298277f84f8e7b0bb00715ab89fc273c4d681e/pymilvus-2.6.12-py3-none-any.whl", hash = "sha256:69051b8b62712f157b2b50aeb7bde7fd7cdb5940aac0122094eb3cd58bc20f0d", size = 315183, upload-time = "2026-04-09T07:49:09.013Z" },
 ]
 
 [[package]]

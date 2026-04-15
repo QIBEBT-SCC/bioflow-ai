@@ -58,6 +58,9 @@ podman = [
 url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 default = true
 
+[tool.uv.sources]
+langchain-milvus = { git = "https://github.com/langchain-ai/langchain-milvus", subdirectory = "libs/milvus", rev = "refs/pull/124/head" }
+
 [tool.ruff]
 line-length = 120
 
