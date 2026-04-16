@@ -33,6 +33,7 @@ dependencies = [
     "palitra>=0.1.0",
     "passlib[bcrypt]>=1.7.4",
     "polars>=1.33.1",
+    "psycopg2-binary>=2.9.11",
     "psycopg[binary,pool]>=3.2.9",
     "pyarrow>=21.0.0",
     "pydantic-settings>=2.8.1",
