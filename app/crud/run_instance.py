@@ -157,6 +157,29 @@ def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offs
     return session.exec(statement).all()
 
 
+def get_runs_by_project_and_workflow(
+    session: Session, project_id: int, workflow_uid: uuid.UUID
+) -> Sequence[RunInstance]:
+    """Get all run instances for a specific project and workflow combination.
+
+    Args:
+        session: Database session
+        project_id: Project ID
+        workflow_uid: Workflow template UID
+
+    Returns:
+        A sequence of run instances ordered by creation time descending
+    """
+    statement: Select = (
+        select(RunInstance)
+        .where(RunInstance.project_id == project_id)
+        .where(RunInstance.workflow_uid == workflow_uid)
+        .order_by(col(RunInstance.create_time).desc())
+    )
+
+    return session.exec(statement).all()
+
+
 def get_runs_by_sample(session: Session, sample_uid: str, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
     """Get all run instances for a specific sample.
 

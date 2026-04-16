@@ -1,7 +1,12 @@
+import io
 import uuid
+import zipfile
+from collections.abc import Generator
+from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 
@@ -53,6 +58,7 @@ tag_router = APIRouter()
 workflow_router = APIRouter()
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
+_AGENTS_MD = Path(__file__).parent.parent.parent.parent / 'presets' / 'download_resources' / 'Agent.md'
 
 
 @tag_router.post('')
@@ -491,6 +497,92 @@ async def run_workflow_on_samples(
     logger.debug(run_request)
     return create_runs_from_samples(
         session, project_id, workflow_uid, run_request.sample_uids, current_user, run_request.run_name_prefix
+    )
+
+
+@router.get('/{project_id}/workflows/{workflow_uid}/package')
+async def package_workflow_runs(
+    project_id: int,
+    workflow_uid: uuid.UUID,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> StreamingResponse:
+    """Download all run instance output directories for a workflow as a zip archive.
+
+    Args:
+        project_id: Project ID
+        workflow_uid: Workflow template UID
+
+    Returns:
+        StreamingResponse: A zip file containing all run output directories.
+    """
+    if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
+
+    workflow = wf_crud.get(session, workflow_uid)
+    sub_map = {'summary': 'summary', 'downstream': 'raw_data'}
+
+    if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
+        runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
+        if not runs:
+            raise HTTPException(HTTP_404_NOT_FOUND, 'No exist run instance for this workflow!')
+        run_dirs = [Path(runs[0].base_dir)] if runs[0].base_dir and Path(runs[0].base_dir).exists() else []
+        # PROJECT_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name} (只有一个)
+
+        def _iter_zip() -> Generator[bytes, None, None]:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+                if run_dirs:
+                    base_dir = run_dirs[0]
+                    for disk_name, arc_name in sub_map.items():
+                        sub_path = base_dir / disk_name
+                        if sub_path.exists():
+                            for file in sub_path.rglob('*'):
+                                if file.is_file():
+                                    zf.write(file, arcname=Path(arc_name) / file.relative_to(sub_path))
+                    script = base_dir / 'run_downstream.sh'
+                    if script.exists():
+                        zf.write(script, arcname='run_downstream.sh')
+                if _AGENTS_MD.exists():
+                    zf.writestr('AGENTS.md', _AGENTS_MD.read_text(encoding='utf-8'))
+                    zf.writestr('CLAUDE.md', '@AGENTS.md')
+            buf.seek(0)
+            yield from buf
+
+    else:
+        runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
+        run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and Path(run.base_dir).exists()]
+        # SAMPLE_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name}/{sample_name} (多个)
+
+        def _iter_zip() -> Generator[bytes, None, None]:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+                root_script_written = False
+                for sample_dir in run_dirs:
+                    sample_name = sample_dir.name
+                    for disk_name, arc_name in sub_map.items():
+                        sub_path = sample_dir / disk_name
+                        if sub_path.exists():
+                            for file in sub_path.rglob('*'):
+                                if file.is_file():
+                                    zf.write(file, arcname=Path(arc_name) / sample_name / file.relative_to(sub_path))
+                    if not root_script_written:
+                        script = sample_dir / 'run_downstream.sh'
+                        if script.exists():
+                            zf.write(script, arcname='run_downstream.sh')
+                            root_script_written = True
+                if _AGENTS_MD.exists():
+                    zf.writestr('AGENTS.md', _AGENTS_MD.read_text(encoding='utf-8'))
+                    zf.writestr('CLAUDE.md', '@AGENTS.md')
+            buf.seek(0)
+            yield from buf
+
+    filename = f'{workflow.name}_results.zip' if workflow else f'{workflow_uid}_results.zip'
+
+    return StreamingResponse(
+        _iter_zip(),
+        media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
 
