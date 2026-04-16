@@ -1,5 +1,3 @@
-"""Object storage utility functions for handling file uploads and downloads"""
-
 import base64
 import io
 from pathlib import Path
@@ -14,20 +12,17 @@ from app.utils.file.hash import calculate_base64_sha256, calculate_file_sha256
 
 
 class ObjectStorageError(Exception):
-    """Exception for object storage related errors"""
-
-    pass
+    """Exception for object storage related errors."""
 
 
 def _get_bucket():
-    """Get S3 bucket object"""
+    """Get S3 bucket object."""
     bucket_name = get_settings().persistent.storage.s3.BUCKET
     return s3_client.Bucket(bucket_name)
 
 
 def generate_key_from_hash(file_hash: str, filename: str, prefix: str = '') -> str:
-    """
-    Generate object storage key based on file hash
+    """Generate object storage key based on file hash.
 
     Args:
         file_hash: SHA256 hash of the file
@@ -47,17 +42,11 @@ def generate_key_from_hash(file_hash: str, filename: str, prefix: str = '') -> s
     shard3 = file_hash[4:6]
 
     # Build key: prefix/shard1/shard2/filename
-    if prefix:
-        key = f'{prefix}/{shard1}/{shard2}/{shard3}/{filename}'
-    else:
-        key = f'{shard1}/{shard2}/{shard3}/{filename}'
-
-    return key
+    return f'{prefix}/{shard1}/{shard2}/{shard3}/{filename}' if prefix else f'{shard1}/{shard2}/{shard3}/{filename}'
 
 
 def upload_file(file_path: str | Path, file_hash: str, prefix: str = '') -> str:
-    """
-    Upload file to object storage
+    """Upload file to object storage.
 
     Args:
         file_path: Path to the file to upload
@@ -74,22 +63,18 @@ def upload_file(file_path: str | Path, file_hash: str, prefix: str = '') -> str:
         >>> key = upload_file('/path/to/file.pdf', prefix='documents')
         >>> # Returns: "documents/a1/b2/c3/report.pdf"
     """
+    file_path = Path(file_path) if isinstance(file_path, str) else file_path
+    # Check file exists
+    if not file_path.exists():
+        err_msg = f'File does not exist: {file_path}'
+        raise FileNotFoundError(err_msg)
+
     try:
         bucket = _get_bucket()
-        file_path = Path(file_path) if isinstance(file_path, str) else file_path
-
-        # Check file exists
-        if not file_path.exists():
-            raise ObjectStorageError(f'File does not exist: {file_path}')
-
         key = generate_key_from_hash(file_hash, file_path.name, prefix=prefix)
 
         logger.debug(f'Uploading file: {file_path} -> {key}')
         bucket.upload_file(str(file_path), key)
-        logger.success(f'File uploaded successfully: {key}')
-
-        return key
-
     except ClientError as e:
         error_msg = f'Failed to upload file: {e}'
         logger.error(error_msg)
@@ -98,11 +83,13 @@ def upload_file(file_path: str | Path, file_hash: str, prefix: str = '') -> str:
         error_msg = f'Error occurred while uploading file: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
+    else:
+        logger.success(f'File uploaded successfully: {key}')
+        return key
 
 
 def download_file(key: str, destination: Optional[str | Path] = None) -> Optional[Path]:
-    """
-    Download file from object storage
+    """Download file from object storage.
 
     Args:
         key: Object storage key
@@ -138,12 +125,9 @@ def download_file(key: str, destination: Optional[str | Path] = None) -> Optiona
 
         logger.debug(f'Downloading file: {key} -> {dest_path}')
         obj.download_file(str(dest_path))
-        logger.success(f'File downloaded successfully: {dest_path}')
-        return dest_path
-
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', '')
-        if error_code == '404' or error_code == 'NoSuchKey':
+        if error_code in {'404', 'NoSuchKey'}:
             error_msg = f'File does not exist: {key}'
         else:
             error_msg = f'Failed to download file: {e}'
@@ -153,11 +137,13 @@ def download_file(key: str, destination: Optional[str | Path] = None) -> Optiona
         error_msg = f'Error occurred while downloading file: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
+    else:
+        logger.success(f'File downloaded successfully: {dest_path}')
+        return dest_path
 
 
 def upload_file_from_base64(base64_str: str, filename: str, file_hash: str, prefix: str = '') -> str:
-    """
-    Upload file from base64 encoded string to object storage
+    """Upload file from base64 encoded string to object storage.
 
     Args:
         base64_str: Base64 encoded file data string
@@ -180,20 +166,12 @@ def upload_file_from_base64(base64_str: str, filename: str, file_hash: str, pref
         bucket = _get_bucket()
 
         # Decode base64 string
-        try:
-            file_data = base64.b64decode(base64_str)
-        except Exception as e:
-            raise ObjectStorageError(f'Failed to decode base64: {e}')
-
+        file_data = base64.b64decode(base64_str)
         key = generate_key_from_hash(file_hash, filename, prefix=prefix)
 
         logger.debug(f'Uploading file from base64 data (size: {len(file_data)} bytes) -> {key}')
         file_obj = io.BytesIO(file_data)
         bucket.upload_fileobj(file_obj, key)
-        logger.success(f'File uploaded successfully from base64: {key}')
-
-        return key
-
     except ClientError as e:
         error_msg = f'Failed to upload file from base64: {e}'
         logger.error(error_msg)
@@ -202,11 +180,13 @@ def upload_file_from_base64(base64_str: str, filename: str, file_hash: str, pref
         error_msg = f'Error occurred while uploading file from base64: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
+    else:
+        logger.success(f'File uploaded successfully from base64: {key}')
+        return key
 
 
 def download_file_as_base64(key: str) -> str:
-    """
-    Download file from object storage and return as base64 encoded string
+    """Download file from object storage and return as base64 encoded string.
 
     Args:
         key: Object storage key
@@ -234,15 +214,9 @@ def download_file_as_base64(key: str) -> str:
 
         # Encode as base64
         base64_str = base64.b64encode(file_bytes).decode('utf-8')
-
-        logger.success(
-            f'File downloaded and encoded to base64 successfully: {key} ({len(file_bytes)} bytes -> {len(base64_str)} chars)'
-        )
-        return base64_str
-
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', '')
-        if error_code == '404' or error_code == 'NoSuchKey':
+        if error_code in {'404', 'NoSuchKey'}:
             error_msg = f'File does not exist: {key}'
         else:
             error_msg = f'Failed to download file as base64: {e}'
@@ -252,11 +226,15 @@ def download_file_as_base64(key: str) -> str:
         error_msg = f'Error occurred while downloading file as base64: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
+    else:
+        logger.success(
+            f'File downloaded and encoded to base64 successfully: {key} ({len(file_bytes)} bytes -> {len(base64_str)} chars)'
+        )
+        return base64_str
 
 
 def read_text_file(key: str, encoding: str = 'utf-8') -> str:
-    """
-    Read text file content from object storage
+    """Read text file content from object storage.
 
     Args:
         key: Object storage key
@@ -284,17 +262,10 @@ def read_text_file(key: str, encoding: str = 'utf-8') -> str:
         file_bytes = buffer.read()
 
         # Decode as text
-        try:
-            text_content = file_bytes.decode(encoding)
-        except UnicodeDecodeError as e:
-            raise ObjectStorageError(f'Failed to decode file as {encoding}: {e}')
-
-        logger.success(f'Text file read successfully: {key} ({len(file_bytes)} bytes, {len(text_content)} chars)')
-        return text_content
-
+        text_content = file_bytes.decode(encoding)
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', '')
-        if error_code == '404' or error_code == 'NoSuchKey':
+        if error_code in {'404', 'NoSuchKey'}:
             error_msg = f'File does not exist: {key}'
         else:
             error_msg = f'Failed to read text file: {e}'
@@ -304,11 +275,13 @@ def read_text_file(key: str, encoding: str = 'utf-8') -> str:
         error_msg = f'Error occurred while reading text file: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
+    else:
+        logger.success(f'Text file read successfully: {key} ({len(file_bytes)} bytes, {len(text_content)} chars)')
+        return text_content
 
 
-def delete_file(key: str) -> bool:
-    """
-    Delete file
+def delete_file(key: str) -> None:
+    """Delete file.
 
     Args:
         key: Object storage key
@@ -329,8 +302,6 @@ def delete_file(key: str) -> bool:
         obj = bucket.Object(key)
         obj.delete()
         logger.success(f'File deleted successfully: {key}')
-        return True
-
     except ClientError as e:
         error_msg = f'Failed to delete file: {e}'
         logger.error(error_msg)
@@ -338,8 +309,7 @@ def delete_file(key: str) -> bool:
 
 
 def file_exists(key: str) -> bool:
-    """
-    Check if file exists
+    """Check if file exists.
 
     Args:
         key: Object storage key
@@ -355,18 +325,18 @@ def file_exists(key: str) -> bool:
         bucket = _get_bucket()
         obj = bucket.Object(key)
         obj.load()
-        return True
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', '')
-        if error_code == '404' or error_code == 'NoSuchKey':
+        if error_code in {'404', 'NoSuchKey'}:
             return False
         logger.error(f'Failed to check file existence: {e}')
         return False
+    else:
+        return True
 
 
-def get_presigned_url(key: str, expires_in: int = None) -> str:
-    """
-    Generate presigned URL for temporary file access
+def get_presigned_url(key: str, expires_in: int | None = None) -> str:
+    """Generate presigned URL for temporary file access.
 
     Args:
         key: Object storage key
@@ -393,11 +363,10 @@ def get_presigned_url(key: str, expires_in: int = None) -> str:
         url = s3_client.meta.client.generate_presigned_url(
             'get_object', Params={'Bucket': bucket_name, 'Key': key}, ExpiresIn=expires_in
         )
-
-        logger.info(f'Generated presigned URL: {key} (expires in: {expires_in}s)')
-        return url
-
     except ClientError as e:
         error_msg = f'Failed to generate presigned URL: {e}'
         logger.error(error_msg)
         raise ObjectStorageError(error_msg) from e
+    else:
+        logger.info(f'Generated presigned URL: {key} (expires in: {expires_in}s)')
+        return url
