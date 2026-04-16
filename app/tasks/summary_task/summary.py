@@ -43,8 +43,10 @@ def downstream_summary_task(
         origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k)[0])
         if origin_file.exists():
             new_file = output_folder / origin_file.name
-            if new_file.exists():
+            if new_file.is_symlink() or new_file.is_file():
                 new_file.unlink()
+            elif new_file.is_dir():
+                shutil.rmtree(new_file)
             new_file.symlink_to(origin_file)
         else:
             logger.warning(f'file {origin_file} did not exist!')
