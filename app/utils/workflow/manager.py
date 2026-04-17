@@ -24,7 +24,7 @@ from app.schemas.project_workflow import WorkflowRunResult
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
 from app.utils.workflow.stats import reset_run_stats_in_redis
-from worker import monitor_redis_client
+from script.worker import monitor_redis_client
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 

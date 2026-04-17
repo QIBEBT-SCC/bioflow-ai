@@ -80,7 +80,11 @@ app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
 
 def main() -> None:
     config = uvicorn.Config(
-        'api:app', host=get_settings().network.HOST, port=get_settings().network.PORT, access_log=True, workers=1
+        'script.server:app',
+        host=get_settings().network.HOST,
+        port=get_settings().network.PORT,
+        access_log=True,
+        workers=1,
     )
     server = uvicorn.Server(config)
 

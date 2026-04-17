@@ -20,7 +20,7 @@ from app.tasks.base.base_task import (
 )
 from app.utils.container import run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
-from worker import celery_app, monitor_redis_client
+from script.worker import celery_app, monitor_redis_client
 
 
 def _resolve_mount_path(

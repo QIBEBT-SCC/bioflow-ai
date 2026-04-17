@@ -1,13 +1,12 @@
 from typing import Any, Optional
 
 from celery import Task
-from loguru import logger
 from sqlmodel import Session
 
 from app.core.session import engine
 from app.models.workflow import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_prefix, resolve_path
-from worker import celery_app
+from script.worker import celery_app
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

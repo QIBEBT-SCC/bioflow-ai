@@ -19,7 +19,7 @@ from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.container import ContainerMount, create_container, remove_container
 from llm.agents.reporter.summary_analyse import summary_analyse_agent
 from llm.states import FolderContext
-from worker import celery_app
+from script.worker import celery_app
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

@@ -9,7 +9,7 @@ from loguru import logger
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
-from worker import celery_app
+from script.worker import celery_app
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

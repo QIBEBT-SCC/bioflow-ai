@@ -51,6 +51,10 @@ def on_worker_process_init(**kwargs) -> None:  # noqa: ANN003, ARG001
     engine.dispose()
 
 
-if __name__ == '__main__':
+def main() -> None:
     args = ['worker', f'--loglevel={get_settings().logger.CELERY_LEVEL}']
     celery_app.worker_main(argv=args)
+
+
+if __name__ == '__main__':
+    main()

@@ -24,7 +24,7 @@ from app.utils.api.ncbi_datasets import (
 )
 from app.utils.container import run_command
 from app.utils.network import download_gz_files
-from worker import celery_app
+from script.worker import celery_app
 
 GENOME_PATH = get_settings().persistent.storage.GENOME_PATH
 MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
