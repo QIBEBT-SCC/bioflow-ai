@@ -1,9 +1,10 @@
 from collections.abc import Generator
 from typing import Annotated, TypeAlias
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from langgraph.checkpoint.redis import RedisSaver
 from loguru import logger
+from redis.asyncio import Redis
 from sqlalchemy import MetaData, create_engine
 from sqlmodel import Session, SQLModel
 
@@ -46,3 +47,11 @@ def _get_session() -> Generator[Session, None, None]:
 
 
 SessionDep: TypeAlias = Annotated[Session, Depends(_get_session)]  # noqa: UP040
+
+
+async def get_redis(request: Request) -> Redis:
+    """全局请求缓存."""
+    return request.app.state.redis
+
+
+RedisDep: TypeAlias = Annotated[Redis, Depends(get_redis)]  # noqa: UP040

@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     workflow,
 )
 from app.core.config import get_settings
+from app.core.redis_client import close_cache_regis, setup_cache_redis
 from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
 from app.utils.logger import init_logging
@@ -29,11 +30,14 @@ init_logging()
 
 
 @asynccontextmanager
-async def lifespan(main_app: FastAPI):
+async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     create_db_and_tables()
     init_bucket()
+    main_app.state.redis = await setup_cache_redis()
+
     yield
 
+    await close_cache_regis(main_app.state.redis)
     logger.info('server stop')
 
 
@@ -47,10 +51,9 @@ origins = [
 
 
 class LogRequestMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):  # noqa: ANN001, ANN201, D102
         logger.debug(f'Received request: {await request.json()}')
-        response = await call_next(request)
-        return response
+        return await call_next(request)
 
 
 app.add_middleware(
@@ -78,7 +81,7 @@ app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['reso
 app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
 
 
-def main() -> None:
+def main() -> None:  # noqa: D103
     config = uvicorn.Config(
         'script.server:app',
         host=get_settings().network.HOST,

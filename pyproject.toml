@@ -8,7 +8,8 @@ dependencies = [
     "aiofiles>=24.1.0",
     "aiohttp>=3.11.18",
     "aiosqlite>=0.21.0",
-    "boto3>=1.42.18",
+    "bcrypt>=5.0.0",
+    "boto3>=1.42.0",
     "bs4>=0.0.2",
     "celery[librabbitmq,redis]>=5.6.0",
     "click>=8.1.0",
@@ -32,7 +33,6 @@ dependencies = [
     "markdown>=3.10.2",
     "nanoid>=2.0.0",
     "palitra>=0.1.0",
-    "passlib[bcrypt]>=1.7.4",
     "polars>=1.33.1",
     "psycopg2-binary>=2.9.11",
     "psycopg[binary,pool]>=3.2.9",
@@ -63,15 +63,15 @@ local-model = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[[tool.uv.index]]
+url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
+default = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["app", "llm", "script"]
 
 [tool.uv]
 package = true
-
-[[tool.uv.index]]
-url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
-default = true
 
 [tool.uv.sources]
 langchain-milvus = { git = "https://github.com/langchain-ai/langchain-milvus", subdirectory = "libs/milvus", rev = "refs/pull/124/head" }
@@ -88,30 +88,30 @@ extend-select = ["ALL"]
 ignore = [
     "ARG002",
     "ARG004",
-    "C90", # McCabe complexity
-    "COM812", # Messes with the formatter
-    "CPY", # No copyright
-    "FIX002", # Line contains TODO
-    "PERF203", # Rarely useful
-    "PLR09", # Too many something (arg, statements, etc)
-    "TD002", # Missing author in TODO
-    "TD003", # Missing issue link in TODO
-    "Q000", # Using single quote
-    "D100", # Public module doc
-    "D101", # Missing docstring for public class
+    "C90",
+    "COM812",
+    "CPY",
+    "FIX002",
+    "PERF203",
+    "PLR09",
+    "TD002",
+    "TD003",
+    "Q000",
+    "D100",
+    "D101",
     "D107",
-    "D417", # For Langchain runtime
-    "E501", # Long line in docstring
+    "D417",
+    "E501",
     "PGH003",
+    "UP040",
     "UP045",
-    # TODO rules
-    "ANN401", # No Any types
-    "BLE", # Blind exceptions
-    "ERA", # No commented-out code
+    "ANN401",
+    "BLE",
+    "ERA",
     "PLC0415",
 ]
 unfixable = [
-    "B028", # People should intentionally tune the stacklevel
+    "B028",
 ]
 
 flake8-annotations.allow-star-arg-any = true
