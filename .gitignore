@@ -166,8 +166,10 @@ test/
 storage/
 log/
 volumes/
+
 script/*.parquet
 script/*.db
+presets/*.parquet
 
 docs/
 
