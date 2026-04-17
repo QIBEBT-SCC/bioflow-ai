@@ -8,6 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
 from langchain_core.tools import tool
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -19,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.core.redis_client import llm_cache
 from llm.agents.reproduction.reproduction import build_workflow_agent
+from llm.agents.reproduction.tool_info_searcher import tool_info_searcher
 from llm.models import get_high_performance_model, get_long_context_model, get_simple_model
 from llm.states import BuildContext, DesignState, StructuredResponse, UserContext
 from llm.tools.storage import view_pdf
@@ -31,6 +33,7 @@ from llm.utils.token import store_token_usage
 
 INTENT_RECOGNITION_SYSTEM = """# Role
 You are an "Intent Recognition Expert" dedicated to a bioinformatics analysis system. Your task is to accurately understand user input and classify it into one of three predefined task types.
+The analysis plan will be used by a downstream agent to construct a node-based workflow system. Therefore, all recommended tools must be executable as standalone CLI commands in a containerized or scripted environment.
 
 # Task Categories
 Please strictly classify based on the following criteria:
@@ -112,6 +115,14 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 - For each step, specify: functional purpose + tool name + key parameters that affect the analysis results (e.g., kmer size, alignment mode, strand-specific mode, deduplication strategy, etc.; thread count, output path, etc., are not considered key parameters).
 - Do not write the full command line, installation methods, or specific output filenames.
 - Describe only a linear process; do not design conditional branches or fallback logic.
+
+#### Tool Selection Constraints
+- Do NOT recommend tools that require a graphical user interface (GUI).
+- Do NOT recommend tools that depend on a specific directory structure or file naming convention to function (e.g., CellRanger, HiC-Pro).
+- When multiple tools are equally applicable, prioritize in this order:
+  1. Better accuracy or performance
+  2. More recently published or actively maintained
+  3. Broader compatibility and community adoption
 
 #### Writing Requirements for the Pipeline Analysis Plan (Section 3)
 - The Pipeline Workflow includes only steps that can be directly executed using existing command-line tools (CLI). The criteria are as follows:
@@ -356,7 +367,7 @@ class WorkflowDesigner:
             case 'autonomous_design':
                 return Command(goto='autonomous_design', update={'task': 'autonomous_design'})
             case 'tool_expansion':
-                return Command(goto='__end__', update={'task': 'tool_expansion'})
+                return Command(goto='search_tool', update={'task': 'tool_expansion'})
             case 'literature_reproduction':
                 return Command(goto='summary_paper', update={'task': 'literature_reproduction'})
             case _:
@@ -407,6 +418,14 @@ class WorkflowDesigner:
 
         return {'messages': [response['messages'][-1]], 'todos': response['todos'], 'paper_id': response['paper_id']}
 
+    async def search_tool_node(self, state: DesignState, runtime: Runtime[UserContext]):
+        """联网搜索并撰写工具信息报告."""
+        writer = get_stream_writer()
+        writer({'info': 'Searching for tool information...'})
+
+        agent_input = {'messages': state['messages']}
+        response = await tool_info_searcher.ainvoke(agent_input, context=runtime.context)
+
     async def plan_confirmation_node(
         self, state: DesignState
     ) -> Command[Literal['generate_workflow', 'split_workflow']]:
@@ -447,7 +466,7 @@ class WorkflowDesigner:
 
         return {'messages': response['messages'], 'workflow_uids': response['workflow_uids']}
 
-    def build(self, *, visualize: bool = False):
+    def build(self, *, visualize: bool = False) -> CompiledStateGraph[DesignState, UserContext]:
         graph = StateGraph(DesignState, UserContext)  # type: ignore
 
         graph.add_node('intent_recognition', self.intent_recognition)  # type: ignore
@@ -458,6 +477,9 @@ class WorkflowDesigner:
 
         graph.add_edge('autonomous_design', 'generate_workflow')
         graph.add_edge('generate_workflow', END)
+
+        # 工具探索路径
+        graph.add_node('search_tool', self.search_tool_node)  # type: ignore
 
         # 文献参考路径
         graph.add_node('summary_paper', self.summary_paper_node)  # type: ignore
