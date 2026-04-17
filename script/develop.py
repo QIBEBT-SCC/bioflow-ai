@@ -49,7 +49,7 @@ async def init_tools(index: int | None = None) -> None:
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
     # 读取完整数据集
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
+    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
 
     # 需要跳过的工具 (不处理, 但保留在数据集中)
     skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
@@ -64,7 +64,7 @@ async def init_tools(index: int | None = None) -> None:
         # 过滤掉跳过的工具和已完成的任务
         todo_df = function_df.filter(~pl.col('tool_name').is_in(skip_tools) & ~pl.col('thread').is_not_null())
 
-    async with aiosqlite.connect('checkpoints.db') as conn:
+    async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
@@ -111,7 +111,7 @@ async def init_tools(index: int | None = None) -> None:
                 .otherwise(pl.col('thread'))
                 .alias('thread')
             )
-            function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
+            function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
 
             async for namespace, mode, data in agent.astream(
                 agent_input,  # type: ignore
@@ -130,7 +130,7 @@ async def init_tools(index: int | None = None) -> None:
                     .otherwise(pl.col('interrupted'))
                     .alias('interrupted'),
                 )
-                function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
+                function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
 
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
@@ -141,7 +141,7 @@ async def init_tools(index: int | None = None) -> None:
                     .otherwise(pl.col('tool_node'))
                     .alias('tool_node'),
                 )
-                function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
+                function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
                 logger.success(f'{thread_id} done')
 
 
@@ -158,10 +158,10 @@ async def read_interrupt(index: int) -> None:
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
+    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
     tool_info: dict[str, Any] = function_df.row(index=index, named=True)
 
-    async with aiosqlite.connect('checkpoints.db') as conn:
+    async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
@@ -187,7 +187,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
+    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
     function_df = function_df.with_columns(
         pl.when(pl.col('index') == index)
         .then(pl.lit(value=False))
@@ -196,7 +196,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     )
     tool_info: dict[str, Any] = function_df.filter(pl.col('index') == index).row(index=0, named=True)
 
-    async with aiosqlite.connect('checkpoints.db') as conn:
+    async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
@@ -235,7 +235,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
                 .otherwise(pl.col('tool_node'))
                 .alias('tool_node'),
             )
-        function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
+        function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
 
 
 async def delete_prebuild_tool(indices: list[int]) -> None:
@@ -255,7 +255,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
+    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
     thread_ids_to_delete: list[str] = []
 
     for index in indices:
@@ -269,7 +269,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
         if tool_info['thread']:
             thread_ids_to_delete.append(tool_info['thread'])
-            async with aiosqlite.connect('checkpoints.db') as conn:
+            async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
                 memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
                 agent = CreateToolAgent().build(memory=memory)
 
@@ -293,13 +293,13 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                 logger.info(f'删除了一条智能体记录 (index={index})')
 
     # 批量删除 test_run.parquet 中的记录
-    if thread_ids_to_delete and Path('test_run.parquet').exists():
-        dataset_df = pl.read_parquet('test_run.parquet')
+    if thread_ids_to_delete and Path('presets/build/test_run.parquet').exists():
+        dataset_df = pl.read_parquet('presets/build/test_run.parquet')
         original_count = dataset_df.height
         dataset_df = dataset_df.filter(~pl.col('test_run_id').is_in(thread_ids_to_delete))
         deleted_count = original_count - dataset_df.height
         if deleted_count > 0:
-            dataset_df.write_parquet('test_run.parquet', compression='snappy')
+            dataset_df.write_parquet('presets/build/test_run.parquet', compression='snappy')
             logger.info(f'从 test_run.parquet 中删除了 {deleted_count} 条保存数据')
 
     # 删除运行目录
@@ -316,7 +316,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
         pl.when(indices_condition).then(None).otherwise(pl.col('tool_node')).alias('tool_node'),
         pl.when(indices_condition).then(False).otherwise(pl.col('interrupted')).alias('interrupted'),  # noqa: FBT003
     )
-    function_df.write_parquet('tool_functions_deepseek.parquet', compression='snappy')
+    function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
     logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 

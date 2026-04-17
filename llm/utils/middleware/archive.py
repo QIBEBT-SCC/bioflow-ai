@@ -10,8 +10,8 @@ from llm.states import TestRunContext
 
 
 class SaveMessagesMiddleware(AgentMiddleware):
-    def __init__(self, agent_nage: str, dataset_file: str = 'test_run.parquet'):
-        self.agent_name = agent_nage
+    def __init__(self, agent_name: str, dataset_file: str = 'presets/build/test_run.parquet'):
+        self.agent_name = agent_name
         self.dataset_file = dataset_file
 
     def after_agent(self, state: MessagesState, runtime: Runtime[TestRunContext]) -> dict[str, Any] | None:  # type: ignore
