@@ -170,6 +170,7 @@ volumes/
 script/*.parquet
 script/*.db
 presets/*.parquet
+presets/build/
 
 docs/
 
