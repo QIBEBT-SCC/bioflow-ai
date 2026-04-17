@@ -7,7 +7,10 @@ from langchain.agents.middleware.types import StateT, hook_config
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
+from langgraph.types import Command
 from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -289,44 +292,43 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         return self.after_model(state, runtime)
 
 
-class CheckPlanConfirmMiddleware(AgentMiddleware):
+@tool
+async def write_report(content: str, runtime: ToolRuntime) -> Command:
+    """Write or update tool report."""
+    return_msg = 'Updated the plan content.' if runtime.state.get('report') else 'The plan content has been saved.'
+
+    return Command(
+        update={
+            'report': content,
+            'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
+        },
+    )
+
+
+class CheckReportSchema(AgentState):
+    report: NotRequired[str]
+
+
+class CheckReportConfirmMiddleware(AgentMiddleware):
+    """正常来说, 模型只能由ask human确认之后退出, 不会自己走到end loop, 也就是说只要模型自己结束了循环一定是出问题了."""
+
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+    def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
         messages = state['messages']
         last_message = cast('AIMessage', messages[-1])
 
-        # 如果这是一条不带工具调用的信息, 那么说明已经完成任务了
+        # 如果这是一条不带工具调用的信息, 那么说明模型直接退出了
         if last_message.tool_calls:
             return None
-
-        # 1. 拦截过早结束: 对话条轮数小于三条, 说明没有调用工具就直接结束任务了
-        if len(messages) < 3:  # noqa: PLR2004
-            return {
-                'jump_to': 'model',
-                'messages': [
-                    HumanMessage(content='Please follow the instructions and call the tool to complete the task.')
-                ],
-            }
-
-        # 2. 拦截未确认结束: 校验任务完结的最后动作是否为 ask_human
-        # 正常情况下, 完结的最后三条序列必然是:
-        # [-3] AIMessage (包含了调用 ask_human)
-        # [-2] ToolMessage (用于 ask_human 的返回结果)
-        # [-1] AIMessage (无工具调用的最终总结信息)
-        tool_msg = messages[-2]
-
-        if isinstance(tool_msg, ToolMessage) and tool_msg.name == 'ask_human':
-            return None
-
         return {
             'jump_to': 'model',
             'messages': [
                 HumanMessage(
-                    content='Before concluding the task, you must use the ask_human tool to confirm your opinion with the user.'
+                    content='Before concluding the task, you must call the tool to write the report and seek human input.'
                 )
             ],
         }
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
+    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
