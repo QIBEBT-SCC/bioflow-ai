@@ -12,7 +12,7 @@ import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
-from app.core.session import SessionDep
+from app.core.session import RedisDep, SessionDep
 from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
     DockerToolCreate,
@@ -105,7 +105,10 @@ def get_images_by_name(
 @image_router.get('/{uid}')
 async def get_image(session: SessionDep, uid: str) -> ImagePublic:
     """Get a Docker image entry by UID."""
-    return image_crud.get(session, uid)
+    image = image_crud.get(session, uid)
+    if not image:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'No corresponding image found')
+    return image
 
 
 @image_router.patch('/{uid}')
@@ -222,38 +225,57 @@ def get_tools_by_name(
 @router.get('/{tool_uid}')
 async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
     """Get full details of a tool by its UID."""
-    return tool_crud.get(session, tool_uid)
-
-
-@router.patch('/{tool_uid}')
-async def update_tool(
-    tool_uid: str, tool_update: DockerToolUpdate, session: SessionDep, _current_user: AdminDep
-) -> SimpleToolPublic:
-    """更新工具配置."""
-    tool = tool_crud.update_partial(session, tool_uid, tool_update)
+    tool = tool_crud.get(session, tool_uid)
     if tool is None:
         raise HTTPException(status_code=404, detail='Tool not found')
     return tool
 
 
+@router.patch('/{tool_uid}')
+async def update_tool(
+    tool_uid: str, tool_update: DockerToolUpdate, session: SessionDep, redis: RedisDep, _current_user: AdminDep
+) -> SimpleToolPublic:
+    """更新工具配置."""
+    tool = tool_crud.update_partial(session, tool_uid, tool_update)
+    if tool is None:
+        raise HTTPException(status_code=404, detail='Tool not found')
+    await redis.delete(f'tool-args:{tool_uid}', f'tool-task-info:{tool_uid}')
+    return tool
+
+
 @router.delete('/{tool_uid}')
-async def delete_tool(tool_uid: str, session: SessionDep, _current_user: AdminDep) -> dict:
+async def delete_tool(tool_uid: str, session: SessionDep, redis: RedisDep, _current_user: AdminDep) -> dict:
     """删除指定工具."""
     tool = tool_crud.get(session, tool_uid)
     if tool is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Tool not found')
 
     tool_crud.delete(session, tool_uid)
+    await redis.delete(f'tool-args:{tool_uid}', f'tool-task-info:{tool_uid}')
     return {'message': 'Tool deleted successfully', 'uid': tool_uid}
 
 
 @router.get('/{tool_uid}/args')
-async def get_tool_args(session: SessionDep, tool_uid: str) -> ToolNodePublic:
+async def get_tool_args(session: SessionDep, redis: RedisDep, tool_uid: str) -> ToolNodePublic:
     """Get the argument schema for a tool."""
-    return tool_crud.get(session, tool_uid)
+    cache_key = f'tool-args:{tool_uid}'
+    cached = await redis.get(cache_key)
+    if cached:
+        return ToolNodePublic.model_validate_json(cached)
+    tool = tool_crud.get(session, tool_uid)
+    await redis.set(cache_key, ToolNodePublic.model_validate(tool).model_dump_json(), ex=86400)
+
+    return tool
 
 
 @router.get('/{tool_uid}/task_info')
-async def get_tool4task(session: SessionDep, tool_uid: str) -> ToolTaskInfo:
+async def get_tool4task(session: SessionDep, redis: RedisDep, tool_uid: str) -> ToolTaskInfo:
     """Get task-relevant metadata for a tool."""
-    return tool_crud.get(session, tool_uid)
+    cache_key = f'tool-task-info:{tool_uid}'
+    cached = await redis.get(cache_key)
+    if cached:
+        return ToolTaskInfo.model_validate_json(cached)
+    tool = tool_crud.get(session, tool_uid)
+    await redis.set(cache_key, ToolTaskInfo.model_validate(tool).model_dump_json(), ex=86400)
+
+    return tool
