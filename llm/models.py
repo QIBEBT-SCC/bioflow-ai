@@ -3,7 +3,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from loguru import logger
 from pydantic import SecretStr
 from sqlmodel import Session
 
@@ -35,15 +34,26 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
                 model = ChatAnthropic(
                     model=model_config.name,
                     api_key=SecretStr(model_config.provider.api_key),
+                    base_url='https://api.anthropic.com'
+                    if model_config.provider.base_url is None
+                    else model_config.provider.base_url,
                     anthropic_proxy=proxy,
                 )
             case ProviderType.GOOGLE:
                 client_args = {'proxy': proxy} if proxy else None
-                model = ChatGoogleGenerativeAI(
-                    model=model_config.name,
-                    api_key=SecretStr(model_config.provider.api_key),
-                    client_args=client_args,
-                )
+                if model_config.provider.base_url is None:
+                    model = ChatGoogleGenerativeAI(
+                        model=model_config.name,
+                        api_key=SecretStr(model_config.provider.api_key),
+                        client_args=client_args,
+                    )
+                else:
+                    model = ChatGoogleGenerativeAI(
+                        model=model_config.name,
+                        api_key=SecretStr(model_config.provider.api_key),
+                        base_url=model_config.provider.base_url,
+                        client_args=client_args,
+                    )
             case ProviderType.OPENAI:
                 if model_config.provider.base_url is None:
                     model = ChatOpenAI(
