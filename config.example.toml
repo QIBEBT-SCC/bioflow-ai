@@ -20,7 +20,7 @@ proxy_port = 7890
 use_proxy = false
 
 [persistent.database]
-db_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
+db_url = "postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
 
 [persistent.cache]
 llm_cache = "redis://localhost:6379/0"

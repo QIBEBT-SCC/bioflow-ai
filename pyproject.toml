@@ -35,7 +35,6 @@ dependencies = [
     "nanoid>=2.0.0",
     "palitra>=0.1.0",
     "polars>=1.39.0",
-    "psycopg2-binary>=2.9.11",
     "psycopg[binary,pool]>=3.2.9",
     "pyarrow>=21.0.0",
     "pydantic-settings>=2.8.1",

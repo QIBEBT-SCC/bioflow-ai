@@ -44,7 +44,7 @@ class NetworkConfig(BaseSectionConfig):
 
 
 class DatabaseConfig(BaseSectionConfig):
-    DB_URL: str = 'postgresql://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
+    DB_URL: str = 'postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
 
 
 class CacheConfig(BaseSectionConfig):
