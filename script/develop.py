@@ -13,6 +13,8 @@ from tqdm import tqdm
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 
+DB_PATH = 'presets/build/develop.db'
+
 
 def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]) -> None:
     if mode == 'custom':
@@ -24,10 +26,24 @@ def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]) -> None:
             logger.debug(f'({running_node}) {filtered_data}'[:120])
 
 
+def _row_to_dict(con: Any, query: str, params: list | None = None) -> dict[str, Any] | None:
+    cur = con.execute(query, params or [])
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return dict(zip([d[0] for d in cur.description], row, strict=False))
+
+
+def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dict[str, Any]]:
+    cur = con.execute(query, params or [])
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+
+
 async def init_tools(index: int | None = None) -> None:
     """初始化工具节点."""
     import aiosqlite
-    import polars as pl
+    import duckdb
     import rich
     from langchain_core.messages import HumanMessage
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -48,29 +64,29 @@ async def init_tools(index: int | None = None) -> None:
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
-    # 读取完整数据集
-    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
-
-    # 需要跳过的工具 (不处理, 但保留在数据集中)
     skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
 
-    # 如果指定了 index, 只处理该索引的数据; 否则处理所有未完成的数据
+    con = duckdb.connect(DB_PATH)
+
     if index is not None:
-        todo_df = function_df.filter(pl.col('index') == index)
-        if todo_df.height == 0:
+        todo_rows = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+        if not todo_rows:
             logger.error(f'未找到索引为 {index} 的数据')
+            con.close()
             return
     else:
-        # 过滤掉跳过的工具和已完成的任务
-        todo_df = function_df.filter(~pl.col('tool_name').is_in(skip_tools) & ~pl.col('thread').is_not_null())
+        placeholders = ','.join(['?' for _ in skip_tools])
+        todo_rows = _rows_to_dicts(
+            con,
+            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND thread IS NULL',  # noqa: S608
+            skip_tools,
+        )
 
     async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
         agent = CreateToolAgent().build(memory=memory)
 
-        for row in todo_df.iter_rows(named=True):
-            # Schema({'index': UInt32, 'tool_name': String, 'function_description': String, 'help_command': String, 'tool_node': Null, 'thread': Null, 'interrupted': Boolean})
-            row: dict[str, Any]
+        for row in todo_rows:
             row_index: int = row['index']
             tool_name: str = row['tool_name']
             function: str = row['function_description']
@@ -104,14 +120,7 @@ async def init_tools(index: int | None = None) -> None:
             config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 2000}
             context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
 
-            # 更新处理后的数据
-            function_df = function_df.with_columns(
-                pl.when(pl.col('index') == row_index)
-                .then(pl.lit(thread_id))
-                .otherwise(pl.col('thread'))
-                .alias('thread')
-            )
-            function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
+            con.execute('UPDATE tool_functions SET thread = ? WHERE index = ?', [thread_id, row_index])
 
             async for namespace, mode, data in agent.astream(
                 agent_input,  # type: ignore
@@ -124,31 +133,23 @@ async def init_tools(index: int | None = None) -> None:
 
             response = await agent.aget_state(config)
             if response.interrupts:
-                function_df = function_df.with_columns(
-                    pl.when(pl.col('index') == row_index)
-                    .then(pl.lit(True))  # noqa: FBT003
-                    .otherwise(pl.col('interrupted'))
-                    .alias('interrupted'),
-                )
-                function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
-
+                con.execute('UPDATE tool_functions SET interrupted = true WHERE index = ?', [row_index])
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
             else:
-                function_df = function_df.with_columns(
-                    pl.when(pl.col('index') == row_index)
-                    .then(pl.lit(response.values['tool_uid']))
-                    .otherwise(pl.col('tool_node'))
-                    .alias('tool_node'),
+                con.execute(
+                    'UPDATE tool_functions SET tool_node = ? WHERE index = ?',
+                    [response.values['tool_uid'], row_index],
                 )
-                function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
                 logger.success(f'{thread_id} done')
+
+    con.close()
 
 
 async def read_interrupt(index: int) -> None:
     """加载指定中断信息."""
     import aiosqlite
-    import polars as pl
+    import duckdb
     import rich
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -158,8 +159,13 @@ async def read_interrupt(index: int) -> None:
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
-    tool_info: dict[str, Any] = function_df.row(index=index, named=True)
+    con = duckdb.connect(DB_PATH)
+    tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+    con.close()
+
+    if tool_info is None:
+        logger.error(f'未找到索引为 {index} 的数据')
+        return
 
     async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -175,7 +181,7 @@ async def read_interrupt(index: int) -> None:
 async def continue_run(index: int, message: str | None = None, *, approve: bool = False) -> None:
     """响应中断信息."""
     import aiosqlite
-    import polars as pl
+    import duckdb
     import rich
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -187,14 +193,14 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
-    function_df = function_df.with_columns(
-        pl.when(pl.col('index') == index)
-        .then(pl.lit(value=False))
-        .otherwise(pl.col('interrupted'))
-        .alias('interrupted'),
-    )
-    tool_info: dict[str, Any] = function_df.filter(pl.col('index') == index).row(index=0, named=True)
+    con = duckdb.connect(DB_PATH)
+    con.execute('UPDATE tool_functions SET interrupted = false WHERE index = ?', [index])
+    tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+
+    if tool_info is None:
+        logger.error(f'未找到索引为 {index} 的数据')
+        con.close()
+        return
 
     async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
         memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
@@ -221,27 +227,21 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 
         response = await agent.aget_state(config)
         if response.interrupts:
-            function_df = function_df.with_columns(
-                pl.when(pl.col('index') == index)
-                .then(pl.lit(value=True))
-                .otherwise(pl.col('interrupted'))
-                .alias('interrupted'),
-            )
+            con.execute('UPDATE tool_functions SET interrupted = true WHERE index = ?', [index])
             rich.print(response.interrupts)
         else:
-            function_df = function_df.with_columns(
-                pl.when(pl.col('index') == index)
-                .then(pl.lit(response.values['tool_uid']))
-                .otherwise(pl.col('tool_node'))
-                .alias('tool_node'),
+            con.execute(
+                'UPDATE tool_functions SET tool_node = ? WHERE index = ?',
+                [response.values['tool_uid'], index],
             )
-        function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
+
+    con.close()
 
 
 async def delete_prebuild_tool(indices: list[int]) -> None:
     """删除现有节点."""
     import aiosqlite
-    import polars as pl
+    import duckdb
     from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
     from sqlmodel import Session
@@ -255,11 +255,14 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    function_df = pl.read_parquet('presets/build/tool_functions_deepseek.parquet')
+    con = duckdb.connect(DB_PATH)
     thread_ids_to_delete: list[str] = []
 
     for index in indices:
-        tool_info: dict[str, Any] = function_df.filter(pl.col('index') == index).row(index=0, named=True)
+        tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+        if tool_info is None:
+            logger.warning(f'未找到索引为 {index} 的数据, 跳过')
+            continue
         logger.info(f'要删除的数据 (index={index}): {tool_info}')
 
         if tool_info['tool_node']:
@@ -282,7 +285,6 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                     and 'container_id' in response.tasks[0].state.values
                     and response.tasks[0].state.values['container_id']
                 ):
-                    # 删除残余容器
                     try:
                         remove_container(response.tasks[0].state.values['container_id'])
                         logger.info('清理了残余容器')
@@ -292,31 +294,28 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                 await memory.adelete_thread(tool_info['thread'])
                 logger.info(f'删除了一条智能体记录 (index={index})')
 
-    # 批量删除 test_run.parquet 中的记录
-    if thread_ids_to_delete and Path('presets/build/test_run.parquet').exists():
-        dataset_df = pl.read_parquet('presets/build/test_run.parquet')
-        original_count = dataset_df.height
-        dataset_df = dataset_df.filter(~pl.col('test_run_id').is_in(thread_ids_to_delete))
-        deleted_count = original_count - dataset_df.height
-        if deleted_count > 0:
-            dataset_df.write_parquet('presets/build/test_run.parquet', compression='snappy')
-            logger.info(f'从 test_run.parquet 中删除了 {deleted_count} 条保存数据')
+    if thread_ids_to_delete:
+        placeholders = ','.join(['?' for _ in thread_ids_to_delete])
+        deleted = con.execute(
+            f'DELETE FROM test_run WHERE test_run_id IN ({placeholders})',  # noqa: S608
+            thread_ids_to_delete,
+        ).rowcount
+        if deleted:
+            logger.info(f'从 test_run 表中删除了 {deleted} 条保存数据')
 
-    # 删除运行目录
     for thread_id in thread_ids_to_delete:
         output_path = Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
         if output_path.exists():
             shutil.rmtree(output_path)
             logger.info(f'清理了运行目录: {output_path}')
 
-    # 批量更新 DataFrame
-    indices_condition = pl.col('index').is_in(indices)
-    function_df = function_df.with_columns(
-        pl.when(indices_condition).then(None).otherwise(pl.col('thread')).alias('thread'),
-        pl.when(indices_condition).then(None).otherwise(pl.col('tool_node')).alias('tool_node'),
-        pl.when(indices_condition).then(False).otherwise(pl.col('interrupted')).alias('interrupted'),  # noqa: FBT003
-    )
-    function_df.write_parquet('presets/build/tool_functions_deepseek.parquet', compression='snappy')
+    if indices:
+        idx_placeholders = ','.join(['?' for _ in indices])
+        con.execute(
+            f'UPDATE tool_functions SET thread = NULL, tool_node = NULL, interrupted = false WHERE index IN ({idx_placeholders})',  # noqa: S608
+            indices,
+        )
+    con.close()
     logger.info(f'成功删除 {len(indices)} 个工具记录')
 
 
@@ -468,24 +467,36 @@ def export_tools(*, upload: bool = False) -> None:
 
 def statistic() -> None:
     """统计生成情况."""
-    import polars as pl
+    import duckdb
     import rich
 
-    function_df = pl.read_parquet('tool_functions_deepseek.parquet')
-    print(f'共计 {function_df.height} 条记录')
-    print(f'当前已处理 {function_df.filter(pl.col("thread").is_not_null()).height} 条数据')
-    print(
-        f'成功 {function_df.filter(pl.col("tool_node").is_not_null()).height} 条, 共计生成 {function_df["tool_node"].unique().count()} 个节点'
-    )
-    print(
-        f'失败 {function_df.filter(pl.col("thread").is_not_null() & pl.col("tool_node").is_null()).height} 条, 其中中断 {function_df["interrupted"].sum()} 条'
-    )
+    con = duckdb.connect(DB_PATH, read_only=True)
+
+    total = con.execute('SELECT COUNT(*) FROM tool_functions').fetchone()[0]  # type: ignore[index]
+    processed = con.execute('SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL').fetchone()[0]  # type: ignore[index]
+    success = con.execute('SELECT COUNT(*) FROM tool_functions WHERE tool_node IS NOT NULL').fetchone()[0]  # type: ignore[index]
+    unique_nodes = con.execute(
+        'SELECT COUNT(DISTINCT tool_node) FROM tool_functions WHERE tool_node IS NOT NULL'
+    ).fetchone()[0]  # type: ignore[index]
+    failed = con.execute(
+        'SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL AND tool_node IS NULL'
+    ).fetchone()[0]  # type: ignore[index]
+    interrupted = con.execute('SELECT COUNT(*) FROM tool_functions WHERE interrupted = true').fetchone()[0]  # type: ignore[index]
+
+    print(f'共计 {total} 条记录')
+    print(f'当前已处理 {processed} 条数据')
+    print(f'成功 {success} 条, 共计生成 {unique_nodes} 个节点')
+    print(f'失败 {failed} 条, 其中中断 {interrupted} 条')
     print('=' * 50)
     print('最新运行记录为: ')
-    rich.print(function_df.filter(pl.col('thread').is_not_null()).top_k(1, by='index').row(0, named=True))
+    latest = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE thread IS NOT NULL ORDER BY index DESC LIMIT 1')
+    rich.print(latest)
     print('=' * 50)
     print('最新中断为: ')
-    rich.print(function_df.filter(pl.col('interrupted')).sort('index', descending=False).head(1).row(0, named=True))
+    latest_interrupt = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE interrupted = true ORDER BY index LIMIT 1')
+    rich.print(latest_interrupt)
+
+    con.close()
 
 
 @click.group()
@@ -546,7 +557,7 @@ def export(*, upload: bool, db: tuple[str, ...]) -> None:
 
 
 @cli.command()
-def show_statistic() -> None:
+def statistic_cmd() -> None:
     """显示节点生成统计数据."""
     statistic()
 
