@@ -40,6 +40,43 @@ def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dic
     return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
 
 
+def search_tools(tool_name: str) -> None:
+    """搜索数据库中指定名称的工具原始数据."""
+    import duckdb
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.text import Text
+
+    con = duckdb.connect(DB_PATH)
+    result = con.execute('SELECT * FROM tool_functions WHERE tool_name LIKE ?', [f'%{tool_name}%']).pl()
+
+    console = Console()
+    for row in result.iter_rows(named=True):
+        content = Text()
+        content.append('Tool: ', style='bold cyan')
+        content.append(f'{row["tool_name"]}\n', style='magenta')
+        content.append('Interrupted: ', style='bold cyan')
+        if row.get('interrupted', False):
+            content.append(f'{row["interrupted"]}\n', style='red')
+        else:
+            content.append(f'{row["interrupted"]}\n', style='green')
+            content.append('Node ID: ', style='bold cyan')
+            content.append(f'{row["tool_node"]}\n', style='white')
+        content.append('Description:\n', style='bold cyan')
+        content.append(row['function_description'], style='white')
+
+        console.print(
+            Panel(
+                content,
+                title=f'[yellow]#{row["index"]} {row["thread"]}[/yellow]',
+                border_style='blue',
+                expand=True,
+            )
+        )
+
+    con.close()
+
+
 async def init_tools(index: int | None = None) -> None:
     """初始化工具节点."""
     import aiosqlite
@@ -468,7 +505,10 @@ def export_tools(*, upload: bool = False) -> None:
 def statistic() -> None:
     """统计生成情况."""
     import duckdb
-    import rich
+    from rich import box
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
 
     con = duckdb.connect(DB_PATH, read_only=True)
 
@@ -483,18 +523,64 @@ def statistic() -> None:
     ).fetchone()[0]  # type: ignore[index]
     interrupted = con.execute('SELECT COUNT(*) FROM tool_functions WHERE interrupted = true').fetchone()[0]  # type: ignore[index]
 
-    print(f'共计 {total} 条记录')
-    print(f'当前已处理 {processed} 条数据')
-    print(f'成功 {success} 条, 共计生成 {unique_nodes} 个节点')
-    print(f'失败 {failed} 条, 其中中断 {interrupted} 条')
-    print('=' * 50)
-    print('最新运行记录为: ')
+    console = Console()
+
+    stats = Table.grid(padding=(0, 2))
+    stats.add_column(style='bold', justify='right')
+    stats.add_column()
+
+    pct = (processed / total * 100) if total else 0
+
+    stats.add_row('总记录数', f'[cyan]{total:,}[/cyan]')
+    stats.add_row('已处理', f'[cyan]{processed:,}[/cyan] [dim]({pct:.1f}%)[/dim]')
+    stats.add_row('成功', f'[green]{success:,}[/green]  生成节点 [green]{unique_nodes:,}[/green] 个')
+    stats.add_row('失败', f'[red]{failed:,}[/red]  其中中断 [yellow]{interrupted:,}[/yellow] 条')
+
+    console.print(
+        Panel(
+            stats,
+            title='[bold]运行统计[/bold]',
+            border_style='blue',
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+    def _render_record_panel(row: dict, title: str, border_style: str = 'cyan') -> None:
+        if not row:
+            console.print(Panel('[dim](暂无数据)[/dim]', title=title, border_style=border_style))
+            return
+
+        body = Table.grid(padding=(0, 2))
+        body.add_column(style='bold cyan', justify='right', no_wrap=True)
+        body.add_column(overflow='fold')
+
+        for key, value in row.items():
+            if value is None:
+                display = '[dim]None[/dim]'
+            elif isinstance(value, bool):
+                display = f'[red]{value}[/red]' if value else f'[green]{value}[/green]'
+                if key == 'interrupted' and value:
+                    display = f'[bold red]{value}[/bold red]'
+            else:
+                display = str(value)
+            body.add_row(f'{key}:', display)
+
+        console.print(
+            Panel(
+                body,
+                title=title,
+                border_style=border_style,
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
     latest = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE thread IS NOT NULL ORDER BY index DESC LIMIT 1')
-    rich.print(latest)
-    print('=' * 50)
-    print('最新中断为: ')
+    _render_record_panel(latest, '[bold green]最新运行记录[/bold green]')
+
     latest_interrupt = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE interrupted = true ORDER BY index LIMIT 1')
-    rich.print(latest_interrupt)
+    _render_record_panel(latest_interrupt, '[bold yellow]最新中断记录[/bold yellow]')
 
     con.close()
 
@@ -502,6 +588,13 @@ def statistic() -> None:
 @click.group()
 def cli() -> None:
     """开发人员使用工具."""
+
+
+@cli.command()
+@click.option('--name', '-n', type=str, default=None, help='要搜索的工具名称')
+def search_cmd(name: str) -> None:
+    """继续运行指定索引的工具创建任务."""
+    search_tools(tool_name=name)
 
 
 @cli.command()
