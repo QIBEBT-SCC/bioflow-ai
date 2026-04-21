@@ -6,7 +6,6 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
-from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 
@@ -65,7 +64,6 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
         action: Action to be performed
         params: Parameters used in the action
     """
-    logger.info(f'Workflow Manager(action="{action} {params}")')
     match action:
         case 'help':
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)

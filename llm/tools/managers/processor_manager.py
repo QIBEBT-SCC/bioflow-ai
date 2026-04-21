@@ -5,7 +5,6 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from llm.states import BuildContext, BuildEdge, BuildNode
@@ -71,7 +70,6 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
     """
     match action:
         case 'help':
-            logger.info(f'Processor Manager(action="{action} {params}")')
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view_processor':
@@ -88,7 +86,6 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
                         ]
                     }
                 )
-            logger.info(f'Processor Manager(action="{action}" processor_name="{validate_param.processor_name}")')
             return _view_processor(validate_param.processor_name, runtime)
 
         case 'search_processor':
@@ -105,7 +102,6 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
                         ]
                     }
                 )
-            logger.info(f'Processor Manager(action="{action}" query="{validate_param.query}")')
             return await _search_processor(validate_param.query, runtime)
 
         case 'add_processor':
@@ -122,7 +118,6 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
                         ]
                     }
                 )
-            logger.info(f'Processor Manager(action="{action}" type="{validate_param.processor_name}")')
             return _add_processor(
                 validate_param.processor_name,
                 validate_param.arguments,
@@ -239,7 +234,7 @@ def _add_processor(
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     # Call custom edge_check if defined in schema
-    if edge_check := PROCESSORS[processor_name].get('edge_check'):
+    if edge_check := PROCESSORS[processor_name].get('edge_check'):  # noqa: SIM102
         if error := edge_check(input_edges, PROCESSORS[processor_name]['input_handles']):
             return Command(
                 update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}

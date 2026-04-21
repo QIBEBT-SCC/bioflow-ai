@@ -5,7 +5,6 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 
@@ -86,7 +85,6 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
     """
     match action:
         case 'help':
-            logger.info(f'Resource Manager(action="{action} {params}")')
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view':
@@ -103,7 +101,6 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                         ]
                     }
                 )
-            logger.info(f'Resource Manager(action="{action}" resource_type="{validate_param.resource_type}")')
             return _view_resource(validate_param.resource_type, runtime)
 
         case 'search_db':
@@ -120,7 +117,6 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                         ]
                     }
                 )
-            logger.info(f'Resource Manager(action="{action}" query="{validate_param.query}")')
             return _search_db(validate_param.query, runtime)
 
         case 'add':
@@ -137,7 +133,6 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                         ]
                     }
                 )
-            logger.info(f'Resource Manager(action="{action}" type="{validate_param.resource_type}")')
             return _add_resource(
                 validate_param.resource_type,
                 validate_param.input_edges,

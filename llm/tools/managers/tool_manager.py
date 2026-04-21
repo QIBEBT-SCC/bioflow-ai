@@ -115,7 +115,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     """
     match action:
         case 'help':
-            logger.info(f'Tool Manager(action="{action} {params}")')
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
         case 'search_by_name':
             try:
@@ -131,7 +130,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            logger.info(f'Tool Manager(action="{action}" query="{validate_param.query}")')
             return _search_tool_by_name(validate_param.query, runtime)
 
         case 'search_by_function':
@@ -148,7 +146,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            logger.info(f'Tool Manager(action="{action}" query="{validate_param.query}")')
             return await _search_tools_by_function(validate_param.query, runtime)
 
         case 'add':
@@ -165,7 +162,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            logger.info(f'Tool Manager(action="{action}" selected_id="{validate_param.selected_id}")')
             return _add_tool_node(
                 validate_param.selected_id,
                 validate_param.input_edges,
@@ -188,7 +184,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            logger.info(f'Tool Manager(action="{action}" node="{validate_param.node_id}")')
             return await _update_tool_node(
                 validate_param.node_id,
                 validate_param.new_args,
@@ -209,7 +204,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            logger.info(f'Tool Manager(action="{action}" request="{validate_param.request}")')
             writer = get_stream_writer()
             writer({'info': f'Creating new tool: {validate_param.request}'})
 
