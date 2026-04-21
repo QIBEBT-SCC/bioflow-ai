@@ -2,6 +2,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from loguru import logger
 
 from app.utils.file.storage import read_text_file
 
@@ -16,7 +17,8 @@ async def view_pdf(file_id: str, runtime: ToolRuntime) -> Command:
     try:
         context = read_text_file(file_id.replace('.pdf', '.md'))
         context = f'<Doc>\n{context}\n</Doc>'
-    except Exception:
+    except Exception as e:
+        logger.error(e)
         context = f'Error reading file: "{file_id}", please verify that the file name is correct.'
 
     return Command(
