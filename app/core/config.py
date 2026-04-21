@@ -135,6 +135,10 @@ class KnowledgeBaseConfig(BaseSectionConfig):
     remote: RemoteEmbeddingModel = RemoteEmbeddingModel()
 
 
+class DevelopConfig(BaseSectionConfig):
+    CHECKPOINT_URL: str = 'redis://localhost:6379/0'
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         toml_file='config.toml',
@@ -154,6 +158,7 @@ class Settings(BaseSettings):
     celery: CeleryConfig = CeleryConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
     pdf_parser: PDFParserConfig = PDFParserConfig()
+    develop: DevelopConfig = DevelopConfig()
 
     @classmethod
     def settings_customise_sources(

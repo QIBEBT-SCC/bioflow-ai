@@ -16,16 +16,6 @@ logging.getLogger('httpcore').setLevel(logging.WARNING)
 DB_PATH = 'presets/build/develop.db'
 
 
-def _log_update(namespace: tuple[str], mode: str, data: dict[str, Any]) -> None:
-    if mode == 'custom':
-        logger.info(data)
-    else:
-        filtered_data = {k: v for k, v in data.items() if v is not None}
-        if filtered_data:
-            running_node = ','.join([n.split(':')[0] for n in namespace])
-            logger.debug(f'({running_node}) {filtered_data}'[:120])
-
-
 def _row_to_dict(con: Any, query: str, params: list | None = None) -> dict[str, Any] | None:
     cur = con.execute(query, params or [])
     row = cur.fetchone()
@@ -79,21 +69,23 @@ def search_tools(tool_name: str) -> None:
 
 async def init_tools(index: int | None = None) -> None:
     """初始化工具节点."""
-    import aiosqlite
     import duckdb
     import rich
     from langchain_core.messages import HumanMessage
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+    from rich.console import Console
     from sqlmodel import Session
 
     import app.crud.tools.image as image_crud
     import app.crud.tools.tool_doc as doc_crud
+    from app.core.config import get_settings
     from app.core.session import engine
     from app.models.tools import ToolHelpDoc
     from app.utils.container import run_command
     from llm.agents.tool_manager import CreateToolAgent
     from llm.states import CreateToolContext
+    from llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -119,9 +111,20 @@ async def init_tools(index: int | None = None) -> None:
             skip_tools,
         )
 
-    async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
-        memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-        agent = CreateToolAgent().build(memory=memory)
+    console = Console()
+
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+        checkpoint.serde = JsonPlusRedisSerializer(
+            allowed_msgpack_modules=[
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+            ]
+        )
+        await checkpoint.setup()
+
+        agent = CreateToolAgent().build(memory=checkpoint)
 
         for row in todo_rows:
             row_index: int = row['index']
@@ -159,14 +162,14 @@ async def init_tools(index: int | None = None) -> None:
 
             con.execute('UPDATE tool_functions SET thread = ? WHERE index = ?', [thread_id, row_index])
 
-            async for namespace, mode, data in agent.astream(
+            async for _, stream_mode, chunk in agent.astream(
                 agent_input,  # type: ignore
                 config,
                 context=context,  # type: ignore
                 stream_mode=['custom', 'updates'],
                 subgraphs=True,
             ):
-                _log_update(namespace, mode, data)
+                print_stream_chunk(console, stream_mode, chunk)
 
             response = await agent.aget_state(config)
             if response.interrupts:
@@ -185,12 +188,12 @@ async def init_tools(index: int | None = None) -> None:
 
 async def read_interrupt(index: int) -> None:
     """加载指定中断信息."""
-    import aiosqlite
     import duckdb
     import rich
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 
+    from app.core.config import get_settings
     from llm.agents.tool_manager import CreateToolAgent
 
     if TYPE_CHECKING:
@@ -204,9 +207,18 @@ async def read_interrupt(index: int) -> None:
         logger.error(f'未找到索引为 {index} 的数据')
         return
 
-    async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
-        memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-        agent = CreateToolAgent().build(memory=memory)
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+        checkpoint.serde = JsonPlusRedisSerializer(
+            allowed_msgpack_modules=[
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+            ]
+        )
+        await checkpoint.asetup()
+
+        agent = CreateToolAgent().build(memory=checkpoint)
 
         thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
@@ -217,15 +229,17 @@ async def read_interrupt(index: int) -> None:
 
 async def continue_run(index: int, message: str | None = None, *, approve: bool = False) -> None:
     """响应中断信息."""
-    import aiosqlite
     import duckdb
     import rich
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from langgraph.types import Command
+    from rich.console import Console
 
+    from app.core.config import get_settings
     from llm.agents.tool_manager import CreateToolAgent
     from llm.states import CreateToolContext
+    from llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -239,9 +253,20 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
         con.close()
         return
 
-    async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
-        memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-        agent = CreateToolAgent().build(memory=memory)
+    console = Console()
+
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+        checkpoint.serde = JsonPlusRedisSerializer(
+            allowed_msgpack_modules=[
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+            ]
+        )
+        await checkpoint.asetup()
+
+        agent = CreateToolAgent().build(memory=checkpoint)
 
         thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
@@ -253,14 +278,14 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
             input_message = Command(resume=message)
         else:
             input_message = None
-        async for namespace, mode, data in agent.astream(
+        async for _, stream_mode, chunk in agent.astream(
             input_message,
             config,
             context=context,  # type: ignore
             stream_mode=['custom', 'updates'],
             subgraphs=True,
         ):
-            _log_update(namespace, mode, data)
+            print_stream_chunk(console, stream_mode, chunk)
 
         response = await agent.aget_state(config)
         if response.interrupts:
@@ -277,10 +302,9 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 
 async def delete_prebuild_tool(indices: list[int]) -> None:
     """删除现有节点."""
-    import aiosqlite
     import duckdb
-    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
@@ -309,9 +333,18 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
         if tool_info['thread']:
             thread_ids_to_delete.append(tool_info['thread'])
-            async with aiosqlite.connect('presets/build/checkpoints.db') as conn:
-                memory = AsyncSqliteSaver(conn, serde=JsonPlusSerializer(pickle_fallback=True))
-                agent = CreateToolAgent().build(memory=memory)
+            async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+                checkpoint.serde = JsonPlusRedisSerializer(
+                    allowed_msgpack_modules=[
+                        ('llm.utils.middleware.todo', 'Todo'),
+                        ('llm.states', 'BuildEdge'),
+                        ('llm.states', 'BuildNode'),
+                        ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                    ]
+                )
+                await checkpoint.asetup()
+
+                agent = CreateToolAgent().build(memory=checkpoint)
 
                 config: RunnableConfig = {'configurable': {'thread_id': tool_info['thread']}, 'recursion_limit': 500}
 
@@ -328,7 +361,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                     except Exception as e:
                         logger.warning(e)
 
-                await memory.adelete_thread(tool_info['thread'])
+                await checkpoint.adelete_thread(tool_info['thread'])
                 logger.info(f'删除了一条智能体记录 (index={index})')
 
     if thread_ids_to_delete:

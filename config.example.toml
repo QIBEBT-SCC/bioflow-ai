@@ -83,3 +83,6 @@ timeout = 600
 api_url = "http://localhost:8000"
 server_url = "http://localhost:30000"
 timeout = 600
+
+[develop]
+checkpoint_url = "redis://localhost:6379/0"
