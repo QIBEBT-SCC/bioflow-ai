@@ -2,33 +2,31 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from langchain.agents import create_agent
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.graph import CurveStyle
-from langchain_core.tools import tool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import ToolNode, ToolRuntime
 from langgraph.runtime import Runtime
-from langgraph.types import Command, interrupt
+from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.redis_client import llm_cache
+from llm.agents.reproduction.paper_reader import paper_reader
 from llm.agents.reproduction.reproduction import build_workflow_agent
 from llm.agents.reproduction.tool_info_searcher import tool_info_searcher
-from llm.models import get_high_performance_model, get_long_context_model, get_simple_model
-from llm.states import BuildContext, DesignState, StructuredResponse, UserContext
-from llm.tools.storage import view_pdf
+from llm.models import get_high_performance_model, get_simple_model
+from llm.states import BuildContext, DesignContext, DesignState, StructuredResponse
+from llm.tools.writter import write_plan
 from llm.utils.middleware import (
-    DisableParallelToolCallsMiddleware,
     TokenStatisticMiddleware,
 )
-from llm.utils.middleware.todo import BuildTodoMiddleware
+from llm.utils.middleware.end_loop import EndAgentLoop
+from llm.utils.middleware.final_check import CheckStateExistMiddleware
 from llm.utils.token import store_token_usage
 
 INTENT_RECOGNITION_SYSTEM = """# Role
@@ -153,73 +151,100 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 - Only one tool call is allowed at a time; calling multiple tools at once is strictly prohibited!
 """
 
-SUMMARY_PAPER_SYSTEM = """You are a bioinformatics scholar whose work involves reading published biological literature and summarizing the information contained within.
+REF_DESIGN_SYSTEM = """## Task Scenarios
+The user wants to reproduce a bioinformatics analysis from a published paper and provides excerpts from the literature (Methods section, figure legends, supplementary notes, etc.).
 
-## Output Task
-Based on the type of literature, invoke the appropriate tool to read the full text and summarize it. Your output must include the following two parts:
-1. Full Summary: What is the article about? What are the main research content and conclusions?
-2. Bioinformatics Summary: Focus on the method section of the article, summarizing the bioinformatics analysis operations performed in the study.
+Your job is to:
+1. Extract all analysis steps, tools, parameters, and data characteristics explicitly described in the literature
+2. Identify whether the paper describes downstream analyses that require custom scripting (e.g., differential expression, visualization, statistical modeling). If so, treat these as scripted analysis tasks and cover them in Section 5
+3. For steps that are scientifically necessary but not explicitly described in the paper, supplement with field best-practice defaults
+4. If critical information required for tool selection is missing and cannot be inferred, ask via `ask_human`
 
-## Notes
-- If the uploaded literature is not related to bioinformatics, politely inform the user.
-- The language of your generated summary must match the user's question language.
-"""
+## Workflow
+You must strictly adhere to the following interaction workflow:
 
-SPLIT_WORKFLOW_SYSTEM = """You are a Pipeline Architect proficient in designing bioinformatics automation workflows. Your task is to break down literature methods into independent, automated engineering workflows.
+1. Read the provided literature excerpt. If information critical to tool selection is missing and cannot be inferred (e.g., sequencing platform, species), call `ask_human` to ask follow-up questions
+2. Based on collected information, call `write_plan` to write the complete Markdown format analysis plan
+3. Call `ask_human` to ask if the user approves the plan
+   - If the user requests modifications, return to step 2
+   - If the user gives an affirmative response, do not call tools again,
+     summarize and end the task
 
-# How to Divide Workflows?
-## Core Definition: What is a "workflow"?
-- **A workflow = a complete analysis pipeline for a specific type of omics data.**
-- It generally covers the entire process from data preprocessing and pipline analysis to downstream biological statistical analysis.
+## How to write the plan
+### Output Format
+```markdown
+# Task Name: [Paper title abbreviation or short description] - Reproduction
 
-## Workflow Separation Standards
-- If the article includes multi-omics analysis, and the user does not specify a particular type, then the analysis processes for different types of data need to be extracted into different workflows.
-- If two different omics datasets have completely identical analysis methods, they can be written as one. However, if even one step is different, they must be separated into two. We need to write an automated process based on your list; it's impossible to manually distinguish cases.
-- Do not split "data cleaning", "normalization", "dimensionality reduction", and "enrichment analysis" into multiple tasks. If they are all performed on the same RNA-seq data, they belong to the same workflow.
+## 1. Data Information
+[Describe sequencing platform, data type, species, and any other meta-information extracted from the literature that influences tool selection]
 
-## Negative Constraints (Important)
-- **Strictly no fragmentation**: Strictly prohibit extracting different stages (steps) of the same omics analysis into multiple Tasks.
-- **Exclude wet lab experiments**: Ignore sampling and library preparation.
-- **Exclude multi-omics cross-referencing**: If the task is "integrating RNA and protein data for modeling", this cross-referencing part is not extracted; only their respective independent standard analysis chains are extracted.
+## 2. Task Description
+[Describe the analysis goals and biological background as stated in the paper. Clearly distinguish: which steps and parameters are **literature-specified** vs. **inferred defaults** not explicitly mentioned in the paper.]
 
+## 3. Pipeline Analysis Workflow(s)
+### [Workflow name]
+- **Step 1: [Functional Name]** - [Tool + key parameters.
+  Mark each parameter as (literature-specified) or (inferred default)]
+- **Step 2: [Functional Name]** - [...]
+- ...
 
-# Operational Procedures
-## Step 1: Initialize List
-1. Call appropriate tools to obtain the full text of the literature and read it
-2. Based on the rules above, first determine how many workflows the article generally contains
-3. For each workflow, call `add_todos` to add two tasks, one formatted as "Initialize Workflow #n XXX Design" and the other as "Save Workflow #n XXX"
+**Key Output Files**
+- **Core Product**: [File type and source]
+- **File Usage**: [How this connects to subsequent analysis]
 
-## Step 2: Fill in Actual Steps
-Building on the previous step, continue calling the `add_todos` tool to insert detailed analysis steps after the initial task of each workflow
-- The format for specific analysis steps is "using XXX to ...", each corresponding to an analysis step in the original text
-- No need to record specific parameter details; simply state which tool is used for what
-- If the original text clearly states that multiple tools can be used for a certain step, choose the one you deem most appropriate. Pointing to multiple tools is not allowed in the task.
-- If the analysis data for a step comes from another workflow (generally common at the beginning of a new workflow), add a note specifying which file from which workflow is being used
-- Since inserting into an existing list alters the TODO-list's index, call the `view_todos` tool to inspect the current list before populating each workflow.
+## 4. Workflow Guide
+[Execution order and scheduling logic for all workflows]
 
-# Precautions
-- Only extract operations related to bioinformatics analysis; do not extract preliminary work such as file downloads and database preparation.
-- Only extract the workflow for omics data analysis in the text. Do not extract wet-lab design or other data analyses (e.g., imaging).
-- The to-do list is for subsequent build tasks, do not write your own decomposition workflow related content into it. If you accidentally added it, please delete it.
+## 5. Scripted Analysis Suggestions (If applicable)
+- **Analysis Ideas**: [Based on figures/results described in the paper]
+- **Recommended Tools**: [R/Python packages]
 
-# Output Format
-Please answer directly according to the following structure, without superfluous content:
-```text
-**Identification Result: [Number] independent workflows in total**
-
-**Workflow Details:**
-1. **Workflow #1 [Brief Name]**
-   - **Source Data**: [Briefly describe the input, e.g., Raw Sequencing Data (FastQ)]
-   - **Main Tools and Steps**: [List core toolchain, connected by arrows]
-   - **Function Description**: [One-sentence summary]
-
-2. **Workflow #2 [Brief Name]**
-   - **Source Data**: [e.g., Merged Contigs or BAM Files from the previous step]
-   - **Main Tools and Steps**: ...
-   - **Function Description**: ...
+## 6. Deviations from Original Paper (If applicable)
+- **Original**: [Tool name used in the paper]
+- **Replaced with**: [Tool name used in this plan]
+- **Reason**: [Which constraint triggered the replacement]
 ```
 
-The language of your generated summary must match the user's question language.
+### Specific Details
+#### Fidelity Principle
+- Faithfully follow the tools and parameters described in the literature. Do not substitute or "upgrade" tools simply because newer alternatives exist.
+- For steps not mentioned in the paper, supplement with minimal scientifically necessary defaults without over-designing.
+
+#### Tool Selection Constraints
+These constraints override fidelity to the original paper:
+- Do NOT use tools that require a graphical user interface (GUI).
+- Do NOT use tools that depend on a specific directory structure or file naming convention to function (e.g., CellRanger, HiC-Pro).
+- If the paper uses such a tool, replace it with the most functionally equivalent CLI-compatible alternative, and document the change in **Section 6**.
+
+#### Writing Requirements for Section 3
+- The Pipeline Workflow includes only steps that can be directly executed using existing command-line tools (CLI). The criteria are as follows:
+    - If an operation has a corresponding standalone CLI tool that can be performed via the command line, it belongs to the Pipeline category.
+    - If it requires users to write R or Python scripts to implement, it falls under the Scripted Analysis category, must be placed in Section 5, and must not be included in the Pipeline Workflow.
+- A Workflow is the minimal unit "written as a single script and run in one go." The basis for splitting is the execution granularity (how many times to run, on what), not functional steps. Most analysis tasks require only one per-sample workflow. Additional workflows are created only when genuinely distinct execution stages exist:
+    - Per-sample workflow (run once per sample): The complete main process from QC to core analysis, serving as the essential body for all analysis tasks. If different sample types require different processes (e.g., RNA samples vs. metagenomic samples), write one per type, with samples of the same type sharing the same workflow.
+    - Preparatory workflow (run once globally, as needed): Created only when the process includes preparatory work that must be executed once globally (e.g., building special indexes, downloading databases). Note: Indexes for the five alignment tools BWA, STAR, HISAT2, Bowtie2, and minimap2 are pre-built by the system; do not create a preparatory workflow for them.
+    - Aggregation workflow (run once globally, as needed): Created only when the analysis logic requires aggregating results from all samples before proceeding to subsequent steps (e.g., co-assembly, binning, merging count matrices, etc.).
+    - Do not forcibly split out preparatory or aggregation workflows for the sake of format completeness; omit them if not needed.
+- Key Output Files section appears only at the end of each workflow.
+- Do not write full command lines, installation methods, or specific output filenames.
+- Describe only a linear process; do not design conditional branches or fallback logic.
+
+#### Writing Requirements for Section 5
+- Write this section if the paper describes any downstream analysis that requires custom R or Python scripting (e.g., differential expression, clustering, visualization, statistical testing, figure reproduction).
+- Base suggestions on both the pipeline output files and the specific results/figures described in the paper.
+- Clearly distinguish: which analyses are **literature-specified** (the paper explicitly describes them) vs. **recommended extensions** (scientifically reasonable additions not mentioned in the paper).
+- Recommend specific packages (e.g., DESeq2, ggplot2, Seurat) and briefly describe the analysis approach for each.
+- If the paper contains no scripted downstream analysis, omit this section.
+
+#### Writing Requirements for Section 6
+- Only include this section if at least one tool was replaced due to Tool Selection Constraints.
+- List every replaced tool, one entry per tool.
+- Do not include commentary on tools that were kept as-is.
+
+## Notes
+- Assume that the required databases, reference genomes, and other resources have already been downloaded.
+- Before calling `ask_human` and obtaining user confirmation, the task is not considered complete
+- Only one tool call is allowed at a time; calling multiple tools at once is strictly prohibited!
 """
 
 
@@ -228,119 +253,42 @@ class IntentResult(BaseModel):
     reason: str = Field(description='The reason you made this classification')
 
 
-class AutonomousDesignAgent:
-    def __init__(self, memory: Optional[BaseCheckpointSaver] = None, *, use_cache: bool = False) -> None:
-        self.name = 'autonomous_design'
-
-        self.tools = [ask_human, ask_for_confirm, write_plan]
-        self.llm = get_high_performance_model().bind_tools(self.tools, parallel_tool_calls=False)
-
-        self.memory = memory
-        self.cache = llm_cache if use_cache else None
-
-    async def llm_node(self, state: DesignState, runtime: Runtime[UserContext]) -> dict[str, Any]:
-        """Agent node."""
-        prompt = ChatPromptTemplate(
-            messages=[
-                SystemMessage(content=SELF_DESIGN_SYSTEM),
-                MessagesPlaceholder(variable_name='history'),
-            ]
-        )
-        chain = prompt | self.llm
-
-        response = await chain.ainvoke({'history': state['messages']})  # type: ignore
-        store_token_usage(
-            self.name,
-            user_id=runtime.context.user_id,
-            token_usage=response.usage_metadata,
-            **self.llm.metadata,
-        )
-
-        return {'messages': [response]}
-
-    @staticmethod
-    def model_router(state: DesignState) -> Command[Literal['tools', 'model', '__end__']]:
-        """处理未调用工具直接结束的情况."""
-        last_message = state['messages'][-1]
-        if last_message.tool_calls:
-            if len(last_message.tool_calls) == 1:
-                return Command(goto='tools')
-
-            # 屏蔽并行调用
-            error_msg = 'Parallel tool calls detected; this invocation has been invalidated. Only one tool call is allowed at a time!'
-            return Command(
-                goto='model',
-                update={
-                    'messages': [
-                        ToolMessage(content=error_msg, tool_call_id=tool_call['id'])
-                        for tool_call in last_message.tool_calls
-                    ]
-                },
-            )
-
-        # 实际上理论来说不会走到这里, 工具直接退出了
-        if isinstance(state['messages'][-2], ToolMessage) and state['messages'][-2].name == 'ask_human':
-            return Command(goto=END)
-
-        return Command(
-            goto='model',
-            update={
-                'messages': [
-                    HumanMessage(
-                        content='Call the `ask_for_confirm` tool to ask a human for information instead of outputting information directly.'
-                    )
-                ]
-            },
-        )
-
-    def build(self) -> CompiledStateGraph:  # noqa: D102
-        graph = StateGraph(state_schema=DesignState, context_schema=UserContext)  # type: ignore
-
-        graph.add_node('model', self.llm_node)  # type: ignore
-        graph.add_node('router', self.model_router)  # type: ignore
-        graph.add_node('tools', ToolNode(self.tools))
-
-        graph.add_edge('model', 'router')
-
-        graph.set_entry_point('model')
-
-        return graph.compile(cache=self.cache, checkpointer=self.memory, name=self.name)
-
-
 class WorkflowDesigner:
-    def __init__(self, history: BaseChatMessageHistory, memory: Optional[BaseCheckpointSaver] = None):
+    def __init__(self, memory: Optional[BaseCheckpointSaver] = None):
         self.name = 'workflow_designer'
 
-        self.history = history
         self.memory = memory
 
         # sub agents
-        self.autonomous_design_agent = AutonomousDesignAgent(self.memory).build()
-
-        self.summary_paper_agent = create_agent(
-            get_long_context_model(),
-            [view_pdf],
-            system_prompt=SUMMARY_PAPER_SYSTEM,
-            middleware=[TokenStatisticMiddleware(agent_name=self.name, **get_long_context_model().metadata)],
-            state_schema=DesignState,
-            cache=llm_cache,
-        )
-
-        self.split_workflow_agent = create_agent(
-            get_long_context_model(),
-            [view_pdf],
-            system_prompt=SPLIT_WORKFLOW_SYSTEM,
+        plan_model = get_high_performance_model()
+        self.self_plan_agent = create_agent(
+            plan_model,
+            [write_plan],
+            system_prompt=SELF_DESIGN_SYSTEM,
             middleware=[
-                BuildTodoMiddleware(),
-                DisableParallelToolCallsMiddleware(),
-                TokenStatisticMiddleware(agent_name=self.name, **get_long_context_model().metadata),
+                EndAgentLoop(),
+                CheckStateExistMiddleware('plan', 'write_plan'),
+                TokenStatisticMiddleware(agent_name='workflow_designer', **plan_model.metadata),
             ],
-            state_schema=DesignState,
+            state_schema=DesignState,  # type: ignore
+            context_schema=DesignContext,  # type: ignore
+        )
+        self.reference_plan_agent = create_agent(
+            plan_model,
+            [write_plan],
+            system_prompt=REF_DESIGN_SYSTEM,
+            middleware=[
+                EndAgentLoop(),
+                CheckStateExistMiddleware('plan', 'write_plan'),
+                TokenStatisticMiddleware(agent_name='workflow_designer', **plan_model.metadata),
+            ],
+            state_schema=DesignState,  # type: ignore
+            context_schema=DesignContext,  # type: ignore
         )
 
     async def intent_recognition(
-        self, state: DesignState, runtime: Runtime[UserContext]
-    ) -> Command[Literal['autonomous_design', 'summary_paper', '__end__']]:
+        self, state: DesignState, runtime: Runtime
+    ) -> Command[Literal['search_tool', 'self_plan', 'summary_paper', '__end__']]:
         """意图识别."""
         prompt = ChatPromptTemplate(
             messages=[
@@ -352,9 +300,7 @@ class WorkflowDesigner:
         llm = get_simple_model()
         chain = prompt | llm.with_structured_output(IntentResult, include_raw=True).with_retry(stop_after_attempt=3)
 
-        response: StructuredResponse[IntentResult] = await chain.ainvoke(  # type: ignore
-            {'history': state['messages']}
-        )
+        response: StructuredResponse[IntentResult] = await chain.ainvoke({'history': state['messages']})  # type: ignore
         store_token_usage(
             self.name,
             user_id=runtime.context.user_id,
@@ -365,19 +311,47 @@ class WorkflowDesigner:
         logger.debug(f'route to {response["parsed"].task}')
         match response['parsed'].task:
             case 'autonomous_design':
-                return Command(goto='autonomous_design', update={'task': 'autonomous_design'})
+                return Command(goto='self_plan', update={'task': response['parsed'].task})
             case 'tool_expansion':
-                return Command(goto='search_tool', update={'task': 'tool_expansion'})
+                return Command(goto='search_tool', update={'task': response['parsed'].task})
             case 'literature_reproduction':
-                return Command(goto='summary_paper', update={'task': 'literature_reproduction'})
-            case _:
-                return Command(goto='__end__')
+                return Command(goto='summary_paper', update={'task': response['parsed'].task})
 
-    async def autonomous_design_node(self, state: DesignState, runtime: Runtime[UserContext]) -> dict[str, Any]:
-        """自主设计Step1 - 设定方案."""
-        response: DesignState = await self.autonomous_design_agent.ainvoke(
-            {'messages': state['messages']},
-            context=UserContext(user_id=runtime.context.user_id),
+    async def search_tool_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
+        """工具探索 Step1 - 联网搜索并撰写工具信息报告."""
+        writer = get_stream_writer()
+        writer({'info': 'Searching for tool information...'})
+
+        agent_input = {'messages': state['messages']}
+        response: DesignState = await tool_info_searcher.ainvoke(agent_input, context=runtime.context)
+
+        return {'tool_report': response['tool_report']}
+
+    async def summary_paper_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
+        """文献复现Step1 - 文献片段提取."""
+        writer = get_stream_writer()
+        writer({'info': 'Reading paper...'})
+
+        agent_input = {'messages': state['messages']}
+        response: DesignState = await paper_reader.ainvoke(agent_input, context=runtime.context)
+
+        return {'paper_id': response['paper_id'], 'paper_context': response['paper_context']}
+
+    async def self_plan_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
+        """自主规划路径的方案撰写节点."""
+        if tool_report := state.get('tool_report'):
+            agent_input = {
+                'messages': [
+                    *state['messages'],
+                    HumanMessage(content=f'<ToolReport>\n{tool_report}\n</ToolReport>'),
+                ]
+            }
+        else:
+            agent_input = {'messages': state['messages']}
+
+        response: DesignState = await self.self_plan_agent.ainvoke(
+            agent_input,  # type: ignore
+            context=runtime.context,
         )
 
         return {
@@ -385,74 +359,43 @@ class WorkflowDesigner:
                 HumanMessage(
                     content=f'For the above requirements, the following is an analysis plan for reference. Based on the upstream portion, please select appropriate tools for each step to build an actual workflow.\n'
                     f'<Plan>\n'
-                    f'{response["workflow_description"]}\n'
+                    f'{response["plan"]}\n'
                     f'</Plan>'
                 )
-            ],
-            'workflow_description': response['workflow_description'],
+            ]
         }
 
-    async def summary_paper_node(self, state: DesignState, runtime: Runtime[UserContext]) -> dict[str, Any]:
-        """从文献复现Step1 - 文献总结."""
-        # response = await self.summary_paper_agent.ainvoke(
-        #     {'messages': state['messages']},
-        #     context=UserContext(user_id=runtime.context.user_id),
-        # )
-        # await self.history.aadd_messages([response['messages'][-1]])
-
-        # Mocked response for demonstration
-        response = {
-            'paper_id': 'sample_paper_id',
-            'messages': [HumanMessage(content='This is a sample paper summary.')],
+    async def reference_plan_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
+        """基于参考文献的方案撰写节点."""
+        agent_input = {
+            'messages': [
+                *state['messages'],
+                HumanMessage(content=f'<Context>\n{state["paper_context"]}\n</Context>'),
+            ]
         }
 
-        return {'paper_id': response['paper_id'], 'paper_summary': response['messages'][-1].content}
-
-    async def split_workflow_node(self, state: DesignState, runtime: Runtime[UserContext]) -> dict[str, Any]:  # type: ignore
-        """文献复现Step2 - 工作流拆解."""
-        response = await self.split_workflow_agent.ainvoke(
-            {'messages': state['messages']},
-            context=UserContext(user_id=runtime.context.user_id),
+        response: DesignState = await self.reference_plan_agent.ainvoke(
+            agent_input,  # type: ignore
+            context=runtime.context,
         )
-        await self.history.aadd_messages([response['messages'][-1]])
 
-        return {'messages': [response['messages'][-1]], 'todos': response['todos'], 'paper_id': response['paper_id']}
+        return {
+            'messages': [
+                HumanMessage(
+                    content=f'For the above requirements, the following is an analysis plan for reference. Based on the upstream portion, please select appropriate tools for each step to build an actual workflow.\n'
+                    f'<Plan>\n'
+                    f'{response["plan"]}\n'
+                    f'</Plan>'
+                )
+            ]
+        }
 
-    async def search_tool_node(self, state: DesignState, runtime: Runtime[UserContext]):
-        """联网搜索并撰写工具信息报告."""
-        writer = get_stream_writer()
-        writer({'info': 'Searching for tool information...'})
-
-        agent_input = {'messages': state['messages']}
-        response = await tool_info_searcher.ainvoke(agent_input, context=runtime.context)
-
-    async def plan_confirmation_node(
-        self, state: DesignState
-    ) -> Command[Literal['generate_workflow', 'split_workflow']]:
-        """方案确认."""
-        confirm = interrupt({'info': 'plz confirm the plan above, whether to proceed?'})
-
-        if isinstance(confirm, bool) and confirm:
-            return Command(goto='generate_workflow', update={'workflow_description': state['workflow_description']})
-
-        match state['task']:
-            case 'autonomous_design':
-                return Command(goto='autonomous_design', update={'messages': [HumanMessage(content=confirm)]})
-            case 'literature_reproduction':
-                return Command(goto='split_workflow', update={'messages': [HumanMessage(content=confirm)]})
-        return Command(goto='__end__')
-
-    async def generate_workflow_node(self, state: DesignState, runtime: Runtime[UserContext]) -> dict[str, Any]:
+    async def generate_workflow_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
         """工作流生成."""
         if state['task'] == 'literature_reproduction':
             build_input = {
                 'paper_id': state['paper_id'],
-                'messages': [
-                    HumanMessage(
-                        content=f'The following workflows are available in the literature, please build them:\n{state["workflow_description"]}'
-                    )
-                ],
-                'todos': state['todos'],
+                'messages': state['messages'],
             }
             build_context: BuildContext = BuildContext(user_id=runtime.context.user_id, has_reference=True)
         else:
@@ -466,33 +409,27 @@ class WorkflowDesigner:
 
         return {'messages': response['messages'], 'workflow_uids': response['workflow_uids']}
 
-    def build(self, *, visualize: bool = False) -> CompiledStateGraph[DesignState, UserContext]:
-        graph = StateGraph(DesignState, UserContext)  # type: ignore
+    def build(self, *, visualize: bool = False) -> CompiledStateGraph[DesignState, DesignContext]:  # type: ignore
+        """构建工作流规划智能体."""
+        graph = StateGraph(DesignState, DesignContext)  # type: ignore
 
         graph.add_node('intent_recognition', self.intent_recognition)  # type: ignore
         graph.set_entry_point('intent_recognition')
 
-        # 自主设计路径
-        graph.add_node('autonomous_design', self.autonomous_design_node)  # type: ignore
-
-        graph.add_edge('autonomous_design', 'generate_workflow')
-        graph.add_edge('generate_workflow', END)
-
-        # 工具探索路径
         graph.add_node('search_tool', self.search_tool_node)  # type: ignore
-
-        # 文献参考路径
         graph.add_node('summary_paper', self.summary_paper_node)  # type: ignore
-        graph.add_node('split_workflow', self.split_workflow_node)  # type: ignore
-        graph.add_node(
-            'plan_confirmation',
-            self.plan_confirmation_node,  # type: ignore
-            destinations=('generate_workflow', 'split_workflow'),
-        )
+        graph.add_node('self_plan', self.self_plan_node)  # type: ignore
+        graph.add_node('reference_plan', self.reference_plan_node)  # type: ignore
         graph.add_node('generate_workflow', self.generate_workflow_node)  # type: ignore
 
-        graph.add_edge('summary_paper', 'split_workflow')
-        graph.add_edge('split_workflow', 'plan_confirmation')
+        # 自主设计
+        graph.add_edge('search_tool', 'self_plan')
+        graph.add_edge('self_plan', 'generate_workflow')
+
+        # 文献复现
+        graph.add_edge('summary_paper', 'reference_plan')
+        graph.add_edge('reference_plan', 'generate_workflow')
+
         graph.add_edge('generate_workflow', END)
 
         compiled_graph = graph.compile(checkpointer=self.memory, cache=llm_cache)
@@ -501,88 +438,7 @@ class WorkflowDesigner:
             mermaid_code = compiled_graph.get_graph(xray=2).draw_mermaid(
                 curve_style=CurveStyle.BASIS, frontmatter_config={'config': {'theme': 'redux', 'look': 'neo'}}
             )
-            with Path('images/reproduction_agent.md').open('w') as f:
+            with Path('images/workflow_design_agent.md').open('w') as f:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
         return compiled_graph
-
-
-@tool('ask_human', parse_docstring=True)
-def ask_human(question: str, runtime: ToolRuntime) -> Command:
-    """Consult humans for advice.
-
-    Args:
-        question: Issues to consult with humans
-    """
-    answer = interrupt({'question': question})
-    return Command(
-        goto='model',
-        update={'messages': [ToolMessage(content=f'Human feedback is: "{answer}"', tool_call_id=runtime.tool_call_id)]},
-    )
-
-
-@tool
-async def write_plan(plan: str, runtime: ToolRuntime) -> Command:
-    """Write or update your plan.
-
-    Args:
-        plan: Specific content of the plan
-    """
-    if runtime.state.get('workflow_description'):
-        return Command(
-            goto='model',
-            update={
-                'workflow_description': plan,
-                'plan_update': True,
-                'messages': [ToolMessage(content='Updated the plan content.', tool_call_id=runtime.tool_call_id)],
-            },
-        )
-    return Command(
-        goto='model',
-        update={
-            'workflow_description': plan,
-            'plan_update': True,
-            'messages': [ToolMessage(content='The plan content has been saved.', tool_call_id=runtime.tool_call_id)],
-        },
-    )
-
-
-@tool(parse_docstring=True)
-async def ask_for_confirm(question: str, runtime: ToolRuntime) -> Command:
-    """Seek human feedback on your plans.
-
-    Args:
-        question: Issues to consult with humans
-    """
-    plan_update = runtime.state.get('plan_update', False)
-    if not plan_update:
-        return Command(
-            goto='model',
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='Before asking for confirm, call `write_plan` to write or update the plan.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            },
-        )
-
-    answer = interrupt({'question': question})
-    if isinstance(answer, bool) and answer:
-        return Command(
-            goto=END,
-            update={
-                'plan_update': False,
-                'messages': [
-                    ToolMessage(content='The user agreed with your point.', tool_call_id=runtime.tool_call_id)
-                ],
-            },
-        )
-    return Command(
-        goto='model',
-        update={
-            'plan_update': False,
-            'messages': [ToolMessage(content=f'Human feedback is: "{answer}"', tool_call_id=runtime.tool_call_id)],
-        },
-    )

@@ -1,15 +1,12 @@
 from langchain.agents import create_agent
-from langchain_core.messages import ToolMessage
-from langchain_core.tools import tool
-from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
 
 from llm.models import get_long_context_model
-from llm.states import UserContext
+from llm.states import DesignState, UserContext
 from llm.tools.web_search import web_reader, web_searcher
+from llm.tools.writter import write_report
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.middleware.end_loop import EndAgentLoop
-from llm.utils.middleware.final_check import CheckReportConfirmMiddleware
+from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 SYSTEM_PROMPT = """## Role
 You are a bioinformatics tool research assistant. Your job is to investigate bioinformatics tools that users ask about, gather information from official documentation, GitHub repositories, and other reliable sources, and produce a structured report covering installation and basic usage.
@@ -81,27 +78,15 @@ After calling `write_report`, call `ask_human` with a brief message to let the u
 AGENT_MODEL = get_long_context_model()
 
 
-@tool
-async def write_report(content: str, runtime: ToolRuntime) -> Command:
-    """Write or update tool report."""
-    return_msg = 'Updated the plan content.' if runtime.state.get('report') else 'The plan content has been saved.'
-
-    return Command(
-        update={
-            'report': content,
-            'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
-        },
-    )
-
-
 tool_info_searcher = create_agent(
     AGENT_MODEL,
     [web_searcher, web_reader, write_report],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
         EndAgentLoop(),
-        CheckReportConfirmMiddleware(),
+        CheckStateExistMiddleware('tool_report', 'write_report'),
         TokenStatisticMiddleware(agent_name='tool_searcher', **AGENT_MODEL.metadata),
     ],
+    state_schema=DesignState,  # type: ignore
     context_schema=UserContext,  # type: ignore
 )

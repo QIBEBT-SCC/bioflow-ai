@@ -25,17 +25,6 @@ class UserContext:
     user_id: int
 
 
-# =====================tool generator state==========================
-class ToolGeneratorState(AgentState, total=False):
-    name: str
-    description: str
-    file_mounts: list[FileMount]
-    command_template: str
-    dynamic_params: list[ParamDefine]
-    immutable_static_params: str
-    modifiable_static_params: str
-
-
 # =====================create tool agent state==========================
 class SearchImageState(AgentState, total=False):
     id_mapper: BidirectionalMapper
@@ -108,32 +97,40 @@ class TestRunContext(UserContext):
     test_run_id: Optional[str] = None
 
 
-# =====================extra workflow state==========================
-class Todo(BaseModel):
-    index: Optional[int] = None
-    content: str
-    status: Literal['pending', 'in_progress', 'completed']
+# =====================tool generator state==========================
+class ToolGeneratorState(AgentState, total=False):
+    name: str
+    description: str
+    file_mounts: list[FileMount]
+    command_template: str
+    dynamic_params: list[ParamDefine]
+    immutable_static_params: str
+    modifiable_static_params: str
+
+
+# =====================workflow plan state==========================
+@dataclass
+class DesignContext:
+    user_id: int
+    auto_approve: bool = False
 
 
 class DesignState(AgentState, total=False):
     task: str
-    plan_update: bool
+    plan: str
+
+    # 工具探索用
+    tool_report: str
 
     # 文献复现使用
     paper_id: str
-    paper_summary: str
-
-    # 暂存
-    todos: list[Todo]
-
-    # 生成节点输入用
-    workflow_description: str
+    paper_context: str
 
     # 生成接节点输出
     workflow_uids: list[uuid.UUID]
 
 
-# =====================reproduction agent state==========================
+# =====================build workflow agent state==========================
 class BuildNode(BaseModel):
     id: str
     name: str
@@ -161,27 +158,14 @@ class GlobalMarker(BaseModel):
     description: str
 
 
-class ManagerSchema(AgentState, total=False):
-    paper_id: str
-
-    id_mapper: BidirectionalMapper
-    exist_nodes: Annotated[list[BuildNode], operator.add]
-    exist_edges: Annotated[list[BuildEdge], operator.add]
-
-    global_marks: Annotated[list[GlobalMarker], operator.add]
-
-
 class BuildSchema(AgentState, total=False):
     paper_id: str
 
-    todos: list[Todo]
     previous_summary: str
 
     id_mapper: BidirectionalMapper
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
-
-    global_marks: Annotated[list[GlobalMarker], operator.add]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
 

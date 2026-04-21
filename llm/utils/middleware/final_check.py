@@ -1,16 +1,12 @@
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
-from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.tools import tool
-from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
-from langgraph.types import Command
 from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -292,39 +288,39 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         return self.after_model(state, runtime)
 
 
-@tool
-async def write_report(content: str, runtime: ToolRuntime) -> Command:
-    """Write or update tool report."""
-    return_msg = 'Updated the plan content.' if runtime.state.get('report') else 'The plan content has been saved.'
-
-    return Command(
-        update={
-            'report': content,
-            'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
-        },
-    )
+class StateUpdateSchema(TypedDict):
+    updated: NotRequired[bool]
 
 
-class CheckReportSchema(AgentState):
-    report: NotRequired[str]
-
-
-class CheckReportConfirmMiddleware(AgentMiddleware):
+class CheckStateExistMiddleware(AgentMiddleware):
     """正常来说, 模型只能由ask human确认之后退出, 不会自己走到end loop, 也就是说只要模型自己结束了循环一定是出问题了."""
 
-    @hook_config(can_jump_to=['model'])
-    def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
-        messages = state['messages']
-        last_message = cast('AIMessage', messages[-1])
+    state_schema = StateUpdateSchema
 
-        # 如果这是一条不带工具调用的信息, 那么说明模型直接退出了
+    def __init__(self, state_name: str, tool_name: str):
+        self.state_name = state_name
+        self.tool_name = tool_name
+
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+        return {'updated': False}
+
+    @hook_config(can_jump_to=['model'])
+    def after_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
+        last_message = state['messages'][-1]
+
         if last_message.tool_calls:
             return None
+
+        # 如果这是一条不带工具调用的信息, 那么说明模型直接退出了
+        # 此时检查: 1、state_name 有内容; 2、updated 为真
+        if state.get(self.state_name) and state['updated']:  # type: ignore
+            return None
+
         return {
             'jump_to': 'model',
             'messages': [
                 HumanMessage(
-                    content='Before concluding the task, you must call the tool to write the report and seek human input.'
+                    content=f'Before concluding the task, first invoke the `{self.tool_name}` tool to write or updated {self.state_name.replace("_", " ")}.'
                 )
             ],
         }

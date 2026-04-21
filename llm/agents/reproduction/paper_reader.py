@@ -1,8 +1,12 @@
 from langchain.agents import create_agent
 
 from llm.models import get_long_context_model
-from llm.states import PreDesignState, UserContext
+from llm.states import DesignState, UserContext
+from llm.tools.human import ask_human
 from llm.tools.storage import view_pdf
+from llm.tools.writter import write_snippet
+from llm.utils.middleware import TokenStatisticMiddleware
+from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics literature. Your task is to **precisely extract bioinformatics-related methods content from a given paper based on the user's request**, and output it via tools rather than in the conversation.
 
@@ -28,7 +32,7 @@ SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics lit
      - Whether the correct paper was provided
      - Whether the search scope should be expanded (e.g., checking supplementary materials)
      - Whether they would like to rephrase or narrow their request
-5. **Close the conversation**: After all tool calls are complete, briefly inform the user in the conversation, e.g.: "Done — the relevant snippet has been written." Do not repeat or elaborate on the extracted content in the conversation message.
+5. **End the conversation**: After all tool calls are complete, briefly inform the user in the conversation, e.g.: "Done — the relevant snippet has been written." Do not repeat or elaborate on the extracted content in the conversation message.
 
 ## Important Notes
 - When in doubt about whether a passage is relevant, err on the side of inclusion — do not omit potentially critical parameters or steps.
@@ -39,9 +43,12 @@ AGENT_MODEL = get_long_context_model()
 
 paper_reader = create_agent(
     AGENT_MODEL,
-    [view_pdf],
+    [view_pdf, write_snippet, ask_human],
     system_prompt=SYSTEM_PROMPT,
-    middleware=[],
-    state_schema=PreDesignState,
-    context_schema=UserContext,
+    middleware=[
+        CheckStateExistMiddleware('paper_context', 'write_snippet'),
+        TokenStatisticMiddleware(agent_name='paper_reader', **AGENT_MODEL.metadata),
+    ],
+    state_schema=DesignState,  # type: ignore
+    context_schema=UserContext,  # type: ignore
 )

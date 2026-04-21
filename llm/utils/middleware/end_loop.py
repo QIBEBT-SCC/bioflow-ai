@@ -1,6 +1,5 @@
-from typing import Any, NotRequired
+from typing import Any, NotRequired, TypedDict
 
-from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
 from langgraph.runtime import Runtime
@@ -9,7 +8,7 @@ from langgraph.typing import ContextT
 from llm.tools.human import ask_human_and_end
 
 
-class EndLoopSchema(AgentState):
+class EndLoopSchema(TypedDict):
     should_end: NotRequired[bool]
 
 
