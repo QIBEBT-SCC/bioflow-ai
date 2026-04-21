@@ -303,11 +303,11 @@ def _save_workflow(name: str, runtime: ToolRuntime[UserContext]) -> Command:
     # 更新工作流列表并清空面板
     return Command(
         update={
-            'workflow_uid': [workflow.uid],
             'messages': [
                 ToolMessage(content='The workflow has been saved to the database.', tool_call_id=runtime.tool_call_id)
             ],
             'exist_nodes': [],
             'exist_edges': [],
+            'workflow_uids': [workflow.uid],
         }
     )
