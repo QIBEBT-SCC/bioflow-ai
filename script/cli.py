@@ -1,6 +1,7 @@
 import click
 
 from script.develop import cli as dev_cli
+from script.evaluate import cli as eval_cli
 from script.init_db import cli as init_cli
 
 
@@ -27,6 +28,7 @@ def worker() -> None:
 
 cli.add_command(init_cli, name='init')
 cli.add_command(dev_cli, name='dev')
+cli.add_command(eval_cli, name='eval')
 
 if __name__ == '__main__':
     cli()
