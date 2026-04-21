@@ -23,6 +23,7 @@ from llm.utils.middleware import (
     TodoMiddleware,
     TokenStatisticMiddleware,
 )
+from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 BUILD_FLOW_SYSTEM = """你是一名生物信息专家, 正在使用一款基于节点式编辑器的可视化生物信息分析平台。
 您的任务是调用相应的工具, 向面板中添加适当的节点, 以设计满足用户需求的生物信息学分析工作流。
@@ -136,6 +137,7 @@ build_workflow_agent: CompiledStateGraph = create_agent(
                 'WRITE_DOWNSTREAM_SUMMARY',
             ]
         ),
+        CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
         TokenStatisticMiddleware(agent_name='reproduction_agent', **get_agent_model().metadata),
