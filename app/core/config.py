@@ -29,6 +29,7 @@ class LogConfig(BaseSectionConfig):
     LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     FASTAPI_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     CELERY_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
+    BOTO3_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     ERROR_LEVEL: Literal['ERROR'] = 'ERROR'
     LOG_RETENTION: str = '1 week'
     LOG_ROTATION: str = '10 MB'

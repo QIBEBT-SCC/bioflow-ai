@@ -110,6 +110,16 @@ loguru_config = {
             'format': '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | celery | {function}:{line} - {message}',
             'filter': lambda record: record['extra'].get('logger_type', '') == 'celery',
         },
+        # S3/boto3日志
+        {
+            'sink': f'log/s3/s3_{year}{month:02d}{day:02d}.log',
+            'level': log_config.LEVEL,
+            'rotation': log_config.LOG_ROTATION,
+            'retention': log_config.LOG_RETENTION,
+            'encoding': 'utf-8',
+            'format': '{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | s3 | {function}:{line} - {message}',
+            'filter': lambda record: record['extra'].get('logger_type', '') == 's3',
+        },
         # 错误日志 (所有类型的错误都会记录)
         {
             'sink': f'log/error/error_{year}{month:02d}{day:02d}.log',
@@ -131,11 +141,12 @@ def init_logging() -> None:
     logging.getLogger().propagate = False
 
     # FastAPI相关日志
+    fastapi_level = getattr(logging, log_config.FASTAPI_LEVEL)
     fastapi_loggers = ['uvicorn', 'uvicorn.error', 'uvicorn.access', 'uvicorn.asgi', 'fastapi']
     for logger_name in fastapi_loggers:
         logging_logger = logging.getLogger(logger_name)
         logging_logger.handlers = [InterceptHandler(logger_type='fastapi')]
-        logging_logger.setLevel(logging.INFO)
+        logging_logger.setLevel(fastapi_level)
         logging_logger.propagate = False
 
     # Celery相关日志
@@ -147,7 +158,15 @@ def init_logging() -> None:
         logging_logger.setLevel(celery_level)
         logging_logger.propagate = False
 
-    # httpx/httpcore日志重定向 (降至WARNING避免噪音)
+    # boto3/botocore/s3transfer相关日志
+    s3_level = getattr(logging, log_config.BOTO3_LEVEL)
+    for boto_logger_name in ('boto3', 'botocore', 's3transfer'):
+        boto_logger = logging.getLogger(boto_logger_name)
+        boto_logger.handlers = [InterceptHandler(logger_type='s3')]
+        boto_logger.setLevel(s3_level)
+        boto_logger.propagate = False
+
+    # httpx/httpcore相关日志 (降至WARNING避免噪音)
     for http_logger_name in ('httpx', 'httpcore'):
         http_logger = logging.getLogger(http_logger_name)
         http_logger.handlers = [InterceptHandler(logger_type='httpx')]

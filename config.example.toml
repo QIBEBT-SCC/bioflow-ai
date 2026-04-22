@@ -6,6 +6,7 @@ access_token_expire_minutes = 1440
 [logger]
 level = "INFO"
 fastapi_level = "INFO"
+boto3_level = "INFO"
 celery_level = "INFO"
 error_level = "ERROR"
 log_retention = "1 week"
