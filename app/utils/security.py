@@ -3,7 +3,7 @@ from typing import Annotated, TypeAlias
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 from redis.asyncio import Redis
@@ -19,7 +19,17 @@ _USER_CACHE_TTL = 300
 config = get_settings().security
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/api/v1/auth/token')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/api/v1/auth/token', auto_error=False)
+
+
+async def get_token_from_header_or_cookie(
+    request: Request,
+    header_token: Annotated[str | None, Depends(oauth2_scheme)] = None,
+) -> str | None:
+    """Extract JWT from Authorization header first, then fall back to access_token cookie."""
+    if header_token:
+        return header_token
+    return request.cookies.get('access_token')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -41,29 +51,77 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     """计算token."""
     to_encode = data.copy()
     expire = datetime.now(UTC) + expires_delta if expires_delta else datetime.now(UTC) + timedelta(minutes=15)
-    to_encode.update({'exp': expire, 'jti': uuid7str()})
+    to_encode.update({'exp': expire, 'jti': uuid7str(), 'type': 'access'})
     return jwt.encode(to_encode, config.SECRET_KEY.get_secret_value(), algorithm=config.ALGORITHM)
+
+
+def create_refresh_token(sub: str) -> str:
+    """签发 refresh token，有效期由配置决定."""
+    expire = datetime.now(UTC) + timedelta(days=config.REFRESH_TOKEN_EXPIRE_DAYS)
+    payload = {'sub': sub, 'exp': expire, 'jti': uuid7str(), 'type': 'refresh'}
+    return jwt.encode(payload, config.SECRET_KEY.get_secret_value(), algorithm=config.ALGORITHM)
 
 
 async def revoke_token(redis: Redis, jti: str, expire_seconds: int) -> None:
     await redis.set(f'token-blacklist:{jti}', '1', ex=expire_seconds)
 
 
-def authenticate_user(session: SessionDep, email: str, password: str) -> bool | User:
+async def store_refresh_token(redis: Redis, jti: str, sub: str) -> None:
+    """写入 refresh token 白名单，TTL = 配置天数."""
+    ttl = config.REFRESH_TOKEN_EXPIRE_DAYS * 86400
+    await redis.set(f'refresh-token:{jti}', sub, ex=ttl)
+
+
+async def validate_and_rotate_refresh_token(redis: Redis, token: str) -> tuple[str, str]:
+    """校验 refresh token，轮换后返回 (sub, old_jti).
+
+    Raises HTTPException 401 if invalid or revoked.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail='Invalid or expired refresh token',
+        headers={'WWW-Authenticate': 'Bearer'},
+    )
+    try:
+        payload = jwt.decode(token, config.SECRET_KEY.get_secret_value(), algorithms=[config.ALGORITHM])
+        if payload.get('type') != 'refresh':
+            raise credentials_exception
+        jti: str | None = payload.get('jti')
+        sub: str | None = payload.get('sub')
+        if not jti or not sub:
+            raise credentials_exception
+    except InvalidTokenError as e:
+        raise credentials_exception from e
+
+    stored = await redis.get(f'refresh-token:{jti}')
+    if not stored:
+        raise credentials_exception
+
+    await redis.delete(f'refresh-token:{jti}')
+    return sub, jti
+
+
+def authenticate_user(session: SessionDep, email: str, password: str) -> User | None:
     user = user_crud.get(session, email)
     if not user:
-        return False
+        return None
     if not verify_password(password, user.hashed_password):
-        return False
+        return None
     return user
 
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep, redis: RedisDep) -> User:
+async def get_current_user(
+    token: Annotated[str | None, Depends(get_token_from_header_or_cookie)],
+    session: SessionDep,
+    redis: RedisDep,
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail='Could not validate credentials',
         headers={'WWW-Authenticate': 'Bearer'},
     )
+    if not token:
+        raise credentials_exception
     try:
         payload = jwt.decode(token, config.SECRET_KEY.get_secret_value(), algorithms=[config.ALGORITHM])
         email: str = payload.get('sub')

@@ -18,7 +18,11 @@ class BaseSectionConfig(BaseModel):
 class SecurityConfig(BaseSectionConfig):
     SECRET_KEY: SecretStr = SecretStr(secrets.token_urlsafe(32))
     ALGORITHM: str = 'HS256'
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    COOKIE_SECURE: bool = False
+    COOKIE_DOMAIN: str | None = None
+    COOKIE_SAMESITE: str = 'lax'
 
 
 class LogConfig(BaseSectionConfig):

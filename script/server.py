@@ -25,6 +25,7 @@ from app.core.redis_client import close_cache_regis, setup_cache_redis
 from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
 from app.utils.logger import init_logging
+from app.utils.middleware.csrf import CSRFMiddleware
 
 init_logging()
 
@@ -57,8 +58,13 @@ class LogRequestMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(
-    CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=['*'], allow_headers=['*']
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*', 'X-CSRF-Token'],
 )
+app.add_middleware(CSRFMiddleware)
 # app.add_middleware(LogRequestMiddleware)
 
 
