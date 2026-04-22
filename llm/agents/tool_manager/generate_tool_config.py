@@ -198,7 +198,7 @@ tool_generator_agent = create_agent(
     [set_file_mounts, set_command_detail, set_tool_info],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
-        DisableParallelToolCallsMiddleware(),
+        DisableParallelToolCallsMiddleware(disabled_tools={'set_file_mounts', 'set_command_detail', 'set_tool_info'}),
         SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
         CheckGenerateMiddleware(2),
         TokenStatisticMiddleware('tool_generator', **get_high_performance_model().metadata),

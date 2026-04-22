@@ -1,8 +1,8 @@
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Optional
 
-from langchain.agents.middleware import AgentMiddleware, ExtendedModelResponse, ModelRequest, ModelResponse
-from langchain.agents.middleware.types import ResponseT, StateT, hook_config
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import StateT, hook_config
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.runtime import Runtime
 from langgraph.types import interrupt
@@ -22,37 +22,38 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
     def __init__(self, disabled_tools: Optional[set[str]] = None):
         self.disabled_tools = disabled_tools
 
-    @staticmethod
-    def _disable_parallel(request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
-        return request.override(model_settings={**request.model_settings, 'parallel_tool_calls': False})
-
-    def _disable_specific_tools_parallel(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
-        if not self.disabled_tools:
-            return request.override(model_settings={**request.model_settings, 'parallel_tool_calls': False})
-
-        tool_list = '\n'.join(f'- {t}' for t in sorted(self.disabled_tools))
-        prompt = SPECIFIC_TOOLS_PARALLEL_PROMPT_TEMPLATE.format(tool_list=tool_list)
-        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': prompt}]
-        return request.override(
-            model_settings={**request.model_settings, 'parallel_tool_calls': False},
-            system_message=SystemMessage(content=new_content),
-        )
-
-    def wrap_model_call(  # noqa: D102
-        self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
-    ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
-        request = self._disable_specific_tools_parallel(request)
-        return handler(request)
-
-    async def awrap_model_call(  # noqa: D102
-        self,
-        request: ModelRequest[ContextT],
-        handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
-    ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
-        request = self._disable_specific_tools_parallel(request)
-        return await handler(request)
+    # 部分模型不支持, 用这种方法反而会报错。改为直接使用工具提示来限制。
+    # @staticmethod
+    # def _disable_parallel(request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
+    #     return request.override(model_settings={**request.model_settings, 'parallel_tool_calls': False})
+    #
+    # def _disable_specific_tools_parallel(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
+    #     if not self.disabled_tools:
+    #         return request.override(model_settings={**request.model_settings, 'parallel_tool_calls': False})
+    #
+    #     tool_list = '\n'.join(f'- {t}' for t in sorted(self.disabled_tools))
+    #     prompt = SPECIFIC_TOOLS_PARALLEL_PROMPT_TEMPLATE.format(tool_list=tool_list)
+    #     new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': prompt}]
+    #     return request.override(
+    #         model_settings={**request.model_settings, 'parallel_tool_calls': False},
+    #         system_message=SystemMessage(content=new_content),
+    #     )
+    #
+    # def wrap_model_call(
+    #     self,
+    #     request: ModelRequest[ContextT],
+    #     handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
+    # ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
+    #     request = self._disable_specific_tools_parallel(request)
+    #     return handler(request)
+    #
+    # async def awrap_model_call(
+    #     self,
+    #     request: ModelRequest[ContextT],
+    #     handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
+    # ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
+    #     request = self._disable_specific_tools_parallel(request)
+    #     return await handler(request)
 
     @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
@@ -65,7 +66,6 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
 
         if not self.disabled_tools:
             # 全局禁止并行调用
-            # 主要是有的模型不支持设置 parallel_tool_calls 参数
             error_msg = 'Parallel tool calls detected; this invocation has been invalidated. Only one tool call is allowed at a time!'
             return {
                 'jump_to': 'model',
