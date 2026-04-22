@@ -12,14 +12,14 @@ from app.core.config import get_settings
 
 settings = get_settings().persistent
 
-# 配置数据库连接池以支持并发任务
+
 engine = create_engine(
-    settings.database.DB_URL,
-    pool_size=20,  # 连接池大小
-    max_overflow=40,  # 最大溢出连接数
-    pool_pre_ping=True,  # 连接前检查可用性
-    pool_recycle=3600,  # 连接回收时间
-    echo=False,  # 不打印 SQL 语句
+    settings.database.DB_URL.unicode_string(),
+    pool_size=20,
+    max_overflow=40,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    echo=False,
 )
 
 
@@ -28,7 +28,7 @@ def create_db_and_tables() -> None:
     """初始化数据库."""
     SQLModel.metadata.create_all(engine)
 
-    with RedisSaver.from_conn_string(settings.cache.LLM_CACHE) as checkpoint:
+    with RedisSaver.from_conn_string(settings.cache.LLM_CACHE.unicode_string()) as checkpoint:
         checkpoint.setup()
 
 
@@ -46,12 +46,10 @@ def _get_session() -> Generator[Session, None, None]:
         yield session
 
 
-SessionDep: TypeAlias = Annotated[Session, Depends(_get_session)]  # noqa: UP040
-
-
-async def get_redis(request: Request) -> Redis:
+async def _get_redis(request: Request) -> Redis:
     """全局请求缓存."""
     return request.app.state.redis
 
 
-RedisDep: TypeAlias = Annotated[Redis, Depends(get_redis)]  # noqa: UP040
+SessionDep: TypeAlias = Annotated[Session, Depends(_get_session)]
+RedisDep: TypeAlias = Annotated[Redis, Depends(_get_redis)]

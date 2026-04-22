@@ -30,7 +30,7 @@ async def run_eval(task_file: str, paper_file: str | None, thread_id: str, *, dr
     os.environ['LANGCHAIN_PROJECT'] = 'bioflow-ai-eval'
 
     # configure the Phoenix tracer
-    tracer_provider = register(
+    tracer_provider = register(  # noqa: F841
         endpoint=get_settings().develop.PHOENIX_ENDPOINT,
         project_name='bioflow-ai-eval',
         batch=True,
@@ -82,7 +82,9 @@ async def run_eval(task_file: str, paper_file: str | None, thread_id: str, *, dr
 
     console = Console()
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(
+        get_settings().persistent.cache.LLM_CACHE.unicode_string()
+    ) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
                 ('llm.utils.middleware.todo', 'Todo'),
@@ -104,7 +106,7 @@ async def run_eval(task_file: str, paper_file: str | None, thread_id: str, *, dr
         async for _, stream_mode, chunk in agent.astream(
             agent_input,  # type: ignore
             config,
-            context=DesignContext(user_id=2, auto_approve=True),
+            context=DesignContext(user_id=2, auto_approve=True),  # type: ignore
             stream_mode=['updates', 'custom'],
             subgraphs=True,
         ):
@@ -140,7 +142,9 @@ async def continue_run(message: str, thread_id: str) -> None:
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'bioflow-ai-eval'
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(
+        get_settings().persistent.cache.LLM_CACHE.unicode_string()
+    ) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
                 ('llm.utils.middleware.todo', 'Todo'),

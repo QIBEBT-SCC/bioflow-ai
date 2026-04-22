@@ -95,7 +95,7 @@ async def init_tools(index: int | None = None) -> None:
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
     # configure the Phoenix tracer
-    tracer_provider = register(
+    tracer_provider = register(  # noqa: F841
         endpoint=get_settings().develop.PHOENIX_ENDPOINT,
         project_name='build-tool',
         batch=True,
@@ -123,7 +123,7 @@ async def init_tools(index: int | None = None) -> None:
 
     console = Console()
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
                 ('llm.utils.middleware.todo', 'Todo'),
@@ -225,7 +225,7 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
     # configure the Phoenix tracer
-    tracer_provider = register(
+    tracer_provider = register(  # noqa: F841
         endpoint=get_settings().develop.PHOENIX_ENDPOINT,
         project_name='build-tool',
         batch=True,
@@ -233,7 +233,7 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
         set_global_tracer_provider=False,
     )
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
                 ('llm.utils.middleware.todo', 'Todo'),
@@ -315,7 +315,7 @@ async def read_interrupt(index: int) -> None:
         logger.error(f'未找到索引为 {index} 的数据')
         return
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
                 ('llm.utils.middleware.todo', 'Todo'),
@@ -363,7 +363,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 
     console = Console()
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
                 ('llm.utils.middleware.todo', 'Todo'),
@@ -441,7 +441,9 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
         if tool_info['thread']:
             thread_ids_to_delete.append(tool_info['thread'])
-            async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+            async with AsyncRedisSaver.from_conn_string(
+                get_settings().develop.CHECKPOINT_URL.unicode_string()
+            ) as checkpoint:
                 checkpoint.serde = JsonPlusRedisSerializer(
                     allowed_msgpack_modules=[
                         ('llm.utils.middleware.todo', 'Todo'),
