@@ -7,7 +7,7 @@ from langgraph.prebuilt import ToolRuntime
 
 from llm.models import get_long_context_model
 from llm.states import GetDocState, UserContext
-from llm.tools.container import run_command
+from llm.tools.container import run_command_tool
 from llm.tools.database import list_docs, save_doc, select_doc, view_doc
 from llm.tools.human import ask_human
 from llm.utils.middleware import TokenStatisticMiddleware
@@ -120,7 +120,7 @@ doc_searcher = create_agent(
         list_docs,
         view_doc,
         select_doc,
-        run_command,
+        run_command_tool,
         save_doc,
         ask_human,
     ],
@@ -133,7 +133,7 @@ doc_searcher = create_agent(
 
 doc_reader = create_agent(
     model=get_long_context_model(),
-    tools=[run_command],
+    tools=[run_command_tool],
     system_prompt=DOC_READER_SYSTEM,
     state_schema=GetDocState,  # type: ignore
 )

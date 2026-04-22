@@ -68,11 +68,6 @@ def run_podman(
         podman.errors.ContainerError: 容器运行失败时抛出
         podman.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
         AssertionError: Podman客户端连接失败时抛出
-
-    Example:
-        >>> status, output = run_podman(image_cfg, "echo 'Hello World'", mounts)
-        >>> print(f'Status: {status}, Output: {output}')
-        Status: 0, Output: Hello World
     """
     with PodmanClient() as client:
         if not client.ping():
@@ -137,10 +132,6 @@ def run_podman_background(
     Raises:
         podman.errors.ContainerError: 容器运行失败时抛出
         podman.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
-
-    Example:
-        >>> for stats in run_podman_background(image_cfg, 'sleep 10', mounts, interval=0.5):
-        ...     print(f'CPU: {stats["cpu_percent"]:.2f}%, Memory: {stats["mem_usage_mb"]:.2f}MB')
     """
     with PodmanClient() as client:
         if not client.ping():
@@ -197,7 +188,13 @@ def run_podman_background(
                 container.remove()
 
 
-def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], *, debug: bool = False, **kwargs: int) -> str:
+def create_container(
+    image_cfg: ImageConfig,
+    mounts: list[Mount | dict],
+    *,
+    debug: bool = False,
+    **kwargs: int,
+) -> str:
     """创建容器并返回其ID.
 
     Args:
@@ -241,7 +238,11 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], *, debu
         return container.id
 
 
-def run_podman_by_id(container_id: str, command: str, workdir: Optional[str] = None) -> tuple[int, str]:
+def run_podman_by_id(
+    container_id: str,
+    command: str,
+    workdir: Optional[str] = None,
+) -> tuple[int, str]:
     """在特定容器中运行命令并返回结果.
 
     Args:

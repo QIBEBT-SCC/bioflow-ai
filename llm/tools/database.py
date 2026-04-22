@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import ToolNodePublic
+from app.utils.container import run_command
 from llm.utils.formatters import search_nodes_formatter
 from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
 
@@ -249,14 +250,7 @@ def save_doc(
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
     image: ImageConfig = runtime.state.get('image')
-    if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker  # noqa: PLC0415
-
-        code, result = run_docker(image, help_command, [])
-    else:
-        from app.utils.container.podman import run_podman  # noqa: PLC0415
-
-        code, result = run_podman(image, help_command, [])
+    code, result = run_command(image, [], help_command)
 
     with Session(engine) as session:
         new_doc = ToolHelpDoc(

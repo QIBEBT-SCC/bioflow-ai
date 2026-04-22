@@ -67,11 +67,6 @@ def run_docker(
     Raises:
         docker.errors.ContainerError: 容器运行失败时抛出
         docker.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
-
-    Example:
-        >>> status, output = run_docker(image_cfg, "echo 'Hello World'", mounts)
-        >>> print(f'Status: {status}, Output: {output}')
-        Status: 0, Output: Hello World
     """
     _check_image(image_cfg)
 
@@ -137,11 +132,6 @@ def run_docker_background(
     Raises:
         docker.errors.ContainerError: 容器运行失败时抛出
         docker.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
-
-    Example:
-        >>> import rich
-        >>> for docker_stats in run_docker_background(image_cfg, 'sleep 10', mounts, interval=1.5):
-        >>>     rich.print(docker_stats)
     """
     _check_image(image_cfg)
     container = None

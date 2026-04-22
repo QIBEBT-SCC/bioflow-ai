@@ -1,17 +1,15 @@
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Optional
 
-from docker.types import Mount
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.utils.container import remove_container
+from app.utils.container import create_container, remove_container, run_command, run_command_in_container
 from llm.states import TestRunContext
 
 if TYPE_CHECKING:
@@ -65,8 +63,8 @@ class ContainerMount(BaseModel):
     read_only: bool
 
 
-@tool(parse_docstring=True)
-def run_command(command: str, runtime: ToolRuntime) -> str:
+@tool('run_command', parse_docstring=True)
+def run_command_tool(command: str, runtime: ToolRuntime) -> str:
     """Run command in a container and return the result.
 
     **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
@@ -74,22 +72,14 @@ def run_command(command: str, runtime: ToolRuntime) -> str:
     Args:
         command: the command you need to run
     """
-    image = cast('ImageConfig', runtime.state.get('image'))
-
-    if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker  # noqa: PLC0415
-
-        code, result = run_docker(image, command, [])
-    else:
-        from app.utils.container.podman import run_podman  # noqa: PLC0415
-
-        code, result = run_podman(image, command, [])
+    image = runtime.state.get('image')
+    code, result = run_command(image, [], command)
 
     return f'[Container: {image.get_image()}]\n{result}'
 
 
 @tool('run_command', description=COMMAND_DESCRIPTION)
-def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Optional[str] = None) -> Command:
+def run_command_in_container_tool(command: str, runtime: ToolRuntime, workdir: Optional[str] = None) -> Command:
     """Run command, and return it`s output result."""
     if 'container_id' in runtime.state:
         container_id = runtime.state.get('container_id')
@@ -105,7 +95,6 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
             }
         )
 
-    runtime.stream_writer({'run': command, 'dir': workdir})
     # 允许使用 cat 命令的文件白名单
     allowed_cat_files = ['DESCRIPTION.md', 'about.md', 'task_log.txt']
     if re.search(r'(?:^|[|&;])\s*cat\b', command) and not any(file in command for file in allowed_cat_files):
@@ -156,14 +145,7 @@ def run_command_in_container(command: str, runtime: ToolRuntime, workdir: Option
             }
         )
 
-    if get_settings().docker.CONTAINER == 'docker':
-        from app.utils.container.docker import run_docker_by_id  # noqa: PLC0415
-
-        code, out = run_docker_by_id(container_id, command, workdir)
-    else:
-        from app.utils.container.podman import run_podman_by_id  # noqa: PLC0415
-
-        code, out = run_podman_by_id(container_id, command, workdir)
+    code, out = run_command_in_container(container_id, command, workdir)
 
     run_status = 'successfully' if code == 0 else 'failed'
     if out.strip():
@@ -222,48 +204,10 @@ def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunCo
                 }
             )
 
-    mount_configs = [{'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only} for m in mounts]
+    testdata_mount = ContainerMount(target='/data/testdata', source=f'{test_data_path}', read_only=True)
+    output_mount = ContainerMount(target='/data/output', source=f'{output_path}', read_only=False)
 
-    testdata_mount = {
-        'type': 'bind',
-        'target': '/data/testdata',
-        'source': f'{test_data_path}',
-        'read_only': True,
-    }
-    output_mount = {
-        'type': 'bind',
-        'target': '/data/output',
-        'source': f'{output_path}',
-    }
-
-    container_id: Optional[str] = None
-    match get_settings().docker.CONTAINER:
-        case 'docker':
-            from app.utils.container.docker import create_container  # noqa: PLC0415
-
-            final_mounts = [
-                Mount(
-                    target=m['target'],
-                    source=m['source'],
-                    type='bind',
-                    read_only=m.get('read_only', False),
-                )
-                for m in [*mount_configs, testdata_mount, output_mount]
-            ]
-            container_id = create_container(image, final_mounts)
-        case 'podman':
-            from app.utils.container.podman import create_container  # noqa: PLC0415
-
-            # Podman specific relabeling
-            for m in mount_configs:
-                m['relabel'] = 'z'
-            testdata_mount['relabel'] = 'z'
-
-            final_mounts = [*mount_configs, testdata_mount, output_mount]
-            container_id = create_container(image, final_mounts)
-        case _:
-            container_id = None
-            logger.error('Incorrect container type')
+    container_id = create_container(image, [*mounts, testdata_mount, output_mount])
 
     return Command(
         update={

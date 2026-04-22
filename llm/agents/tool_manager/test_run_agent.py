@@ -10,7 +10,7 @@ from llm.models import get_high_performance_model, get_long_context_model
 from llm.states import TestRunContext, TestRunState
 from llm.tools.container import (
     build_container,
-    run_command_in_container,
+    run_command_in_container_tool,
     stop_and_rm_container,
 )
 from llm.tools.database import search_biodb
@@ -364,7 +364,7 @@ _pre_run_agent = create_agent(
     tools=[
         search_biodb,
         build_container,
-        run_command_in_container,
+        run_command_in_container_tool,
     ],
     system_prompt=PRE_RUN_SYSTEM,
     middleware=[  # type: ignore
@@ -384,7 +384,7 @@ test_run_agent: CompiledStateGraph = create_agent(
     tools=[
         search_biodb,
         build_container,
-        run_command_in_container,
+        run_command_in_container_tool,
         stop_and_rm_container,
         run_other_tool,
         ask_human,
