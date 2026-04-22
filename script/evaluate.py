@@ -18,6 +18,7 @@ async def run_eval(task_file: str, paper_file: str | None, thread_id: str, *, dr
     from langchain_core.runnables import RunnableConfig
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+    from phoenix.otel import register
     from rich.console import Console
 
     from app.core.config import get_settings
@@ -27,6 +28,15 @@ async def run_eval(task_file: str, paper_file: str | None, thread_id: str, *, dr
 
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'bioflow-ai-eval'
+
+    # configure the Phoenix tracer
+    tracer_provider = register(
+        endpoint=get_settings().develop.PHOENIX_ENDPOINT,
+        project_name='bioflow-ai-eval',
+        batch=True,
+        auto_instrument=True,
+        set_global_tracer_provider=False,
+    )
 
     task_path = Path(task_file)
     if not task_path.exists():

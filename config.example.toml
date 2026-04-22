@@ -86,3 +86,4 @@ timeout = 600
 
 [develop]
 checkpoint_url = "redis://localhost:6379/0"
+phoenix_endpoint = "http://localhost:4317"

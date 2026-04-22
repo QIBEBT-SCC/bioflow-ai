@@ -74,6 +74,7 @@ async def init_tools(index: int | None = None) -> None:
     from langchain_core.messages import HumanMessage
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+    from phoenix.otel import register
     from rich.console import Console
     from sqlmodel import Session
 
@@ -92,6 +93,15 @@ async def init_tools(index: int | None = None) -> None:
 
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
+
+    # configure the Phoenix tracer
+    tracer_provider = register(
+        endpoint=get_settings().develop.PHOENIX_ENDPOINT,
+        project_name='build-tool',
+        batch=True,
+        auto_instrument=True,
+        set_global_tracer_provider=False,
+    )
 
     skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
 
@@ -184,6 +194,104 @@ async def init_tools(index: int | None = None) -> None:
                 logger.success(f'{thread_id} done')
 
     con.close()
+
+
+async def create_tool_manually(name: str, help_command: str, function: str, thread_id: str, *, drop_old: bool) -> None:
+    """手动模拟工具生成."""
+    import sys
+
+    import rich
+    from langchain_core.messages import HumanMessage
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+    from phoenix.otel import register
+    from rich.console import Console
+    from sqlmodel import Session
+
+    import app.crud.tools.image as image_crud
+    import app.crud.tools.tool_doc as doc_crud
+    from app.core.config import get_settings
+    from app.core.session import engine
+    from app.models.tools import ToolHelpDoc
+    from app.utils.container import run_command
+    from llm.agents.tool_manager.create_tool_agent import CreateToolAgent
+    from llm.states import CreateToolContext, CreateToolState
+    from llm.utils.render import print_stream_chunk
+
+    if TYPE_CHECKING:
+        from langchain_core.runnables import RunnableConfig
+
+    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
+    os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
+
+    # configure the Phoenix tracer
+    tracer_provider = register(
+        endpoint=get_settings().develop.PHOENIX_ENDPOINT,
+        project_name='build-tool',
+        batch=True,
+        auto_instrument=True,
+        set_global_tracer_provider=False,
+    )
+
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL) as checkpoint:
+        checkpoint.serde = JsonPlusRedisSerializer(
+            allowed_msgpack_modules=[
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+            ]
+        )
+        await checkpoint.setup()
+        if drop_old:
+            await checkpoint.adelete_thread(thread_id)
+
+        agent = CreateToolAgent().build(memory=checkpoint)
+
+        with Session(engine) as session:
+            tool_image = image_crud.get_by_name(session, name)
+            if tool_image is None:
+                logger.error('Image not found.')
+                return
+
+            tool_doc = doc_crud.get_by_command(session, help_command)
+            if tool_doc is None:
+                code, result = run_command(tool_image.image, [], help_command)
+                tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
+                tool_doc = doc_crud.insert(session, tool_doc)
+
+            agent_input: CreateToolState = {
+                'messages': [
+                    HumanMessage(
+                        content=f'<Require>\n'
+                        f'tool_name: {name}\n'
+                        f'function: {function}\n'
+                        f'help_command: `{help_command}`\n'
+                        f'</Require>'
+                    )
+                ],
+                'image_uid': tool_image.uid,
+                'image': tool_image.image,
+                'doc_uid': tool_doc.uid,
+            }
+
+        config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
+        context = CreateToolContext(user_id=2, auto_save=True, test_run_id=thread_id)
+
+        console = Console()
+        async for _, stream_mode, chunk in agent.astream(
+            agent_input,  # type: ignore
+            config,
+            context=context,  # type: ignore
+            stream_mode=['custom', 'updates'],
+            subgraphs=True,
+        ):
+            print_stream_chunk(console, stream_mode, chunk)
+
+        response = await agent.aget_state(config)
+        if response.interrupts:
+            logger.error(f'{thread_id} interrupted')
+            rich.print(response.interrupts)
 
 
 async def read_interrupt(index: int) -> None:

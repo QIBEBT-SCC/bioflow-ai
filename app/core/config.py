@@ -141,6 +141,7 @@ class KnowledgeBaseConfig(BaseSectionConfig):
 
 class DevelopConfig(BaseSectionConfig):
     CHECKPOINT_URL: str = 'redis://localhost:6379/0'
+    PHOENIX_ENDPOINT: str = 'http://localhost:4317'
 
 
 class Settings(BaseSettings):
