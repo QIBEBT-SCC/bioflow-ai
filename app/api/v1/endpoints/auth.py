@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.core.config import get_settings
-from app.core.session import RedisDep, SessionDep
+from app.core.session import SessionDep
+from app.core.redis_client import RedisDep
 from app.models.user import User
 from app.schemas.auth import Token
 from app.schemas.user import UserPublic

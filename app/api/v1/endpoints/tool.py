@@ -13,7 +13,8 @@ import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
-from app.core.session import RedisDep, SessionDep
+from app.core.session import SessionDep
+from app.core.redis_client import RedisDep
 from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from app.schemas.tools import (
     DockerToolCreate,

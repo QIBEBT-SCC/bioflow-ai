@@ -11,7 +11,8 @@ from starlette import status
 from uuid_extensions import uuid7str
 
 from app.core.config import get_settings
-from app.core.session import RedisDep, SessionDep
+from app.core.session import SessionDep
+from app.core.redis_client import RedisDep
 from app.crud import user as user_crud
 from app.models.user import User, UserRole
 
