@@ -24,10 +24,7 @@ from app.core.config import get_settings
 from app.core.redis_client import close_cache_regis, setup_cache_redis
 from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
-from app.utils.logger import init_logging
 from app.utils.middleware.csrf import CSRFMiddleware
-
-init_logging()
 
 
 @asynccontextmanager
@@ -94,6 +91,7 @@ def main() -> None:  # noqa: D103
         port=get_settings().network.PORT,
         access_log=True,
         workers=1,
+        log_config=None,
     )
     server = uvicorn.Server(config)
 

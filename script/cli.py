@@ -1,8 +1,11 @@
 import click
 
+from app.utils.logger import init_logging
 from script.develop import cli as dev_cli
 from script.evaluate import cli as eval_cli
 from script.init_db import cli as init_cli
+
+init_logging()
 
 
 @click.group()

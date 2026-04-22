@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 import shutil
 from pathlib import Path
@@ -8,10 +7,6 @@ from typing import TYPE_CHECKING, Any
 import click
 from loguru import logger
 from tqdm import tqdm
-
-# 禁用 crawl4ai 导致的 httpx 日志输出
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 DB_PATH = 'presets/build/develop.db'
 
