@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, HTTPException, Query
 from langchain_core.documents import Document
 from langchain_milvus import BM25BuiltInFunction, Milvus
+from pydantic import ValidationError
 from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.tools.image as image_crud
@@ -261,7 +262,11 @@ async def get_tool_args(session: SessionDep, redis: RedisDep, tool_uid: str) -> 
     cache_key = f'tool-args:{tool_uid}'
     cached = await redis.get(cache_key)
     if cached:
-        return ToolNodePublic.model_validate_json(cached)
+        try:
+            return ToolNodePublic.model_validate_json(cached)
+        except ValidationError:
+            await redis.delete(cache_key)
+
     tool = tool_crud.get(session, tool_uid)
     await redis.set(cache_key, ToolNodePublic.model_validate(tool).model_dump_json(), ex=86400)
 
@@ -274,7 +279,11 @@ async def get_tool4task(session: SessionDep, redis: RedisDep, tool_uid: str) -> 
     cache_key = f'tool-task-info:{tool_uid}'
     cached = await redis.get(cache_key)
     if cached:
-        return ToolTaskInfo.model_validate_json(cached)
+        try:
+            return ToolTaskInfo.model_validate_json(cached)
+        except ValidationError:
+            await redis.delete(cache_key)
+
     tool = tool_crud.get(session, tool_uid)
     await redis.set(cache_key, ToolTaskInfo.model_validate(tool).model_dump_json(), ex=86400)
 

@@ -1,7 +1,7 @@
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine, ToolDefine, ToolHelpDoc, ToolImage, ToolTag, ToolType
 from app.utils.input_format import build_command_template
@@ -117,6 +117,8 @@ class SimpleToolPublic(BaseModel):
 
 
 class ToolPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
     description: str
@@ -154,6 +156,8 @@ class Handle(BaseModel):
 
 
 class ToolNodePublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
     description: str
@@ -194,6 +198,8 @@ class ToolNodePublic(BaseModel):
 
 
 class ToolTaskInfo(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
 
