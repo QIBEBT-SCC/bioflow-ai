@@ -7,7 +7,7 @@ from typing import Literal
 
 import tomli_w
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import AmqpDsn, BaseModel, ConfigDict, PostgresDsn, RedisDsn, SecretStr
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
@@ -48,13 +48,13 @@ class NetworkConfig(BaseSectionConfig):
 
 
 class DatabaseConfig(BaseSectionConfig):
-    DB_URL: str = 'postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai'
+    DB_URL: PostgresDsn = PostgresDsn('postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai')
 
 
 class CacheConfig(BaseSectionConfig):
-    LLM_CACHE: str = 'redis://localhost:6379/0'
-    MONITOR_CACHE: str = 'redis://localhost:6379/2'
-    API_CACHE: str = 'redis://localhost:6379/2'
+    LLM_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/0')
+    MONITOR_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
+    API_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
 
 
 class S3StorageConfig(BaseSectionConfig):
@@ -95,8 +95,8 @@ class DockerConfig(BaseSectionConfig):
 
 
 class CeleryConfig(BaseSectionConfig):
-    BROKER: str = 'amqp://bioflow_ai:123456@localhost:5672//'
-    BACKEND: str = 'redis://localhost:6379/1'
+    BROKER: AmqpDsn = AmqpDsn('amqp://bioflow_ai:123456@localhost:5672//')
+    BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
 
 
 class MinerUConfig(BaseSectionConfig):
@@ -206,3 +206,7 @@ def get_settings() -> Settings:
         sys.exit(-1)
 
     return Settings()
+
+
+if __name__ == '__main__':
+    print(get_settings())
