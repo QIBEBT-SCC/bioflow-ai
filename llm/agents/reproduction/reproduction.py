@@ -5,7 +5,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
-from app.core.redis_client import llm_cache
 from llm.models import get_agent_model
 from llm.states import BuildContext, BuildSchema
 from llm.tools.human import ask_human
@@ -144,5 +143,4 @@ build_workflow_agent: CompiledStateGraph = create_agent(
     ],
     state_schema=BuildSchema,  # type: ignore
     context_schema=BuildContext,  # type: ignore
-    cache=llm_cache,
 )

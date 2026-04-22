@@ -221,15 +221,6 @@ wheels = [
 ]
 
 [[package]]
-name = "appdirs"
-version = "1.4.4"
-source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
-sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/d7/d8/05696357e0311f5b5c316d7b95f46c669dd9c15aaeecbb48c7d0aeb88c40/appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41", size = 13470, upload-time = "2020-05-11T07:59:51.037Z" }
-wheels = [
-    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/3b/00/2344469e2084fb287c2e0b57b72910309874c3245463acd6cf5e3db69324/appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128", size = 9566, upload-time = "2020-05-11T07:59:49.499Z" },
-]
-
-[[package]]
 name = "arize-phoenix-otel"
 version = "0.15.0"
 source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
@@ -371,7 +362,6 @@ dependencies = [
     { name = "langchain-milvus" },
     { name = "langchain-model-profiles" },
     { name = "langchain-openai" },
-    { name = "langchain-redis" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-redis" },
     { name = "loguru" },
@@ -409,7 +399,6 @@ dev = [
     { name = "duckdb" },
     { name = "matplotlib" },
     { name = "openinference-instrumentation-langchain" },
-    { name = "pyppeteer" },
     { name = "seaborn" },
 ]
 
@@ -437,7 +426,6 @@ requires-dist = [
     { name = "langchain-model-profiles", specifier = ">=0.0.5" },
     { name = "langchain-openai", specifier = ">=1.1.10" },
     { name = "langchain-qwen3", marker = "extra == 'local-model'", specifier = ">=0.1.2" },
-    { name = "langchain-redis", specifier = ">=0.2.5" },
     { name = "langgraph", specifier = ">=1.0.4" },
     { name = "langgraph-checkpoint-redis", specifier = ">=0.4.0" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -469,7 +457,6 @@ dev = [
     { name = "duckdb", specifier = ">=1.5.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "openinference-instrumentation-langchain", specifier = ">=0.1.53" },
-    { name = "pyppeteer", specifier = ">=0.0.25" },
     { name = "seaborn", specifier = ">=0.13.2" },
 ]
 
@@ -2018,27 +2005,6 @@ dependencies = [
 sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/c0/e1/15286495dda73f925ec273cf3e97d3e376f5f1ebb99167844033398562c6/langchain_qwen3-0.1.2.tar.gz", hash = "sha256:8fad464051cc5f81e13e39652ecefcef15f3dce88ff593df43d8e653be547de4", size = 280531, upload-time = "2025-10-21T12:22:04.81Z" }
 wheels = [
     { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/b2/a8/8bef339d08bdeb09e5347440f4735b7c913cee18db10f50173aba63c1f4e/langchain_qwen3-0.1.2-py3-none-any.whl", hash = "sha256:8b2aa05422254d99d0c5106ad0fbcefaf9d8dc369bb654b7e752c51c10aac191", size = 4734, upload-time = "2025-10-21T12:22:02.769Z" },
-]
-
-[[package]]
-name = "langchain-redis"
-version = "0.2.5"
-source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "certifi" },
-    { name = "hf-xet" },
-    { name = "httpcore" },
-    { name = "jinja2" },
-    { name = "langchain-core" },
-    { name = "python-ulid" },
-    { name = "redisvl" },
-    { name = "typing-extensions" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/0b/14/e2c89a0e1d9b8faed20c03a7d5c1f9b10a998bc9af024b58405dc657feed/langchain_redis-0.2.5.tar.gz", hash = "sha256:f73cde65a1d2ada301ce51d3d5f403ff845e51f8100ee6d1039fa55786eee37e", size = 36274, upload-time = "2025-11-25T00:19:19.775Z" }
-wheels = [
-    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/7e/5f/705ae80a50e25290476c76a7798696833a397de69aaa986a189c0915ceef/langchain_redis-0.2.5-py3-none-any.whl", hash = "sha256:73ad5c7d4039401f11f4f8de7d37615d9736ad2eca7fac71ee93c8abc3d5086a", size = 36471, upload-time = "2025-11-25T00:19:18.292Z" },
 ]
 
 [[package]]
@@ -3768,19 +3734,6 @@ sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/f3/91/9c
 wheels = [
     { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", size = 122781, upload-time = "2026-01-21T03:57:55.912Z" },
 ]
-
-[[package]]
-name = "pyppeteer"
-version = "0.0.25"
-source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
-dependencies = [
-    { name = "appdirs" },
-    { name = "pyee" },
-    { name = "tqdm" },
-    { name = "urllib3" },
-    { name = "websockets" },
-]
-sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/b0/16/a5e8d617994cac605f972523bb25f12e3ff9c30baee29b4a9c50467229d9/pyppeteer-0.0.25.tar.gz", hash = "sha256:51fe769b722a1718043b74d12c20420f29e0dd9eeea2b66652b7f93a9ad465dd", size = 1188361, upload-time = "2018-09-26T23:59:49.98Z" }
 
 [[package]]
 name = "python-dateutil"

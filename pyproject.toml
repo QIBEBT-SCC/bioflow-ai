@@ -26,7 +26,6 @@ dependencies = [
     "langchain-milvus>=0.3.0",
     "langchain-model-profiles>=0.0.5",
     "langchain-openai>=1.1.10",
-    "langchain-redis>=0.2.5",
     "langgraph>=1.0.4",
     "langgraph-checkpoint-redis>=0.4.0",
     "loguru>=0.7.3",
@@ -144,6 +143,5 @@ dev = [
     "duckdb>=1.5.0",
     "matplotlib>=3.10.8",
     "openinference-instrumentation-langchain>=0.1.53",
-    "pyppeteer>=0.0.25",
     "seaborn>=0.13.2",
 ]

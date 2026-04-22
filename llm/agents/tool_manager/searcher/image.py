@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 import app.crud.tools.image as image_crud
-from app.core.redis_client import llm_cache
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolImage
 from llm.models import get_agent_model, get_long_context_model
@@ -379,7 +378,6 @@ search_image_agent = create_agent(
         TokenStatisticMiddleware(agent_name='search_image', **get_agent_model().metadata),
     ],
     state_schema=SearchImageState,  # type: ignore
-    cache=llm_cache,  # type: ignore
 )
 
 # TODO: 目前是手动补充
@@ -396,5 +394,4 @@ self_search_image_agent = create_agent(
         TokenStatisticMiddleware(agent_name='search_image', **get_agent_model().metadata),
     ],
     state_schema=SearchImageState,  # type: ignore
-    cache=llm_cache,  # type: ignore
 )

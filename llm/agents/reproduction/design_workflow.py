@@ -15,7 +15,6 @@ from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from app.core.redis_client import llm_cache
 from llm.agents.reproduction.paper_reader import paper_reader
 from llm.agents.reproduction.reproduction import build_workflow_agent
 from llm.agents.reproduction.tool_info_searcher import tool_info_searcher
@@ -432,7 +431,7 @@ class WorkflowDesigner:
 
         graph.add_edge('generate_workflow', END)
 
-        compiled_graph = graph.compile(checkpointer=self.memory, cache=llm_cache)
+        compiled_graph = graph.compile(checkpointer=self.memory)
 
         if visualize:
             mermaid_code = compiled_graph.get_graph(xray=2).draw_mermaid(
