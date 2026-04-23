@@ -14,11 +14,10 @@ def store_token_usage(
     model_id: int,
     setting_key: str,
     user_id: int,
-    token_usage: UsageMetadata,
+    token_usage: UsageMetadata | None,
     input_price: Decimal,
     output_price: Decimal,
     cache_read_price: Decimal,
-    **kwargs,
 ) -> None:
     """Persist token usage metrics and associated billing cost.
 
@@ -31,7 +30,6 @@ def store_token_usage(
         input_price: Price per regular input token, expressed in micro-units.
         output_price: Price per output token, expressed in micro-units.
         cache_read_price: Discounted price per cached input token, in micro-units.
-        **kwargs: Extra metadata that can be persisted later if needed.
 
     Returns:
         None

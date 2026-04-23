@@ -86,6 +86,8 @@ class TestRunState(AgentState):
     image: ImageConfig
     container_id: NotRequired[str]
 
+    tool_report: NotRequired[str]
+    updated: NotRequired[bool]
     checked: NotRequired[bool]
 
 

@@ -76,35 +76,48 @@ class CheckReportMiddleware(AgentMiddleware):
         prompt = ChatPromptTemplate(
             messages=[
                 ('system', check_prompt),
-                ('human', '<FinalResponse>\n{final_response}\n</FinalResponse>'),
+                ('human', '<ToolReport>\n{tool_report}\n</ToolReport>'),
             ]
         )
         self.check_chain = prompt | model.with_structured_output(CheckResult, include_raw=True)
         self.model_metadata = model.metadata
 
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
-        return {'check_failed_count': 0}
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+        return {'check_failed_count': 0, 'updated': False}
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
+    def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
             return None
 
         check_failed_count = state.get('check_failed_count', 0)
+        tool_report = state.get('tool_report')
+        report_updated = state.get('updated')
 
-        if not last_message.content:
-            # 生成结果为空，重新生成
-            logger.warning('Check failed. Empty message.')
+        if not tool_report:
+            logger.warning('Check failed. Empty report.')
             return _handle_check_failed(
                 check_failed_count,
-                messages=[RemoveMessage(id=last_message.id)],
+                messages=[
+                    HumanMessage(
+                        content='No tool invocation is detected for this instance, indicating task completion. '
+                        'However, the `write_report` tool must be called beforehand to generate the tool execution report.'
+                    )
+                ],
             )
 
-        check_result: StructuredResponse[CheckResult] = self.check_chain.invoke(  # type: ignore
-            {'final_response': last_message.content}
-        )
+        if not report_updated:
+            logger.warning('Check failed. Report not update.')
+            return _handle_check_failed(
+                check_failed_count,
+                messages=[
+                    HumanMessage(content='You should call the `write_report` tool again to update the tool report.')
+                ],
+            )
+
+        check_result: StructuredResponse[CheckResult] = self.check_chain.invoke({'tool_report': tool_report})  # type: ignore
         store_token_usage(
             'check_report',
             token_usage=check_result['raw'].usage_metadata,
@@ -112,7 +125,6 @@ class CheckReportMiddleware(AgentMiddleware):
             **self.model_metadata,
         )
         if not check_result['parsed'].checked:
-            # 检查未通过，将原因传回去
             logger.warning('Check failed')
             return _handle_check_failed(
                 check_failed_count,
@@ -123,24 +135,38 @@ class CheckReportMiddleware(AgentMiddleware):
         return None
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
+    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
             return None
 
         check_failed_count = state.get('check_failed_count', 0)
+        tool_report = state.get('tool_report')
+        report_updated = state.get('updated')
 
-        if not last_message.content:
-            logger.warning('Check failed. Empty message.')
+        if not tool_report:
+            logger.warning('Check failed. Empty report.')
             return _handle_check_failed(
                 check_failed_count,
-                messages=[RemoveMessage(id=last_message.id)],
+                messages=[
+                    HumanMessage(
+                        content='No tool invocation is detected for this instance, indicating task completion. '
+                        'However, the `write_report` tool must be called beforehand to generate the tool execution report.'
+                    )
+                ],
             )
 
-        check_result: StructuredResponse[CheckResult] = await self.check_chain.ainvoke(  # type: ignore
-            {'final_response': last_message.content}
-        )
+        if not report_updated:
+            logger.warning('Check failed. Report not update.')
+            return _handle_check_failed(
+                check_failed_count,
+                messages=[
+                    HumanMessage(content='You should call the `write_report` tool again to update the tool report.')
+                ],
+            )
+
+        check_result: StructuredResponse[CheckResult] = await self.check_chain.ainvoke({'tool_report': tool_report})  # type: ignore
         store_token_usage(
             'check_report',
             token_usage=check_result['raw'].usage_metadata,
