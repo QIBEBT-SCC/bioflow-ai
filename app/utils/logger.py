@@ -137,7 +137,7 @@ def init_logging() -> None:
     """初始化日志系统, 拦截所有库的日志并重定向到loguru."""
     # 设置默认的日志处理器, level 设为 DEBUG 让 loguru 自己过滤
     logging.getLogger().handlers = [InterceptHandler('other')]
-    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger().setLevel(logging.INFO)
     logging.getLogger().propagate = False
 
     # FastAPI相关日志
