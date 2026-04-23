@@ -121,10 +121,13 @@ async def init_tools(index: int | None = None) -> None:
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
+                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                ('app.models.tools', 'FileMount'),
+                ('app.models.tools', 'ImageConfig'),
+                ('app.models.tools', 'ParamDefine'),
             ]
         )
         await checkpoint.setup()
@@ -231,13 +234,15 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
+                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                ('app.models.tools', 'FileMount'),
+                ('app.models.tools', 'ImageConfig'),
+                ('app.models.tools', 'ParamDefine'),
             ]
         )
-        await checkpoint.setup()
         if drop_old:
             await checkpoint.adelete_thread(thread_id)
 
@@ -313,13 +318,15 @@ async def read_interrupt(index: int) -> None:
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
+                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                ('app.models.tools', 'FileMount'),
+                ('app.models.tools', 'ImageConfig'),
+                ('app.models.tools', 'ParamDefine'),
             ]
         )
-        await checkpoint.asetup()
 
         agent = CreateToolAgent().build(memory=checkpoint)
 
@@ -361,13 +368,15 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
+                ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                ('app.models.tools', 'FileMount'),
+                ('app.models.tools', 'ImageConfig'),
+                ('app.models.tools', 'ParamDefine'),
             ]
         )
-        await checkpoint.asetup()
 
         agent = CreateToolAgent().build(memory=checkpoint)
 
@@ -441,13 +450,15 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             ) as checkpoint:
                 checkpoint.serde = JsonPlusRedisSerializer(
                     allowed_msgpack_modules=[
-                        ('llm.utils.middleware.todo', 'Todo'),
                         ('llm.states', 'BuildEdge'),
                         ('llm.states', 'BuildNode'),
+                        ('llm.utils.middleware.todo', 'Todo'),
                         ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                        ('app.models.tools', 'FileMount'),
+                        ('app.models.tools', 'ImageConfig'),
+                        ('app.models.tools', 'ParamDefine'),
                     ]
                 )
-                await checkpoint.asetup()
 
                 agent = CreateToolAgent().build(memory=checkpoint)
 
