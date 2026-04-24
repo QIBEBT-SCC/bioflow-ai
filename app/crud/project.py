@@ -30,8 +30,10 @@ def insert(session: Session, project: Project) -> Project:
     return project
 
 
-def delete(session: Session, project: Project):
-    raise NotImplementedError
+def delete(session: Session, user_id: int, project_id: int):
+    project = get(session, user_id, project_id)
+    session.delete(project)
+    session.commit()
 
 
 def update(session: Session, project_id: int, project: ProjectUpdate) -> Project:
@@ -144,9 +146,7 @@ def create_file_mapping(
     session: Session, project_id: int, keyword: str, file_path: str, description: str = ''
 ) -> ProjectFileMapping:
     """创建项目文件映射"""
-    mapping = ProjectFileMapping(
-        project_id=project_id, keyword=keyword, file_path=file_path, description=description
-    )
+    mapping = ProjectFileMapping(project_id=project_id, keyword=keyword, file_path=file_path, description=description)
     session.add(mapping)
     session.commit()
     session.refresh(mapping)
