@@ -252,7 +252,7 @@ class IntentResult(BaseModel):
     reason: str = Field(description='The reason you made this classification')
 
 
-class WorkflowDesigner:
+class WorkflowDesignAgent:
     def __init__(self, memory: Optional[BaseCheckpointSaver] = None):
         self.name = 'workflow_designer'
 

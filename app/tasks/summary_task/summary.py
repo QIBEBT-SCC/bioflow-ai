@@ -17,8 +17,7 @@ from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.container import ContainerMount, create_container, remove_container
-from llm.agents.reporter.summary_analyse import summary_analyse_agent
-from llm.states import FolderContext
+from llm.agents.fs_agent import FolderContext, summary_analysis_agent
 from script.worker import celery_app
 
 
@@ -61,7 +60,7 @@ def downstream_summary_task(
 
 
 async def _get_summary(agent_input: dict[str, Any], config: RunnableConfig, context: FolderContext) -> None:
-    async for _, _, data in summary_analyse_agent.astream(
+    async for _, _, data in summary_analysis_agent.astream(
         agent_input,  # type: ignore
         config,
         context=context,  # type: ignore

@@ -145,7 +145,7 @@ def _truncate_output(command: str, output: str) -> str:
 async def run_command(command: str, runtime: ToolRuntime, workdir: Optional[str] = None) -> str:
     """Execute shell commands within the container."""
     runtime.stream_writer(f'run: {command[:100]}')
-    container_id = runtime.state.get('container_id')
+    container_id = runtime.state.get('container_id', '')
 
     code, out = run_command_in_container(container_id, command, workdir)
 
@@ -162,7 +162,7 @@ async def run_command(command: str, runtime: ToolRuntime, workdir: Optional[str]
     return return_msg
 
 
-summary_analyse_agent = create_agent(
+summary_analysis_agent = create_agent(
     get_coding_model(),
     [run_command],
     system_prompt=SUMMARY_PROMPT,

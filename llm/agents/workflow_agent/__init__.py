@@ -1,3 +1,3 @@
-from llm.agents.workflow_agent.workflow_designer import WorkflowDesigner
+from llm.agents.workflow_agent.workflow_designer import DesignContext, DesignState, WorkflowDesignAgent
 
-__all__ = ['WorkflowDesigner']
+__all__ = ['DesignContext', 'DesignState', 'WorkflowDesignAgent']

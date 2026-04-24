@@ -123,7 +123,7 @@ async def _generate_workflow(human_input: Any, thread_id: str, *, drop_old: bool
     from rich.console import Console
 
     from app.core.config import get_settings
-    from llm.agents.workflow_agent import WorkflowDesigner
+    from llm.agents.workflow_agent import WorkflowDesignAgent
     from llm.states import DesignContext
     from llm.utils.render import print_stream_chunk
 
@@ -147,7 +147,7 @@ async def _generate_workflow(human_input: Any, thread_id: str, *, drop_old: bool
         if drop_old:
             await checkpoint.adelete_thread(thread_id)
 
-        agent = WorkflowDesigner(checkpoint).build()
+        agent = WorkflowDesignAgent(checkpoint).build()
         config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
         agent_input = {'messages': [human_input]}
 
@@ -240,7 +240,7 @@ async def continue_run(message: str, thread_id: str) -> None:
     from langgraph.types import Command
 
     from app.core.config import get_settings
-    from llm.agents.workflow_agent import WorkflowDesigner
+    from llm.agents.workflow_agent import WorkflowDesignAgent
     from llm.states import DesignContext
 
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
@@ -262,7 +262,7 @@ async def continue_run(message: str, thread_id: str) -> None:
         )
         await checkpoint.setup()
 
-        agent = WorkflowDesigner(checkpoint).build(visualize=True)
+        agent = WorkflowDesignAgent(checkpoint).build(visualize=True)
 
         config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
         agent_input = Command(resume=message)

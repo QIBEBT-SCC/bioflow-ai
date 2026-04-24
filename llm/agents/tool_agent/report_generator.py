@@ -1,11 +1,10 @@
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
-from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from llm.agents.tool_manager.searcher.image import search_image_agent
+from llm.agents.tool_agent.searcher.image import search_image_agent
 from llm.models import get_high_performance_model, get_long_context_model
 from llm.states import TestRunContext, TestRunState
 from llm.tools.container import (
@@ -380,7 +379,7 @@ _pre_run_agent = create_agent(
 )
 
 
-test_run_agent: CompiledStateGraph = create_agent(
+test_run_agent = create_agent(
     model=TEST_RUN_MODEL,
     tools=[
         search_biodb,

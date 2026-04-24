@@ -26,11 +26,11 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
-from llm.agents.tool_manager.generate_tool_config import tool_generator_agent
-from llm.agents.tool_manager.searcher.doc import doc_searcher
-from llm.agents.tool_manager.searcher.image import self_search_image_agent
-from llm.agents.tool_manager.searcher.tool_node import search_exist_tool_agent
-from llm.agents.tool_manager.test_run_agent import test_run_agent
+from llm.agents.tool_agent.config_generator import config_generate_agent
+from llm.agents.tool_agent.report_generator import test_run_agent
+from llm.agents.tool_agent.searcher.doc import doc_searcher
+from llm.agents.tool_agent.searcher.image import self_search_image_agent
+from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from llm.models import get_agent_model, get_high_performance_model, qwen3_embedding
 from llm.states import (
     CreateToolContext,
@@ -279,7 +279,7 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
-        result = await tool_generator_agent.ainvoke(
+        result = await config_generate_agent.ainvoke(
             {'messages': state['messages']},
             context=UserContext(user_id=runtime.context.user_id),
         )

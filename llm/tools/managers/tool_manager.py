@@ -14,7 +14,7 @@ import app.crud.tools.tool as tool_crud
 from app.core.session import engine
 from app.schemas.tools import ToolNodePublic
 from app.utils.input_format import build_command_template
-from llm.agents.tool_manager import CreateToolAgent
+from llm.agents.tool_agent import CreateToolAgent
 from llm.prebuild.chains import check_update_args
 from llm.states import BuildContext, BuildEdge, BuildNode, CreateToolContext, CreateToolState
 from llm.utils.edge_validation import check_edge_handles, check_tool_node_edges

@@ -79,7 +79,7 @@ async def init_tools(index: int | None = None) -> None:
     from app.core.session import engine
     from app.models.tools import ToolHelpDoc
     from app.utils.container import run_command
-    from llm.agents.tool_manager import CreateToolAgent
+    from llm.agents.tool_agent import CreateToolAgent
     from llm.states import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
@@ -212,7 +212,7 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
     from app.core.session import engine
     from app.models.tools import ToolHelpDoc
     from app.utils.container import run_command
-    from llm.agents.tool_manager.create_tool_agent import CreateToolAgent
+    from llm.agents.tool_agent.tool_creator import CreateToolAgent
     from llm.states import CreateToolContext, CreateToolState
     from llm.utils.render import print_stream_chunk
 
@@ -302,7 +302,7 @@ async def read_interrupt(index: int) -> None:
     from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 
     from app.core.config import get_settings
-    from llm.agents.tool_manager import CreateToolAgent
+    from llm.agents.tool_agent import CreateToolAgent
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -347,7 +347,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     from rich.console import Console
 
     from app.core.config import get_settings
-    from llm.agents.tool_manager import CreateToolAgent
+    from llm.agents.tool_agent import CreateToolAgent
     from llm.states import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
@@ -423,7 +423,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     from app.core.config import get_settings
     from app.core.session import engine
     from app.utils.container import remove_container
-    from llm.agents.tool_manager import CreateToolAgent
+    from llm.agents.tool_agent import CreateToolAgent
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig

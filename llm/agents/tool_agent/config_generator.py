@@ -193,7 +193,7 @@ def set_tool_info(
     )
 
 
-tool_generator_agent = create_agent(
+config_generate_agent = create_agent(
     get_high_performance_model(),
     [set_file_mounts, set_command_detail, set_tool_info],
     system_prompt=SYSTEM_PROMPT,
