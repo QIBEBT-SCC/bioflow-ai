@@ -15,9 +15,9 @@ from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from llm.agents.reproduction.paper_reader import paper_reader
-from llm.agents.reproduction.reproduction import build_workflow_agent
-from llm.agents.reproduction.tool_info_searcher import tool_info_searcher
+from llm.agents.workflow_agent.paper_reader import paper_reader
+from llm.agents.workflow_agent.tool_info_searcher import tool_info_searcher
+from llm.agents.workflow_agent.workflow_builder import build_workflow_agent
 from llm.models import get_high_performance_model, get_simple_model
 from llm.states import BuildContext, DesignContext, DesignState, StructuredResponse
 from llm.tools.writter import write_plan
@@ -348,8 +348,8 @@ class WorkflowDesigner:
         else:
             agent_input = {'messages': state['messages']}
 
-        response: DesignState = await self.self_plan_agent.ainvoke(
-            agent_input,  # type: ignore
+        response = await self.self_plan_agent.ainvoke(
+            agent_input,
             context=runtime.context,
         )
 
@@ -373,8 +373,8 @@ class WorkflowDesigner:
             ]
         }
 
-        response: DesignState = await self.reference_plan_agent.ainvoke(
-            agent_input,  # type: ignore
+        response = await self.reference_plan_agent.ainvoke(
+            agent_input,
             context=runtime.context,
         )
 
@@ -408,7 +408,7 @@ class WorkflowDesigner:
 
         return {'messages': response['messages'], 'workflow_uids': response['workflow_uids']}
 
-    def build(self, *, visualize: bool = False) -> CompiledStateGraph[DesignState, DesignContext]:  # type: ignore
+    def build(self, *, visualize: bool = False) -> CompiledStateGraph:
         """构建工作流规划智能体."""
         graph = StateGraph(DesignState, DesignContext)  # type: ignore
 

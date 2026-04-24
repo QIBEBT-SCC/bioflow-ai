@@ -123,7 +123,7 @@ async def _generate_workflow(human_input: Any, thread_id: str, *, drop_old: bool
     from rich.console import Console
 
     from app.core.config import get_settings
-    from llm.agents.reproduction.design_workflow import WorkflowDesigner
+    from llm.agents.workflow_agent import WorkflowDesigner
     from llm.states import DesignContext
     from llm.utils.render import print_stream_chunk
 
@@ -240,7 +240,7 @@ async def continue_run(message: str, thread_id: str) -> None:
     from langgraph.types import Command
 
     from app.core.config import get_settings
-    from llm.agents.reproduction.design_workflow import WorkflowDesigner
+    from llm.agents.workflow_agent import WorkflowDesigner
     from llm.states import DesignContext
 
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
