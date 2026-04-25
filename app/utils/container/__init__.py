@@ -12,39 +12,36 @@ class ContainerMount(BaseModel):
     read_only: bool
 
 
+def _convert_to_podman_mount(mounts: list[ContainerMount]) -> list[dict]:
+    return [
+        {'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only, 'relabel': 'z'}
+        for m in mounts
+    ]
+
+
+def _convert_to_docker_mount(mounts: list[ContainerMount]) -> list[Mount]:
+    return [Mount(target=m.target, source=m.source, type='bind', read_only=m.read_only) for m in mounts]
+
+
 def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
     """Create container by image."""
-    mount_configs = [{'type': 'bind', 'target': m.target, 'source': m.source, 'read_only': m.read_only} for m in mounts]
-
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import create_container
 
-        # Podman specific relabeling
-        for m in mount_configs:
-            m['relabel'] = 'z'
-
-        container_id = create_container(image, mount_configs)
+        container_id = create_container(image, _convert_to_podman_mount(mounts))
     else:
         from app.utils.container.docker import create_container
 
-        final_mounts = [
-            Mount(
-                target=m['target'],
-                source=m['source'],
-                type='bind',
-                read_only=m.get('read_only', False),
-            )
-            for m in mount_configs
-        ]
-        container_id = create_container(image, final_mounts)
+        container_id = create_container(image, _convert_to_docker_mount(mounts))
 
     return container_id
 
 
 def run_command(
     image_cfg: ImageConfig,
-    mounts: list[Mount],
+    mounts: list[ContainerMount],
     command: str,
+    workdir: str | None = None,
     *,
     ensure_ascii: bool = True,
 ) -> tuple[int, str]:
@@ -54,6 +51,7 @@ def run_command(
         image_cfg: An image configuration object containing the name of the image to run and related metadata.
         mounts: A list of mount configurations defining file/directory
         command: The full command string to be executed inside the container.
+        workdir: The working directory of command execution.
         ensure_ascii: Whether to ensure the output is ASCII-encoded. Defaults to True.
 
     Returns:
@@ -65,15 +63,11 @@ def run_command(
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman
 
-        status, output = run_podman(
-            image_cfg,
-            command,
-            mounts,
-        )
+        status, output = run_podman(image_cfg, command, _convert_to_podman_mount(mounts), workdir)
     else:
         from app.utils.container.docker import run_docker
 
-        status, output = run_docker(image_cfg, command, mounts, ensure_ascii=ensure_ascii)
+        status, output = run_docker(image_cfg, command, _convert_to_docker_mount(mounts), workdir, ensure_ascii=ensure_ascii)
 
     return status, output
 
@@ -81,7 +75,7 @@ def run_command(
 def run_command_background(  # noqa: ANN201
     image_cfg: ImageConfig,
     command: str,
-    mounts: list[Mount],
+    mounts: list[ContainerMount],
     working_dir: str,
     interval: float = 1.0,
 ):
@@ -89,11 +83,11 @@ def run_command_background(  # noqa: ANN201
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman_background
 
-        yield from run_podman_background(image_cfg, command, mounts, interval=interval, workdir=working_dir)
+        yield from run_podman_background(image_cfg, command, _convert_to_podman_mount(mounts), interval=interval, workdir=working_dir)
     else:
         from app.utils.container.docker import run_docker_background
 
-        yield from run_docker_background(image_cfg, command, mounts, working_dir, interval=interval)
+        yield from run_docker_background(image_cfg, command, _convert_to_docker_mount(mounts), working_dir, interval=interval)
 
 
 def run_command_in_container(container_id: str, command: str, workdir: str | None = None) -> tuple[int, str]:

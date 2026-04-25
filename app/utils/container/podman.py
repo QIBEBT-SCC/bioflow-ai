@@ -4,7 +4,6 @@ from collections.abc import Generator
 from typing import Any, Optional
 
 import psutil
-from docker.types import Mount
 from loguru import logger
 from podman import PodmanClient
 from podman.errors import ImageNotFound
@@ -45,7 +44,7 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig) -> None:
 
 
 def run_podman(
-    image_cfg: ImageConfig, command: str, mounts: list[Mount], workdir: Optional[str] = None, **kwargs: int
+    image_cfg: ImageConfig, command: str, mounts: list[dict], workdir: Optional[str] = None, **kwargs: int
 ) -> tuple[int, str]:
     """在podman容器中运行命令并返回执行结果.
 
@@ -108,7 +107,7 @@ def run_podman(
 def run_podman_background(
     image_cfg: ImageConfig,
     command: str,
-    mounts: list[Mount],
+    mounts: list[dict],
     interval: float = 1.0,
     workdir: Optional[str] = None,
     **kwargs: int,
@@ -190,7 +189,7 @@ def run_podman_background(
 
 def create_container(
     image_cfg: ImageConfig,
-    mounts: list[Mount | dict],
+    mounts: list[dict],
     *,
     debug: bool = False,
     **kwargs: int,

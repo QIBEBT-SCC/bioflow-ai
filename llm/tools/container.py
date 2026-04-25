@@ -6,10 +6,15 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.utils.container import create_container, remove_container, run_command, run_command_in_container
+from app.utils.container import (
+    ContainerMount,
+    create_container,
+    remove_container,
+    run_command,
+    run_command_in_container,
+)
 from llm.states import TestRunContext
 
 if TYPE_CHECKING:
@@ -55,12 +60,6 @@ COMMAND_DESCRIPTION = """在容器环境中运行指定bash命令或生物信息
 """
 
 MAX_CHAR = 3000
-
-
-class ContainerMount(BaseModel):
-    target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
-    source: str = Field(description='Source path on host')
-    read_only: bool
 
 
 @tool('run_command', parse_docstring=True)

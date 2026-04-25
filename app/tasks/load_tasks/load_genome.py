@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from celery import Task
-from docker.types import Mount
 from loguru import logger
 from sqlmodel import Session
 
@@ -22,7 +21,7 @@ from app.utils.api.ncbi_datasets import (
     search_reference_genomes,
     search_reference_genomes_by_tax_id,
 )
-from app.utils.container import run_command
+from app.utils.container import ContainerMount, run_command
 from app.utils.network import download_gz_files
 from script.worker import celery_app
 
@@ -67,8 +66,8 @@ def build_bowtie2_index(genome_fasta: str) -> str:
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        Mount(type='bind', source=str(genome_fasta.parent), target='/data/raw'),
-        Mount(type='bind', source=str(index_path), target='/data/output'),
+        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/bowtie2:2.5.4--he96a11b_6')
@@ -92,7 +91,7 @@ def build_bwa_index(genome_fasta: str, *, is_long: bool = False) -> str:
     genome_fasta = Path(genome_fasta)
 
     mounts = [
-        Mount(type='bind', source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/bwa:0.7.19--h577a1d6_1')
@@ -121,8 +120,8 @@ def build_hisat2_index(genome_fasta: str) -> str:
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        Mount(type='bind', source=str(genome_fasta.parent), target='/data/raw'),
-        Mount(type='bind', source=str(index_path), target='/data/output'),
+        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/hisat2:2.2.1--h503566f_8')
@@ -149,8 +148,8 @@ def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        Mount(type='bind', source=str(genome_fasta.parent), target='/data/raw'),
-        Mount(type='bind', source=str(index_path), target='/data/output'),
+        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/star:2.7.11b--h5ca1c30_7')
@@ -176,8 +175,8 @@ def build_minimap2_index(genome_fasta: str) -> str:
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        Mount(type='bind', source=str(genome_fasta.parent), target='/data/raw'),
-        Mount(type='bind', source=str(index_path), target='/data/output'),
+        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/minimap2:2.30--h577a1d6_0')

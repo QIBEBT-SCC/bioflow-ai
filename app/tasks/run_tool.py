@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from celery import Task
-from docker.types import Mount
 from loguru import logger
 
 from app.models.tools import FileMount, ImageConfig
@@ -18,7 +17,7 @@ from app.tasks.base.base_task import (
     get_tool_output,
     update_task,
 )
-from app.utils.container import run_command_background
+from app.utils.container import ContainerMount, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
 from script.worker import celery_app, monitor_redis_client
 
@@ -205,14 +204,14 @@ def docker_task(
     # 组合docker命令
     docker_image = ImageConfig.model_validate(tool_config.image.image)
     volume_binds = [
-        Mount(type='bind', source=str(host_path), target=container_path)
+        ContainerMount(source=str(host_path), target=container_path, read_only=False)
         for container_path, host_path in mount_paths.items()
     ]
 
-    volume_binds.append(Mount(type='bind', source='/tmp', target='/tmp'))  # noqa: S108
+    volume_binds.append(ContainerMount(source='/tmp', target='/tmp', read_only=False))  # noqa: S108
 
     data = TaskUpdate(
-        commands=f'docker run --rm {" ".join([f"-v {bind['Source']}:{bind['Target']}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
+        commands=f'docker run --rm {" ".join([f"-v {bind.source}:{bind.target}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
     )
     update_task(self.request.id, data)
 
