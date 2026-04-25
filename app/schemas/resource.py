@@ -152,7 +152,6 @@ class SampleCreate(BaseModel):
     project_id: int
     sample_name: str
     meta_data: Optional[dict] = None
-    files: Optional[list[SampleFileCreate]] = None
 
 
 class SampleUpdate(BaseModel):

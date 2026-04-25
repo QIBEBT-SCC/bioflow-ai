@@ -185,22 +185,7 @@ async def create_sample_in_project(
         meta_data=sample_prop.meta_data or {},
     )
 
-    # If file info is provided, create file records (file info is calculated automatically by the backend)
-    files = []
-    if sample_prop.files:
-        for file_prop in sample_prop.files:
-            # Only data_type and file_path are required, other info is calculated automatically by the CRUD layer
-            sample_file = SampleFiles(
-                sample_uid=sample.uid,
-                data_type=file_prop.data_type,
-                file_path=file_prop.file_path,
-                file_format='',  # Calculated automatically by CRUD
-                file_size=0,  # Calculated automatically by CRUD
-                md5_checksum='',  # Calculated automatically by CRUD
-            )
-            files.append(sample_file)
-
-    sample_crud.insert(session, sample, files)
+    sample_crud.insert(session, sample)
     return sample_crud.get_with_files(session, sample.uid)
 
 

@@ -90,30 +90,38 @@ def _assign_default_tag(sample_file: SampleFiles) -> None:
         sample_file.tag = default_tags.get(sample_file.data_type, 'unknown')
 
 
-def insert(session: Session, sample: Sample, files: Optional[list[SampleFiles]] = None) -> Sample:
+def insert(session: Session, sample: Sample) -> Sample:
     """创建新样本, 自动计算文件信息, 并更新项目时间."""
     session.add(sample)
     session.commit()
     session.refresh(sample)
-
-    if files:
-        for file in files:
-            file.sample_uid = sample.uid
-            # 分配默认标签 (如果未指定)
-            _assign_default_tag(file)
-            # 自动计算文件信息
-            file_format, file_size, md5_checksum = _calculate_file_info(file.file_path)
-            file.file_format = file_format
-            file.file_size = file_size
-            file.md5_checksum = md5_checksum
-            session.add(file)
-        session.commit()
 
     # 更新项目的 update_time
     _update_project_time(session, sample.project_id)
     session.commit()
 
     return sample
+
+
+def batch_insert(session: Session, samples: list[Sample]) -> list[Sample]:
+    """批量创建样本, 并在完成后统一更新项目时间.
+
+    假定所有 sample 属于同一个 project.
+    """
+    project_ids = {s.project_id for s in samples}
+    if len(project_ids) > 1:
+        err_msg = f'All samples must belong to the same project, got project_ids: {project_ids}'
+        raise ValueError(err_msg)
+
+    session.add_all(samples)
+    session.flush()
+    for sample in samples:
+        session.refresh(sample)
+
+    _update_project_time(session, samples[0].project_id)
+    session.commit()
+
+    return samples
 
 
 def delete(session: Session, sample_uid: uuid.UUID) -> None:
@@ -124,14 +132,9 @@ def delete(session: Session, sample_uid: uuid.UUID) -> None:
 
     project_id = sample.project_id
 
-    # 使用 Relationship 直接访问关联的文件, 无需额外查询
-    for file in sample.sample_files:
-        session.delete(file)
-
     session.delete(sample)
-
-    # 更新项目的 update_time
     _update_project_time(session, project_id)
+
     session.commit()
 
 
@@ -155,7 +158,7 @@ def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate)
     return sample
 
 
-def get(session: Session, sample_uid: uuid.UUID, with_files: bool = False) -> Optional[Sample]:
+def get(session: Session, sample_uid: uuid.UUID, *, with_files: bool = False) -> Optional[Sample]:
     """根据 UID 获取样本.
 
     Args:
