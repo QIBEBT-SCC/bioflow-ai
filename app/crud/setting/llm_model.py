@@ -1,8 +1,6 @@
-from typing import Optional
-
 from sqlmodel import Session, col, select
 
-from app.models.setting import LLMModel
+from app.models.setting import LLMModel, LLMProvider
 from app.schemas.setting import LLMModelUpdate
 
 
@@ -14,14 +12,14 @@ def insert(session: Session, model: LLMModel) -> LLMModel:
     return model
 
 
-def get(session: Session, model_id: int) -> Optional[LLMModel]:
+def get(session: Session, model_id: int) -> LLMModel:
     statement = select(LLMModel).where(LLMModel.id == model_id)
 
-    return session.exec(statement).one_or_none()
+    return session.exec(statement).one()
 
 
-def get_all(session: Session):
-    statement = select(LLMModel).order_by(col(LLMModel.id).desc())
+def get_all(session: Session) -> list[LLMModel]:
+    statement = select(LLMModel).join(LLMProvider).where(LLMProvider.is_active).order_by(col(LLMModel.id).asc())
 
     return session.exec(statement).all()
 

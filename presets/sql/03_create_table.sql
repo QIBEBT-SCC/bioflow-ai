@@ -56,10 +56,22 @@ CREATE TABLE IF NOT EXISTS llm_models
 
 CREATE TABLE IF NOT EXISTS llm_settings
 (
-    key      VARCHAR NOT NULL,
-    model_id INTEGER,
-    PRIMARY KEY (key),
-    FOREIGN KEY (model_id) REFERENCES llm_models
+    id                        INTEGER NOT NULL DEFAULT 1,
+    chat_model_id             INTEGER,
+    vision_model_id           INTEGER,
+    agent_model_id            INTEGER,
+    coding_model_id           INTEGER,
+    simple_model_id           INTEGER,
+    long_context_model_id     INTEGER,
+    high_performance_model_id INTEGER,
+    PRIMARY KEY (id),
+    FOREIGN KEY (chat_model_id) REFERENCES llm_models,
+    FOREIGN KEY (vision_model_id) REFERENCES llm_models,
+    FOREIGN KEY (agent_model_id) REFERENCES llm_models,
+    FOREIGN KEY (coding_model_id) REFERENCES llm_models,
+    FOREIGN KEY (simple_model_id) REFERENCES llm_models,
+    FOREIGN KEY (long_context_model_id) REFERENCES llm_models,
+    FOREIGN KEY (high_performance_model_id) REFERENCES llm_models
 );
 
 CREATE TABLE IF NOT EXISTS llm_statistics
@@ -74,8 +86,7 @@ CREATE TABLE IF NOT EXISTS llm_statistics
     price         NUMERIC                  NOT NULL,
     time          TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
-    FOREIGN KEY (model_id) REFERENCES llm_models,
-    FOREIGN KEY (setting_key) REFERENCES llm_settings
+    FOREIGN KEY (model_id) REFERENCES llm_models
 );
 
 

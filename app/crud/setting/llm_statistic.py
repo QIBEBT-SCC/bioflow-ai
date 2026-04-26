@@ -18,13 +18,12 @@ def get_summary(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
 ) -> dict:
-    """
-    获取 LLM 使用统计概览
+    """获取 LLM 使用统计概览.
 
     Args:
         session: 数据库会话
-        start_date: 开始日期（包含），如果为 None 则不限制开始时间
-        end_date: 结束日期（包含），如果为 None 则不限制结束时间
+        start_date: 开始日期
+        end_date: 结束日期
 
     Returns:
         包含总体统计和各维度分组统计的字典
@@ -92,7 +91,7 @@ def get_summary(
     by_type_statement = apply_date_filter(by_type_statement)
     by_type_results = session.exec(by_type_statement).all()
 
-    # 按 user 分组统计（JOIN 获取 username）
+    # 按 user 分组统计
     by_user_statement = (
         select(
             User.username.label('user_name'),

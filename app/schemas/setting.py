@@ -1,10 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-from app.models.setting import LLMModel, ProviderType
+from app.models.setting import LLMModel, ModelRole, ProviderType
 
 
 # ==================== LLMProvider Schemas ====================
@@ -59,13 +59,14 @@ class LLMModelUpdate(BaseModel):
 
 class LLMModelPublic(BaseModel):
     id: int
-    provider_id: int
     name: str
     input_price: float
     output_price: float
     cache_read_price: float
     extra_body: dict[str, Any]
     is_active: bool
+
+    provider_name: Optional[str] = None
 
 
 # ==================== LLMSetting Schemas ====================
@@ -86,15 +87,7 @@ class LLMSettingPublic(BaseModel):
 
 
 class LLMSettingUpdate(BaseModel):
-    key: Literal[
-        'chat_model',
-        'vision_model',
-        'agent_model',
-        'coding_model',
-        'simple_model',
-        'long_context_model',
-        'high_performance_model',
-    ]
+    key: ModelRole
     model_id: int
 
 

@@ -22,6 +22,7 @@ from app.schemas.setting import (
     LLMStatisticOverview,
 )
 from app.utils.security import AdminDep
+from llm.models import invalidate_model_cache
 
 router = APIRouter()
 
@@ -86,7 +87,8 @@ async def create_llm_model(model_data: LLMModelCreate, session: SessionDep, _cur
 @router.get('/models')
 async def get_llm_models(session: SessionDep, _current_user: AdminDep) -> list[LLMModelPublic]:
     """Get all LLM models."""
-    return model_crud.get_all(session)
+    results = model_crud.get_all(session)
+    return [LLMModelPublic.model_validate({'provider_name': r.provider.name, **r.model_dump()}) for r in results]
 
 
 @router.get('/models/{model_id}')
@@ -151,7 +153,8 @@ async def update_llm_setting(setting_data: LLMSettingUpdate, session: SessionDep
         raise HTTPException(status_code=404, detail='Model not found')
 
     setting_crud.update(session, setting_data.key, setting_data.model_id)
-    return {'message': f'Setting {setting_data.key} updated successfully'}
+    invalidate_model_cache(setting_data.key)
+    return {'message': f'Setting {setting_data.key.value} updated successfully'}
 
 
 # ==================== LLM Statistic Endpoints ====================

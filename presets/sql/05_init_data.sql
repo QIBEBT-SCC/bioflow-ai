@@ -34,45 +34,33 @@ VALUES (9, 3, 'gemini-3-flash-preview', 0.5, 3, 0.05, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
 VALUES (10, 3, 'gemini-3.1-flash-lite-preview', 0.25, 1.5, 0.025, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (11, 4, 'deepseek-chat', 0.28, 0.42, 0.028, '{}', TRUE);
+VALUES (11, 4, 'deepseek-v4-pro', 0.435, 0.87, 0.03625, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (12, 4, 'deepseek-reasoner', 0.28, 0.42, 0.028, '{}', TRUE);
+VALUES (12, 4, 'deepseek-v4-flash', 0.14, 0.28, 0.028, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (13, 5, 'openai/gpt-5.4', 2.5, 15, 0.25, '{}', TRUE);
+VALUES (13, 4, 'deepseek-v4-flash(no-think)', 0.14, 0.28, 0.028, '{"thinking": {"type": "disabled"}}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (14, 5, 'openai/gpt-5.4-mini', 0.75, 4.5, 0.075, '{}', TRUE);
+VALUES (14, 5, 'openai/gpt-5.4', 2.5, 15, 0.25, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (15, 5, 'openai/gpt-5.4-nano', 0.2, 1.25, 0.02, '{}', TRUE);
+VALUES (15, 5, 'openai/gpt-5.4-mini', 0.75, 4.5, 0.075, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (16, 5, 'openai/gpt-5-nano', 0.05, 0.4, 0.005, '{}', TRUE);
+VALUES (16, 5, 'openai/gpt-5.4-nano', 0.2, 1.25, 0.02, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (17, 5, 'anthropic/claude-opus-4.6', 5, 25, 0.5, '{}', TRUE);
+VALUES (17, 5, 'openai/gpt-5-nano', 0.05, 0.4, 0.005, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (18, 5, 'anthropic/claude-sonnet-4.6', 3, 15, 0.3, '{}', TRUE);
+VALUES (18, 5, 'anthropic/claude-opus-4.6', 5, 25, 0.5, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (19, 5, 'anthropic/claude-haiku-4.5', 1, 5, 0.1, '{}', TRUE);
+VALUES (19, 5, 'anthropic/claude-sonnet-4.6', 3, 15, 0.3, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (20, 5, 'google/gemini-3.1-pro-preview', 2, 12, 0.2, '{}', TRUE);
+VALUES (20, 5, 'anthropic/claude-haiku-4.5', 1, 5, 0.1, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (21, 5, 'google/gemini-3-flash-preview', 0.5, 3, 0.05, '{}', TRUE);
+VALUES (21, 5, 'google/gemini-3.1-pro-preview', 2, 12, 0.2, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (22, 5, 'google/gemini-3.1-flash-lite-preview', 0.25, 1.5, 0.025, '{}', TRUE);
+VALUES (22, 5, 'google/gemini-3-flash-preview', 0.5, 3, 0.05, '{}', TRUE);
 INSERT INTO llm_models (id, provider_id, name, input_price, output_price, cache_read_price, extra_body, is_active)
-VALUES (23, 5, 'deepseek/deepseek-v3.2', 0.26, 0.38, 0.13, '{}', TRUE);
+VALUES (23, 5, 'google/gemini-3.1-flash-lite-preview', 0.25, 1.5, 0.025, '{}', TRUE);
 SELECT SETVAL('llm_models_id_seq', (SELECT MAX(id) FROM llm_models));
 
 -- init model setting
-INSERT INTO llm_settings (key, model_id)
-VALUES ('chat_model', 14);
-INSERT INTO llm_settings (key, model_id)
-VALUES ('vision_model', 21);
-INSERT INTO llm_settings (key, model_id)
-VALUES ('agent_model', 14);
-INSERT INTO llm_settings (key, model_id)
-VALUES ('coding_model', 18);
-INSERT INTO llm_settings (key, model_id)
-VALUES ('simple_model', 16);
-INSERT INTO llm_settings (key, model_id)
-VALUES ('long_context_model', 23);
-INSERT INTO llm_settings (key, model_id)
-VALUES ('high_performance_model', 20);
+INSERT INTO llm_settings (id, chat_model_id, vision_model_id, agent_model_id, coding_model_id, simple_model_id, long_context_model_id, high_performance_model_id)
+VALUES (1, 8, 9, 11, 6, 13, 12, 1);

@@ -16,6 +16,16 @@ class ProviderType(Enum):
     GOOGLE = 'google'
 
 
+class ModelRole(str, Enum):
+    CHAT = 'chat_model'
+    VISION = 'vision_model'
+    AGENT = 'agent_model'
+    CODING = 'coding_model'
+    SIMPLE = 'simple_model'
+    LONG_CONTEXT = 'long_context_model'
+    HIGH_PERFORMANCE = 'high_performance_model'
+
+
 class LLMProvider(SQLModel, table=True):
     __tablename__ = 'llm_providers'
 
@@ -44,17 +54,21 @@ class LLMModel(SQLModel, table=True):
     extra_body: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     is_active: bool = Field(default=True)
 
-    provider: Optional['LLMProvider'] = Relationship(back_populates='models')
+    provider: 'LLMProvider' = Relationship(back_populates='models')
     prices: list['LLMStatistic'] = Relationship(back_populates='model')
 
 
 class LLMSetting(SQLModel, table=True):
     __tablename__ = 'llm_settings'
 
-    key: str = Field(primary_key=True)
-    model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-
-    model: Optional['LLMModel'] = Relationship()
+    id: int = Field(default=1, primary_key=True)
+    chat_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    vision_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    agent_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    coding_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    simple_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    long_context_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    high_performance_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
 
 
 class LLMStatistic(SQLModel, table=True):
@@ -63,7 +77,7 @@ class LLMStatistic(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     agent_name: str
     model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    setting_key: Optional[str] = Field(default=None, foreign_key='llm_settings.key')
+    setting_key: Optional[str] = Field(default=None)
     user_id: Optional[int] = Field(default=None, foreign_key='users.id')
 
     input_tokens: int

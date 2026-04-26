@@ -3,6 +3,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from loguru import logger
 from pydantic import SecretStr
 from sqlmodel import Session
 
@@ -10,9 +11,11 @@ import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_setting as setting_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.setting import ProviderType
+from app.models.setting import ModelRole, ProviderType
 from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from llm.utils.cache import cache_model
+
+_model_cache: dict[ModelRole, BaseChatModel] = {}
 
 
 class NoApikeyError(ValueError):
@@ -24,15 +27,14 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
         model_config = model_crud.get(session, model_id)
 
         if model_config.provider.api_key is None:
-            err_msg = 'No available api_key has been set yet!'
-            raise NoApikeyError(err_msg)
+            logger.warning('No available api_key has been set yet!')
 
         proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
 
         match model_config.provider.provider_type:
             case ProviderType.ANTHROPIC:
                 model = ChatAnthropic(
-                    model=model_config.name,
+                    model_name=model_config.name,
                     api_key=SecretStr(model_config.provider.api_key),
                     base_url='https://api.anthropic.com'
                     if model_config.provider.base_url is None
@@ -87,102 +89,57 @@ def _get_model_from_db(model_id: int) -> BaseChatModel:
         return model
 
 
-def get_agent_model() -> BaseChatModel:
-    """用于常规智能体的模型.
+def invalidate_model_cache(role: ModelRole) -> None:
+    """清楚模型配置缓存."""
+    _model_cache.pop(role, None)
 
-    工具调用能力强, 同时成本适中
-    """
+
+def get_model(role: ModelRole) -> BaseChatModel:
+    """获取指定类型的模型配置."""
+    if role in _model_cache:
+        return _model_cache[role]
+
     with Session(engine) as session:
-        setting = setting_crud.get(session, 'agent_model')
-        model_id = setting.model_id
-
+        model_id = setting_crud.get_role(session, role)
     model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'agent_model'
+    model.metadata['setting_key'] = role.value
+    _model_cache[role] = model
     return model
 
 
 def get_chat_model() -> BaseChatModel:
-    """常规对话模型.
-
-    通用问答对话, 最好支持多模态
-    """
-    with Session(engine) as session:
-        setting = setting_crud.get(session, 'chat_model')
-        model_id = setting.model_id
-
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'chat_model'
-    return model
+    """常规对话模型."""
+    return get_model(ModelRole.CHAT)
 
 
 def get_vision_model() -> BaseChatModel:
-    """视觉模型.
+    """视觉模型."""
+    return get_model(ModelRole.VISION)
 
-    具有多模态能力的模型, 后期可能改名, 用于图像生成之类的
-    """
-    with Session(engine) as session:
-        setting = setting_crud.get(session, 'vision_model')
-        model_id = setting.model_id
 
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'vision_model'
-    return model
+def get_agent_model() -> BaseChatModel:
+    """用于常规智能体的模型."""
+    return get_model(ModelRole.AGENT)
 
 
 def get_coding_model() -> BaseChatModel:
-    """编码模型.
-
-    coding能力强的模型
-    """
-    with Session(engine) as session:
-        setting = setting_crud.get(session, 'coding_model')
-        model_id = setting.model_id
-
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'coding_model'
-    return model
+    """编码模型."""
+    return get_model(ModelRole.CODING)
 
 
 def get_simple_model() -> BaseChatModel:
-    """简单任务处理模型.
-
-    可以没有多模态能力, 以便宜为核心, 处理意图识别等任务
-    """
-    with Session(engine) as session:
-        setting = setting_crud.get(session, 'simple_model')
-        model_id = setting.model_id
-
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'simple_model'
-    return model
+    """简单任务处理模型."""
+    return get_model(ModelRole.SIMPLE)
 
 
 def get_long_context_model() -> BaseChatModel:
-    """长上下文处理模型.
-
-    要求在对话窗口大的同时, 控制成本
-    """
-    with Session(engine) as session:
-        setting = setting_crud.get(session, 'long_context_model')
-        model_id = setting.model_id
-
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'long_context_model'
-    return model
+    """长上下文处理模型."""
+    return get_model(ModelRole.LONG_CONTEXT)
 
 
 def get_high_performance_model() -> BaseChatModel:
-    """高性能模型.
-
-    处理复杂决策问题
-    """
-    with Session(engine) as session:
-        setting = setting_crud.get(session, 'high_performance_model')
-        model_id = setting.model_id
-
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = 'high_performance_model'
-    return model
+    """高性能模型."""
+    return get_model(ModelRole.HIGH_PERFORMANCE)
 
 
 @cache_model()
