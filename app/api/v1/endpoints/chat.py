@@ -22,8 +22,7 @@ from app.core.session import SessionDep
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatResponse, ChatSessionPublic, ChatSessionUpdate, PaginatedChatSessions
 from app.utils.security import UserDep
-from llm.agents.reproduction.design_workflow import WorkflowDesigner
-from llm.states import UserContext
+from llm.agents.workflow_agent import DesignContext, DesignState, WorkflowDesignAgent
 from llm.utils.ai_sdk.stream_protocol import (
     data_part,
     done_marker,
@@ -177,7 +176,7 @@ async def generate_reproduction_stream(
 
     async with AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE) as checkpoint:
         try:
-            agent = WorkflowDesigner(history=history).build(memory=checkpoint)
+            agent = WorkflowDesignAgent(memory=checkpoint).build()
             config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=500)
 
             current_state: Optional[Literal['thinking', 'text', 'tool']] = None
@@ -187,7 +186,7 @@ async def generate_reproduction_stream(
             async for source, stream_mode, chunk in agent.astream(
                 agent_input,
                 config,
-                context=UserContext(user_id=user_id),
+                context=DesignContext(user_id=user_id),
                 stream_mode=['messages', 'updates', 'custom'],
                 subgraphs=True,
             ):
