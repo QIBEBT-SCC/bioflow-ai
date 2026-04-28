@@ -10,14 +10,14 @@ from llm.utils.middleware.todo import Todo
 class StatusBarMiddleware(AgentMiddleware):
     @staticmethod
     def _add_status_to_request(request: ModelRequest) -> ModelRequest:
-        """添加状态信息到请求的最后一条消息中"""
+        """添加状态信息到请求的最后一条消息中."""
         status = []
 
-        if 'image' in request.state and request.state['image']:  # type: ignore
+        if request.state.get('image'):  # type: ignore
             image_info: ImageConfig = request.state['image']  # type: ignore
             status.append(f'Current Image: {image_info.get_image()}')
 
-        if 'todos' in request.state and request.state['todos']:  # type: ignore
+        if request.state.get('todos'):  # type: ignore
             for todo in request.state['todos']:  # type: ignore
                 todo: Todo
                 if todo.status == 'in_progress':
@@ -28,6 +28,10 @@ class StatusBarMiddleware(AgentMiddleware):
                         f'No currently processed To-DO, the next To-DO in the queue is: <todo index={todo.index}>{todo.content}</todo>'
                     )
                     break
+
+        if request.state.get('base_path'):  # type: ignore
+            base_path: str = request.state['base_path']  # type: ignore
+            status.append(f'Current base_path: "{base_path}"')
 
         if status:
             last_message = request.messages[-1]

@@ -82,6 +82,14 @@ class CreateToolOutput(BaseModel):
 
 
 # =====================test run agent state==========================
+@dataclass
+class TestRunContext(UserContext):
+    folder_name: str
+
+    save_message: bool = False
+    test_run_id: Optional[str] = None
+
+
 class TestRunState(AgentState):
     image: ImageConfig
     container_id: NotRequired[str]
@@ -89,14 +97,6 @@ class TestRunState(AgentState):
     tool_report: NotRequired[str]
     updated: NotRequired[bool]
     checked: NotRequired[bool]
-
-
-@dataclass
-class TestRunContext(UserContext):
-    folder_name: str
-
-    save_message: bool = False
-    test_run_id: Optional[str] = None
 
 
 # =====================tool generator state==========================
@@ -110,10 +110,23 @@ class ToolGeneratorState(AgentState, total=False):
     modifiable_static_params: str
 
 
+# =====================sample manager state==========================
+@dataclass
+class SampleContext(UserContext):
+    project_id: int
+
+
+class SampleState(AgentState, total=False):
+    base_path: str
+    sample_maps: dict[str, str]  # {sample_name: sample_id}
+
+    summary: str
+
+
 # =====================workflow plan state==========================
 @dataclass
-class DesignContext:
-    user_id: int
+class DesignContext(UserContext):
+    project_id: int
     auto_approve: bool = False
 
 
@@ -133,6 +146,11 @@ class DesignState(AgentState, total=False):
 
 
 # =====================build workflow agent state==========================
+@dataclass
+class BuildContext(UserContext):
+    has_reference: bool
+
+
 class BuildNode(BaseModel):
     id: str
     name: str
@@ -170,11 +188,6 @@ class BuildSchema(AgentState, total=False):
     exist_edges: Annotated[list[BuildEdge], operator.add]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
-
-
-@dataclass
-class BuildContext(UserContext):
-    has_reference: bool
 
 
 # =====================summary agent state==========================

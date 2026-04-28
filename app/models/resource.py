@@ -42,9 +42,9 @@ class SampleFiles(SQLModel, table=True):
     sample_uid: uuid.UUID = Field(foreign_key='samples.uid', ondelete='CASCADE')
     data_type: SampleFileType
     file_path: str
-    file_format: str
-    file_size: int = Field(sa_type=BigInteger)
-    md5_checksum: str
+    file_format: Optional[str] = None
+    file_size: int = Field(sa_type=BigInteger, default=0)
+    md5_checksum: Optional[str] = None
     tag: str = Field(default=None, max_length=50, index=True)
     uploaded_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

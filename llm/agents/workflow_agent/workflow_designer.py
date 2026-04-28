@@ -4,6 +4,7 @@ from typing import Any, Literal, Optional
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.graph import CurveStyle
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
@@ -15,11 +16,12 @@ from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from llm.agents.fs_agent.sample_manager import create_sample_agent
 from llm.agents.workflow_agent.paper_reader import paper_reader
 from llm.agents.workflow_agent.tool_info_searcher import tool_info_searcher
 from llm.agents.workflow_agent.workflow_builder import build_workflow_agent
 from llm.models import get_high_performance_model, get_simple_model
-from llm.states import BuildContext, DesignContext, DesignState, StructuredResponse
+from llm.states import BuildContext, DesignContext, DesignState, SampleContext, StructuredResponse
 from llm.tools.writter import write_plan
 from llm.utils.middleware import (
     TokenStatisticMiddleware,
@@ -286,7 +288,7 @@ class WorkflowDesignAgent:
         )
 
     async def intent_recognition(
-        self, state: DesignState, runtime: Runtime
+        self, state: DesignState, runtime: Runtime, config: RunnableConfig
     ) -> Command[Literal['search_tool', 'self_plan', 'summary_paper', '__end__']]:
         """意图识别."""
         prompt = ChatPromptTemplate(
@@ -303,6 +305,7 @@ class WorkflowDesignAgent:
         store_token_usage(
             self.name,
             user_id=runtime.context.user_id,
+            thread_id=config['configurable'].get('thread_id'),
             token_usage=response['raw'].usage_metadata,
             **llm.metadata,
         )
@@ -310,11 +313,22 @@ class WorkflowDesignAgent:
         logger.debug(f'route to {response["parsed"].task}')
         match response['parsed'].task:
             case 'autonomous_design':
-                return Command(goto='self_plan', update={'task': response['parsed'].task})
+                return Command(goto='information_collect', update={'task': response['parsed'].task})
             case 'tool_expansion':
                 return Command(goto='search_tool', update={'task': response['parsed'].task})
             case 'literature_reproduction':
                 return Command(goto='summary_paper', update={'task': response['parsed'].task})
+
+    async def information_collect_node(self, state: DesignState, runtime: Runtime[DesignContext]) -> dict[str, Any]:
+        """自主规划 Step1 - 获取待分析样本信息."""
+        runtime.stream_writer({'info': 'Analyze available samples...'})
+
+        response = await create_sample_agent.ainvoke(
+            {'messages': state['messages']},
+            context=SampleContext(user_id=runtime.context.user_id, project_id=runtime.context.project_id),
+        )
+
+        return {'messages': [HumanMessage(content=response['summary'])]}
 
     async def search_tool_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
         """工具探索 Step1 - 联网搜索并撰写工具信息报告."""
@@ -415,6 +429,7 @@ class WorkflowDesignAgent:
         graph.add_node('intent_recognition', self.intent_recognition)  # type: ignore
         graph.set_entry_point('intent_recognition')
 
+        graph.add_node('information_collect', self.information_collect_node)  # type: ignore
         graph.add_node('search_tool', self.search_tool_node)  # type: ignore
         graph.add_node('summary_paper', self.summary_paper_node)  # type: ignore
         graph.add_node('self_plan', self.self_plan_node)  # type: ignore
@@ -422,6 +437,7 @@ class WorkflowDesignAgent:
         graph.add_node('generate_workflow', self.generate_workflow_node)  # type: ignore
 
         # 自主设计
+        graph.add_edge('information_collect', 'self_plan')
         graph.add_edge('search_tool', 'self_plan')
         graph.add_edge('self_plan', 'generate_workflow')
 

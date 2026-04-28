@@ -30,10 +30,13 @@ def insert(session: Session, project: Project) -> Project:
     return project
 
 
-def delete(session: Session, user_id: int, project_id: int):
-    project = get(session, user_id, project_id)
-    session.delete(project)
-    session.commit()
+def delete(session: Session, project_id: int):
+    statement: Select = select(Project).where(Project.id == project_id)
+    project: Project = session.exec(statement).one_or_none()
+
+    if project:
+        session.delete(project)
+        session.commit()
 
 
 def update(session: Session, project_id: int, project: ProjectUpdate) -> Project:
