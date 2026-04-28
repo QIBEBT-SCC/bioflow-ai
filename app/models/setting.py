@@ -79,6 +79,7 @@ class LLMStatistic(SQLModel, table=True):
     model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
     setting_key: Optional[str] = Field(default=None)
     user_id: Optional[int] = Field(default=None, foreign_key='users.id')
+    thread: Optional[str] = Field(default=None)
 
     input_tokens: int
     output_tokens: int

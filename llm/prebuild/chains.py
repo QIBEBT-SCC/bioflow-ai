@@ -1,8 +1,10 @@
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.config import get_config
 from pydantic import BaseModel
 
 from llm.models import get_long_context_model
+from llm.states import StructuredResponse
 from llm.utils.token import store_token_usage
 
 
@@ -18,7 +20,10 @@ async def generate_title(history: list[BaseMessage], user_id: int) -> str:
     llm = get_long_context_model()
     chain = prompt | llm
     result = await chain.ainvoke({'history': history})
-    store_token_usage('generate_title', user_id=user_id, token_usage=result.usage_metadata, **llm.metadata)
+    thread_id = get_config()['configurable'].get('thread_id', None)
+    store_token_usage(
+        'generate_title', user_id=user_id, thread_id=thread_id, token_usage=result.usage_metadata, **llm.metadata
+    )
 
     return result.content.strip()
 
@@ -73,9 +78,16 @@ async def check_update_args(
     )
     llm = get_long_context_model()
     chain = prompt | llm.with_structured_output(ArgsCheckResult, include_raw=True)
-    result = await chain.ainvoke(
+    result: StructuredResponse[ArgsCheckResult] = await chain.ainvoke(
         {'doc': doc, 'complete_command': complete_command, 'update_arg': update_arg, 'reason': reason}
     )
-    store_token_usage('check_update_args', user_id=user_id, token_usage=result['raw'].usage_metadata, **llm.metadata)
+    thread_id = get_config()['configurable'].get('thread_id', None)
+    store_token_usage(
+        'check_update_args',
+        user_id=user_id,
+        thread_id=thread_id,
+        token_usage=result['raw'].usage_metadata,
+        **llm.metadata,
+    )
 
     return result['parsed']

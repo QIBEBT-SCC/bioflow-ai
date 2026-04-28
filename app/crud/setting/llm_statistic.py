@@ -168,13 +168,12 @@ def get_details(
     limit: int = 100,
     offset: int = 0,
 ):
-    """
-    获取 LLM 使用详细记录列表（包含 model name 和 user name）
+    """获取 LLM 使用详细记录列表.
 
     Args:
         session: 数据库会话
-        start_date: 开始日期（包含），如果为 None 则不限制开始时间
-        end_date: 结束日期（包含），如果为 None 则不限制结束时间
+        start_date: 开始日期, 如果为 None 则不限制开始时间
+        end_date: 结束日期, 如果为 None 则不限制结束时间
         limit: 每页记录数
         offset: 偏移量
 
@@ -230,3 +229,12 @@ def get_details(
             for row in results
         ],
     }
+
+
+def refresh_thread_id(session: Session, thread_id: str, new_id: str) -> None:
+    """刷新对应记录的thread_id."""
+    statement = select(LLMStatistic).where(LLMStatistic.thread == thread_id)
+    results = session.exec(statement).all()
+    for record in results:
+        record.thread = new_id
+    session.commit()

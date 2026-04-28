@@ -14,6 +14,7 @@ def store_token_usage(
     model_id: int,
     setting_key: str,
     user_id: int,
+    thread_id: str | None,
     token_usage: UsageMetadata | None,
     input_price: Decimal,
     output_price: Decimal,
@@ -26,6 +27,7 @@ def store_token_usage(
         model_id: Primary key of the LLM model generating the usage.
         setting_key: Configuration key tying the statistic to a specific setting.
         user_id: Identifier for the user associated with this usage.
+        thread_id: Session id.
         token_usage: Usage metadata containing token counts and cache details.
         input_price: Price per regular input token, expressed in micro-units.
         output_price: Price per output token, expressed in micro-units.
@@ -47,6 +49,7 @@ def store_token_usage(
             model_id=model_id,
             setting_key=setting_key,
             user_id=user_id,
+            thread=thread_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cache_read=cache_read,

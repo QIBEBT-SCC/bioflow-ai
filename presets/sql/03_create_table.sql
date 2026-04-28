@@ -77,16 +77,19 @@ CREATE TABLE IF NOT EXISTS llm_settings
 CREATE TABLE IF NOT EXISTS llm_statistics
 (
     id            SERIAL,
-    agent_name    VARCHAR                  NOT NULL,
+    agent_name    VARCHAR NOT NULL,
     model_id      INTEGER,
     setting_key   VARCHAR,
-    input_tokens  INTEGER                  NOT NULL,
-    output_tokens INTEGER                  NOT NULL,
+    user_id       INTEGER,
+    thread        VARCHAR,
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
     cache_read    INTEGER,
-    price         NUMERIC                  NOT NULL,
-    time          TIMESTAMP WITH TIME ZONE NOT NULL,
+    price         NUMERIC NOT NULL,
+    time          TIMESTAMP,
     PRIMARY KEY (id),
-    FOREIGN KEY (model_id) REFERENCES llm_models
+    FOREIGN KEY (model_id) REFERENCES llm_models,
+    FOREIGN KEY (user_id) REFERENCES users
 );
 
 
