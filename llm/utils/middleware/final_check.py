@@ -6,6 +6,7 @@ from langchain.agents.middleware.types import StateT, hook_config
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.config import get_config
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from loguru import logger
@@ -118,10 +119,12 @@ class CheckReportMiddleware(AgentMiddleware):
             )
 
         check_result: StructuredResponse[CheckResult] = self.check_chain.invoke({'tool_report': tool_report})  # type: ignore
+        thread_id = get_config()['configurable'].get('thread_id', None)
         store_token_usage(
             'check_report',
-            token_usage=check_result['raw'].usage_metadata,
             user_id=runtime.context.user_id,
+            thread_id=thread_id,
+            token_usage=check_result['raw'].usage_metadata,
             **self.model_metadata,
         )
         if not check_result['parsed'].checked:
@@ -167,10 +170,12 @@ class CheckReportMiddleware(AgentMiddleware):
             )
 
         check_result: StructuredResponse[CheckResult] = await self.check_chain.ainvoke({'tool_report': tool_report})  # type: ignore
+        thread_id = get_config()['configurable'].get('thread_id', None)
         store_token_usage(
             'check_report',
-            token_usage=check_result['raw'].usage_metadata,
             user_id=runtime.context.user_id,
+            thread_id=thread_id,
+            token_usage=check_result['raw'].usage_metadata,
             **self.model_metadata,
         )
         if not check_result['parsed'].checked:
