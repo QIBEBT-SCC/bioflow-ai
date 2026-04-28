@@ -1,6 +1,7 @@
 import json
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
+from langgraph.types import CustomStreamPart, MessagesStreamPart, UpdatesStreamPart
 from rich.console import Console
 from rich.panel import Panel
 from rich.pretty import Pretty
@@ -10,55 +11,62 @@ if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, ToolMessage
 
 TOOL_CONTENT_PREVIEW = 200
+REASONING_CONTENT_PREVIEW = 200
 
 
 def print_stream_chunk(
     console: Console,
-    stream_mode: Literal['custom', 'updates'],
-    chunk: Any,
+    chunk: UpdatesStreamPart | MessagesStreamPart | CustomStreamPart,
 ) -> None:
     """Rend LangGraph stream chunk as rich Panel."""
-    if stream_mode == 'custom':
+    if chunk['type'] == 'custom':
         console.print(
             Panel(
-                Pretty(chunk),
+                Pretty(chunk['data']),
                 # title='[bold yellow]🔔 Custom Event[/bold yellow]',
                 border_style='yellow',
             )
         )
         return
 
-    if stream_mode != 'updates' or not isinstance(chunk, dict):
-        return
+    if chunk['type'] == 'updates':
+        models_messages = chunk['data'].get('model', {}).get('messages')
+        tools_updates = chunk['data'].get('tools', {})
 
-    if 'model' in chunk and 'messages' in chunk['model']:
-        messages = chunk['model'].get('messages', [])
-        last_msg: AIMessage = messages[0] if messages else None
+        if models_messages:
+            last_msg: AIMessage = models_messages[0]
 
-        if last_msg is not None:
-            tool_calls = getattr(last_msg, 'tool_calls', None)
-            content = getattr(last_msg, 'content', '')
-            model_name = last_msg.response_metadata.get('model_name', '')
+            if last_msg is not None:
+                reasoning_content = last_msg.additional_kwargs.get('reasoning_content')
+                model_name = last_msg.response_metadata.get('model_name', '')
 
-            if tool_calls:
-                console.print(
-                    Panel(
-                        _format_tool_calls(tool_calls),
-                        title=f'[bold magenta]{model_name}[/bold magenta]',
-                        border_style='magenta',
+                has_tools = bool(last_msg.tool_calls)
+                color = 'blue' if has_tools else 'magenta'
+
+                body = Text()
+                if reasoning_content:
+                    body.append(_preview(str(reasoning_content), REASONING_CONTENT_PREVIEW), style='dim')
+                    body.append('\n')
+
+                if last_msg.content:
+                    body.append(str(last_msg.content))
+                    if has_tools:
+                        body.append('\n\n')
+
+                if has_tools:
+                    body.append(_format_tool_calls(last_msg.tool_calls))
+
+                if body:
+                    console.print(
+                        Panel(
+                            body,
+                            title=f'[bold {color}]LLM: {model_name}[/bold {color}]',
+                            border_style=color,
+                        )
                     )
-                )
-            elif content:
-                console.print(
-                    Panel(
-                        Text(str(content)),
-                        title=f'[bold blue]{model_name}[/bold blue]',
-                        border_style='blue',
-                    )
-                )
 
-    if 'tools' in chunk:
-        _render_tools_update(console, chunk['tools'])
+        if tools_updates:
+            _render_tools_update(console, tools_updates)
 
 
 def _render_tools_update(console: Console, tools_state: dict[str, Any]) -> None:
@@ -80,7 +88,7 @@ def _render_tools_update(console: Console, tools_state: dict[str, Any]) -> None:
     console.print(
         Panel(
             body,
-            title=f'[bold green]{tool_name}[/bold green]',
+            title=f'[bold green]Tool: {tool_name}[/bold green]',
             border_style='green',
         )
     )
@@ -91,7 +99,7 @@ def _preview(content: Any, limit: int) -> str:
     text = content if isinstance(content, str) else str(content)
     if len(text) <= limit:
         return text
-    return f'{text[:limit]}... [truncated, total {len(text):,} chars]'
+    return f'{text[:limit]}...'
 
 
 def _truncate_value(value: Any, limit: int) -> Any:
@@ -117,7 +125,7 @@ def _format_tool_calls(tool_calls: list) -> str:
             name = getattr(tc, 'name', 'unknown')
             args = getattr(tc, 'args', {})
 
-        parts.append(f'[bold cyan]{i}. {name}[/bold cyan]')
+        parts.append(f'Tool: [bold cyan]{i}. {name}[/bold cyan]')
 
         truncated_args = _truncate_value(args, 50)
         try:

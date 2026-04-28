@@ -170,14 +170,15 @@ async def init_tools(index: int | None = None) -> None:
 
             con.execute('UPDATE tool_functions SET thread = ? WHERE index = ?', [thread_id, row_index])
 
-            async for _, stream_mode, chunk in agent.astream(
+            async for chunk in agent.astream(
                 agent_input,  # type: ignore
                 config,
                 context=context,  # type: ignore
                 stream_mode=['custom', 'updates'],
+                version='v2',
                 subgraphs=True,
             ):
-                print_stream_chunk(console, stream_mode, chunk)
+                print_stream_chunk(console, chunk)
 
             response = await agent.aget_state(config)
             if response.interrupts:
@@ -279,14 +280,15 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
         context = CreateToolContext(user_id=2, auto_save=True, test_run_id=thread_id)
 
         console = Console()
-        async for _, stream_mode, chunk in agent.astream(
+        async for chunk in agent.astream(
             agent_input,  # type: ignore
             config,
             context=context,  # type: ignore
             stream_mode=['custom', 'updates'],
+            version='v2',
             subgraphs=True,
         ):
-            print_stream_chunk(console, stream_mode, chunk)
+            print_stream_chunk(console, chunk)
 
         response = await agent.aget_state(config)
         if response.interrupts:
@@ -390,14 +392,15 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
             input_message = Command(resume=message)
         else:
             input_message = None
-        async for _, stream_mode, chunk in agent.astream(
+        async for chunk in agent.astream(
             input_message,
             config,
             context=context,  # type: ignore
             stream_mode=['custom', 'updates'],
+            version='v2',
             subgraphs=True,
         ):
-            print_stream_chunk(console, stream_mode, chunk)
+            print_stream_chunk(console, chunk)
 
         response = await agent.aget_state(config)
         if response.interrupts:
@@ -465,12 +468,11 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                 config: RunnableConfig = {'configurable': {'thread_id': tool_info['thread']}, 'recursion_limit': 500}
 
                 response = await agent.aget_state(config, subgraphs=True)
-                if (
-                    response.tasks
-                    and response.tasks[0].state
-                    and 'container_id' in response.tasks[0].state.values
-                    and response.tasks[0].state.values['container_id']
-                ):
+                try:
+                    container_id = response.tasks[0].state.values['container_id']
+                except (IndexError, AttributeError, KeyError, TypeError):
+                    container_id = None
+                if container_id:
                     try:
                         remove_container(response.tasks[0].state.values['container_id'])
                         logger.info('清理了残余容器')
