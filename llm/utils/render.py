@@ -45,7 +45,7 @@ def print_stream_chunk(
 
                 body = Text()
                 if reasoning_content:
-                    body.append(_preview(str(reasoning_content), REASONING_CONTENT_PREVIEW), style='dim')
+                    body.append(f'* {_preview(str(reasoning_content), REASONING_CONTENT_PREVIEW)}', style='dim')
                     body.append('\n')
 
                 if last_msg.content:
