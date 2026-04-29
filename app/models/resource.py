@@ -4,7 +4,7 @@ from enum import IntEnum
 from typing import TYPE_CHECKING, Optional
 
 import uuid_extensions
-from sqlalchemy import BigInteger, Column, UniqueConstraint
+from sqlalchemy import BigInteger, Column, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -40,12 +40,12 @@ class SampleFiles(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     sample_uid: uuid.UUID = Field(foreign_key='samples.uid', ondelete='CASCADE')
-    data_type: SampleFileType
+    data_type: SampleFileType = Field(sa_type=Integer)
     file_path: str
     file_format: Optional[str] = None
     file_size: int = Field(sa_type=BigInteger, default=0)
     md5_checksum: Optional[str] = None
-    tag: str = Field(default=None, max_length=50, index=True)
+    tag: str = Field(max_length=50, index=True)
     uploaded_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     sample: Optional['Sample'] = Relationship(back_populates='sample_files')

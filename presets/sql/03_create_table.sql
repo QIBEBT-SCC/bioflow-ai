@@ -1,13 +1,12 @@
 -- 用户相关
-CREATE TYPE userrole AS ENUM ('VISITOR', 'MEMBER', 'ADMIN');
 CREATE TABLE IF NOT EXISTS users
 (
     id              SERIAL,
-    username        VARCHAR  NOT NULL,
-    email           VARCHAR  NOT NULL,
-    role            userrole NOT NULL,
-    hashed_password VARCHAR  NOT NULL,
-    is_active       BOOLEAN  NOT NULL,
+    username        VARCHAR NOT NULL,
+    email           VARCHAR NOT NULL,
+    role            INTEGER NOT NULL,
+    hashed_password VARCHAR NOT NULL,
+    is_active       BOOLEAN NOT NULL,
     PRIMARY KEY (id),
     UNIQUE (email)
 );
@@ -23,6 +22,14 @@ CREATE TABLE IF NOT EXISTS chat_sessions
     update_time    TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages
+(
+    id         SERIAL,
+    session_id VARCHAR NOT NULL,
+    message    jsonb   NOT NULL,
+    PRIMARY KEY (id)
 );
 
 -- 设置相关
@@ -107,17 +114,6 @@ CREATE TABLE IF NOT EXISTS projects
     FOREIGN KEY (owner_id) REFERENCES users
 );
 
-CREATE TABLE IF NOT EXISTS project_workflows
-(
-    project_id   INTEGER   NOT NULL,
-    workflow_uid uuid,
-    import_time  TIMESTAMP NOT NULL,
-    enabled      BOOLEAN   NOT NULL,
-    PRIMARY KEY (project_id),
-    FOREIGN KEY (project_id) REFERENCES projects (id),
-    FOREIGN KEY (workflow_uid) REFERENCES projects (id)
-);
-
 CREATE TABLE IF NOT EXISTS project_tags
 (
     id    SERIAL,
@@ -131,7 +127,7 @@ CREATE TABLE IF NOT EXISTS project_tag_link
     project_id INTEGER NOT NULL,
     tag_id     INTEGER NOT NULL,
     PRIMARY KEY (project_id, tag_id),
-    FOREIGN KEY (project_id) REFERENCES projects,
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
     FOREIGN KEY (tag_id) REFERENCES project_tags
 );
 
@@ -140,7 +136,7 @@ CREATE TABLE IF NOT EXISTS project_star
     project_id INTEGER NOT NULL,
     user_id    INTEGER NOT NULL,
     PRIMARY KEY (project_id),
-    FOREIGN KEY (project_id) REFERENCES projects,
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users
 );
 
@@ -187,23 +183,22 @@ CREATE TABLE IF NOT EXISTS samples
     create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
-    FOREIGN KEY (project_id) REFERENCES projects
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE
 );
 
-CREATE TYPE samplefiletype AS ENUM ('SEQUENCING_R1','SEQUENCING_R2','SEQUENCING','SPECTRUM','IMAGE');
 CREATE TABLE IF NOT EXISTS sample_files
 (
     uid           uuid                     NOT NULL,
     sample_uid    uuid,
-    data_type     samplefiletype           NOT NULL,
-    tag           VARCHAR(50)              NOT NULL,
+    data_type     INTEGER                  NOT NULL,
+    tag           VARCHAR(50),
     file_path     VARCHAR                  NOT NULL,
-    file_format   VARCHAR                  NOT NULL,
+    file_format   VARCHAR,
     file_size     BIGINT                   NOT NULL,
-    md5_checksum  VARCHAR                  NOT NULL,
+    md5_checksum  VARCHAR,
     uploaded_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
-    FOREIGN KEY (sample_uid) REFERENCES samples,
+    FOREIGN KEY (sample_uid) REFERENCES samples ON DELETE CASCADE,
     CONSTRAINT uq_sample_file_tag UNIQUE (sample_uid, tag)
 );
 
@@ -217,18 +212,8 @@ CREATE TABLE IF NOT EXISTS project_file_mappings
     create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     update_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
     CONSTRAINT uq_project_file_mapping UNIQUE (project_id, keyword)
-);
-
-CREATE TABLE IF NOT EXISTS files
-(
-    id          SERIAL                   NOT NULL,
-    sha256      VARCHAR                  NOT NULL,
-    file_name   VARCHAR                  NOT NULL,
-    s3_path     VARCHAR                  NOT NULL,
-    upload_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    PRIMARY KEY (id),
-    UNIQUE (sha256)
 );
 
 -- 工具相关
@@ -236,8 +221,8 @@ CREATE TABLE IF NOT EXISTS images
 (
     uid         uuid    NOT NULL,
     name        VARCHAR NOT NULL,
-    version     VARCHAR,
-    description VARCHAR,
+    version     VARCHAR NOT NULL,
+    description VARCHAR NOT NULL,
     homepage    VARCHAR,
     paper_link  VARCHAR,
     image       jsonb,
@@ -274,17 +259,16 @@ CREATE TABLE IF NOT EXISTS tool_groups
     FOREIGN KEY (tag_id) REFERENCES tool_tags
 );
 
-CREATE TYPE tooltype AS ENUM ('DOCKER', 'COMMAND_LINE');
 CREATE TABLE IF NOT EXISTS tools
 (
-    uid                      uuid     NOT NULL,
-    name                     VARCHAR  NOT NULL,
+    uid                      uuid    NOT NULL,
+    name                     VARCHAR NOT NULL,
     image_uid                uuid,
-    description              VARCHAR  NOT NULL,
-    tool_type                tooltype NOT NULL,
+    description              VARCHAR NOT NULL,
+    tool_type                INTEGER NOT NULL,
     group_id                 INTEGER,
     help_doc_uid             uuid,
-    command_template         VARCHAR  NOT NULL,
+    command_template         VARCHAR NOT NULL,
     dynamic_params           jsonb,
     immutable_static_params  VARCHAR,
     modifiable_static_params VARCHAR,
@@ -305,22 +289,31 @@ CREATE TABLE IF NOT EXISTS tool_tag_link
 );
 
 -- 工作流相关
-CREATE TYPE workflowtype AS ENUM ('SUBMODULE','TEMPLATE');
-CREATE TYPE executionscope AS ENUM ('SAMPLE_LEVEL','PROJECT_LEVEL');
 CREATE TABLE IF NOT EXISTS workflows
 (
-    uid             uuid           NOT NULL,
-    name            VARCHAR        NOT NULL,
-    owner_id        INTEGER        NOT NULL,
-    wf_type         workflowtype   NOT NULL,
-    execution_scope executionscope NOT NULL,
+    uid             uuid    NOT NULL,
+    name            VARCHAR NOT NULL,
+    owner_id        INTEGER NOT NULL,
+    description     VARCHAR NOT NULL,
+    wf_type         INTEGER NOT NULL,
+    execution_scope INTEGER NOT NULL,
     workflow        jsonb,
-    public          BOOLEAN        NOT NULL,
+    public          BOOLEAN NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users
 );
 
-CREATE TYPE status AS ENUM ('WAITING','RUNNING','ERROR','SUCCESS');
+CREATE TABLE IF NOT EXISTS project_workflows
+(
+    project_id   INTEGER                  NOT NULL,
+    workflow_uid uuid,
+    import_time  TIMESTAMP WITH TIME ZONE NOT NULL,
+    enabled      BOOLEAN                  NOT NULL,
+    PRIMARY KEY (project_id),
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
+    FOREIGN KEY (workflow_uid) REFERENCES workflows (uid) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS run_instances
 (
     uid          uuid    NOT NULL,
@@ -331,7 +324,7 @@ CREATE TABLE IF NOT EXISTS run_instances
     sample_uid   uuid,
     base_dir     VARCHAR,
     workflow     jsonb,
-    status       status  NOT NULL,
+    status       INTEGER NOT NULL,
     create_time  TIMESTAMP WITH TIME ZONE,
     start_time   TIMESTAMP WITH TIME ZONE,
     end_time     TIMESTAMP WITH TIME ZONE,
@@ -353,7 +346,7 @@ CREATE TABLE IF NOT EXISTS task_instances
     tool_output  jsonb,
     system       VARCHAR,
     hostname     VARCHAR,
-    status       status  NOT NULL,
+    status       INTEGER NOT NULL,
     create_time  TIMESTAMP WITH TIME ZONE,
     start_time   TIMESTAMP WITH TIME ZONE,
     end_time     TIMESTAMP WITH TIME ZONE,
@@ -389,3 +382,13 @@ CREATE TABLE IF NOT EXISTS parent_documents
     PRIMARY KEY (uid)
 );
 
+CREATE TABLE IF NOT EXISTS files
+(
+    id          SERIAL                   NOT NULL,
+    sha256      VARCHAR                  NOT NULL,
+    file_name   VARCHAR                  NOT NULL,
+    s3_path     VARCHAR                  NOT NULL,
+    upload_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (sha256)
+);

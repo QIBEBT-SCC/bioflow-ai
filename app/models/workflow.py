@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Optional
 
 import uuid_extensions
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column
+from sqlalchemy import Column, Integer
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
@@ -41,8 +41,9 @@ class Workflow(SQLModel, table=True):
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
     owner_id: int = Field(foreign_key='users.id')
-    wf_type: WorkflowType
-    execution_scope: ExecutionScope = Field(default=ExecutionScope.SAMPLE_LEVEL)
+    description: str
+    wf_type: WorkflowType = Field(sa_type=Integer)
+    execution_scope: ExecutionScope = Field(default=ExecutionScope.SAMPLE_LEVEL, sa_type=Integer)
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
     public: bool = False
 
@@ -64,7 +65,7 @@ class RunInstance(SQLModel, table=True):
     base_dir: Optional[str] = Field(default=None)
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
 
-    status: Status
+    status: Status = Field(sa_type=Integer)
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
@@ -111,7 +112,7 @@ class TaskInstance(SQLModel, table=True):
     system: Optional[str] = Field(default=None)
     hostname: Optional[str] = Field(default=None)
 
-    status: Status
+    status: Status = Field(sa_type=Integer)
     create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)

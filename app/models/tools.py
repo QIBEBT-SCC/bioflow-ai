@@ -5,7 +5,7 @@ from typing import Literal, Optional, Self
 import uuid_extensions
 from pydantic import BaseModel, ValidationError
 from pydantic import Field as PField
-from sqlalchemy import Column
+from sqlalchemy import Column, Integer
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -100,8 +100,8 @@ class ToolImage(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     name: str
-    version: Optional[str] = Field(default=None)
-    description: Optional[str] = Field(default=None)
+    version: str
+    description: str
     homepage: Optional[str] = Field(default=None)
     paper_link: Optional[str] = Field(default=None)
     image: ImageConfig = Field(sa_column=Column(PydanticJson(ImageConfig)))
@@ -134,7 +134,7 @@ class ToolDefine(SQLModel, table=True):
     name: str
     image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
     description: str
-    tool_type: ToolType
+    tool_type: ToolType = Field(sa_type=Integer)
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
 
