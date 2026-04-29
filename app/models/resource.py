@@ -25,7 +25,7 @@ class Sample(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     owner_id: int = Field(foreign_key='users.id')
-    project_id: int = Field(foreign_key='projects.id')
+    project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
     sample_name: str
     meta_data: dict = Field(sa_column=Column(JSONB), default_factory=dict)
     create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
