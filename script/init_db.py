@@ -5,21 +5,22 @@ from typing import Literal
 import click
 from loguru import logger
 
-from app.models.tools import ToolImage
-
 
 async def init_images(*, drop_old: bool = True) -> None:
-    """刷新镜像向量索引."""
+    """初始化镜像数据库."""
+    import json
+
     import polars as pl
     from langchain_core.documents import Document
     from langchain_milvus import Milvus
+    from pydantic import ValidationError
     from sqlmodel import Session
     from tqdm import tqdm
 
     import app.crud.tools.image as image_crud
     from app.core.config import get_settings
     from app.core.session import engine
-    from app.models.tools import ImageConfig, ToolImage
+    from app.models.tools import ToolImage
     from llm.models import qwen3_embedding
 
     parquet_file = 'presets/images.parquet'
@@ -36,24 +37,16 @@ async def init_images(*, drop_old: bool = True) -> None:
             files=[('images.parquet', 'presets/images.parquet')],
         )
 
-    image_df = pl.read_parquet(parquet_file)
+    images_df = pl.read_parquet(parquet_file)
+    images: list[ToolImage] = []
 
-    with Session(engine) as session:
-        if drop_old:
-            delete_count = image_crud.drop_all(session)
-            logger.info(f'Delete {delete_count} data')
+    for row in images_df.iter_rows(named=True):
+        row['image'] = json.loads(row['image'])
 
-        images: list[ToolImage] = []
-        for row in image_df.iter_rows(named=True):
-            try:
-                image = ImageConfig.from_str(row['image_url'])
-                image_data = row
-                image_data['image'] = image
-                images.append(ToolImage.model_validate(image_data))
-            except Exception as e:
-                logger.warning(f'Invalid image URL: {row["image_url"]}, {e}')
-
-        images = image_crud.insert_all(session, images)
+        try:
+            images.append(ToolImage.model_validate(row))
+        except ValidationError as e:
+            logger.error(e)
 
     embedding = qwen3_embedding()
     vectorstore = Milvus(
@@ -61,13 +54,19 @@ async def init_images(*, drop_old: bool = True) -> None:
         collection_name='ImageCollection',
         connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-        search_params={'M': 64, 'efConstruction': 100},
         consistency_level='Strong',
         drop_old=drop_old,
         auto_id=True,
     )
 
     batch_size = 50
+
+    with Session(engine) as session:
+        if drop_old:
+            delete_count = image_crud.drop_all(session)
+            logger.info(f'Delete {delete_count} data')
+
+        images = image_crud.insert_all(session, images)
 
     for i in tqdm(range(0, len(images), batch_size)):
         batch_images = images[i : i + batch_size]
@@ -80,6 +79,128 @@ async def init_images(*, drop_old: bool = True) -> None:
         await vectorstore.aadd_documents(docs)
 
 
+async def init_docs(*, drop_old: bool = True) -> None:
+    """初始化工具文档库."""
+    import json
+
+    import polars as pl
+    from pydantic import ValidationError
+    from sqlmodel import Session
+
+    import app.crud.tools.tool_doc as doc_crud
+    from app.core.session import engine
+    from app.models.tools import ToolHelpDoc
+
+    parquet_file = 'presets/tool_docs.parquet'
+    if Path(parquet_file).exists():
+        logger.info('Initialize the image database with presets/tool_docs.parquet.')
+    else:
+        logger.info(
+            'No local configuration file is found; a remote configuration file is used to initialize the mirror database.'
+        )
+        from huggingface_hub import download_bucket_files
+
+        download_bucket_files(
+            'Aye10032/bioflow-ai-prebuild',
+            files=[('tool_docs.parquet', 'presets/tool_docs.parquet')],
+        )
+
+    docs_df = pl.read_parquet(parquet_file)
+    docs = []
+
+    for row in docs_df.iter_rows(named=True):
+        try:
+            docs.append(ToolHelpDoc.model_validate(row))
+        except ValidationError as e:
+            logger.error(e)
+
+    with Session(engine) as session:
+        if drop_old:
+            delete_count = doc_crud.drop_all(session)
+            logger.info(f'Delete {delete_count} data')
+
+        doc_crud.insert_all(session, docs)
+
+
+async def init_tools(*, drop_old: bool = True) -> None:
+    """初始化工具数据库."""
+    import json
+
+    import polars as pl
+    from langchain_core.documents import Document
+    from langchain_milvus import Milvus
+    from pydantic import ValidationError
+    from sqlmodel import Session
+    from tqdm import tqdm
+
+    import app.crud.tools.tool as tool_crud
+    from app.core.config import get_settings
+    from app.core.session import engine
+    from app.models.tools import ToolDefine
+    from llm.models import qwen3_embedding
+
+    parquet_file = 'presets/tools.parquet'
+    if Path(parquet_file).exists():
+        logger.info('Initialize the image database with presets/tools.parquet.')
+    else:
+        logger.info(
+            'No local configuration file is found; a remote configuration file is used to initialize the mirror database.'
+        )
+        from huggingface_hub import download_bucket_files
+
+        download_bucket_files(
+            'Aye10032/bioflow-ai-prebuild',
+            files=[('tools.parquet', 'presets/tools.parquet')],
+        )
+
+    tools_df = pl.read_parquet(parquet_file)
+    tools = []
+
+    for row in tools_df.iter_rows(named=True):
+        for field in ('dynamic_params', 'file_mounts'):
+            if row[field]:
+                row[field] = json.loads(row[field])
+            else:
+                row[field] = []
+
+        try:
+            tools.append(ToolDefine.model_validate(row))
+        except ValidationError as e:
+            logger.error(e)
+
+    embedding = qwen3_embedding()
+    vectorstore = Milvus(
+        embedding_function=embedding,
+        collection_name='ToolCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        consistency_level='Strong',
+        drop_old=drop_old,
+        auto_id=True,
+    )
+    batch_size = 50
+
+    with Session(engine) as session:
+        if drop_old:
+            delete_count = tool_crud.drop_all(session)
+            logger.info(f'Delete {delete_count} data')
+
+        tools = tool_crud.insert_all(session, tools)
+
+        for i in tqdm(range(0, len(tools), batch_size)):
+            batch_tools = tools[i : i + batch_size]
+
+            docs = [
+                Document(
+                    page_content=tool.description,
+                    metadata={'image_uid': str(tool.uid), 'tool_uid': str(tool.image.uid), 'name': tool.name},
+                )
+                for tool in batch_tools
+            ]
+
+            await vectorstore.aadd_documents(docs)
+
+
 async def rebuild_image_index() -> None:
     """重建镜像向量索引."""
     from langchain_core.documents import Document
@@ -89,6 +210,7 @@ async def rebuild_image_index() -> None:
 
     from app.core.config import get_settings
     from app.core.session import engine
+    from app.models.tools import ToolImage
     from llm.models import qwen3_embedding
 
     embedding = qwen3_embedding()
@@ -247,9 +369,28 @@ def cli() -> None:
 
 @cli.command()
 @click.option('--drop-old', is_flag=True, default=False, help='删除旧数据 (默认: 不删除)')
-def init_images_cmd(*, drop_old: bool) -> None:
-    """初始化镜像数据."""
-    asyncio.run(init_images(drop_old=drop_old))
+@click.option(
+    '--databases',
+    '-d',
+    type=click.Choice(['all', 'image', 'tool', 'doc']),
+    default='all',
+    show_default=True,
+    help='指定要初始化的数据库',
+)
+def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'tool', 'doc']) -> None:
+    """初始化数据库数据."""
+
+    async def _run() -> None:
+        if databases in ('all', 'image'):
+            await init_images(drop_old=drop_old)
+
+        if databases in ('all', 'doc'):
+            await init_docs(drop_old=drop_old)
+
+        if databases in ('all', 'tool'):
+            await init_tools(drop_old=drop_old)
+
+    asyncio.run(_run())
 
 
 @cli.command()

@@ -1,7 +1,6 @@
 from typing import Optional
 
-from loguru import logger
-from sqlalchemy import Select, func
+from sqlalchemy import Select, func, text
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
@@ -31,6 +30,20 @@ def delete(session: Session, tool_uid: str):
     if tool:
         session.delete(tool)
         session.commit()
+
+
+def drop_all(session: Session) -> int:
+    count_query = select(func.count()).select_from(ToolDefine)
+    count = session.exec(count_query).one()
+
+    if count == 0:
+        return 0
+
+    table_name = ToolDefine.__tablename__
+    session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
+    session.commit()
+
+    return count
 
 
 def update(session: Session, tool: ToolDefine):

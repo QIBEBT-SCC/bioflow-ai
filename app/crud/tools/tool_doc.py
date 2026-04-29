@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import Select, func
+from sqlalchemy import Select, func, text
 from sqlmodel import Session, col, select
 
 from app.models.tools import ToolHelpDoc
@@ -30,6 +30,20 @@ def delete(session: Session, doc_uid: str):
     if doc:
         session.delete(doc)
         session.commit()
+
+
+def drop_all(session: Session) -> int:
+    count_query = select(func.count()).select_from(ToolHelpDoc)
+    count = session.exec(count_query).one()
+
+    if count == 0:
+        return 0
+
+    table_name = ToolHelpDoc.__tablename__
+    session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
+    session.commit()
+
+    return count
 
 
 def update(session: Session, image_uid: str, doc_update: DocUpdate):
