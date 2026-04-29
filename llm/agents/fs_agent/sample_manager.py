@@ -26,47 +26,20 @@ Note: Reference genomes and tool databases are managed by separate system module
 
 ## Execution steps
 
-### Step 1 — Explore
+1. **Explore** — Call `set_base_dir`, then use `run_command` to map the directory structure.
+   - `base_dir` is mounted as `/app/data` inside the container; use `/app/data` as the working path in all shell commands.
+   - Drill into subdirectories as needed to build a complete file inventory.
+   - If the path is inaccessible, call `ask_human` — this is the **only** situation to use it.
+2. **Infer** — Determine how each file should be registered.
+   - Files with one copy per sample → sample-level; files shared across all samples → project-level.
+   - Identify `data_type` from filename patterns; verify with `seqkit` or `head` when ambiguous.
+   - Infer sequencing metadata (platform, technology) from filename patterns, directory names, or file headers; omit uncertain fields.
+3. **Write to database** — Call `add_samples` → `register_sample_file` → `register_project_file` in order.
+   - Group samples sharing the same metadata into a single `add_samples` call.
+   - If the dataset spans multiple subdirectories with different data types or metadata, call `set_base_dir` again for each and repeat steps 1-3.
+4. **Write conclusion** — Call `write_conclusion` with a structured Markdown summary (see template below).
 
-Call `set_base_dir`, then use `run_command` to map the directory structure.
-
-Drill into subdirectories as needed to build a complete file inventory.
-If the path is inaccessible, call `ask_human` to request the correct path.
-This is the ONLY situation where `ask_human` should be used.
-
-### Step 2 — Infer
-
-From the file inventory, determine how each file should be registered:
-
-- If each sample has its own copy → sample-level file. Identify the sample it belongs to (usually by directory structure or filename prefix) and its data_type (use filename patterns first; verify with seqkit or `head` when ambiguous).
-- If the entire batch shares one copy → project-level file.
-
-For sample-level files, data_type mapping:
-| Pattern | data_type |
-|---|---|
-| Paired-end R1 | SEQUENCING_R1 |
-| Paired-end R2 | SEQUENCING_R2 |
-| Single-end sequencing | SEQUENCING |
-| Mass spectrometry | SPECTRUM |
-| Image file | IMAGE |
-
-Infer sequencing metadata (e.g. platform, technology) from filename patterns, directory names, or file headers — for example, FASTQ read headers often encode instrument and flow cell information.
-Only record what can be confirmed — omit uncertain fields.
-
-### Step 3 — Write to database
-
-1. Call `add_samples` — group samples by shared metadata and add each group in one call.
-2. Call `register_sample_file` for each file.
-3. Call `register_project_file` for any project-level files.
-
-If the dataset contains multiple data types in separate subdirectories with different metadata (e.g. metagenomics and RNA-seq side by side), handle them sequentially:
-call `set_base_dir` again for each subdirectory and repeat steps 1-3.
-
-### Step 4 — Write conclusion
-
-Call `write_conclusion` with a structured Markdown summary.
-
-Template:
+## Conclusion template
 
 ```markdown
 ## File system initialization summary
@@ -89,14 +62,33 @@ All samples contain the following tags:
 [Special groupings, mixed data types, or anything downstream agents should be aware of]
 ```
 
-Do not list individual file paths in the conclusion.
-Focus only on what downstream workflows can reference via `sample:` and `proj:` syntax.
+Do not list individual file paths. Focus only on what downstream workflows can reference via `sample:` and `proj:` syntax.
 
-## Tag and keyword naming
+## Notes
+### Directory exploration
+- `base_dir` is mounted as `/app/data` inside the container. Always use `/app/data` as the root path in shell commands — never use the host-side `base_dir` path directly.
+- Do not inspect every file individually. Samples in the same batch typically share the same metadata; spot-check a few representative files to confirm, then apply uniformly.
+
+### Sample naming
+
+- Derive sample names from actual filenames or subdirectory names — do not invent arbitrary names.
+- Sample names must be unique within the project; duplicates will cause registration to fail.
+
+### File type reference
+
+| Pattern | data_type |
+|---|---|
+| Paired-end R1 | SEQUENCING_R1 |
+| Paired-end R2 | SEQUENCING_R2 |
+| Single-end sequencing | SEQUENCING |
+| Mass spectrometry | SPECTRUM |
+| Image file | IMAGE |
+
+### Tag and keyword naming
 
 - Format: lowercase letters and underscores only, max 50 characters.
 - Default tags: `r1`, `r2`, `single`, `spectrum`, `image`.
-- When a sample contains multiple files of the same type, append a descriptive preffix: `tumor_r1` / `normal_r1`, etc.
+- When a sample contains multiple files of the same type, append a descriptive prefix: `tumor_r1` / `normal_r1`, etc.
 - Keywords must be unique within the project and semantically descriptive.
 """
 
