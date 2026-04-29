@@ -1,5 +1,4 @@
 from docker.types import Mount
-from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
@@ -59,7 +58,6 @@ def run_command(
             - status (int): The exit status code after command execution (0 typically indicates success).
             - output (str): The standard output and standard error content after command execution.
     """
-    logger.debug(f'Running  command "{command}" by image {image_cfg.get_image()}')
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman
 
@@ -67,7 +65,9 @@ def run_command(
     else:
         from app.utils.container.docker import run_docker
 
-        status, output = run_docker(image_cfg, command, _convert_to_docker_mount(mounts), workdir, ensure_ascii=ensure_ascii)
+        status, output = run_docker(
+            image_cfg, command, _convert_to_docker_mount(mounts), workdir, ensure_ascii=ensure_ascii
+        )
 
     return status, output
 
@@ -83,11 +83,15 @@ def run_command_background(  # noqa: ANN201
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman_background
 
-        yield from run_podman_background(image_cfg, command, _convert_to_podman_mount(mounts), interval=interval, workdir=working_dir)
+        yield from run_podman_background(
+            image_cfg, command, _convert_to_podman_mount(mounts), interval=interval, workdir=working_dir
+        )
     else:
         from app.utils.container.docker import run_docker_background
 
-        yield from run_docker_background(image_cfg, command, _convert_to_docker_mount(mounts), working_dir, interval=interval)
+        yield from run_docker_background(
+            image_cfg, command, _convert_to_docker_mount(mounts), working_dir, interval=interval
+        )
 
 
 def run_command_in_container(container_id: str, command: str, workdir: str | None = None) -> tuple[int, str]:
