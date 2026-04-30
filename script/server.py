@@ -3,9 +3,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from loguru import logger
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.requests import Request
 
 from app.api.v1.endpoints import (
     auth,
@@ -24,7 +22,7 @@ from app.core.config import get_settings
 from app.core.redis_client import close_cache_regis, setup_cache_redis
 from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
-from app.utils.middleware.csrf import CSRFMiddleware
+from app.utils.middleware import CSRFMiddleware, LogRequestMiddleware
 
 
 @asynccontextmanager
@@ -46,12 +44,6 @@ origins = [
     'http://localhost:3000',
     'http://172.18.19.113:3000',
 ]
-
-
-class LogRequestMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):  # noqa: ANN001, ANN201, D102
-        logger.debug(f'Received request: {await request.json()}')
-        return await call_next(request)
 
 
 app.add_middleware(

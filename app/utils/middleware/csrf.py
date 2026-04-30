@@ -5,7 +5,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 _SAFE_METHODS = {'GET', 'HEAD', 'OPTIONS', 'TRACE'}
-_AUTH_PATHS = {'/api/v1/auth/token', '/api/v1/auth/refresh'}
+_AUTH_PATHS = {'/api/v1/auth/token', '/api/v1/auth/refresh', '/api/v1/user'}
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
