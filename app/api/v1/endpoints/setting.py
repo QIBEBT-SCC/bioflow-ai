@@ -1,12 +1,16 @@
+import io
 from datetime import datetime
 from typing import Annotated, Optional
 
+import polars as pl
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_provider as provider_crud
 import app.crud.setting.llm_setting as setting_crud
 import app.crud.setting.llm_statistic as statistic_crud
+from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.setting import LLMModel, LLMProvider
 from app.schemas.setting import (
@@ -25,6 +29,8 @@ from app.utils.security import AdminDep
 from llm.models import invalidate_model_cache
 
 router = APIRouter()
+
+DB_DSN = get_settings().persistent.database.DB_URL
 
 
 # ==================== LLM Provider Endpoints ====================
@@ -202,3 +208,62 @@ async def get_llm_statistics_details(
     - **offset**: pagination offset
     """
     return statistic_crud.get_details(session, start_date, end_date, limit, offset)
+
+
+@router.get('/statistics/details/download')
+async def download_statistic_details(
+    _current_user: AdminDep,
+    start_date: Annotated[
+        Optional[datetime], Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+    ] = None,
+    end_date: Annotated[
+        Optional[datetime], Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+    ] = None,
+) -> StreamingResponse:
+    """Download LLM usage records as CSV.
+
+    - **start_date**: optional start time; no lower bound if not provided
+    - **end_date**: optional end time; no upper bound if not provided
+    """
+    model_df = pl.read_database_uri(
+        'SELECT * FROM llm_models',
+        uri=DB_DSN.unicode_string().replace(DB_DSN.scheme, DB_DSN.scheme.split('+')[0]),
+        partition_on='id',
+        partition_num=10,
+        engine='connectorx',
+    ).sort('id')
+
+    statistic_df = (
+        pl.read_database_uri(
+            'SELECT * FROM llm_statistics',
+            uri=DB_DSN.unicode_string().replace(DB_DSN.scheme, DB_DSN.scheme.split('+')[0]),
+            partition_on='id',
+            partition_num=10,
+            engine='connectorx',
+        )
+        .join(model_df.select(['id', 'name']), left_on='model_id', right_on='id', how='left')
+        .rename({'name': 'llm_name'})
+        .sort('id')
+    )
+
+    if start_date is not None:
+        statistic_df = statistic_df.filter(pl.col('time') >= start_date.replace(tzinfo=None))
+    if end_date is not None:
+        statistic_df = statistic_df.filter(pl.col('time') <= end_date.replace(tzinfo=None))
+
+    buf = io.BytesIO()
+    statistic_df.write_csv(buf)
+    buf.seek(0)
+
+    filename = 'llm_statistics'
+    if start_date:
+        filename += f'_from_{start_date.strftime("%Y%m%d")}'
+    if end_date:
+        filename += f'_to_{end_date.strftime("%Y%m%d")}'
+    filename += '.csv'
+
+    return StreamingResponse(
+        buf,
+        media_type='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
