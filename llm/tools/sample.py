@@ -94,13 +94,22 @@ async def add_samples(
         names: The list of sample names. Each sample name must be unique and may use uppercase letters, hyphens, and numbers.
         meta_data: Meta information of the sample
     """
-    samples = [Sample(project_id=runtime.context.project_id, sample_name=n, meta_data=meta_data) for n in names]
+    samples = [
+        Sample(
+            owner_id=runtime.context.user_id,
+            project_id=runtime.context.project_id,
+            sample_name=n,
+            meta_data=meta_data,
+        )
+        for n in names
+    ]
     with Session(engine) as session:
         samples = sample_crud.batch_insert(session, samples)
+        sample_maps = {s.sample_name: f'{s.uid}' for s in samples}
 
     return Command(
         update={
-            'sample_maps': {s.sample_name: f'{s.uid}' for s in samples},
+            'sample_maps': sample_maps,
             'messages': [
                 ToolMessage(
                     content=f'Added {len(names)} sample objects. Now you can call `register_sample_file` to add sample files.',
@@ -144,7 +153,7 @@ async def register_sample_file(
             sample_file = SampleFiles(
                 sample_uid=uuid.UUID(sample_uid),
                 data_type=TYPE_MAP[data_type],
-                file_path=sample_path,
+                file_path=f'{sample_path}',
                 tag=tag,
             )
             sample_file = sample_crud.add_file(session, sample_file)
