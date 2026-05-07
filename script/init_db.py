@@ -8,8 +8,7 @@ from loguru import logger
 
 async def init_images(*, drop_old: bool = True) -> None:
     """初始化镜像数据库."""
-    import json
-
+    import orjson
     import polars as pl
     from langchain_core.documents import Document
     from langchain_milvus import Milvus
@@ -41,7 +40,7 @@ async def init_images(*, drop_old: bool = True) -> None:
     images: list[ToolImage] = []
 
     for row in images_df.iter_rows(named=True):
-        row['image'] = json.loads(row['image'])
+        row['image'] = orjson.loads(row['image'])
 
         try:
             images.append(ToolImage.model_validate(row))
@@ -81,8 +80,6 @@ async def init_images(*, drop_old: bool = True) -> None:
 
 async def init_docs(*, drop_old: bool = True) -> None:
     """初始化工具文档库."""
-    import json
-
     import polars as pl
     from pydantic import ValidationError
     from sqlmodel import Session
@@ -124,11 +121,10 @@ async def init_docs(*, drop_old: bool = True) -> None:
 
 async def init_tools(*, drop_old: bool = True) -> None:
     """初始化工具数据库."""
-    import json
-
+    import orjson
     import polars as pl
     from langchain_core.documents import Document
-    from langchain_milvus import Milvus
+    from langchain_milvus import BM25BuiltInFunction, Milvus
     from pydantic import ValidationError
     from sqlmodel import Session
     from tqdm import tqdm
@@ -159,7 +155,7 @@ async def init_tools(*, drop_old: bool = True) -> None:
     for row in tools_df.iter_rows(named=True):
         for field in ('dynamic_params', 'file_mounts'):
             if row[field]:
-                row[field] = json.loads(row[field])
+                row[field] = orjson.loads(row[field])
             else:
                 row[field] = []
 
@@ -170,10 +166,12 @@ async def init_tools(*, drop_old: bool = True) -> None:
 
     embedding = qwen3_embedding()
     vectorstore = Milvus(
-        embedding_function=embedding,
         collection_name='ToolCollection',
         connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
+        embedding_function=embedding,
+        builtin_function=BM25BuiltInFunction(),
+        vector_field=['dense', 'sparse'],
+        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
         consistency_level='Strong',
         drop_old=drop_old,
         auto_id=True,
