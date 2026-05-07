@@ -32,6 +32,7 @@ def print_stream_chunk(
     if chunk['type'] == 'updates':
         models_messages = chunk['data'].get('model', {}).get('messages')
         tools_updates = chunk['data'].get('tools', {})
+        middleware_data = {k: v for k, v in chunk['data'].items() if v and k not in ('model', 'tools')}
 
         if models_messages:
             last_msg: AIMessage = models_messages[0]
@@ -54,7 +55,7 @@ def print_stream_chunk(
                         body.append('\n\n')
 
                 if has_tools:
-                    body.append(_format_tool_calls(last_msg.tool_calls))
+                    body.append_text(_format_tool_calls(last_msg.tool_calls))
 
                 if body:
                     console.print(
@@ -67,6 +68,16 @@ def print_stream_chunk(
 
         if tools_updates:
             _render_tools_update(console, tools_updates)
+
+        if middleware_data:
+            for key, value in middleware_data.items():
+                console.print(
+                    Panel(
+                        Pretty(value),
+                        title=f'Middleware: {key}',
+                        border_style='grey50',
+                    )
+                )
 
 
 def _render_tools_update(console: Console, tools_state: dict[str, Any]) -> None:
@@ -115,8 +126,8 @@ def _truncate_value(value: Any, limit: int) -> Any:
     return value
 
 
-def _format_tool_calls(tool_calls: list) -> str:
-    parts: list[str] = []
+def _format_tool_calls(tool_calls: list) -> Text:
+    text = Text()
     for i, tc in enumerate(tool_calls, 1):
         if isinstance(tc, dict):
             name = tc.get('name', 'unknown')
@@ -125,11 +136,14 @@ def _format_tool_calls(tool_calls: list) -> str:
             name = getattr(tc, 'name', 'unknown')
             args = getattr(tc, 'args', {})
 
-        parts.append(f'Tool: [bold cyan]{i}. {name}[/bold cyan]')
+        text.append(f'{i}. {name}', style='bold cyan')
+        text.append('\n')
 
         truncated_args = _truncate_value(args, 50)
         try:
-            parts.append(json.dumps(truncated_args, ensure_ascii=False, indent=2, default=str))
+            args_str = json.dumps(truncated_args, ensure_ascii=False, indent=2, default=str)
         except (TypeError, ValueError):
-            parts.append(str(truncated_args))
-    return '\n'.join(parts)
+            args_str = str(truncated_args)
+        text.append(args_str)
+        text.append('\n')
+    return text
