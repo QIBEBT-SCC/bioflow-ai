@@ -2,6 +2,7 @@ import json
 import platform
 import socket
 import time
+import uuid
 from datetime import UTC, datetime
 from itertools import takewhile
 from pathlib import Path
@@ -100,7 +101,7 @@ class BaseBioTask(celery.Task):
 
 
 def _get_redis() -> Redis:
-    from worker import monitor_redis_client
+    from script.worker import monitor_redis_client
 
     return monitor_redis_client
 
@@ -142,7 +143,7 @@ def _check_and_update_run_instance_running(run_uid: str) -> None:
         redis = _get_redis()
         key = f'run-stats-{run_uid}'
         running_count = redis.hget(key, 'running')
-        if running_count and int(running_count) == 1:
+        if running_count and int(running_count) == 1:  # type: ignore
             with Session(engine) as session:
                 run_crud.update(session, run_uid, RunUpdate(status=Status.RUNNING, start_time=datetime.now(tz=UTC)))
     except Exception as e:
@@ -202,7 +203,7 @@ def _flush_monitor_to_db(task_id: str) -> None:
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
     """从数据库获取工具信息."""
     with Session(engine) as session:
-        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))
+        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))  # type: ignore
         tool = session.exec(statement).one_or_none()
         if not tool:
             error_msg = f'工具 {tool_uid} 不存在'
@@ -338,7 +339,7 @@ def _resolve_sample_path(reference: str, session: Session, sample_uid: str | Non
         raise ValueError(err_msg)
 
     tag = reference.split(':', 1)[1]
-    sample = sample_crud.get_with_files(session, sample_uid)
+    sample = sample_crud.get_with_files(session, uuid.UUID(sample_uid))
 
     if not sample:
         err_msg = f'Sample not found: {sample_uid}'
