@@ -339,7 +339,7 @@ def _resolve_sample_path(reference: str, session: Session, sample_uid: str | Non
         raise ValueError(err_msg)
 
     tag = reference.split(':', 1)[1]
-    sample = sample_crud.get_with_files(session, uuid.UUID(sample_uid))
+    sample = sample_crud.get_with_files(session, sample_uid)  # type: ignore
 
     if not sample:
         err_msg = f'Sample not found: {sample_uid}'
