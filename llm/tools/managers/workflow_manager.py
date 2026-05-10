@@ -2,17 +2,21 @@ import datetime
 import json
 from typing import Any
 
+from langchain_core.documents import Document
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 
 import app.crud.workflow as wf_crud
+from app.core.config import get_settings
 from app.core.session import engine
 from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
+from llm.models import qwen3_embedding
 from llm.states import BuildContext, BuildEdge, BuildNode, UserContext
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
@@ -36,6 +40,9 @@ class DeleteNodeSchema(BaseModel):
 
 class SaveWorkflowSchema(BaseModel):
     name: str = Field(description="Workflow name, brief description of this workflow's tasks in English")
+    description: str = Field(
+        description='Description of the workflow, including the primary functions and the principal tools utilized.'
+    )
 
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
@@ -117,7 +124,7 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                         ]
                     }
                 )
-            return _save_workflow(validate_param.name, runtime)
+            return await _save_workflow(validate_param.name, validate_param.description, runtime)
 
         case _:
             return Command(
@@ -246,7 +253,7 @@ def _delete_node(node_id: str, runtime: ToolRuntime[BuildContext]) -> Command:
     )
 
 
-def _save_workflow(name: str, runtime: ToolRuntime[UserContext]) -> Command:
+async def _save_workflow(name: str, description: str, runtime: ToolRuntime[UserContext]) -> Command:
     nodes = []
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
@@ -292,6 +299,7 @@ def _save_workflow(name: str, runtime: ToolRuntime[UserContext]) -> Command:
     with Session(engine) as session:
         workflow = Workflow(
             name=f'{now.strftime("%y%m%d")}_{name}(AI)',
+            description=description,
             owner_id=runtime.context.user_id,
             wf_type=WorkflowType.TEMPLATE,
             workflow=workflow_define,
@@ -300,14 +308,39 @@ def _save_workflow(name: str, runtime: ToolRuntime[UserContext]) -> Command:
 
         workflow = wf_crud.insert(session, workflow)
 
+        embedding_model = qwen3_embedding()
+        vectorstore = Milvus(
+            collection_name='WorkflowCollection',
+            connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+            embedding_function=embedding_model,
+            builtin_function=BM25BuiltInFunction(),
+            vector_field=['dense', 'sparse'],
+            index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
+            consistency_level='Strong',
+            drop_old=False,
+            auto_id=True,
+        )
+
+        docs = [
+            Document(
+                page_content=workflow.description,
+                metadata={
+                    'wf_uid': str(workflow.uid),
+                    'name': workflow.name,
+                },
+            ),
+        ]
+        await vectorstore.aadd_documents(docs)
+
     # 更新工作流列表并清空面板
     return Command(
         update={
             'messages': [
                 ToolMessage(content='The workflow has been saved to the database.', tool_call_id=runtime.tool_call_id)
             ],
-            'exist_nodes': [],
-            'exist_edges': [],
+            'exist_nodes': Overwrite([]),
+            'exist_edges': Overwrite([]),
             'workflow_uids': [workflow.uid],
+            'updated': True,
         }
     )

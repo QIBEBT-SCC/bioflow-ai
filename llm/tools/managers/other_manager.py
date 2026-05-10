@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional
+from typing import Any
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -11,8 +11,6 @@ from llm.states import BuildContext, BuildEdge, BuildNode
 from llm.utils.edge_validation import check_code_node_edges, check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
-
-# ---- Schemas ----
 
 
 class HelpSchema(BaseModel):
@@ -235,6 +233,9 @@ def _add_downstream_node(
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required for downstream analyse')]
 
+    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
+
     if not input_edges:
         return Command(
             update={
@@ -246,9 +247,6 @@ def _add_downstream_node(
                 ]
             }
         )
-
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     node_id = generate_char_index(len(exist_nodes) + 1)
     new_node = BuildNode(
@@ -262,12 +260,16 @@ def _add_downstream_node(
         y=pos_y,
     )
 
+    node_name_map = {node.id: node.name for node in exist_nodes}
+    used_files = [f'- {node_name_map[e.source_node]}: {e.source_handle}' for e in input_edges]
+
     return Command(
         update={
             'exist_nodes': [new_node],
+            'exist_edges': input_edges,
             'messages': [
                 ToolMessage(
-                    content=f'add new note:\n{node_formatter(new_node)}',
+                    content=f'Add downstream node with these files:\n{"\n".join(used_files)}',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

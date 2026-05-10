@@ -16,8 +16,6 @@ from llm.utils.formatters import format_validation_error, manager_help_command, 
 from llm.utils.node_schema import RESOURCES
 from llm.utils.uid_mapper import generate_char_index
 
-# ---- Schemas ----
-
 
 class HelpSchema(BaseModel):
     action: str = Field(description='The action name to get detailed schema for')
@@ -210,8 +208,8 @@ def _search_db(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
         content = f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}'
     else:
         content = (
-            'Based on the keywords you provided, no results found. '
-            'Consider using new search keywords or add a note node at the corresponding location, '
+            'Based on the keywords you provided, no results found. Use another keyword to search.'
+            'Or consider add a file node and note node at the corresponding location, '
             'explaining that a database is needed here and how to download it.'
         )
 
