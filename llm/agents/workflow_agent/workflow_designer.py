@@ -24,6 +24,7 @@ from llm.models import get_high_performance_model, get_simple_model
 from llm.states import BuildContext, DesignContext, DesignState, SampleContext, StructuredResponse
 from llm.tools.writter import write_plan
 from llm.utils.middleware import (
+    DisableParallelToolCallsMiddleware,
     TokenStatisticMiddleware,
 )
 from llm.utils.middleware.end_loop import EndAgentLoop
@@ -122,6 +123,7 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
   1. Better accuracy or performance
   2. More recently published or actively maintained
   3. Broader compatibility and community adoption
+- The system provides a dedicated report aggregation function, which renders the incorporation of tools similar to MultiQC generally unnecessary.
 
 #### Writing Requirements for the Pipeline Analysis Plan (Section 3)
 - The Pipeline Workflow includes only steps that can be directly executed using existing command-line tools (CLI). The criteria are as follows:
@@ -148,7 +150,7 @@ Content written via `write_plan` must be well-structured Markdown text, formatte
 
 ## Notes
 - Assume that the required databases, reference genomes, and other resources have already been downloaded.
-- Before calling `ask_human` and obtaining user confirmation, the task is not considered complete
+- Before calling `ask_human` and obtaining user confirmation, the task is not considered complete.
 - Only one tool call is allowed at a time; calling multiple tools at once is strictly prohibited!
 """
 
@@ -267,6 +269,7 @@ class WorkflowDesignAgent:
             [write_plan],
             system_prompt=SELF_DESIGN_SYSTEM,
             middleware=[
+                DisableParallelToolCallsMiddleware(),
                 EndAgentLoop(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
                 TokenStatisticMiddleware(agent_name='workflow_designer', **plan_model.metadata),
@@ -279,6 +282,7 @@ class WorkflowDesignAgent:
             [write_plan],
             system_prompt=REF_DESIGN_SYSTEM,
             middleware=[
+                DisableParallelToolCallsMiddleware(),
                 EndAgentLoop(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
                 TokenStatisticMiddleware(agent_name='workflow_designer', **plan_model.metadata),
