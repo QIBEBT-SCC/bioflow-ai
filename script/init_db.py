@@ -130,6 +130,7 @@ async def init_tools(*, drop_old: bool = True) -> None:
     from tqdm import tqdm
 
     import app.crud.tools.tool as tool_crud
+    import app.crud.tools.tool_tag as tag_crud
     from app.core.config import get_settings
     from app.core.session import engine
     from app.models.tools import ToolDefine
@@ -151,6 +152,7 @@ async def init_tools(*, drop_old: bool = True) -> None:
 
     tools_df = pl.read_parquet(parquet_file)
     tools = []
+    tag_ids_per_tool: list[list[int]] = []
 
     for row in tools_df.iter_rows(named=True):
         for field in ('dynamic_params', 'file_mounts'):
@@ -159,8 +161,13 @@ async def init_tools(*, drop_old: bool = True) -> None:
             else:
                 row[field] = []
 
+        raw_tags = orjson.loads(row['tags']) if row['tags'] else []
+        tag_ids = [t['id'] for t in raw_tags if t.get('id') is not None]
+        row['tags'] = []
+
         try:
             tools.append(ToolDefine.model_validate(row))
+            tag_ids_per_tool.append(tag_ids)
         except ValidationError as e:
             logger.error(e)
 
@@ -182,6 +189,17 @@ async def init_tools(*, drop_old: bool = True) -> None:
         if drop_old:
             delete_count = tool_crud.drop_all(session)
             logger.info(f'Delete {delete_count} data')
+
+        unique_tag_ids = {tid for ids in tag_ids_per_tool for tid in ids}
+        if unique_tag_ids:
+            existing_tags = tag_crud.get_all_by_id(session, list(unique_tag_ids))
+            tag_map = {t.id: t for t in existing_tags}
+            missing = unique_tag_ids - tag_map.keys()
+            if missing:
+                logger.warning(f'Missing tag ids in database (skipped): {missing}')
+
+            for tool, ids in zip(tools, tag_ids_per_tool, strict=False):
+                tool.tags = [tag_map[i] for i in ids if i in tag_map]
 
         tools = tool_crud.insert_all(session, tools)
 

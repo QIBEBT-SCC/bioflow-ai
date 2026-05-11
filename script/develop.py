@@ -565,26 +565,20 @@ def export_tools(*, upload: bool = False) -> None:
 
     db_sdn = get_settings().persistent.database.DB_URL
 
-    tool_df = (
-        pl.read_database_uri(
-            """
-        SELECT t.*,
-               COALESCE(
-                   json_agg(json_build_object('id', tt.id, 'name', tt.name) ORDER BY tt.id)
-                   FILTER (WHERE tt.id IS NOT NULL),
-                   '[]'
-               )::text AS tags
-        FROM tools t
-        LEFT JOIN tool_tag_link ttl ON t.uid = ttl.tool_uid
-        LEFT JOIN tool_tags tt ON ttl.tag_id = tt.id
-        GROUP BY t.uid
+    tool_df = pl.read_database_uri(
+        """
+            SELECT t.*,
+                   COALESCE((
+                       SELECT jsonb_agg(jsonb_build_object('id', tt.id, 'name', tt.name) ORDER BY tt.id)
+                       FROM tool_tag_link ttl
+                       JOIN tool_tags tt ON tt.id = ttl.tag_id
+                       WHERE ttl.tool_uid = t.uid
+                   ), '[]'::jsonb)::text AS tags
+            FROM tools t
             """,
-            uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
-            engine='connectorx',
-        )
-        # .with_columns(pl.col('tool_type').replace({'DOCKER': 0, 'CONDA': 1}).cast(pl.Int32))
-        .sort('uid')
-    )
+        uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
+        engine='connectorx',
+    ).sort('uid')
     logger.info(f'共计导出了 {tool_df.height} 条数据')
 
     tool_df.write_parquet('presets/tools.parquet', compression='snappy')
