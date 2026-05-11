@@ -313,7 +313,7 @@ class CreateToolAgent:
                 embedding_function=embedding_model,
                 builtin_function=BM25BuiltInFunction(),
                 vector_field=['dense', 'sparse'],
-                index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, None],
+                index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
                 consistency_level='Strong',
                 drop_old=False,
                 auto_id=True,
