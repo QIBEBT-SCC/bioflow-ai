@@ -55,21 +55,21 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
 }
 
 HELP_MESSAGE = """## Actions
-resource_node_manager 中包括了以下操作:
-- `view`: 查看特定资源节点类型的详细信息(输入输出,参数格式等)
-- `search_db`: 基于关键词搜索特定生物信息工具
-- `add`: 向面板添加一个资源节点
+The resource_node_manager includes the following operations:
+- `view`: View detailed information of a specific resource node type (inputs, outputs, parameter formats, etc.)
+- `search_db`: Search for specific bioinformatics tools based on keywords
+- `add`: Add a resource node to the panel
 
-在使用对应操作前, 务必使用 action="help" 并传入 params={"action": "<action_name>"} 以获取特定操作的参数说明
-(e.g. resource_node_manager(action="help" params={"action": "view"}))
+Before using a specific operation, always use action="help" with params={"action": "<action_name>"} to obtain the parameter description for that operation.
+(e.g., resource_node_manager(action="help" params={"action": "view"}))
 
-## 资源节点类型
-当前系统中有以下几类资源节点(resource_type):
-- db: 封装某个生物信息数据库的信息, 如NCBI nr数据库
-- genome: 专门用于输入参考基因组及对应的索引文件
-- sequence: 针对双端测序文件的资源节点
-- file: 通用文件输入节点
-- value_string: 封装一个字符串变量, 可以用于其他节点的值输入
+## Resource Node Types
+The current system contains the following resource node types (resource_type):
+- db: Encapsulates information of a bioinformatics database, such as the NCBI nr database
+- genome: Specifically used for inputting a reference genome and its corresponding index files
+- sequence: A resource node for paired-end sequencing files
+- file: A general file input node
+- value_string: Encapsulates a string variable that can be used as value input for other nodes
 """
 
 

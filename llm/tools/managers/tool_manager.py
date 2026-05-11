@@ -83,25 +83,25 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
 }
 
 HELP_MESSAGE = """## Actions
-tool_node_manager 中包括了以下操作:
-- `search_by_name`: 基于名称搜索工具
-- `add`: 向面板添加一个工具节点
-- `update_args`: 更新节点参数
-- `create`: 新建一个工具节点 (当没有满足需求的节点时)
+The tool_node_manager includes the following actions:
+- `search_by_name`: Search for a tool by name
+- `add`: Add a tool node to the panel
+- `update_args`: Update node parameters
+- `create`: Create a new tool node (when no existing node meets the requirements)
 
-在使用对应操作前, 务必使用 action="help" 并传入 params={"action": "<action_name>"} 以获取特定操作的参数说明
-(e.g. tool_node_manager(action="help" params={"action": "search_by_name"}))
+Before using any action, always use action="help" and pass params={"action": "<action_name>"} to obtain parameter descriptions for the specific action.
+(e.g., tool_node_manager(action="help" params={"action": "search_by_name"}))
 
-## 说明
-怎样判断搜索到的工具节点是否合适:
-- 满足需求
-    - 找到了可用的工具, 且其功能完美符合用户需求
-    - 找到了可用工具, 虽然参数设置不完全符合用户需求, 但是可以通过增加或调整可修改参数(args_editable)来实现
-- 不满足需求
-    - 搜索工具返回结果为空
-    - 搜索工具返回了结果, 但是其中完全没有符合用户要求的工具
-    - 找到了可用工具, 但是需要实现的需求与工具的不可修改参数(args_static)冲突
-    - 找到了可用工具, 但是需要实现的功能与当前节点的输入不一致 (需要额外的文件或者不需要某些输入)
+## Explanation
+How to determine whether a found tool node is suitable:
+- Meets requirements
+    - A usable tool is found, and its functionality perfectly matches user needs.
+    - A usable tool is found, though its parameter settings do not fully match user needs; however, this can be resolved by adding or adjusting modifiable parameters (args_editable).
+- Does not meet requirements
+    - The search tool returns no results.
+    - The search tool returns results, but none of them match user requirements.
+    - A usable tool is found, but the required functionality conflicts with the tool's non-modifiable parameters (args_static).
+    - A usable tool is found, but the required functionality is inconsistent with the current node's input (additional files are needed or certain inputs are unnecessary).
 """
 
 

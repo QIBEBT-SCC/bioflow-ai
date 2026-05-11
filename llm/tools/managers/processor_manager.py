@@ -50,13 +50,14 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
 }
 
 HELP_MESSAGE = """## Actions
-processor_node_manager 中包括了以下操作:
-- `view_processor`: 查看特定处理器节点的详细信息(输入输出,参数格式等)
-- `search_processor`: 通过向量搜索按功能查找处理器节点
-- `add_processor`: 向面板上添加一个处理器节点
+The `processor_node_manager` includes the following operations:
 
-在使用对应操作前, 务必使用 action="help" 并传入 params={"action": "<action_name>"} 以获取特定操作的参数说明
-(e.g. processor_node_manager(action="help" params={"action": "view_processor"}))
+- `view_processor`: View the detailed information of a specific processor node, including inputs, outputs, parameter formats, and so on.
+- `search_processor`: Search for processor nodes by function using vector search.
+- `add_processor`: Add a processor node to the panel.
+
+Before using a corresponding operation, it is necessary to use `action="help"` with `params={"action": "<action_name>"}` to obtain the parameter description for the specific operation.
+(e.g., `processor_node_manager(action="help" params={"action": "view_processor"})`)
 """
 
 
