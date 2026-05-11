@@ -330,8 +330,8 @@ CREATE TABLE IF NOT EXISTS run_instances
     end_time     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
-    FOREIGN KEY (project_id) REFERENCES projects,
-    FOREIGN KEY (sample_uid) REFERENCES samples
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
+    FOREIGN KEY (sample_uid) REFERENCES samples ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS task_instances
@@ -351,7 +351,7 @@ CREATE TABLE IF NOT EXISTS task_instances
     start_time   TIMESTAMP WITH TIME ZONE,
     end_time     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (uid),
-    FOREIGN KEY (instance_uid) REFERENCES run_instances,
+    FOREIGN KEY (instance_uid) REFERENCES run_instances ON DELETE CASCADE,
     FOREIGN KEY (owner_id) REFERENCES users,
     FOREIGN KEY (tool_uid) REFERENCES tools
 );
@@ -367,7 +367,7 @@ CREATE TABLE IF NOT EXISTS task_monitor_logs
     io_out    DOUBLE PRECISION NOT NULL,
     time      TIMESTAMP        NOT NULL,
     PRIMARY KEY (id),
-    FOREIGN KEY (task_uid) REFERENCES task_instances
+    FOREIGN KEY (task_uid) REFERENCES task_instances ON DELETE CASCADE
 );
 
 -- 文档相关

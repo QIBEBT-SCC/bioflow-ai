@@ -6,9 +6,8 @@ from sqlalchemy import UniqueConstraint, func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
-from app.models.resource import Sample
-
 if TYPE_CHECKING:
+    from app.models.resource import Sample
     from app.models.user import User
 
 
@@ -63,9 +62,13 @@ class Project(SQLModel, table=True):
 
     tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
     owner: Optional['User'] = Relationship()
-    samples: list['Sample'] = Relationship(cascade_delete=True)
-    file_mappings: list['ProjectFileMapping'] = Relationship(back_populates='project')
-    workflows: list['ProjectWorkflow'] = Relationship(back_populates='project')
+    samples: list['Sample'] = Relationship(cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True})
+    file_mappings: list['ProjectFileMapping'] = Relationship(
+        back_populates='project', cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True}
+    )
+    workflows: list['ProjectWorkflow'] = Relationship(
+        back_populates='project', cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True}
+    )
 
 
 class ProjectFileMapping(SQLModel, table=True):
