@@ -77,6 +77,8 @@ The current system contains the following resource node types (resource_type):
 async def resource_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[BuildContext]) -> Command:
     """Resource node manager, execute operations related to resource nodes.
 
+    Resources include files, databases, variables, and so on.
+
     Args:
         action: Action to be performed
         params: Parameters used in the action
@@ -313,7 +315,7 @@ def _add_resource(
             node_data = {'required_index': []}
         case 'db':
             with Session(engine) as session:
-                bio_db = db_crud.get(session, arguments['db_id'])
+                bio_db = db_crud.get(session, int(arguments.get('db_id', '-1')))
                 node_data = {**arguments, 'db_name': bio_db.name}
         case _:
             node_data = arguments
