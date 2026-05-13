@@ -140,12 +140,10 @@ ignore-var-parameters = true  # ignore missing documentation for *args and **kwa
 
 [dependency-groups]
 dev = [
-    "arize-phoenix-otel>=0.15.0",
     "boto3-stubs>=1.42.19",
     "celery-types>=0.23.0",
     "connectorx>=0.4.5",
     "duckdb>=1.5.0",
     "matplotlib>=3.10.8",
-    "openinference-instrumentation-langchain>=0.1.53",
     "seaborn>=0.13.2",
 ]
