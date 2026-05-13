@@ -18,6 +18,7 @@ from app.models.workflow import Workflow, WorkflowType
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from llm.models import qwen3_embedding
 from llm.states import BuildContext, BuildEdge, BuildNode, UserContext
+from llm.utils.edge_validation import check_orphan_edges
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
 
@@ -36,6 +37,19 @@ class DeleteNodeSchema(BaseModel):
     """Remove existing node from the panel."""
 
     node_id: str = Field(description='Node ID to be deleted')
+
+
+class FixEdgeItem(BaseModel):
+    source_node: str = Field(description='ID of the existing node that produces the data')
+    source_handle: str = Field(description='Output handle name on the source node')
+    target_node: str = Field(description='ID of the existing node that consumes the data')
+    target_handle: str = Field(description='Input handle name on the target node')
+
+
+class FixEdgeSchema(BaseModel):
+    """Replace ALL orphan edges with the provided complete edge list in one call."""
+
+    edges: list[FixEdgeItem] = Field(description='Complete list of edges to install in place of the orphan edges')
 
 
 class SaveWorkflowSchema(BaseModel):
@@ -110,6 +124,22 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                 )
             return _delete_node(validate_param.node_id, runtime)
 
+        case 'fix_edge':
+            try:
+                validate_param = FixEdgeSchema.model_validate(params)
+            except ValidationError as e:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=format_validation_error('fix_edge', e, FixEdgeSchema),
+                                tool_call_id=runtime.tool_call_id,
+                            )
+                        ]
+                    }
+                )
+            return _fix_edge(validate_param, runtime)
+
         case 'save_workflow':
             try:
                 validate_param = SaveWorkflowSchema.model_validate(params)
@@ -118,7 +148,7 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                     update={
                         'messages': [
                             ToolMessage(
-                                content=format_validation_error('view_node', e, SaveWorkflowSchema),
+                                content=format_validation_error('save_workflow', e, SaveWorkflowSchema),
                                 tool_call_id=runtime.tool_call_id,
                             )
                         ]
@@ -253,10 +283,116 @@ def _delete_node(node_id: str, runtime: ToolRuntime[BuildContext]) -> Command:
     )
 
 
+def _orphan_edges_report(
+    orphans: list[BuildEdge], exist_nodes: list[BuildNode], tool_call_id: str
+) -> Command:
+    node_names = {n.id: n.name for n in exist_nodes}
+    remaining_ids = sorted(node_names)
+    affected_sources = sorted({e.source_node for e in orphans})
+
+    lines = [
+        f'Cannot save workflow: {len(orphans)} orphan edge(s) detected (target_node is missing).',
+        '',
+        'Orphan edges:',
+    ]
+    for i, e in enumerate(orphans, 1):
+        src_name = node_names.get(e.source_node, '<unknown>')
+        lines.append(
+            f'  {i}. {e.source_node}({src_name}) [{e.source_handle}] -> <missing> [{e.target_handle}]'
+        )
+
+    lines += [
+        '',
+        f'Source nodes referenced by orphans: {affected_sources}',
+        f'Current nodes on the panel: {remaining_ids}',
+        '',
+        'Use action="fix_edge" with params={"edges": [...]} to replace ALL orphan edges in one call. '
+        'Pass the complete list of edges that should replace the orphans; '
+        'every orphan edge is removed atomically and the provided edges are appended. '
+        'After fixing, retry save_workflow.',
+        '',
+        'fix_edge parameters:',
+        '  - edges (list): each item has source_node, source_handle, target_node, target_handle (all str)',
+    ]
+    return Command(update={'messages': [ToolMessage(content='\n'.join(lines), tool_call_id=tool_call_id)]})
+
+
+def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[BuildContext]) -> Command:
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    exist_edges: list[BuildEdge] = runtime.state.get('exist_edges', [])
+
+    nodes_by_id = {n.id: n for n in exist_nodes}
+    errors: list[str] = []
+    for i, item in enumerate(params.edges, 1):
+        src = nodes_by_id.get(item.source_node)
+        tgt = nodes_by_id.get(item.target_node)
+        if src is None:
+            errors.append(f"  edge {i}: source node '{item.source_node}' does not exist.")
+            continue
+        if tgt is None:
+            errors.append(f"  edge {i}: target node '{item.target_node}' does not exist.")
+            continue
+        src_handles = {h.name for h in src.output_handles}
+        if item.source_handle not in src_handles:
+            errors.append(
+                f"  edge {i}: source '{item.source_node}' has no output handle "
+                f"'{item.source_handle}'. Available: {sorted(src_handles)}."
+            )
+        tgt_handles = {h.name for h in tgt.input_handles}
+        if item.target_handle not in tgt_handles:
+            errors.append(
+                f"  edge {i}: target '{item.target_node}' has no input handle "
+                f"'{item.target_handle}'. Available: {sorted(tgt_handles)}."
+            )
+
+    if errors:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='fix_edge rejected, no changes applied:\n' + '\n'.join(errors),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    cleaned_edges = [e for e in exist_edges if e.target_node is not None]
+    removed = len(exist_edges) - len(cleaned_edges)
+    new_edges = [
+        BuildEdge(
+            source_node=item.source_node,
+            source_handle=item.source_handle,
+            target_node=item.target_node,
+            target_handle=item.target_handle,
+        )
+        for item in params.edges
+    ]
+    cleaned_edges.extend(new_edges)
+
+    added_lines = '\n'.join(
+        f'  + {item.source_node}[{item.source_handle}] -> {item.target_node}[{item.target_handle}]'
+        for item in params.edges
+    )
+    msg = f'Removed {removed} orphan edge(s). Added {len(new_edges)} new edge(s):\n{added_lines}'
+
+    return Command(
+        update={
+            'exist_edges': Overwrite(cleaned_edges),
+            'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
+        }
+    )
+
+
 async def _save_workflow(name: str, description: str, runtime: ToolRuntime[UserContext]) -> Command:
     nodes = []
     exist_nodes = runtime.state.get('exist_nodes', [])
     exist_edges = runtime.state.get('exist_edges', [])
+
+    orphans = check_orphan_edges(exist_edges)
+    if orphans:
+        return _orphan_edges_report(orphans, exist_nodes, runtime.tool_call_id)
+
     for n in exist_nodes:
         if n.type in {'resource_ncbi_genome', 'resource_GRCh38', 'resource_GRCm39'}:
             required_index = list(dict.fromkeys(e.source_handle for e in exist_edges if e.source_node == n.id))

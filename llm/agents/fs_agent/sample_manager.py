@@ -50,8 +50,8 @@ Note: Reference genomes and tool databases are managed by separate system module
 
 ### Sample-level references
 All samples contain the following tags:
-- `sample:r1` — [description]
-- `sample:r2` — [description]
+- `sample:xxx` — [description]
+- `sample:xxx` — [description]
 [List custom tags if any]
 
 ### Project-level references
@@ -88,7 +88,7 @@ Do not list individual file paths. Focus only on what downstream workflows can r
 
 - Format: lowercase letters and underscores only, max 50 characters.
 - Default tags: `r1`, `r2`, `single`, `spectrum`, `image`.
-- When a sample contains multiple files of the same type, append a descriptive prefix: `tumor_r1` / `normal_r1`, etc.
+- When a sample contains multiple files, append a descriptive prefix: `tumor_r1` / `normal_r1`, etc.
 - Keywords must be unique within the project and semantically descriptive.
 """
 
