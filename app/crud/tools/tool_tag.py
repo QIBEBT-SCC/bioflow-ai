@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy import Select, func, text
 from sqlmodel import Session, col, select
 
@@ -5,6 +7,7 @@ from app.models.tools import ToolTag
 
 
 def insert(session: Session, tag: ToolTag) -> ToolTag:
+    """Insert a new tool tag into the database."""
     session.add(tag)
     session.commit()
     session.refresh(tag)
@@ -12,7 +15,8 @@ def insert(session: Session, tag: ToolTag) -> ToolTag:
     return tag
 
 
-def insert_all(session: Session, tags: list[ToolTag]):
+def insert_all(session: Session, tags: list[ToolTag]) -> list[ToolTag]:
+    """Insert multiple tool tags into the database."""
     session.add_all(tags)
     session.commit()
 
@@ -23,6 +27,7 @@ def insert_all(session: Session, tags: list[ToolTag]):
 
 
 def drop_all(session: Session) -> int:
+    """Truncate the tool tag table and return the number of deleted rows."""
     count_query = select(func.count()).select_from(ToolTag)
     count = session.exec(count_query).one()
 
@@ -36,17 +41,20 @@ def drop_all(session: Session) -> int:
     return count
 
 
-def get_all(session: Session):
+def get_all(session: Session) -> list[ToolTag]:
+    """Return all tool tags ordered by ID."""
     query = select(ToolTag).order_by(col(ToolTag.id))
 
     return session.exec(query).all()
 
 
-def get_all_by_id(session: Session, ids: list[int]):
+def get_all_by_id(session: Session, ids: list[int]) -> list[ToolTag]:
+    """Return all tool tags whose IDs are in the given list."""
     query: Select = select(ToolTag).where(col(ToolTag.id).in_(ids))
     return session.exec(query).all()
 
 
-def get_by_name(session: Session, name: str):
+def get_by_name(session: Session, name: str) -> Optional[ToolTag]:
+    """Return a tool tag by its name, or None if not found."""
     query: Select = select(ToolTag).where(ToolTag.name == name)
     return session.exec(query).one_or_none()

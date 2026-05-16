@@ -79,7 +79,7 @@ async def list_references(
     limit: Annotated[int, Query(le=100)] = 20,
 ) -> list[ReferenceGenomeListItem]:
     """Get a paginated list of all locally available reference genomes with index status."""
-    genomes = genome_crud.get_all_paginated(session, limit, offset)
+    genomes = genome_crud.get_all(session, limit, offset)
     return [await _to_list_item(g) for g in genomes]
 
 

@@ -1,15 +1,19 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Sequence
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Select
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, and_, col, func, or_, select
 
 from app.models.workflow import TaskInstance
 from app.schemas.task_instance import TaskUpdate
 
+if TYPE_CHECKING:
+    from sqlalchemy import Select
+
 
 def insert(session: Session, task: TaskInstance) -> TaskInstance:
+    """Insert a new task instance into the database."""
     session.add(task)
     session.commit()
     session.refresh(task)
@@ -18,6 +22,7 @@ def insert(session: Session, task: TaskInstance) -> TaskInstance:
 
 
 def update(session: Session, uid: str, task_update: TaskUpdate) -> TaskInstance:
+    """Update an existing task instance in the database."""
     db_task = get(session, uid)
 
     update_data = task_update.model_dump(exclude_unset=True)
@@ -29,6 +34,7 @@ def update(session: Session, uid: str, task_update: TaskUpdate) -> TaskInstance:
 
 
 def get_all(session: Session, limit: int, offset: int, user_id: int) -> Sequence[TaskInstance]:
+    """Get a paginated list of task instances for a specific user."""
     statement: Select = (
         select(TaskInstance)
         .where(TaskInstance.owner_id == user_id)
@@ -42,6 +48,7 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> Sequence
 
 
 def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequence[TaskInstance]:
+    """Get task instances for a user within a recent time window."""
     now = datetime.now(UTC)
     since_time = now - delta
     statement: Select = (
@@ -50,18 +57,14 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequenc
             TaskInstance.owner_id == user_id,
             or_(
                 and_(
-                    TaskInstance.start_time is not None,
+                    col(TaskInstance.start_time).isnot(None),
                     TaskInstance.start_time >= since_time,
                     TaskInstance.start_time <= now,
                 ),
                 and_(
-                    TaskInstance.end_time is not None, TaskInstance.end_time >= since_time, TaskInstance.end_time <= now
-                ),
-                and_(
-                    TaskInstance.start_time is not None,
-                    TaskInstance.start_time >= since_time,
-                    TaskInstance.start_time <= now,
-                    TaskInstance.end_time is None,
+                    col(TaskInstance.end_time).isnot(None),
+                    TaskInstance.end_time >= since_time,
+                    TaskInstance.end_time <= now,
                 ),
             ),
         )
@@ -72,12 +75,14 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequenc
 
 
 def get_count(session: Session, user_id: int) -> int:
+    """Get the total count of task instances for a specific user."""
     statement: Select = select(func.count()).select_from(TaskInstance).where(col(TaskInstance.owner_id) == user_id)
 
     return session.exec(statement).one()
 
 
 def get(session: Session, uid: str) -> TaskInstance:
+    """Get a task instance by its UID."""
     statement: Select = (
         select(TaskInstance)
         .where(TaskInstance.uid == uid)

@@ -145,7 +145,7 @@ def is_workflow_in_project(session: Session, project_id: int, workflow_uid: uuid
 
 
 def toggle_workflow_enabled(
-    session: Session, project_id: int, workflow_uid: uuid.UUID, enabled: bool
+    session: Session, project_id: int, workflow_uid: uuid.UUID, *, enabled: bool
 ) -> ProjectWorkflow:
     """启用或禁用项目中的工作流.
 

@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Select
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, or_, select
 from starlette.status import HTTP_404_NOT_FOUND
@@ -11,9 +10,12 @@ from app.models.project import Project, ProjectFileMapping, ProjectStar
 from app.schemas.project import ProjectPublic, ProjectUpdate
 from app.schemas.user import UserPublic
 
+if TYPE_CHECKING:
+    from sqlalchemy import Select
 
-def _to_project_public(project: Project, starred: bool) -> ProjectPublic:
-    """将 Project 模型转换为 ProjectPublic schema，包含 starred 字段"""
+
+def _to_project_public(project: Project, *, starred: bool) -> ProjectPublic:
+    """Convert a Project model to a ProjectPublic schema."""
     project_dict = project.model_dump()
     project_dict['starred'] = starred
     project_dict['tags'] = project.tags
@@ -23,6 +25,7 @@ def _to_project_public(project: Project, starred: bool) -> ProjectPublic:
 
 
 def insert(session: Session, project: Project) -> Project:
+    """Insert a new project into the database."""
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -30,7 +33,8 @@ def insert(session: Session, project: Project) -> Project:
     return project
 
 
-def delete(session: Session, project_id: int):
+def delete(session: Session, project_id: int) -> None:
+    """Delete a project by ID if it exists."""
     statement: Select = select(Project).where(Project.id == project_id)
     project: Project = session.exec(statement).one_or_none()
 
@@ -40,19 +44,20 @@ def delete(session: Session, project_id: int):
 
 
 def update(session: Session, project_id: int, project: ProjectUpdate) -> Project:
+    """Update a project."""
     raise NotImplementedError
 
 
 def get_star_ids(session: Session, user_id: int, project_ids: list[int]) -> set[int]:
+    """Return the set of project IDs starred by the given user."""
     star_stmt: Select = select(ProjectStar.project_id).where(
         ProjectStar.user_id == user_id, col(ProjectStar.project_id).in_(project_ids)
     )
-    starred_ids = set(r for r in session.exec(star_stmt).all())
-
-    return starred_ids
+    return set(session.exec(star_stmt).all())
 
 
-def star_project(session: Session, user_id: int, project_id: int):
+def star_project(session: Session, user_id: int, project_id: int) -> None:
+    """Star a project for a user if not already starred."""
     statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project_id)
     exists = session.exec(statement).first()
     if not exists:
@@ -61,7 +66,8 @@ def star_project(session: Session, user_id: int, project_id: int):
         session.commit()
 
 
-def unstar_project(session: Session, user_id: int, project_id: int):
+def unstar_project(session: Session, user_id: int, project_id: int) -> None:
+    """Remove a star from a project for a user."""
     statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project_id)
     star = session.exec(statement).first()
     if star:
@@ -70,6 +76,7 @@ def unstar_project(session: Session, user_id: int, project_id: int):
 
 
 def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[ProjectPublic]:
+    """Return a paginated list of public and owned projects."""
     statement: Select = (
         select(Project)
         .where(or_(Project.public, Project.owner_id == user_id))
@@ -82,10 +89,11 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[Pro
     project_ids = [p.id for p in projects]
     starred_ids = get_star_ids(session, user_id, project_ids)
 
-    return [_to_project_public(project, project.id in starred_ids) for project in projects]
+    return [_to_project_public(project, starred=project.id in starred_ids) for project in projects]
 
 
 def get_all_star(session: Session, limit: int, offset: int, user_id: int) -> list[ProjectPublic]:
+    """Return a paginated list of projects starred by the user."""
     starred_ids = select(ProjectStar.project_id).where(ProjectStar.user_id == user_id).offset(offset).limit(limit)
 
     statement: Select = (
@@ -99,6 +107,7 @@ def get_all_star(session: Session, limit: int, offset: int, user_id: int) -> lis
 
 
 def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> list[ProjectPublic]:
+    """Return a paginated list of projects owned by the user."""
     statement: Select = (
         select(Project)
         .where(Project.owner_id == user_id)
@@ -111,10 +120,11 @@ def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> list[
     project_ids = [p.id for p in projects]
     starred_ids = get_star_ids(session, user_id, project_ids)
 
-    return [_to_project_public(project, project.id in starred_ids) for project in projects]
+    return [_to_project_public(project, starred=project.id in starred_ids) for project in projects]
 
 
 def get(session: Session, user_id: int, project_id: int) -> ProjectPublic:
+    """Return a single project by ID, with star status for the user."""
     statement: Select = (
         select(Project).where(Project.id == project_id).options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore
     )
@@ -122,10 +132,11 @@ def get(session: Session, user_id: int, project_id: int) -> ProjectPublic:
 
     statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project.id)
     starred = session.exec(statement).first() is not None
-    return _to_project_public(project, starred)
+    return _to_project_public(project, starred=starred)
 
 
 def get_recent(session: Session, user_id: int) -> Optional[ProjectPublic]:
+    """Return the most recently updated project owned by the user."""
     statement: Select = (
         select(Project)
         .where(Project.owner_id == user_id)
@@ -139,7 +150,7 @@ def get_recent(session: Session, user_id: int) -> Optional[ProjectPublic]:
 
     statement: Select = select(ProjectStar).where(ProjectStar.user_id == user_id, ProjectStar.project_id == project.id)
     starred = session.exec(statement).first() is not None
-    return _to_project_public(project, starred)
+    return _to_project_public(project, starred=starred)
 
 
 # ==================== Project File Mapping CRUD ====================
@@ -148,7 +159,7 @@ def get_recent(session: Session, user_id: int) -> Optional[ProjectPublic]:
 def create_file_mapping(
     session: Session, project_id: int, keyword: str, file_path: str, description: str = ''
 ) -> ProjectFileMapping:
-    """创建项目文件映射"""
+    """Create a project file mapping."""
     mapping = ProjectFileMapping(project_id=project_id, keyword=keyword, file_path=file_path, description=description)
     session.add(mapping)
     session.commit()
@@ -157,7 +168,7 @@ def create_file_mapping(
 
 
 def get_file_mapping(session: Session, project_id: int, keyword: str) -> Optional[ProjectFileMapping]:
-    """根据关键字获取项目文件映射"""
+    """Return the file mapping for a given project and keyword."""
     statement: Select = select(ProjectFileMapping).where(
         ProjectFileMapping.project_id == project_id, ProjectFileMapping.keyword == keyword
     )
@@ -165,7 +176,7 @@ def get_file_mapping(session: Session, project_id: int, keyword: str) -> Optiona
 
 
 def get_all_file_mappings(session: Session, project_id: int) -> list[ProjectFileMapping]:
-    """获取项目的所有文件映射"""
+    """Return all file mappings for a project."""
     statement: Select = select(ProjectFileMapping).where(ProjectFileMapping.project_id == project_id)
     return list(session.exec(statement).all())
 
@@ -173,7 +184,7 @@ def get_all_file_mappings(session: Session, project_id: int) -> list[ProjectFile
 def update_file_mapping(
     session: Session, mapping_id: int, file_path: Optional[str] = None, description: Optional[str] = None
 ) -> ProjectFileMapping:
-    """更新项目文件映射"""
+    """Update a file mapping's path or description."""
     statement: Select = select(ProjectFileMapping).where(ProjectFileMapping.id == mapping_id)
     mapping = session.exec(statement).one_or_none()
 
@@ -193,7 +204,7 @@ def update_file_mapping(
 
 
 def delete_file_mapping(session: Session, mapping_id: int) -> None:
-    """删除项目文件映射"""
+    """Delete a file mapping by ID."""
     statement: Select = select(ProjectFileMapping).where(ProjectFileMapping.id == mapping_id)
     mapping = session.exec(statement).one_or_none()
 

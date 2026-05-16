@@ -7,6 +7,7 @@ from app.models.tools import ToolDefine, ToolGroup
 
 
 def insert(session: Session, group: ToolGroup) -> ToolGroup:
+    """Insert a new tool group into the database."""
     session.add(group)
     session.commit()
     session.refresh(group)
@@ -14,7 +15,8 @@ def insert(session: Session, group: ToolGroup) -> ToolGroup:
     return group
 
 
-def insert_all(session: Session, groups: list[ToolGroup]):
+def insert_all(session: Session, groups: list[ToolGroup]) -> list[ToolGroup]:
+    """Insert multiple tool groups into the database."""
     session.add_all(groups)
     session.commit()
 
@@ -25,6 +27,7 @@ def insert_all(session: Session, groups: list[ToolGroup]):
 
 
 def drop_all(session: Session) -> int:
+    """Truncate the tool group table and return the number of deleted rows."""
     count_query = select(func.count()).select_from(ToolGroup)
     count = session.exec(count_query).one()
 
@@ -39,22 +42,25 @@ def drop_all(session: Session) -> int:
 
 
 def get(session: Session, group_id: int) -> Optional[ToolGroup]:
+    """Return a tool group by its ID, or None if not found."""
     query: Select = select(ToolGroup).where(ToolGroup.id == group_id)
     return session.exec(query).one_or_none()
 
 
 def get_by_name(session: Session, name: str) -> Optional[ToolGroup]:
+    """Return a tool group by its name, or None if not found."""
     query: Select = select(ToolGroup).where(ToolGroup.name == name)
     return session.exec(query).one_or_none()
 
 
-def get_all(session: Session):
+def get_all(session: Session) -> list[ToolGroup]:
+    """Return all tool groups."""
     query: Select = select(ToolGroup)
     return session.exec(query).all()
 
 
 def get_all_with_tool_counts(session: Session) -> list[dict]:
-    """获取所有工具分组及其对应的工具数量"""
+    """获取所有工具分组及其对应的工具数量."""
     query = (
         select(
             ToolGroup.id,

@@ -8,7 +8,8 @@ from app.models.setting import LLMModel, LLMStatistic
 from app.models.user import User
 
 
-def insert(session: Session, statistic: LLMStatistic):
+def insert(session: Session, statistic: LLMStatistic) -> None:
+    """Insert a new LLM usage statistic record into the database."""
     session.add(statistic)
     session.commit()
 
@@ -30,11 +31,11 @@ def get_summary(
     """
 
     # 构建基础条件
-    def apply_date_filter(stmt):
+    def apply_date_filter(stmt: object) -> object:
         if start_date is not None:
-            stmt = stmt.where(LLMStatistic.time >= start_date)
+            stmt = stmt.where(LLMStatistic.time >= start_date)  # type: ignore[union-attr]
         if end_date is not None:
-            stmt = stmt.where(LLMStatistic.time <= end_date)
+            stmt = stmt.where(LLMStatistic.time <= end_date)  # type: ignore[union-attr]
         return stmt
 
     # 总体统计
@@ -59,7 +60,7 @@ def get_summary(
     by_agent_statement = apply_date_filter(by_agent_statement)
     by_agent_results = session.exec(by_agent_statement).all()
 
-    # 按 model 分组统计（JOIN 获取 model name）
+    # 按 model 分组统计 (JOIN 获取 model name)
     by_model_statement = (
         select(
             LLMModel.name.label('model_name'),
@@ -167,7 +168,7 @@ def get_details(
     end_date: Optional[datetime] = None,
     limit: int = 100,
     offset: int = 0,
-):
+) -> dict:
     """获取 LLM 使用详细记录列表.
 
     Args:
@@ -180,7 +181,7 @@ def get_details(
     Returns:
         详细记录列表和总数
     """
-    # 构建查询，JOIN 获取 model name 和 user name
+    # 构建查询, JOIN 获取 model name 和 user name
     statement = select(
         LLMStatistic.id,
         LLMStatistic.agent_name,
@@ -208,7 +209,7 @@ def get_details(
 
     total = session.exec(count_statement).one()
 
-    # 查询详细记录（带分页）
+    # 查询详细记录 (带分页)
     statement = statement.order_by(col(LLMStatistic.time).desc()).limit(limit).offset(offset)
     results = session.exec(statement).all()
 

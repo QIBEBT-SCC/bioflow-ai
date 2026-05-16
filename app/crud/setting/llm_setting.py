@@ -1,4 +1,3 @@
-from typing import Optional
 
 from sqlmodel import Session, select
 
@@ -6,6 +5,7 @@ from app.models.setting import LLMModel, LLMProvider, LLMSetting, ModelRole
 
 
 def get_role(session: Session, role: ModelRole) -> int:
+    """Return the model ID configured for the given role."""
     setting = session.get(LLMSetting, 1)
     if setting is None:
         raise ValueError
@@ -13,6 +13,7 @@ def get_role(session: Session, role: ModelRole) -> int:
 
 
 def get_all_with_details(session: Session) -> dict:
+    """Return all role settings with their associated model and provider details."""
     setting = session.get(LLMSetting, 1)
 
     result = {}
@@ -40,6 +41,7 @@ def get_all_with_details(session: Session) -> dict:
 
 
 def update(session: Session, role: ModelRole, model_id: int) -> LLMSetting:
+    """Update the model assignment for the given role and return the updated setting."""
     setting = session.get(LLMSetting, 1)
     if setting is None:
         setting = LLMSetting(id=1)

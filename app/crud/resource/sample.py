@@ -17,6 +17,8 @@ from app.schemas.resource import SampleBatchImportResult, SampleListItem, Sample
 from app.utils.file.hash import calculate_file_md5
 from app.utils.system import get_file_size
 
+_MIN_COMPOUND_EXTENSION_COUNT = 2
+
 
 def _update_project_time(session: Session, project_id: int) -> None:
     """更新项目的 update_time.
@@ -53,7 +55,7 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
     # 提取文件格式, 处理压缩文件 (.gz, .bz2, .xz 等)
     compression_suffixes = {'.gz', '.bz2', '.xz', '.bz', '.zip'}
 
-    if path.suffix.lower() in compression_suffixes and len(path.suffixes) >= 2:
+    if path.suffix.lower() in compression_suffixes and len(path.suffixes) >= _MIN_COMPOUND_EXTENSION_COUNT:
         # 对于压缩文件, 取最后两个后缀, 如 .fq.gz, .tar.bz2
         file_format = ''.join(path.suffixes[-2:]).lstrip('.')
     elif path.suffix:
@@ -177,7 +179,8 @@ def get_with_files(session: Session, sample_uid: uuid.UUID) -> Optional[Sample]:
     return get(session, sample_uid, with_files=True)
 
 
-def get_all(session: Session, sample_uids: list[str]):
+def get_all(session: Session, sample_uids: list[str]) -> list[Sample]:
+    """Retrieve multiple samples by a list of UIDs."""
     samples_stmt: Select = select(Sample).where(col(Sample.uid).in_(sample_uids))
 
     return session.exec(samples_stmt).all()
@@ -335,8 +338,7 @@ def batch_import_from_csv(
     Returns:
         SampleBatchImportResult: 导入结果
     """
-    # 定义固定列及其对应的文件类型
-    FILE_COLUMNS = {
+    file_columns = {
         'r1': SampleFileType.SEQUENCING_R1,
         'r2': SampleFileType.SEQUENCING_R2,
         'single': SampleFileType.SEQUENCING,
@@ -347,100 +349,80 @@ def batch_import_from_csv(
     result = SampleBatchImportResult(success=0, failed=0, errors=[], samples=[])
 
     try:
-        # 使用 polars 读取 CSV
         df = pl.read_csv(BytesIO(csv_content), encoding='utf-8')
+    except pl.exceptions.ComputeError as e:
+        raise HTTPException(400, f'CSV 文件格式错误: {e!s}') from e
 
-        # 验证必需列
-        if 'sample_name' not in df.columns:
-            raise HTTPException(400, 'CSV 文件缺少必需列: sample_name')
+    if 'sample_name' not in df.columns:
+        raise HTTPException(400, 'CSV 文件缺少必需列: sample_name')
 
-        # 获取所有列名
-        all_columns = df.columns
-        fixed_columns = {'sample_name', 'r1', 'r2', 'single', 'spectrum', 'image'}
-        meta_columns = [col for col in all_columns if col not in fixed_columns]
+    fixed_columns = {'sample_name', 'r1', 'r2', 'single', 'spectrum', 'image'}
+    meta_columns = [col for col in df.columns if col not in fixed_columns]
 
-        # 逐行处理
-        for row_idx, row in enumerate(df.iter_rows(named=True), start=1):
-            try:
-                sample_name = row.get('sample_name')
+    for row_idx, row in enumerate(df.iter_rows(named=True), start=1):
+        try:
+            sample_name = row.get('sample_name')
 
-                # 验证样本名称
-                if not sample_name or not str(sample_name).strip():
-                    result.failed += 1
-                    result.errors.append(
-                        {
-                            'row': row_idx,
-                            'sample_name': sample_name or '<空>',
-                            'error': '样本名称不能为空',
-                        }
-                    )
-                    continue
-
-                sample_name = str(sample_name).strip()
-
-                # 构建 meta_data
-                meta_data = {}
-                for col in meta_columns:
-                    value = row.get(col)
-                    # 过滤空值
-                    if value is not None and str(value).strip():
-                        meta_data[col] = str(value)
-
-                # 创建样本
-                sample = Sample(
-                    owner_id=owner_id,
-                    project_id=project_id,
-                    sample_name=sample_name,
-                    meta_data=meta_data,
-                )
-                session.add(sample)
-                session.flush()  # 获取样本 UID
-
-                # 处理文件信息
-                files_added = 0
-                for col_name, file_type in FILE_COLUMNS.items():
-                    file_path = row.get(col_name)
-                    if file_path and str(file_path).strip():
-                        file_path = str(file_path).strip()
-
-                        # 自动计算文件信息
-                        file_format, file_size, md5_checksum = _calculate_file_info(file_path)
-
-                        # 创建文件记录
-                        sample_file = SampleFiles(
-                            sample_uid=sample.uid,
-                            data_type=file_type,
-                            file_path=file_path,
-                            file_format=file_format,
-                            file_size=file_size,
-                            md5_checksum=md5_checksum,
-                        )
-                        session.add(sample_file)
-                        files_added += 1
-
-                session.commit()
-                result.success += 1
-                result.samples.append(sample.uid)
-
-            except Exception as e:
-                session.rollback()
+            if not sample_name or not str(sample_name).strip():
                 result.failed += 1
                 result.errors.append(
                     {
                         'row': row_idx,
-                        'sample_name': row.get('sample_name', '<未知>'),
-                        'error': str(e),
+                        'sample_name': sample_name or '<空>',
+                        'error': '样本名称不能为空',
                     }
                 )
+                continue
 
-        # 批量导入完成后, 更新项目的 update_time
-        if result.success > 0:
-            _update_project_time(session, project_id)
+            sample_name = str(sample_name).strip()
+
+            meta_data = {
+                col: str(value)
+                for col in meta_columns
+                if (value := row.get(col)) is not None and str(value).strip()
+            }
+
+            sample = Sample(
+                owner_id=owner_id,
+                project_id=project_id,
+                sample_name=sample_name,
+                meta_data=meta_data,
+            )
+            session.add(sample)
+            session.flush()
+
+            for col_name, file_type in file_columns.items():
+                file_path = row.get(col_name)
+                if file_path and str(file_path).strip():
+                    file_path = str(file_path).strip()
+                    file_format, file_size, md5_checksum = _calculate_file_info(file_path)
+                    sample_file = SampleFiles(
+                        sample_uid=sample.uid,
+                        data_type=file_type,
+                        file_path=file_path,
+                        file_format=file_format,
+                        file_size=file_size,
+                        md5_checksum=md5_checksum,
+                    )
+                    session.add(sample_file)
+
             session.commit()
+            result.success += 1
+            result.samples.append(sample.uid)
 
-        return result
+        except Exception as e:
+            session.rollback()
+            result.failed += 1
+            result.errors.append(
+                {
+                    'row': row_idx,
+                    'sample_name': row.get('sample_name', '<未知>'),
+                    'error': str(e),
+                }
+            )
 
-    except pl.exceptions.ComputeError as e:
-        raise HTTPException(400, f'CSV 文件格式错误: {str(e)}')
-    except Exception as e:
-        raise HTTPException(500, f'批量导入失败: {str(e)}')
+    if result.success > 0:
+        _update_project_time(session, project_id)
+        session.commit()
+
+    return result

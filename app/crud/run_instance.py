@@ -50,7 +50,7 @@ def update(session: Session, uid: str, run_update: RunUpdate) -> RunInstance:
     return db_run
 
 
-def get_run_counts(session: Session, user_id: int):
+def get_run_counts(session: Session, user_id: int) -> int:
     """Get the total count of run instances for a specific user.
 
     Args:
