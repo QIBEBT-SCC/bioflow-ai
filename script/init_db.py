@@ -209,7 +209,7 @@ async def init_tools(*, drop_old: bool = True) -> None:
             docs = [
                 Document(
                     page_content=tool.description,
-                    metadata={'image_uid': str(tool.uid), 'tool_uid': str(tool.image.uid), 'name': tool.name},
+                    metadata={'tool_uid': str(tool.uid), 'image_uid': str(tool.image.uid), 'name': tool.name},
                 )
                 for tool in batch_tools
             ]
@@ -318,14 +318,14 @@ async def rebuild_tool_index() -> None:
     batch_size = 10
 
     for tool_data in tqdm(results, total=len(results)):
-        if tool_data.description:  # type: ignore[attr-defined]
+        if tool_data.description:
             docs_to_add.append(
                 Document(
-                    page_content=tool_data.description,  # type: ignore[attr-defined]
+                    page_content=tool_data.description,
                     metadata={
-                        'image_uid': str(tool_data.image_uid),  # type: ignore[attr-defined]
-                        'tool_uid': str(tool_data.uid),  # type: ignore[attr-defined]
-                        'name': tool_data.name,  # type: ignore[attr-defined]
+                        'image_uid': str(tool_data.image_uid),
+                        'tool_uid': str(tool_data.uid),
+                        'name': tool_data.name,
                     },
                 )
             )
