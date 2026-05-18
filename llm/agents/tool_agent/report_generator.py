@@ -170,7 +170,7 @@ working dir: [working_dir]
     - 示例2: 此工具直接使用 stdout 作为输出, 因此只重定向 stderr 用于日志记录"""
 
 
-CHECK_PROMPT = """Check if the last message returned by the system satisfies the following format within <OutputStructure>.
+CHECK_PROMPT = """Check whether the report information provided by the user in <ToolReport> conforms to the format defined in <OutputStructure> below.
 
 <OutputStructure>
 ## Test Run Report
@@ -322,8 +322,8 @@ RUN_TOOL_DESCRIPTION = """请求调用与Current Image不同的工具完成当�
 - 特别注意, 一定要告诉工具它所需要使用的文件在哪里: 工具不知道你之前将文件放到了什么地方, 不要期望工具自己寻找文件
 
 ## 调用示例
-1. 已经将参考基因组ref.fa拷贝到了`/data/output/00_raw`下, 现在需要使用samtools生成该文件的.fai索引文件
-2. 调用 run_other_tool(tool_name="samtools", task_description="使用samtools index为参考序列构建索引, 待处理的文件位于`/data/output/00_raw/ref.fa`, 索引文件输出到同目录下")
+1. 已经将参考基因组ref.fa拷贝到了`/data/output/00_raw`下, 现在需要使用 samtools 生成该文件的.fai索引文件
+2. 调用 run_other_tool(tool_name="samtools", task_description="使用 samtools index 为参考序列构建索引, 待处理的文件位于`/data/output/00_raw/ref.fa`, 索引文件输出到同目录下")
 """
 
 TEST_RUN_MODEL = get_long_context_model()

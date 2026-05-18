@@ -17,7 +17,7 @@ from llm.utils.token import store_token_usage
 
 
 class CheckResult(BaseModel):
-    checked: bool = Field(description='Has the FinalResponse you see passed the format check')
+    checked: bool = Field(description='Did the FinalResponse you see passed the format check')
     reason: str = Field(description='Reasons for Pass/Fail check')
 
 
@@ -200,11 +200,11 @@ class CheckGenerateMiddleware(AgentMiddleware):
 
         self.error_time = error_time
 
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return {'check_failed_count': 0}
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
+    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
             return None
@@ -275,7 +275,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         return None
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
+    async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
 
@@ -291,7 +291,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         self.error_time = error_time
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
+    def after_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
             return None
@@ -315,7 +315,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         )
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:
+    async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
 
