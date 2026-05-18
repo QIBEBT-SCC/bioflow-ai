@@ -71,13 +71,14 @@ def print_stream_chunk(
 
         if middleware_data:
             for key, value in middleware_data.items():
-                console.print(
-                    Panel(
-                        Pretty(value),
-                        title=f'Middleware: {key}',
-                        border_style='grey50',
+                if '.' in key:
+                    console.print(
+                        Panel(
+                            Pretty(value),
+                            title=f'Middleware: {key}',
+                            border_style='grey50',
+                        )
                     )
-                )
 
 
 def _render_tools_update(console: Console, tools_state: dict[str, Any]) -> None:
