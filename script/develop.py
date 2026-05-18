@@ -1,11 +1,17 @@
 import asyncio
 import os
 import shutil
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 from loguru import logger
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.graph.state import CompiledStateGraph
 
 DB_PATH = 'presets/build/develop.db'
 
@@ -22,6 +28,84 @@ def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dic
     cur = con.execute(query, params or [])
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+
+
+@asynccontextmanager
+async def _tool_agent_session(
+    *, setup: bool = False
+) -> AsyncGenerator[tuple['AsyncRedisSaver', 'CompiledStateGraph'], None]:
+    """初始化 CreateToolAgent 会话."""
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+
+    from app.core.config import get_settings
+    from llm.agents.tool_agent import CreateToolAgent
+
+    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
+        checkpoint.serde = JsonPlusRedisSerializer(
+            allowed_msgpack_modules=[
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                ('app.models.tools', 'FileMount'),
+                ('app.models.tools', 'ImageConfig'),
+                ('app.models.tools', 'ParamDefine'),
+            ]
+        )
+        if setup:
+            await checkpoint.setup()
+        agent = CreateToolAgent().build(memory=checkpoint)
+        yield checkpoint, agent
+
+
+async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) -> None:
+    """清理指定线程的检查点、测试记录及文件, 并重置DuckDB状态."""
+    from app.core.config import get_settings
+    from app.utils.container import remove_container
+    from llm.utils.session import delete_checkpoint
+
+    if TYPE_CHECKING:
+        from langchain_core.runnables import RunnableConfig
+
+    if thread_ids:
+        async with _tool_agent_session() as (checkpoint, agent):
+            for thread_id in thread_ids:
+                config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
+                response = await agent.aget_state(config, subgraphs=True)
+                try:
+                    container_id = cast('str', response.tasks[0].state.values.get('container_id'))
+                except (IndexError, AttributeError, KeyError, TypeError):
+                    container_id = None
+                if container_id:
+                    try:
+                        remove_container(container_id)
+                        logger.info('清理了残余容器')
+                    except Exception as e:
+                        logger.warning(e)
+                await delete_checkpoint(checkpoint, thread_id)
+                logger.info(f'删除了智能体记录: {thread_id}')
+
+        placeholders = ','.join(['?' for _ in thread_ids])
+        deleted = con.execute(
+            f'DELETE FROM test_run WHERE test_run_id IN ({placeholders})',  # noqa: S608
+            thread_ids,
+        ).rowcount
+        if deleted:
+            logger.info(f'从 test_run 表中删除了 {deleted} 条保存数据')
+
+        for thread_id in thread_ids:
+            output_path = Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
+            if output_path.exists():
+                shutil.rmtree(output_path)
+                logger.info(f'清理了运行目录: {output_path}')
+
+    if indices:
+        idx_placeholders = ','.join(['?' for _ in indices])
+        con.execute(
+            f'UPDATE tool_functions SET thread = NULL, tool_node = NULL, interrupted = false WHERE index IN ({idx_placeholders})',  # noqa: S608
+            indices,
+        )
 
 
 def search_tools(tool_name: str) -> None:
@@ -66,19 +150,14 @@ async def init_tools(index: int | None = None) -> None:
     import duckdb
     import rich
     from langchain_core.messages import HumanMessage
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
-    from phoenix.otel import register
     from rich.console import Console
     from sqlmodel import Session
 
     import app.crud.tools.image as image_crud
     import app.crud.tools.tool_doc as doc_crud
-    from app.core.config import get_settings
     from app.core.session import engine
     from app.models.tools import ToolHelpDoc
     from app.utils.container import run_command
-    from llm.agents.tool_agent import CreateToolAgent
     from llm.states import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
@@ -87,15 +166,6 @@ async def init_tools(index: int | None = None) -> None:
 
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
-
-    # configure the Phoenix tracer
-    tracer_provider = register(  # noqa: F841
-        endpoint=get_settings().develop.PHOENIX_ENDPOINT,
-        project_name='build-tool',
-        batch=True,
-        auto_instrument=True,
-        set_global_tracer_provider=False,
-    )
 
     skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
 
@@ -117,22 +187,7 @@ async def init_tools(index: int | None = None) -> None:
 
     console = Console()
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
-        await checkpoint.setup()
-
-        agent = CreateToolAgent().build(memory=checkpoint)
-
+    async with _tool_agent_session(setup=True) as (checkpoint, agent):
         for row in todo_rows:
             row_index: int = row['index']
             tool_name: str = row['tool_name']
@@ -200,19 +255,14 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
 
     import rich
     from langchain_core.messages import HumanMessage
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
-    from phoenix.otel import register
     from rich.console import Console
     from sqlmodel import Session
 
     import app.crud.tools.image as image_crud
     import app.crud.tools.tool_doc as doc_crud
-    from app.core.config import get_settings
     from app.core.session import engine
     from app.models.tools import ToolHelpDoc
     from app.utils.container import run_command
-    from llm.agents.tool_agent.tool_creator import CreateToolAgent
     from llm.states import CreateToolContext, CreateToolState
     from llm.utils.render import print_stream_chunk
 
@@ -222,31 +272,9 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
-    # configure the Phoenix tracer
-    tracer_provider = register(  # noqa: F841
-        endpoint=get_settings().develop.PHOENIX_ENDPOINT,
-        project_name='build-tool',
-        batch=True,
-        auto_instrument=True,
-        set_global_tracer_provider=False,
-    )
-
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
+    async with _tool_agent_session() as (checkpoint, agent):
         if drop_old:
             await checkpoint.adelete_thread(thread_id)
-
-        agent = CreateToolAgent().build(memory=checkpoint)
 
         with Session(engine) as session:
             tool_image = image_crud.get_by_name(session, name)
@@ -299,11 +327,6 @@ async def read_interrupt(index: int) -> None:
     """加载指定中断信息."""
     import duckdb
     import rich
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
-
-    from app.core.config import get_settings
-    from llm.agents.tool_agent import CreateToolAgent
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -316,21 +339,7 @@ async def read_interrupt(index: int) -> None:
         logger.error(f'未找到索引为 {index} 的数据')
         return
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
-
-        agent = CreateToolAgent().build(memory=checkpoint)
-
+    async with _tool_agent_session() as (_, agent):
         thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
 
@@ -342,13 +351,9 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     """响应中断信息."""
     import duckdb
     import rich
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from langgraph.types import Command
     from rich.console import Console
 
-    from app.core.config import get_settings
-    from llm.agents.tool_agent import CreateToolAgent
     from llm.states import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
@@ -366,21 +371,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 
     console = Console()
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
-
-        agent = CreateToolAgent().build(memory=checkpoint)
-
+    async with _tool_agent_session() as (_, agent):
         thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
         context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
@@ -417,21 +408,14 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 async def delete_prebuild_tool(indices: list[int]) -> None:
     """删除现有节点."""
     import duckdb
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
-    from app.core.config import get_settings
     from app.core.session import engine
-    from app.utils.container import remove_container
-    from llm.agents.tool_agent import CreateToolAgent
-
-    if TYPE_CHECKING:
-        from langchain_core.runnables import RunnableConfig
 
     con = duckdb.connect(DB_PATH)
     thread_ids_to_delete: list[str] = []
+    valid_indices: list[int] = []
 
     for index in indices:
         tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
@@ -439,6 +423,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             logger.warning(f'未找到索引为 {index} 的数据, 跳过')
             continue
         logger.info(f'要删除的数据 (index={index}): {tool_info}')
+        valid_indices.append(index)
 
         if tool_info['tool_node']:
             with Session(engine) as session:
@@ -447,63 +432,59 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
         if tool_info['thread']:
             thread_ids_to_delete.append(tool_info['thread'])
-            async with AsyncRedisSaver.from_conn_string(
-                get_settings().develop.CHECKPOINT_URL.unicode_string()
-            ) as checkpoint:
-                checkpoint.serde = JsonPlusRedisSerializer(
-                    allowed_msgpack_modules=[
-                        ('llm.states', 'BuildEdge'),
-                        ('llm.states', 'BuildNode'),
-                        ('llm.utils.middleware.todo', 'Todo'),
-                        ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                        ('app.models.tools', 'FileMount'),
-                        ('app.models.tools', 'ImageConfig'),
-                        ('app.models.tools', 'ParamDefine'),
-                    ]
-                )
 
-                agent = CreateToolAgent().build(memory=checkpoint)
-
-                config: RunnableConfig = {'configurable': {'thread_id': tool_info['thread']}, 'recursion_limit': 500}
-
-                response = await agent.aget_state(config, subgraphs=True)
-                try:
-                    container_id = response.tasks[0].state.values['container_id']
-                except (IndexError, AttributeError, KeyError, TypeError):
-                    container_id = None
-                if container_id:
-                    try:
-                        remove_container(response.tasks[0].state.values['container_id'])
-                        logger.info('清理了残余容器')
-                    except Exception as e:
-                        logger.warning(e)
-
-                await checkpoint.adelete_thread(tool_info['thread'])
-                logger.info(f'删除了一条智能体记录 (index={index})')
-
-    if thread_ids_to_delete:
-        placeholders = ','.join(['?' for _ in thread_ids_to_delete])
-        deleted = con.execute(
-            f'DELETE FROM test_run WHERE test_run_id IN ({placeholders})',  # noqa: S608
-            thread_ids_to_delete,
-        ).rowcount
-        if deleted:
-            logger.info(f'从 test_run 表中删除了 {deleted} 条保存数据')
-
-    for thread_id in thread_ids_to_delete:
-        output_path = Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
-        if output_path.exists():
-            shutil.rmtree(output_path)
-            logger.info(f'清理了运行目录: {output_path}')
-
-    if indices:
-        idx_placeholders = ','.join(['?' for _ in indices])
-        con.execute(
-            f'UPDATE tool_functions SET thread = NULL, tool_node = NULL, interrupted = false WHERE index IN ({idx_placeholders})',  # noqa: S608
-            indices,
-        )
+    await _cleanup_threads(con, thread_ids_to_delete, valid_indices)
     con.close()
-    logger.info(f'成功删除 {len(indices)} 个工具记录')
+    logger.info(f'成功删除 {len(valid_indices)} 个工具记录')
+
+
+async def check_records(*, clean_interrupted: bool = False, dry_run: bool = False) -> None:
+    """检查并重置孤立的DuckDB记录."""
+    import duckdb
+    from sqlmodel import Session
+
+    import app.crud.tools.tool as tool_crud
+    from app.core.session import engine
+    from app.models.user import User
+
+    con = duckdb.connect(DB_PATH)
+    indices_to_reset: list[int] = []
+    thread_ids_to_delete: list[str] = []
+
+    rows_with_node = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE tool_node IS NOT NULL')
+    with Session(engine) as session:
+        for row in rows_with_node:
+            if tool_crud.get(session, row['tool_node']) is None:
+                indices_to_reset.append(row['index'])
+                if row['thread']:
+                    thread_ids_to_delete.append(row['thread'])
+                logger.info(f'发现孤立记录 (index={row["index"]}): tool_node={row["tool_node"]} 在数据库中不存在')
+
+    if clean_interrupted:
+        interrupted_rows = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE interrupted = true')
+        for row in interrupted_rows:
+            if row['index'] not in indices_to_reset:
+                indices_to_reset.append(row['index'])
+                if row['thread']:
+                    thread_ids_to_delete.append(row['thread'])
+                logger.info(f'发现中断记录 (index={row["index"]}): {row["tool_name"]}')
+
+    if not indices_to_reset:
+        logger.info('没有需要重置的记录')
+        con.close()
+        return
+
+    if dry_run:
+        logger.info(
+            f'[DRY RUN] 共发现 {len(indices_to_reset)} 条待重置记录, 涉及 {len(thread_ids_to_delete)} 条智能体记录'
+        )
+        logger.info(f'[DRY RUN] 待重置索引: {indices_to_reset}')
+        con.close()
+        return
+
+    await _cleanup_threads(con, thread_ids_to_delete, indices_to_reset)
+    con.close()
+    logger.info(f'成功重置 {len(indices_to_reset)} 条记录')
 
 
 def export_images(*, upload: bool = False) -> None:
@@ -602,16 +583,18 @@ def statistic() -> None:
 
     con = duckdb.connect(DB_PATH, read_only=True)
 
-    total = con.execute('SELECT COUNT(*) FROM tool_functions').fetchone()[0]  # type: ignore[index]
-    processed = con.execute('SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL').fetchone()[0]  # type: ignore[index]
-    success = con.execute('SELECT COUNT(*) FROM tool_functions WHERE tool_node IS NOT NULL').fetchone()[0]  # type: ignore[index]
-    unique_nodes = con.execute(
-        'SELECT COUNT(DISTINCT tool_node) FROM tool_functions WHERE tool_node IS NOT NULL'
-    ).fetchone()[0]  # type: ignore[index]
-    failed = con.execute(
-        'SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL AND tool_node IS NULL'
-    ).fetchone()[0]  # type: ignore[index]
-    interrupted = con.execute('SELECT COUNT(*) FROM tool_functions WHERE interrupted = true').fetchone()[0]  # type: ignore[index]
+    total = (con.execute('SELECT COUNT(*) FROM tool_functions').fetchone() or (0,))[0]
+    processed = (con.execute('SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL').fetchone() or (0,))[0]
+    success = (con.execute('SELECT COUNT(*) FROM tool_functions WHERE tool_node IS NOT NULL').fetchone() or (0,))[0]
+    unique_nodes = (
+        con.execute('SELECT COUNT(DISTINCT tool_node) FROM tool_functions WHERE tool_node IS NOT NULL').fetchone()
+        or (0,)
+    )[0]
+    failed = (
+        con.execute('SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL AND tool_node IS NULL').fetchone()
+        or (0,)
+    )[0]
+    interrupted = (con.execute('SELECT COUNT(*) FROM tool_functions WHERE interrupted = true').fetchone() or (0,))[0]
 
     console = Console()
 
@@ -636,7 +619,7 @@ def statistic() -> None:
         )
     )
 
-    def _render_record_panel(row: dict, title: str, border_style: str = 'cyan') -> None:
+    def _render_record_panel(row: dict | None, title: str, border_style: str = 'cyan') -> None:
         if not row:
             console.print(Panel('[dim](暂无数据)[/dim]', title=title, border_style=border_style))
             return
@@ -715,6 +698,14 @@ def continue_run_cmd(index: int, message: str | None, *, approve: bool) -> None:
 def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
     """删除指定索引的预构建工具 (可一次删除多个, 例如: 61 62 63 65)."""
     asyncio.run(delete_prebuild_tool(list(indices)))
+
+
+@cli.command()
+@click.option('--clean-interrupted', is_flag=True, default=False, help='同时清理 interrupted=true 的记录')
+@click.option('--dry-run', is_flag=True, default=False, help='仅预览待处理记录, 不执行实际操作')
+def check_cmd(*, clean_interrupted: bool, dry_run: bool) -> None:
+    """检查并重置孤立的 DuckDB 记录."""
+    asyncio.run(check_records(clean_interrupted=clean_interrupted, dry_run=dry_run))
 
 
 @cli.command()
