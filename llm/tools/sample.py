@@ -25,6 +25,12 @@ TYPE_MAP = {
 }
 
 
+def _truncate_output(output: str) -> str:
+    if len(output) <= 3000:  # noqa: PLR2004
+        return output
+    return f'{output[:1500]}\n...\n{output[-500:]}'
+
+
 @tool(parse_docstring=True)
 async def set_base_dir(base_path: str, runtime: ToolRuntime) -> Command:
     """Set the root directory.
@@ -196,6 +202,61 @@ async def register_project_file(
     return f'Added project file "{keyword}"'
 
 
+@tool(parse_docstring=True)
+async def list_project_samples(runtime: ToolRuntime[SampleContext]) -> str:
+    """List existing samples already registered in the database for the current project.
+
+    Returns an aggregated summary grouped by shared metadata and tag set, suitable for projects
+    with hundreds of samples. Call this BEFORE any filesystem exploration to decide whether
+    re-scanning is needed.
+    """
+    project_id = runtime.context.project_id
+    with Session(engine) as session:
+        groups = sample_crud.summarize_samples_by_project(session, project_id)
+        proj_files = proj_crud.get_all_file_mappings(session, project_id)
+
+    if not groups and not proj_files:
+        return 'No samples or project-level files are registered for this project. Proceed with filesystem scan.'
+
+    lines: list[str] = []
+    total = sum(g.count for g in groups)
+    lines.append(f'## Existing registry\nTotal samples: {total}')
+
+    for idx, g in enumerate(groups, start=1):
+        lines.append(f'\n### Group {idx} — {g.count} sample(s)')
+        lines.append(f'- meta: {g.meta_data or "{}"}')
+        if g.tags:
+            tag_str = ', '.join(f'{t.tag} ({t.data_type.name})' for t in g.tags)
+            lines.append(f'- tags: {tag_str}')
+        else:
+            lines.append('- tags: (none registered)')
+        lines.append(f'- examples: {", ".join(g.sample_name_examples)}')
+
+    if proj_files:
+        lines.append('\n### Project-level files')
+        lines.extend(f'- proj:{pf.keyword} — {pf.description}' for pf in proj_files)
+
+    return '\n'.join(lines)
+
+
+@tool('remove_sample_file', parse_docstring=True)
+async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[SampleContext]) -> str:
+    """Remove a registered sample file by sample name and tag.
+
+    Use this only on the "local files updated" branch to drop stale entries before
+    re-registering them. Does not delete the sample itself.
+
+    Args:
+        sample_name: Name of the sample whose file should be removed.
+        tag: Tag of the file to remove (e.g. 'r1', 'r2').
+    """
+    with Session(engine) as session:
+        deleted = sample_crud.delete_file_by_name_tag(session, runtime.context.project_id, sample_name, tag)
+    if deleted:
+        return f'Removed file "{tag}" of sample {sample_name}.'
+    return f'No file with tag "{tag}" found on sample {sample_name}.'
+
+
 @tool
 async def write_conclusion(content: str, runtime: ToolRuntime[SampleContext]) -> Command:
     """Write a summary for the file system."""
@@ -206,9 +267,3 @@ async def write_conclusion(content: str, runtime: ToolRuntime[SampleContext]) ->
             'messages': [ToolMessage(content='Done.', tool_call_id=runtime.tool_call_id)],
         }
     )
-
-
-def _truncate_output(output: str) -> str:
-    if len(output) <= 3000:  # noqa: PLR2004
-        return output
-    return f'{output[:1500]}\n...\n{output[-500:]}'
