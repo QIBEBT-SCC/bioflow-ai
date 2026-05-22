@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional
+from typing import Literal
 
 from celery import Task
 
@@ -9,15 +9,19 @@ from script.worker import celery_app
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def set_value_task(
-    self: Task, result_dict: Optional[dict[str, Any]] = None, *, value: str, value_type: Literal['string']
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    value: str,
+    value_type: Literal['string'],
 ) -> ToolOutput:
+    """返回变量值."""
     match value_type:
         case 'string':
             return ToolOutput(result={'value': value})
         case 'number':
             if '.' in value:
                 return ToolOutput(result={'value': float(value)})
-            else:
-                return ToolOutput(result={'value': int(value)})
+            return ToolOutput(result={'value': int(value)})
         case _:
             raise ValueError

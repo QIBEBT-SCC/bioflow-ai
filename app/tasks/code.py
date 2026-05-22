@@ -1,7 +1,6 @@
 import json
 import subprocess
 from pathlib import Path
-from typing import Any, Optional
 
 from celery import Task
 from loguru import logger
@@ -15,7 +14,7 @@ from script.worker import celery_app
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def bash_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     code: str,

@@ -2,7 +2,6 @@ import json
 import platform
 import socket
 import time
-import uuid
 from datetime import UTC, datetime
 from itertools import takewhile
 from pathlib import Path

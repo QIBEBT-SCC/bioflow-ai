@@ -1,5 +1,3 @@
-from typing import Any, Optional
-
 from celery import Task
 from sqlmodel import Session
 
@@ -12,7 +10,7 @@ from script.worker import celery_app
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_file_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     file: str,
     project_id: int | None = None,
@@ -37,7 +35,7 @@ def load_file_task(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_sequence_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     r1: str,
     r2: str,

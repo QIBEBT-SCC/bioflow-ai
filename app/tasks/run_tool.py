@@ -1,7 +1,6 @@
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
 
 from celery import Task
 from loguru import logger
@@ -148,7 +147,7 @@ def build_mounts(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def docker_task(
     self: Task,
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     tool_uid: str,
     inputs: dict[str, TaskInput],

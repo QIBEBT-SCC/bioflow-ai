@@ -2,7 +2,6 @@ import gzip
 import json
 import shutil
 from pathlib import Path
-from typing import Any
 
 from celery import Task
 from loguru import logger
@@ -16,7 +15,7 @@ from script.worker import celery_app
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def select_file_task(
     self: Task,  # noqa: ARG001
-    result_dict: dict[str, Any] | None = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput],
     file_name: str,
@@ -36,7 +35,7 @@ def select_file_task(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def collect_files_task(
     self: Task,  # noqa: ARG001
-    result_dict: dict[str, Any] | None = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     output_dir: str,
@@ -64,7 +63,7 @@ def collect_files_task(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def gzip_file_task(
     self: Task,  # noqa: ARG001
-    result_dict: dict[str, Any] | None = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput],
 ) -> ToolOutput:
@@ -85,7 +84,7 @@ def gzip_file_task(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def bind_param_task(
     self: Task,  # noqa: ARG001
-    result_dict: dict[str, Any] | None = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput],
     parameter: str,

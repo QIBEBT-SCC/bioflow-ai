@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from celery import Task
 from loguru import logger
@@ -61,12 +61,12 @@ MM39_FILES: dict[str, dict[str, str]] = {
 
 def build_bowtie2_index(genome_fasta: str) -> str:
     """构建 bowtie2 索引."""
-    genome_fasta = Path(genome_fasta)
-    index_path = genome_fasta.parent / 'bowtie2'
+    genome_path = Path(genome_fasta)
+    index_path = genome_path.parent / 'bowtie2'
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(genome_path.parent), target='/data/raw'),
         ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
@@ -74,7 +74,7 @@ def build_bowtie2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'bowtie2-build --threads {MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
+        f'bowtie2-build --threads {MAX_THREAD} /data/raw/{genome_path.name} /data/output/{genome_path.stem}',
     )
 
     if status == 0:
@@ -83,20 +83,20 @@ def build_bowtie2_index(genome_fasta: str) -> str:
         logger.error(output)
         raise ValueError(output)
 
-    return f'{index_path}/{genome_fasta.stem}'
+    return f'{index_path}/{genome_path.stem}'
 
 
 def build_bwa_index(genome_fasta: str, *, is_long: bool = False) -> str:
     """构建 bwa 索引."""
-    genome_fasta = Path(genome_fasta)
+    genome_path = Path(genome_fasta)
 
     mounts = [
-        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(genome_path.parent), target='/data/raw'),
     ]
 
     image_cfg = ImageConfig.from_str('quay.io/biocontainers/bwa:0.7.19--h577a1d6_1')
     command = (
-        f'bwa index -a bwtsw /data/raw/{genome_fasta.name}' if is_long else f'bwa index /data/raw/{genome_fasta.name}'
+        f'bwa index -a bwtsw /data/raw/{genome_path.name}' if is_long else f'bwa index /data/raw/{genome_path.name}'
     )
     status, output = run_command(
         image_cfg,
@@ -110,17 +110,17 @@ def build_bwa_index(genome_fasta: str, *, is_long: bool = False) -> str:
         logger.error(output)
         raise ValueError(output)
 
-    return f'{genome_fasta}'
+    return f'{genome_path}'
 
 
 def build_hisat2_index(genome_fasta: str) -> str:
     """构建 hisat2 索引."""
-    genome_fasta = Path(genome_fasta)
-    index_path = genome_fasta.parent / 'hisat2'
+    genome_path = Path(genome_fasta)
+    index_path = genome_path.parent / 'hisat2'
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(genome_path.parent), target='/data/raw'),
         ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
@@ -128,7 +128,7 @@ def build_hisat2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'hisat2-build -p {MAX_THREAD} /data/raw/{genome_fasta.name} /data/output/{genome_fasta.stem}',
+        f'hisat2-build -p {MAX_THREAD} /data/raw/{genome_path.name} /data/output/{genome_path.stem}',
     )
 
     if status == 0:
@@ -137,18 +137,18 @@ def build_hisat2_index(genome_fasta: str) -> str:
         logger.error(output)
         raise ValueError(output)
 
-    return f'{index_path}/{genome_fasta.stem}'
+    return f'{index_path}/{genome_path.stem}'
 
 
-def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
+def build_star_index(genome_fasta: str, gff: str) -> str:
     """构建 STAR 索引."""
-    genome_fasta = Path(genome_fasta)
-    annotation_gff = Path(annotation_gff)
-    index_path = genome_fasta.parent / 'star'
+    genome_path = Path(genome_fasta)
+    gff_path = Path(gff)
+    index_path = genome_path.parent / 'star'
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(genome_path.parent), target='/data/raw'),
         ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
@@ -156,7 +156,7 @@ def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'STAR --runThreadN {MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_fasta.name} --sjdbGTFfile /data/raw/{annotation_gff.name}',
+        f'STAR --runThreadN {MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_path.name} --sjdbGTFfile /data/raw/{gff_path.name}',
     )
 
     if status == 0:
@@ -170,12 +170,12 @@ def build_star_index(genome_fasta: str, annotation_gff: str) -> str:
 
 def build_minimap2_index(genome_fasta: str) -> str:
     """构建 minimap2 索引."""
-    genome_fasta = Path(genome_fasta)
-    index_path = genome_fasta.parent / 'minimap2'
+    genome_path = Path(genome_fasta)
+    index_path = genome_path.parent / 'minimap2'
     index_path.mkdir(exist_ok=True, parents=True)
 
     mounts = [
-        ContainerMount(read_only=False, source=str(genome_fasta.parent), target='/data/raw'),
+        ContainerMount(read_only=False, source=str(genome_path.parent), target='/data/raw'),
         ContainerMount(read_only=False, source=str(index_path), target='/data/output'),
     ]
 
@@ -183,7 +183,7 @@ def build_minimap2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'minimap2 -t {MAX_THREAD} -d /data/output/{genome_fasta.stem}.mmi /data/raw/{genome_fasta.name} ',
+        f'minimap2 -t {MAX_THREAD} -d /data/output/{genome_path.stem}.mmi /data/raw/{genome_path.name} ',
     )
 
     if status == 0:
@@ -192,11 +192,11 @@ def build_minimap2_index(genome_fasta: str) -> str:
         logger.error(output)
         raise ValueError(output)
 
-    return f'{index_path}/{genome_fasta.stem}.mmi'
+    return f'{index_path}/{genome_path.stem}.mmi'
 
 
 def _create_genome_record(
-    session: Session, genome: NCBIAssemblyDataReport, species_info: Any, alias_name: Optional[str] = None
+    session: Session, genome: NCBIAssemblyDataReport, species_info: Any, alias_name: str | None = None
 ) -> ReferenceGenomes:
     """创建基因组数据库记录."""
     download_result = download_genome_data(genome.accession, GENOME_PATH, include_annotation=True, timeout=3600)
@@ -219,7 +219,7 @@ def _create_genome_record(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_ncbi_genome_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput],
     required_index: list[str],
@@ -296,7 +296,7 @@ def load_ncbi_genome_task(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_hg38_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     required_index: list[str],
 ) -> ToolOutput:
@@ -337,7 +337,7 @@ def load_hg38_task(
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def load_mm39_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     required_index: list[str],
 ) -> ToolOutput:
@@ -407,8 +407,8 @@ def _get_existing_index_path(genome_dir: Path, index_name: str, genome_fasta: Pa
 def download_genome_admin_task(
     self: Task,  # noqa: ARG001
     *,
-    ncbi_tax_id: Optional[int] = None,
-    species_name: Optional[str] = None,
+    ncbi_tax_id: int | None = None,
+    species_name: str | None = None,
     required_index: list[str],
 ) -> dict[str, Any]:
     """从 NCBI 下载参考基因组管理员直接调用版, 不依赖 Redis TaskInput."""

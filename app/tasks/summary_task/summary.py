@@ -2,7 +2,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import markdown
 import palitra
@@ -24,7 +24,7 @@ from script.worker import celery_app
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def downstream_summary_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     prompt: str,
@@ -60,20 +60,17 @@ def downstream_summary_task(
 
 
 async def _get_summary(agent_input: dict[str, Any], config: RunnableConfig, context: FolderContext) -> None:
-    async for _, _, data in summary_analysis_agent.astream(
-        agent_input,  # type: ignore
+    await summary_analysis_agent.ainvoke(
+        agent_input,
         config,
-        context=context,  # type: ignore
-        stream_mode=['custom'],
-        subgraphs=True,
-    ):
-        logger.debug(data)
+        context=context,
+    )
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def upstream_summary_task(
     self: Task,  # noqa: ARG001
-    result_dict: Optional[dict[str, Any]] = None,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     base_dir: str,
 ) -> ToolOutput:
