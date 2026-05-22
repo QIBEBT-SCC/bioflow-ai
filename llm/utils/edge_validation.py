@@ -86,6 +86,11 @@ def check_processor_edges(
     return None
 
 
+def check_orphan_edges(exist_edges: list[BuildEdge]) -> list[BuildEdge]:
+    """Return edges whose target_node is None (orphan edges lingering in state)."""
+    return [e for e in exist_edges if e.target_node is None]
+
+
 def check_ncbi_genome_edges(
     input_edges: list[BuildEdge],
     new_node_input_handles: list[Handle],
