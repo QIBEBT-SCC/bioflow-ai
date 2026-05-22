@@ -62,7 +62,7 @@ def format_validation_error(action: str, e: ValidationError, schema_cls: type[Ba
 def manager_help_command(
     params: dict[str, Any],
     help_cls: type[BaseModel],
-    valid_operates: dict[str, type[BaseModel]],
+    valid_operates: dict[str, type[BaseModel] | None],
     help_msg: str,
     tool_call_id: str,
 ) -> Command:
