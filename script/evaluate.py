@@ -214,7 +214,7 @@ def _send_run_task(
     from app.models.user import User
 
     con.execute(
-        'UPDATE evaluate_results output_path = $output_path WHERE thread_id = $thread_id',
+        'UPDATE evaluate_results SET output_path = $output_path WHERE thread_id = $thread_id',
         {'thread_id': thread_id, 'output_path': output_dir},
     )
 
