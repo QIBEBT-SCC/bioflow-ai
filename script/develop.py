@@ -412,6 +412,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
     import app.crud.tools.tool as tool_crud
     from app.core.session import engine
+    from app.models.user import User
 
     con = duckdb.connect(DB_PATH)
     thread_ids_to_delete: list[str] = []
