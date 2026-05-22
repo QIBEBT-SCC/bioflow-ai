@@ -378,23 +378,57 @@ async def rebuild_processor_index() -> None:
         await vectorstore.aadd_documents(docs)
 
 
+async def init_admin() -> None:
+    """当User表为空时, 创建默认管理员账户."""
+    from sqlmodel import Session, select
+
+    import app.crud.user as user_crud
+    from app.core.session import engine
+    from app.models.user import User, UserRole
+    from app.utils.security import get_password_hash
+
+    with Session(engine) as session:
+        existing = session.exec(select(User)).first()
+        if existing is not None:
+            logger.error('User table is not empty, skipping admin initialization.')
+            return
+
+        admin = User(
+            username='admin',
+            email='admin@email.com',
+            role=UserRole.ADMIN,
+            hashed_password=get_password_hash('admin'),
+            is_active=True,
+        )
+        user_crud.insert(session, admin)
+        logger.info('Default admin account created')
+        logger.info('Email: admin@email.com')
+        logger.info('Password: admin')
+
+
 @click.group()
 def cli() -> None:
-    """数据库初始化和管理工具."""
+    """Database initialization and management tool."""
 
 
 @cli.command()
-@click.option('--drop-old', is_flag=True, default=False, help='删除旧数据 (默认: 不删除)')
+def create_admin_cmd() -> None:
+    """Create a default admin account."""
+    asyncio.run(init_admin())
+
+
+@cli.command()
+@click.option('--drop-old', is_flag=True, default=False, help='Drop existing data before importing (default: keep)')
 @click.option(
     '--databases',
     '-d',
     type=click.Choice(['all', 'image', 'tool', 'doc']),
     default='all',
     show_default=True,
-    help='指定要初始化的数据库',
+    help='Target database(s) to initialize',
 )
 def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'tool', 'doc']) -> None:
-    """初始化数据库数据."""
+    """Initialize database records from preset files."""
 
     async def _run() -> None:
         if databases in ('all', 'image'):
@@ -416,10 +450,10 @@ def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'tool', 'd
     type=click.Choice(['all', 'tool', 'processor', 'image']),
     default='all',
     show_default=True,
-    help='指定要重建的向量索引集合',
+    help='Target vector index collection(s) to rebuild',
 )
 def rebuild_index_cmd(collections: Literal['all', 'tool', 'processor', 'image']) -> None:
-    """重建工具向量存储."""
+    """Rebuild vector store indexes."""
 
     async def _run() -> None:
         if collections in ('all', 'image'):
