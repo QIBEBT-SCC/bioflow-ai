@@ -13,7 +13,13 @@ from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.project import Project
 from app.models.resource import Sample, SampleFiles, SampleFileType
-from app.schemas.resource import SampleBatchImportResult, SampleListItem, SampleUpdate
+from app.schemas.resource import (
+    SampleBatchImportResult,
+    SampleGroupSummary,
+    SampleListItem,
+    SampleTagInfo,
+    SampleUpdate,
+)
 from app.utils.file.hash import calculate_file_md5
 from app.utils.system import get_file_size
 
@@ -254,6 +260,58 @@ def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int
     ]
 
 
+def summarize_samples_by_project(session: Session, project_id: int) -> list[SampleGroupSummary]:
+    """按 (meta_data, tag 集合) 聚合项目下样本, 返回组级摘要.
+
+    用于大规模项目 (数百样本) 的概览, 避免逐样本返回造成 token 浪费.
+    """
+    query: Select = (
+        select(
+            Sample.uid,
+            Sample.sample_name,
+            Sample.meta_data,
+            SampleFiles.tag,
+            SampleFiles.data_type,
+        )
+        .outerjoin(SampleFiles, Sample.uid == SampleFiles.sample_uid)
+        .where(Sample.project_id == project_id)
+        .order_by(Sample.create_time)
+    )
+    rows = session.exec(query).all()
+
+    per_sample: dict[uuid.UUID, dict] = {}
+    for r in rows:
+        entry = per_sample.setdefault(
+            r.uid,
+            {'name': r.sample_name, 'meta': r.meta_data or {}, 'tags': {}},
+        )
+        if r.tag is not None:
+            entry['tags'][r.tag] = r.data_type
+
+    groups: dict[tuple, dict] = {}
+    for entry in per_sample.values():
+        tags_key = tuple(sorted(entry['tags'].items()))
+        meta_key = tuple(sorted(entry['meta'].items()))
+        key = (meta_key, tags_key)
+        bucket = groups.setdefault(
+            key,
+            {'count': 0, 'meta': entry['meta'], 'tags': entry['tags'], 'names': []},
+        )
+        bucket['count'] += 1
+        if len(bucket['names']) < 3:  # noqa: PLR2004
+            bucket['names'].append(entry['name'])
+
+    return [
+        SampleGroupSummary(
+            count=b['count'],
+            meta_data=b['meta'],
+            tags=[SampleTagInfo(tag=t, data_type=dt) for t, dt in sorted(b['tags'].items())],
+            sample_name_examples=b['names'],
+        )
+        for b in groups.values()
+    ]
+
+
 def get_count_by_project(session: Session, project_id: int) -> int:
     """获取项目下的样本数量."""
     query: Select = select(func.count()).select_from(Sample).where(Sample.project_id == project_id)
@@ -311,6 +369,23 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
         # 样本不存在, 仍然删除文件
         session.delete(file)
         session.commit()
+
+
+def delete_file_by_name_tag(session: Session, project_id: int, sample_name: str, tag: str) -> bool:
+    """根据项目 + 样本名 + tag 删除样本文件. 返回是否实际删除."""
+    query: Select = (
+        select(SampleFiles)
+        .join(Sample, Sample.uid == SampleFiles.sample_uid)
+        .where(Sample.project_id == project_id, Sample.sample_name == sample_name, SampleFiles.tag == tag)
+    )
+    file = session.exec(query).one_or_none()
+    if not file:
+        return False
+
+    session.delete(file)
+    _update_project_time(session, project_id)
+    session.commit()
+    return True
 
 
 def get_files(session: Session, sample_uid: uuid.UUID) -> list[SampleFiles]:

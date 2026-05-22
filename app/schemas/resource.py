@@ -187,6 +187,22 @@ class SampleListItem(BaseModel):
     file_count: int = 0
 
 
+class SampleTagInfo(BaseModel):
+    """样本组中共享的 tag 信息."""
+
+    tag: str
+    data_type: SampleFileType
+
+
+class SampleGroupSummary(BaseModel):
+    """按 (meta_data, tag 集合) 聚合后的样本组."""
+
+    count: int
+    meta_data: dict
+    tags: list[SampleTagInfo]
+    sample_name_examples: list[str]
+
+
 class SampleBatchImportResult(BaseModel):
     """批量导入结果."""
 
