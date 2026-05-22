@@ -5,8 +5,10 @@ from llm.states import SampleContext, SampleState
 from llm.tools.human import ask_human
 from llm.tools.sample import (
     add_samples,
+    list_project_samples,
     register_project_file,
     register_sample_file,
+    remove_sample_file,
     run_command_tool,
     set_base_dir,
     write_conclusion,
@@ -25,6 +27,15 @@ and register files into the system's two-level index.
 Note: Reference genomes and tool databases are managed by separate system modules — no need to register them here.
 
 ## Execution steps
+
+0. **Check existing registry** — Always call `list_project_samples` first.
+   - If the database already has samples AND the user has NOT stated that local files were changed:
+     skip steps 1-3 entirely. Write the conclusion directly from the registry content via `write_conclusion`.
+   - If samples exist AND the user explicitly says local files were updated / added / removed:
+     proceed to steps 1-3, but first call `remove_sample_file` to drop stale entries that no longer match
+     local files. Reuse existing sample names — do NOT call `add_samples` for samples that already exist
+     (only call it for genuinely new sample names).
+   - If no samples exist: proceed to steps 1-3 normally.
 
 1. **Explore** — Call `set_base_dir`, then use `run_command` to map the directory structure.
    - `base_dir` is mounted as `/app/data` inside the container; use `/app/data` as the working path in all shell commands.
@@ -65,6 +76,10 @@ All samples contain the following tags:
 Do not list individual file paths. Focus only on what downstream workflows can reference via `sample:` and `proj:` syntax.
 
 ## Notes
+### Source of truth
+- The database is the source of truth. Only re-scan the filesystem when the database is empty or the user
+  explicitly states that local files have changed. Do not re-scan "to double-check" — that wastes time and tokens.
+
 ### Directory exploration
 - `base_dir` is mounted as `/app/data` inside the container. Always use `/app/data` as the root path in shell commands — never use the host-side `base_dir` path directly.
 - Do not inspect every file individually. Samples in the same batch typically share the same metadata; spot-check a few representative files to confirm, then apply uniformly.
@@ -99,8 +114,10 @@ create_sample_agent = create_agent(
     [
         set_base_dir,
         run_command_tool,
+        list_project_samples,
         add_samples,
         register_sample_file,
+        remove_sample_file,
         register_project_file,
         write_conclusion,
         ask_human,
