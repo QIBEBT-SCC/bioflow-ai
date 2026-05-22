@@ -134,7 +134,7 @@ class CreateToolAgent:
             model=self.think_llm,
             tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
-            middleware=[TokenStatisticMiddleware(agent_name='select_group', **self.think_llm.metadata)],  # type: ignore
+            middleware=[TokenStatisticMiddleware(agent_name='select_group', **self.think_llm.metadata)],
             state_schema=SelectGroupState,  # type: ignore
             context_schema=UserContext,  # type: ignore
         )
