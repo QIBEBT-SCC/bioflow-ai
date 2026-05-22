@@ -1,5 +1,4 @@
-import json
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, cast
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -13,10 +12,8 @@ import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
-import app.crud.tools.tool_tag as tag_crud
-from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage
 from app.schemas.tools import ToolNodePublic
 from app.utils.container import run_command
 from llm.utils.formatters import search_nodes_formatter
@@ -40,7 +37,8 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
         new_mapper = BidirectionalMapper(datas=images)
 
     if images:
-        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
+        exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+        merged_mapper = merge_mappers(exist_mapper, new_mapper)
         image_blocks = [
             (
                 f'  <image>\n'
@@ -87,7 +85,7 @@ def select_image(
     Args:
         image_id: selected image id
     """
-    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
     image_uid = mapper.get_uid_by_index(image_id)
 
     with Session(engine) as session:
@@ -163,7 +161,8 @@ def list_docs(runtime: ToolRuntime) -> Command:
         new_mapper = BidirectionalMapper(datas=docs)
 
     if docs:
-        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
+        exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+        merged_mapper = merge_mappers(exist_mapper, new_mapper)
         doc_blocks = [
             (
                 f'  <doc>\n'
@@ -206,7 +205,7 @@ def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
     Args:
         doc_id: ID of the document to view
     """
-    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
     doc_uid = mapper.get_uid_by_index(doc_id)
 
     with Session(engine) as session:
@@ -222,7 +221,7 @@ def select_doc(doc_id: int, runtime: ToolRuntime) -> Command:
     Args:
         doc_id: selected doc id
     """
-    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
 
     return Command(
         update={
@@ -249,7 +248,7 @@ def save_doc(
         help_command: The command corresponding to this help document
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
-    image: ImageConfig = runtime.state.get('image')
+    image = cast('ImageConfig', runtime.state.get('image'))
     code, result = run_command(image, [], help_command)
 
     with Session(engine) as session:
@@ -289,7 +288,8 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
         new_mapper = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
-        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
+        exits_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+        merged_mapper = merge_mappers(exits_mapper, new_mapper)
         tool_nodes = []
         for exist_tool in exist_tools:
             try:
@@ -332,7 +332,7 @@ def read_tool_doc(tool_id: int, runtime: ToolRuntime) -> str:
     Args:
         tool_id: tool ID for which you wish to view the help documentation
     """
-    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
     tool_uid = mapper.get_uid_by_index(tool_id)
 
     with Session(engine) as session:
@@ -353,7 +353,7 @@ def select_tool(tool_id: int, runtime: ToolRuntime) -> Command:
     Args:
         tool_id: selected tool id
     """
-    mapper: BidirectionalMapper = runtime.state.get('id_mapper')
+    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
 
     return Command(
         update={
@@ -378,7 +378,7 @@ def view_groups() -> str:
 
         def _build_tree_string(
             _groups_list: list[ToolGroup],
-            _parent_id: Optional[int] = None,
+            _parent_id: int | None = None,
             _indent: int = 0,
         ) -> list[str]:
             result = []
