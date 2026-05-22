@@ -65,7 +65,8 @@ VALUES (1, 'Default'),
        (18, 'Functional Enrichment'),
        (19, 'Single-cell'),
        (20, 'Metagenomics'),
-       (21, 'Phylogenetics');
+       (21, 'Phylogenetics'),
+       (22, 'Structural Biology');
 
 -- init tool group
 INSERT INTO tool_groups (id, name, parent_id, tag_id)
@@ -86,4 +87,5 @@ VALUES (1, 'Data Handling & QC', NULL, 4),
        (15, 'Functional Enrichment', 3, 18),
        (16, 'Single-cell', 4, 19),
        (17, 'Metagenomics', 4, 20),
-       (18, 'Phylogenetics', 4, 21);
+       (18, 'Phylogenetics', 4, 21),
+       (19, 'Structural Biology', 4, 22);
