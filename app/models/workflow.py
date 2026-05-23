@@ -46,6 +46,8 @@ class Workflow(SQLModel, table=True):
     execution_scope: ExecutionScope = Field(default=ExecutionScope.SAMPLE_LEVEL, sa_type=Integer)
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
     public: bool = False
+    auto_summary: bool = Field(default=False)
+    summary_prompt: Optional[str] = Field(default=None)
 
     owner: Optional['User'] = Relationship()
 

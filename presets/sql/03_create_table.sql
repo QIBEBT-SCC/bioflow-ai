@@ -299,6 +299,8 @@ CREATE TABLE IF NOT EXISTS workflows
     execution_scope INTEGER NOT NULL,
     workflow        jsonb,
     public          BOOLEAN NOT NULL,
+    auto_summary    BOOLEAN NOT NULL DEFAULT FALSE,
+    summary_prompt  VARCHAR,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users
 );

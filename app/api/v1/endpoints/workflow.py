@@ -12,7 +12,7 @@ from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Status, Workflow
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.workflow import WorkflowCreateProp, WorkflowUpdate
-from app.utils.input_format import get_sample_name, to_safe_path_segment
+from app.utils.input_format import to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
 
@@ -29,13 +29,13 @@ async def get_workflows(
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[Workflow]:
     """Get a paginated list of workflows for the current user."""
-    return wf_crud.get_all(session, limit, offset, current_user.id)
+    return wf_crud.get_all(session, limit, offset, current_user.id)  # type: ignore
 
 
 @router.get('/count')
 async def get_workflows_count(session: SessionDep, current_user: UserDep) -> int:
     """Get the total count of workflows for the current user."""
-    return wf_crud.get_count(session, current_user.id)
+    return wf_crud.get_count(session, current_user.id)  # type: ignore
 
 
 @router.post('/run', description='从editor新建工作流运行实例')
@@ -109,12 +109,15 @@ async def save_workflow(
         name=workflow_prop.name,
         owner_id=current_user.id,
         wf_type=workflow_prop.wf_type,
+        execution_scope=workflow_prop.execution_scope,
         workflow=workflow_prop.workflow,
         public=workflow_prop.public,
+        auto_summary=workflow_prop.auto_summary,
+        summary_prompt=workflow_prop.summary_prompt,
     )
 
     wf_crud.insert(session, workflow)
-    return uid
+    return uid  # type: ignore
 
 
 @router.delete('/{uid}', status_code=status.HTTP_204_NO_CONTENT)

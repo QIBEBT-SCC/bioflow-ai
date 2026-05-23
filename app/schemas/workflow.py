@@ -12,9 +12,13 @@ class WorkflowCreateProp(BaseModel):
     execution_scope: ExecutionScope = ExecutionScope.SAMPLE_LEVEL
     workflow: WorkflowDefinition
     public: bool
+    auto_summary: bool = False
+    summary_prompt: Optional[str] = None
 
 
 class WorkflowUpdate(BaseModel):
     name: Optional[str] = None
     execution_scope: Optional[ExecutionScope] = None
     workflow: Optional[WorkflowDefinition] = None
+    auto_summary: Optional[bool] = None
+    summary_prompt: Optional[str] = None
