@@ -77,7 +77,7 @@ def new_tag(
 @tag_router.get('')
 def get_tag_list(session: SessionDep, _current_user: UserDep) -> list[TagWithCount]:
     """Get all project tags with usage counts."""
-    return tag_crud.get_all(session)
+    return tag_crud.get_all(session)  # type: ignore
 
 
 @router.post('')
@@ -109,7 +109,7 @@ def star_project(
     current_user: UserDep,
 ) -> None:
     """Star (bookmark) a project for the current user."""
-    project_crud.star_project(session, current_user.id, project_id)
+    project_crud.star_project(session, current_user.id, project_id)  # type: ignore
 
 
 @router.post('/{project_id}/unstar')
@@ -119,7 +119,7 @@ def unstar_project(
     current_user: UserDep,
 ) -> None:
     """Remove a star (bookmark) from a project."""
-    project_crud.unstar_project(session, current_user.id, project_id)
+    project_crud.unstar_project(session, current_user.id, project_id)  # type: ignore
 
 
 @router.get('')
@@ -138,11 +138,11 @@ def get_project_list(
     """
     match filter_type:
         case 'starred':
-            return project_crud.get_all_star(session, limit, offset, current_user.id)
+            return project_crud.get_all_star(session, limit, offset, current_user.id)  # type: ignore
         case 'my':
-            return project_crud.get_all_my(session, limit, offset, current_user.id)
+            return project_crud.get_all_my(session, limit, offset, current_user.id)  # type: ignore
         case 'all':
-            return project_crud.get_all(session, limit, offset, current_user.id)
+            return project_crud.get_all(session, limit, offset, current_user.id)  # type: ignore
         case _:
             return []
 
@@ -150,7 +150,7 @@ def get_project_list(
 @router.get('/recent')
 def get_recent_project(session: SessionDep, current_user: UserDep) -> ProjectPublic:
     """Get user's recently updated projects."""
-    return project_crud.get_recent(session, current_user.id)
+    return project_crud.get_recent(session, current_user.id)  # type: ignore
 
 
 @router.get('/{project_id}')
@@ -160,7 +160,7 @@ def get_project(
     current_user: UserDep,
 ) -> ProjectPublic:
     """Get project detail by ID."""
-    return project_crud.get(session, current_user.id, project_id)
+    return project_crud.get(session, current_user.id, project_id)  # type: ignore
 
 
 # ==================== Sample Management Endpoints (Under Project) ====================
@@ -186,7 +186,7 @@ async def create_sample_in_project(
     )
 
     sample_crud.insert(session, sample)
-    return sample_crud.get_with_files(session, sample.uid)
+    return sample_crud.get_with_files(session, sample.uid)  # type: ignore
 
 
 @router.get('/{project_id}/samples')
@@ -244,7 +244,7 @@ async def batch_import_samples(
         raise HTTPException(400, f'Failed to read file: {e!s}') from e
 
     # Batch import
-    return sample_crud.batch_import_from_csv(session, content, project_id, current_user.id)
+    return sample_crud.batch_import_from_csv(session, content, project_id, current_user.id)  # type: ignore
 
 
 @router.get('/{project_id}/samples/{sample_uid}')
@@ -260,7 +260,7 @@ async def get_project_sample(
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
     if sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
-    return sample
+    return sample  # type: ignore
 
 
 @router.put('/{project_id}/samples/{sample_uid}')
@@ -277,7 +277,7 @@ async def update_project_sample(
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
     sample_crud.update(session, sample_uid, sample_update)
-    return sample_crud.get_with_files(session, sample_uid)
+    return sample_crud.get_with_files(session, sample_uid)  # type: ignore
 
 
 @router.delete('/{project_id}/samples/{sample_uid}')
@@ -320,7 +320,7 @@ async def add_file_to_project_sample(
         md5_checksum='',  # Calculated automatically by CRUD
     )
 
-    return sample_crud.add_file(session, sample_file)
+    return sample_crud.add_file(session, sample_file)  # type: ignore
 
 
 @router.delete('/{project_id}/samples/{sample_uid}/files/{file_uid}')
@@ -352,7 +352,7 @@ async def get_project_sample_files(
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    return sample_crud.get_files(session, sample_uid)
+    return sample_crud.get_files(session, sample_uid)  # type: ignore
 
 
 # ==================== Workflow Management Endpoints (Under Project) ====================
@@ -452,9 +452,12 @@ async def run_workflow_on_samples(
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
 
     # Get workflow to determine execution scope
-    workflow = wf_crud.get(session, workflow_uid)
+    workflow = wf_crud.get(session, workflow_uid)  # type: ignore
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
+
+    # Resolve effective auto_summary: runtime override takes precedence over workflow default
+    effective_auto_summary = run_request.auto_summary if run_request.auto_summary is not None else workflow.auto_summary
 
     # Dispatch based on execution scope
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
@@ -471,6 +474,8 @@ async def run_workflow_on_samples(
             workflow_uid,
             current_user,
             run_request.run_name_prefix,
+            auto_summary=effective_auto_summary,
+            summary_prompt=workflow.summary_prompt,
         )
     # Sample-level execution
     if not run_request.sample_uids:
@@ -481,7 +486,14 @@ async def run_workflow_on_samples(
 
     logger.debug(run_request)
     return create_runs_from_samples(
-        session, project_id, workflow_uid, run_request.sample_uids, current_user, run_request.run_name_prefix
+        session,
+        project_id,
+        workflow_uid,
+        run_request.sample_uids,
+        current_user,
+        run_request.run_name_prefix,
+        auto_summary=effective_auto_summary,
+        summary_prompt=workflow.summary_prompt,
     )
 
 
@@ -504,7 +516,7 @@ async def package_workflow_runs(
     if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
 
-    workflow = wf_crud.get(session, workflow_uid)
+    workflow = wf_crud.get(session, workflow_uid)  # type: ignore
     sub_map = {'summary': 'summary', 'downstream': 'raw_data'}
 
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
@@ -536,7 +548,7 @@ async def package_workflow_runs(
 
     else:
         runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
-        run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and Path(run.base_dir).exists()]
+        run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and Path(run.base_dir).exists()]  # type: ignore
         # SAMPLE_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name}/{sample_name} (多个)
 
         def _iter_zip() -> Generator[bytes, None, None]:

@@ -15,12 +15,14 @@ class ProjectWorkflowPublic(BaseModel):
     workflow_name: str
     import_time: datetime
     enabled: bool
+    auto_summary: bool
 
 
 class WorkflowRunRequest(BaseModel):
     """运行工作流的请求"""
     sample_uids: list[uuid.UUID] | None = None
     run_name_prefix: str | None = None
+    auto_summary: bool | None = None  # None = 使用 workflow 默认值
 
 
 class WorkflowRunResult(BaseModel):

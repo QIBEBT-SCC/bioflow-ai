@@ -73,6 +73,7 @@ def upstream_summary_task(
     result_dict: ToolOutput | None = None,  # noqa: ARG001
     *,
     base_dir: str,
+    summary_prompt: str | None = None,
 ) -> ToolOutput:
     """生成上游分析总结报告."""
     image = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.1.0')
@@ -91,8 +92,12 @@ def upstream_summary_task(
         ]
         container_id = create_container(image, file_mount)
 
+        extra_message = summary_prompt if summary_prompt else '使用默认总结逻辑'
         agent_input = {
-            'messages': [HumanMessage(content='请阅读当前目录下的分析项目, 给出分析报告')],
+            'messages': [
+                HumanMessage(content='请阅读当前目录下的分析项目, 给出分析报告'),
+                HumanMessage(content=extra_message),
+            ],
             'container_id': container_id,
         }
         config: RunnableConfig = {'recursion_limit': sys.maxsize}

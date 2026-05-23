@@ -376,4 +376,8 @@ class UpSummaryHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        return upstream_summary_task.s(base_dir=context.output_base).set(task_id=str(context.run_uid))
+        summary_prompt = task_node.data.get('summary_prompt') if task_node.data else None
+        return upstream_summary_task.s(
+            base_dir=context.output_base,
+            summary_prompt=summary_prompt,
+        ).set(task_id=str(context.run_uid))

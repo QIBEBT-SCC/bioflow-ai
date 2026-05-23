@@ -109,6 +109,8 @@ def send_task(
     owner: User,
     output_base: str,
     run_uid: uuid.UUID,
+    auto_summary: bool = False,
+    summary_prompt: str | None = None,
 ) -> None:
     """Build the actual task queue and send it to celery worker.
 
@@ -121,10 +123,11 @@ def send_task(
         owner: Task creator.
         output_base: Root output directory.
         run_uid: Run instance UID.
+        auto_summary: Whether to append an upstream summary task.
+        summary_prompt: Custom summary instruction; None uses default logic.
     """
-    if sample_name is not None:
-        # Add automatic summary task for sample-level workflows
-        task_nodes.append([TaskNode(id=uuid7str(), type='upstream_summary', data={})])
+    if auto_summary:
+        task_nodes.append([TaskNode(id=uuid7str(), type='upstream_summary', data={'summary_prompt': summary_prompt})])
 
     rich.print(task_nodes)
 

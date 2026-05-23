@@ -121,7 +121,11 @@ def get_project_workflows(
 
     return [
         ProjectWorkflowPublic(
-            workflow_uid=pw.workflow_uid, workflow_name=wf.name, import_time=pw.import_time, enabled=pw.enabled
+            workflow_uid=pw.workflow_uid,
+            workflow_name=wf.name,
+            import_time=pw.import_time,
+            enabled=pw.enabled,
+            auto_summary=wf.auto_summary,
         )
         for pw, wf in results
     ]

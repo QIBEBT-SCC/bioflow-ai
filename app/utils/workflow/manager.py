@@ -36,6 +36,8 @@ def create_runs_from_samples(
     sample_uids: list[uuid.UUID],
     current_user: User,
     run_name_prefix: Optional[str] = None,
+    auto_summary: bool = False,
+    summary_prompt: Optional[str] = None,
 ) -> WorkflowRunResult:
     """Batch create run instances from a list of samples.
 
@@ -148,6 +150,8 @@ def create_runs_from_samples(
             current_user,
             run.base_dir,
             run.uid,
+            auto_summary=auto_summary,
+            summary_prompt=summary_prompt,
         )
 
         run_uids.append(run.uid)
@@ -161,6 +165,8 @@ def create_project_level_run(
     workflow_uid: uuid.UUID,
     current_user: User,
     run_name_prefix: Optional[str] = None,
+    auto_summary: bool = False,
+    summary_prompt: Optional[str] = None,
 ) -> WorkflowRunResult:
     """Create a project-level workflow run instance.
 
@@ -264,6 +270,8 @@ def create_project_level_run(
         current_user,
         run.base_dir,
         run.uid,
+        auto_summary=auto_summary,
+        summary_prompt=summary_prompt,
     )
 
     return WorkflowRunResult(run_uids=[run.uid], count=1)
