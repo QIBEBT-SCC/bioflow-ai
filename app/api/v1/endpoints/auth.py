@@ -7,21 +7,25 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
+import app.crud.user as user_crud
 from app.core.config import get_settings
-from app.core.session import SessionDep
 from app.core.redis_client import RedisDep
+from app.core.session import SessionDep
 from app.models.user import User
 from app.schemas.auth import Token
-from app.schemas.user import UserPublic
+from app.schemas.user import PasswordUpdate, UserPublic
 from app.utils.security import (
+    UserDep,
     authenticate_user,
     create_access_token,
     create_refresh_token,
     get_current_active_user,
+    get_password_hash,
     get_token_from_header_or_cookie,
     revoke_token,
     store_refresh_token,
     validate_and_rotate_refresh_token,
+    verify_password,
 )
 
 router = APIRouter()
@@ -175,3 +179,11 @@ async def logout(
     response.delete_cookie('access_token', path=_COOKIE_PATH, domain=cfg.COOKIE_DOMAIN)
     response.delete_cookie('refresh_token', path=_COOKIE_PATH, domain=cfg.COOKIE_DOMAIN)
     return {'message': 'Successfully logged out'}
+
+
+@router.put('/password', status_code=status.HTTP_204_NO_CONTENT)
+def update_password(body: PasswordUpdate, session: SessionDep, current_user: UserDep) -> None:
+    """Update the current user's password."""
+    if not verify_password(body.current_password.get_secret_value(), current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Current password is incorrect')
+    user_crud.update(session, current_user, hashed_password=get_password_hash(body.new_password.get_secret_value()))
