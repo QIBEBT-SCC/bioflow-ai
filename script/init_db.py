@@ -6,6 +6,34 @@ import click
 from loguru import logger
 
 
+async def init_admin() -> None:
+    """当User表为空时, 创建默认管理员账户."""
+    from sqlmodel import Session, select
+
+    import app.crud.user as user_crud
+    from app.core.session import engine
+    from app.models.user import User, UserRole
+    from app.utils.security import get_password_hash
+
+    with Session(engine) as session:
+        existing = session.exec(select(User)).first()
+        if existing is not None:
+            logger.error('User table is not empty, skipping admin initialization.')
+            return
+
+        admin = User(
+            username='admin',
+            email='admin@email.com',
+            role=UserRole.ADMIN,
+            hashed_password=get_password_hash('admin'),
+            is_active=True,
+        )
+        user_crud.insert(session, admin)
+        logger.info('Default admin account created')
+        logger.info('Email: admin@email.com')
+        logger.info('Password: admin')
+
+
 async def init_images(*, drop_old: bool = True) -> None:
     """初始化镜像数据库."""
     import orjson
@@ -378,37 +406,19 @@ async def rebuild_processor_index() -> None:
         await vectorstore.aadd_documents(docs)
 
 
-async def init_admin() -> None:
-    """当User表为空时, 创建默认管理员账户."""
-    from sqlmodel import Session, select
-
-    import app.crud.user as user_crud
-    from app.core.session import engine
-    from app.models.user import User, UserRole
-    from app.utils.security import get_password_hash
-
-    with Session(engine) as session:
-        existing = session.exec(select(User)).first()
-        if existing is not None:
-            logger.error('User table is not empty, skipping admin initialization.')
-            return
-
-        admin = User(
-            username='admin',
-            email='admin@email.com',
-            role=UserRole.ADMIN,
-            hashed_password=get_password_hash('admin'),
-            is_active=True,
-        )
-        user_crud.insert(session, admin)
-        logger.info('Default admin account created')
-        logger.info('Email: admin@email.com')
-        logger.info('Password: admin')
-
-
 @click.group()
 def cli() -> None:
     """Database initialization and management tool."""
+
+
+@cli.command()
+def system_init_cmd() -> None:
+    """Initialize all system information, including the administrator user, database, and vector index."""
+    asyncio.run(init_admin())
+    asyncio.run(init_images(drop_old=True))
+    asyncio.run(init_docs(drop_old=True))
+    asyncio.run(init_tools(drop_old=True))
+    asyncio.run(rebuild_processor_index())
 
 
 @cli.command()
