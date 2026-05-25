@@ -283,9 +283,7 @@ def _delete_node(node_id: str, runtime: ToolRuntime[BuildContext]) -> Command:
     )
 
 
-def _orphan_edges_report(
-    orphans: list[BuildEdge], exist_nodes: list[BuildNode], tool_call_id: str
-) -> Command:
+def _orphan_edges_report(orphans: list[BuildEdge], exist_nodes: list[BuildNode], tool_call_id: str) -> Command:
     node_names = {n.id: n.name for n in exist_nodes}
     remaining_ids = sorted(node_names)
     affected_sources = sorted({e.source_node for e in orphans})
@@ -297,9 +295,7 @@ def _orphan_edges_report(
     ]
     for i, e in enumerate(orphans, 1):
         src_name = node_names.get(e.source_node, '<unknown>')
-        lines.append(
-            f'  {i}. {e.source_node}({src_name}) [{e.source_handle}] -> <missing> [{e.target_handle}]'
-        )
+        lines.append(f'  {i}. {e.source_node}({src_name}) [{e.source_handle}] -> <missing> [{e.target_handle}]')
 
     lines += [
         '',
@@ -440,6 +436,7 @@ async def _save_workflow(name: str, description: str, runtime: ToolRuntime[UserC
             wf_type=WorkflowType.TEMPLATE,
             workflow=workflow_define,
             public=True,
+            auto_summary=True,
         )
 
         workflow = wf_crud.insert(session, workflow)
