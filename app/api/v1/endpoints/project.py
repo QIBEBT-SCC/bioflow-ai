@@ -25,6 +25,7 @@ from app.models.project import (
 )
 from app.models.resource import Sample, SampleFiles
 from app.models.workflow import ExecutionScope
+from app.schemas.common import Statistics
 from app.schemas.project import (
     ProjectCreateProp,
     ProjectFileMappingCreate,
@@ -619,6 +620,23 @@ async def get_project_runs(
         result.append(run_data)
 
     return result
+
+
+@router.get('/{project_id}/runs/stats')
+async def get_project_run_stats(
+    project_id: int,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> Statistics:
+    """Get run instance statistics by status for a project.
+
+    Args:
+        project_id: Project ID
+
+    Returns:
+        Statistics: Counts of total, success, error, running, waiting run instances.
+    """
+    return run_crud.get_project_run_stats(session, project_id)
 
 
 @router.get('/{project_id}/runs/count')

@@ -219,6 +219,32 @@ def get_project_run_count(session: Session, project_id: int) -> int:
     return session.exec(statement).one()
 
 
+def get_project_run_stats(session: Session, project_id: int) -> Statistics:
+    """Get statistics of run instances by status for a project.
+
+    Args:
+        session: Database session
+        project_id: Project ID
+
+    Returns:
+        Statistics: Counts of total, success, error, running, waiting run instances.
+    """
+    stats: Select = (
+        select(  # type: ignore
+            func.count().label('total'),
+            func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
+            func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)).label('error'),
+            func.sum(case((RunInstance.status == Status.RUNNING, 1), else_=0)).label('running'),
+            func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)).label('waiting'),
+        )
+        .select_from(RunInstance)
+        .where(RunInstance.project_id == project_id)
+    )
+
+    total, success, error, running, waiting = session.exec(stats).one()
+    return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
+
+
 def get_latest_run_by_sample_and_workflow(
     session: Session, sample_uid: uuid.UUID, workflow_uid: uuid.UUID
 ) -> Optional[RunInstance]:
