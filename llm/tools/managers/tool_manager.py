@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import nanoid
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -115,7 +115,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     """
     match action:
         case 'help':
-            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
+            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)  # type: ignore
         case 'search_by_name':
             try:
                 validate_param = NameSearchSchema.model_validate(params)
@@ -241,7 +241,8 @@ def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Comm
         new_mapper = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
-        merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
+        exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+        merged_mapper = merge_mappers(exist_mapper, new_mapper)
         tool_nodes = []
         for exist_tool in exist_tools:
             try:
@@ -294,7 +295,8 @@ async def _search_tools_by_function(query: str, runtime: ToolRuntime[BuildContex
             }
         )
 
-    merged_mapper = merge_mappers(runtime.state.get('id_mapper'), new_mapper)
+    exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+    merged_mapper = merge_mappers(exist_mapper, new_mapper)  # type: ignore
 
     return Command(
         update={
@@ -320,7 +322,19 @@ def _add_tool_node(
 
     with Session(engine) as session:
         db_tool = tool_crud.get(session, tool_uid)
-        db_node = ToolNodePublic.model_validate(db_tool.model_dump())  # type: ignore[union-attr]
+        if db_tool:
+            db_node = ToolNodePublic.model_validate(db_tool.model_dump())
+        else:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content='The tool corresponding to the ID was not found in the database. Please verify that the provided ID is correct, or search again to confirm whether the ID has changed.',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
 
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     if error := check_edge_handles(input_edges, db_node.input_handles, exist_nodes):
@@ -359,7 +373,7 @@ def _add_tool_node(
 
 
 async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: ToolRuntime[BuildContext]) -> Command:
-    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes')
+    exist_nodes = cast('list[BuildNode]', runtime.state.get('exist_nodes'))
     tool_node: BuildNode | None = next((n for n in exist_nodes if n.id == node_id), None)
 
     if tool_node is None:
