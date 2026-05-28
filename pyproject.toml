@@ -91,29 +91,30 @@ docstring-code-format = true
 [tool.ruff.lint]
 extend-select = ["ALL"]
 ignore = [
+    "ANN003",
+    "ANN401",
     "ARG002",
     "ARG004",
+    "BLE",
     "C90",
     "COM812",
     "CPY",
-    "FIX002",
-    "PERF203",
-    "PLR09",
-    "TD002",
-    "TD003",
-    "Q000",
     "D100",
     "D101",
     "D107",
     "D417",
     "E501",
+    "ERA",
+    "FIX002",
+    "PERF203",
     "PGH003",
+    "PLC0415",
+    "PLR09",
+    "Q000",
+    "TD002",
+    "TD003",
     "UP040",
     "UP045",
-    "ANN401",
-    "BLE",
-    "ERA",
-    "PLC0415",
 ]
 unfixable = [
     "B028",
@@ -138,6 +139,16 @@ ban-relative-imports = "all"
 convention = "google"
 ignore-var-parameters = true  # ignore missing documentation for *args and **kwargs parameters
 
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+
+project-excludes = [
+    "test/"
+]
+
 [dependency-groups]
 dev = [
     "boto3-stubs>=1.42.19",
@@ -145,5 +156,7 @@ dev = [
     "connectorx>=0.4.5",
     "duckdb>=1.5.0",
     "matplotlib>=3.10.8",
+    "pyrefly>=1.0.0",
+    "ruff>=0.15.14",
     "seaborn>=0.13.2",
 ]
