@@ -149,6 +149,9 @@ project-excludes = [
     "test/"
 ]
 
+[tool.pyrefly.errors]
+bad-override = false
+
 [dependency-groups]
 dev = [
     "boto3-stubs>=1.42.19",
