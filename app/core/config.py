@@ -1,4 +1,3 @@
-import os
 import secrets
 import sys
 from functools import lru_cache
@@ -152,9 +151,6 @@ class Settings(BaseSettings):
         env_nested_delimiter='__',
         extra='ignore',
     )
-
-    PROJECT_NAME: str = 'BioFlow AI'
-    VERSION: str = '0.0.1'
 
     security: SecurityConfig = SecurityConfig()
     logger: LogConfig = LogConfig()

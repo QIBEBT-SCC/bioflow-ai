@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from importlib.metadata import metadata
 
 import uvicorn
 from fastapi import FastAPI
@@ -24,6 +25,8 @@ from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
 from app.utils.middleware import CSRFMiddleware, LogRequestMiddleware
 
+meta = metadata('bioflow-ai')
+
 
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
@@ -37,7 +40,12 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     logger.info('server stop')
 
 
-app = FastAPI(title=get_settings().PROJECT_NAME, version=get_settings().VERSION, lifespan=lifespan)
+app = FastAPI(
+    title=meta['Name'],
+    version=meta['Version'],
+    description=meta['Summary'],
+    lifespan=lifespan,
+)
 
 # 允许所有源地址
 origins = [
