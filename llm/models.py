@@ -3,7 +3,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from loguru import logger
 from pydantic import SecretStr
 from sqlmodel import Session
 
@@ -11,7 +10,7 @@ import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_setting as setting_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.setting import ModelRole, ProviderType
+from app.models.setting import LLMModel, ModelRole, ProviderType
 from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from llm.utils.cache import cache_model
 
@@ -22,71 +21,62 @@ class NoApikeyError(ValueError):
     pass
 
 
-def _get_model_from_db(model_id: int) -> BaseChatModel:
-    with Session(engine) as session:
-        model_config = model_crud.get(session, model_id)
+def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, LLMModel]:
+    model_config = model_crud.get(session, model_id)
 
-        if model_config.provider.api_key is None:
-            logger.warning('No available api_key has been set yet!')
+    api_key = model_config.provider.api_key if model_config.provider.api_key else ''
+    proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
 
-        proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
-
-        match model_config.provider.provider_type:
-            case ProviderType.ANTHROPIC:
-                model = ChatAnthropic(
-                    model_name=model_config.name,
-                    api_key=SecretStr(model_config.provider.api_key),
-                    base_url='https://api.anthropic.com'
-                    if model_config.provider.base_url is None
-                    else model_config.provider.base_url,
-                    anthropic_proxy=proxy,
+    match model_config.provider.provider_type:
+        case ProviderType.ANTHROPIC:
+            model = ChatAnthropic(
+                model_name=model_config.name,
+                api_key=SecretStr(api_key),
+                base_url='https://api.anthropic.com'
+                if model_config.provider.base_url is None
+                else model_config.provider.base_url,
+                anthropic_proxy=proxy,
+            )
+        case ProviderType.GOOGLE:
+            client_args = {'proxy': proxy} if proxy else None
+            if model_config.provider.base_url is None:
+                model = ChatGoogleGenerativeAI(
+                    model=model_config.name,
+                    api_key=SecretStr(api_key),
+                    client_args=client_args,
                 )
-            case ProviderType.GOOGLE:
-                client_args = {'proxy': proxy} if proxy else None
-                if model_config.provider.base_url is None:
-                    model = ChatGoogleGenerativeAI(
-                        model=model_config.name,
-                        api_key=SecretStr(model_config.provider.api_key),
-                        client_args=client_args,
-                    )
-                else:
-                    model = ChatGoogleGenerativeAI(
-                        model=model_config.name,
-                        api_key=SecretStr(model_config.provider.api_key),
-                        base_url=model_config.provider.base_url,
-                        client_args=client_args,
-                    )
-            case ProviderType.OPENAI:
-                if model_config.provider.base_url is None:
-                    model = ChatOpenAI(
-                        model=model_config.name,
-                        api_key=SecretStr(model_config.provider.api_key),
-                        openai_proxy=proxy,
-                    )
-                elif 'deepseek' in model_config.name.lower():
-                    model = ChatDeepseekReasoning(
-                        model=model_config.name,
-                        base_url=model_config.provider.base_url,
-                        api_key=SecretStr(model_config.provider.api_key),
-                        openai_proxy=proxy,
-                    )
-                else:
-                    model = ChatOpenAIReasoning(
-                        model=model_config.name,
-                        base_url=model_config.provider.base_url,
-                        api_key=SecretStr(model_config.provider.api_key),
-                        openai_proxy=proxy,
-                    )
-            case _:
-                raise TypeError
+            else:
+                model = ChatGoogleGenerativeAI(
+                    model=model_config.name,
+                    api_key=SecretStr(api_key),
+                    base_url=model_config.provider.base_url,
+                    client_args=client_args,
+                )
+        case ProviderType.OPENAI:
+            if model_config.provider.base_url is None:
+                model = ChatOpenAI(
+                    model=model_config.name,
+                    api_key=SecretStr(api_key),
+                    openai_proxy=proxy,
+                )
+            elif 'deepseek' in model_config.name.lower():
+                model = ChatDeepseekReasoning(
+                    model=model_config.name,
+                    base_url=model_config.provider.base_url,
+                    api_key=SecretStr(api_key),
+                    openai_proxy=proxy,
+                )
+            else:
+                model = ChatOpenAIReasoning(
+                    model=model_config.name,
+                    base_url=model_config.provider.base_url,
+                    api_key=SecretStr(api_key),
+                    openai_proxy=proxy,
+                )
+        case _:
+            raise TypeError
 
-        model.metadata = {
-            'model_id': model_id,
-            'input_price': model_config.input_price,
-            'output_price': model_config.output_price,
-            'cache_read_price': model_config.cache_read_price,
-        }
-        return model
+    return model, model_config
 
 
 def invalidate_model_cache(role: ModelRole) -> None:
@@ -101,8 +91,14 @@ def get_model(role: ModelRole) -> BaseChatModel:
 
     with Session(engine) as session:
         model_id = setting_crud.get_role(session, role)
-    model = _get_model_from_db(model_id)
-    model.metadata['setting_key'] = role.value
+        model, model_config = _get_model_from_db(session, model_id)
+        model.metadata = {
+            'setting_key': role.value,
+            'model_id': model_id,
+            'input_price': model_config.input_price,
+            'output_price': model_config.output_price,
+            'cache_read_price': model_config.cache_read_price,
+        }
     _model_cache[role] = model
     return model
 
@@ -146,6 +142,7 @@ def get_high_performance_model() -> BaseChatModel:
 def _local_embedding_model() -> Embeddings:
     """有缓存的本地向量模型."""
     try:
+        # pyrefly: ignore [missing-import]
         from langchain_qwen3 import Qwen3Embeddings
     except Exception as e:
         err_msg = 'Please install package langchain_qwen3 by "uv add langchain_qwen3"'

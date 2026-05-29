@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -9,6 +9,7 @@ from llm.models import get_long_context_model
 from llm.utils.token import store_token_usage
 
 if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
     from llm.states import StructuredResponse
 
 
@@ -24,11 +25,18 @@ async def generate_title(history: list[BaseMessage], user_id: int) -> str:
     llm = get_long_context_model()
     chain = prompt | llm
     result = await chain.ainvoke({'history': history})
-    thread_id = get_config()['configurable'].get('thread_id', None)
+
+    metadate = cast('LLMMetadata', llm.metadata)
     store_token_usage(
-        'generate_title', user_id=user_id, thread_id=thread_id, token_usage=result.usage_metadata, **llm.metadata
+        'generate_title',
+        user_id,
+        get_config()['configurable'].get('thread_id', None),
+        token_usage=result.usage_metadata,
+        **metadate,
     )
 
+    if isinstance(result.content, list):
+        return f'{result.content}'
     return result.content.strip()
 
 
@@ -97,13 +105,14 @@ async def check_update_args(
             'reason': reason,
         }
     )
-    thread_id = get_config()['configurable'].get('thread_id', None)
+
+    metadate = cast('LLMMetadata', llm.metadata)
     store_token_usage(
         'check_update_args',
-        user_id=user_id,
-        thread_id=thread_id,
+        user_id,
+        get_config()['configurable'].get('thread_id', None),
         token_usage=result['raw'].usage_metadata,
-        **llm.metadata,
+        **metadate,
     )
 
     return result['parsed']

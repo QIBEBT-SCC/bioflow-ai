@@ -11,14 +11,15 @@ from app.models.setting import LLMStatistic
 
 def store_token_usage(
     agent_name: str,
-    model_id: int,
-    setting_key: str,
     user_id: int,
     thread_id: str | None,
-    token_usage: UsageMetadata | None,
+    *,
+    setting_key: str,
+    model_id: int,
     input_price: Decimal,
     output_price: Decimal,
     cache_read_price: Decimal,
+    token_usage: UsageMetadata | None,
 ) -> None:
     """Persist token usage metrics and associated billing cost.
 

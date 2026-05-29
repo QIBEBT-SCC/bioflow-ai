@@ -1,10 +1,11 @@
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NotRequired, cast
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.config import get_config
 from langgraph.runtime import Runtime
@@ -15,13 +16,16 @@ from pydantic import BaseModel, Field
 from llm.states import FolderContext, StructuredResponse, UserContext
 from llm.utils.token import store_token_usage
 
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
+
 
 class CheckResult(BaseModel):
     checked: bool = Field(description='Did the FinalResponse you see passed the format check')
     reason: str = Field(description='Reasons for Pass/Fail check')
 
 
-class CheckState(TypedDict):
+class CheckState(AgentState):
     check_failed_count: NotRequired[int]
 
 
@@ -81,13 +85,13 @@ class CheckReportMiddleware(AgentMiddleware):
             ]
         )
         self.check_chain = prompt | model.with_structured_output(CheckResult, include_raw=True)
-        self.model_metadata = model.metadata
+        self.model_metadata = cast('LLMMetadata', model.metadata)
 
     def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return {'check_failed_count': 0, 'updated': False}
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
@@ -119,11 +123,10 @@ class CheckReportMiddleware(AgentMiddleware):
             )
 
         check_result: StructuredResponse[CheckResult] = self.check_chain.invoke({'tool_report': tool_report})  # type: ignore
-        thread_id = get_config()['configurable'].get('thread_id', None)
         store_token_usage(
             'check_report',
-            user_id=runtime.context.user_id,
-            thread_id=thread_id,
+            runtime.context.user_id,
+            get_config()['configurable'].get('thread_id', None),
             token_usage=check_result['raw'].usage_metadata,
             **self.model_metadata,
         )
@@ -138,7 +141,7 @@ class CheckReportMiddleware(AgentMiddleware):
         return None
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
+    async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
@@ -170,11 +173,10 @@ class CheckReportMiddleware(AgentMiddleware):
             )
 
         check_result: StructuredResponse[CheckResult] = await self.check_chain.ainvoke({'tool_report': tool_report})  # type: ignore
-        thread_id = get_config()['configurable'].get('thread_id', None)
         store_token_usage(
             'check_report',
-            user_id=runtime.context.user_id,
-            thread_id=thread_id,
+            runtime.context.user_id,
+            get_config()['configurable'].get('thread_id', None),
             token_usage=check_result['raw'].usage_metadata,
             **self.model_metadata,
         )
@@ -319,7 +321,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         return self.after_model(state, runtime)
 
 
-class StateUpdateSchema(TypedDict):
+class StateUpdateSchema(AgentState):
     updated: NotRequired[bool]
 
 

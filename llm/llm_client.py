@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, Optional
+from decimal import Decimal
+from typing import Any, Literal, Optional, TypedDict
 
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage, AIMessageChunk
@@ -10,6 +11,14 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import _DictOrPydantic, _DictOrPydanticClass
 from pydantic import BaseModel
+
+
+class LLMMetadata(TypedDict):
+    setting_key: str
+    model_id: int
+    input_price: Decimal
+    output_price: Decimal
+    cache_read_price: Decimal
 
 
 class ChatOpenAIReasoning(ChatOpenAI):
