@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
@@ -25,6 +27,9 @@ from llm.utils.middleware import (
     TokenLimitMiddleware,
 )
 from llm.utils.middleware.statistic import TokenStatisticMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
 MAX_MEM = get_settings().persistent.resource.MAX_MEM
@@ -326,9 +331,6 @@ RUN_TOOL_DESCRIPTION = """请求调用与Current Image不同的工具完成当�
 2. 调用 run_other_tool(tool_name="samtools", task_description="使用 samtools index 为参考序列构建索引, 待处理的文件位于`/data/output/00_raw/ref.fa`, 索引文件输出到同目录下")
 """
 
-TEST_RUN_MODEL = get_long_context_model()
-CHECK_MODEL = get_high_performance_model()
-
 
 class RunOtherToolSchema(BaseModel):
     tool_name: str = Field(description='你要使用的工具名称。每次调用此工具只允许指定一种工具')
@@ -359,6 +361,10 @@ async def run_other_tool(tool_name: str, task_description: str) -> str:
     return run_response['messages'][-1].content
 
 
+TEST_RUN_MODEL = get_long_context_model()
+CHECK_MODEL = get_high_performance_model()
+metadata = cast('LLMMetadata', TEST_RUN_MODEL.metadata)
+
 _pre_run_agent = create_agent(
     model=TEST_RUN_MODEL,
     tools=[
@@ -370,12 +376,13 @@ _pre_run_agent = create_agent(
     middleware=[
         TokenLimitMiddleware(max_token=20000),
         DisableParallelToolCallsMiddleware(),
-        TokenStatisticMiddleware(agent_name='pre_run', **TEST_RUN_MODEL.metadata),
+        TokenStatisticMiddleware('pre_run', **metadata),
         SaveMessagesMiddleware('upstream'),
         ClearContainerMiddleware(),
     ],
-    state_schema=TestRunState,  # type: ignore
-    context_schema=TestRunContext,  # type: ignore
+    state_schema=TestRunState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=TestRunContext,
 )
 
 
@@ -398,8 +405,9 @@ test_run_agent = create_agent(
         ClearContainerMiddleware(),
         CheckReportMiddleware(CHECK_MODEL, CHECK_PROMPT),
         TodoMiddleware(),
-        TokenStatisticMiddleware(agent_name='test_run', **TEST_RUN_MODEL.metadata),
+        TokenStatisticMiddleware('test_run', **metadata),
     ],
-    state_schema=TestRunState,  # type: ignore
-    context_schema=TestRunContext,  # type: ignore
+    state_schema=TestRunState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=TestRunContext,
 )

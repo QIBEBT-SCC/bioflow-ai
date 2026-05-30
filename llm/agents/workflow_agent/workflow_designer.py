@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -30,6 +30,9 @@ from llm.utils.middleware import (
 from llm.utils.middleware.end_loop import EndAgentLoop
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 from llm.utils.token import store_token_usage
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 INTENT_RECOGNITION_SYSTEM = """# Role
 You are an "Intent Recognition Expert" dedicated to a bioinformatics analysis system. Your task is to accurately understand user input and classify it into one of three predefined task types.
@@ -264,6 +267,7 @@ class WorkflowDesignAgent:
 
         # sub agents
         plan_model = get_high_performance_model()
+        plan_model_metadata = cast('LLMMetadata', plan_model.metadata)
         self.self_plan_agent = create_agent(
             plan_model,
             [write_plan],
@@ -272,7 +276,7 @@ class WorkflowDesignAgent:
                 DisableParallelToolCallsMiddleware(),
                 EndAgentLoop(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
-                TokenStatisticMiddleware(agent_name='workflow_designer', **plan_model.metadata),
+                TokenStatisticMiddleware('workflow_designer', **plan_model_metadata),
             ],
             state_schema=DesignState,  # type: ignore
             context_schema=DesignContext,  # type: ignore
@@ -285,14 +289,14 @@ class WorkflowDesignAgent:
                 DisableParallelToolCallsMiddleware(),
                 EndAgentLoop(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
-                TokenStatisticMiddleware(agent_name='workflow_designer', **plan_model.metadata),
+                TokenStatisticMiddleware('workflow_designer', **plan_model_metadata),
             ],
             state_schema=DesignState,  # type: ignore
             context_schema=DesignContext,  # type: ignore
         )
 
     async def intent_recognition(
-        self, state: DesignState, runtime: Runtime, config: RunnableConfig
+        self, state: DesignState, runtime: Runtime[DesignContext], config: RunnableConfig
     ) -> Command[Literal['search_tool', 'self_plan', 'summary_paper', '__end__']]:
         """意图识别."""
         prompt = ChatPromptTemplate(
@@ -306,12 +310,14 @@ class WorkflowDesignAgent:
         chain = prompt | llm.with_structured_output(IntentResult, include_raw=True).with_retry(stop_after_attempt=3)
 
         response: StructuredResponse[IntentResult] = await chain.ainvoke({'history': state['messages']})  # type: ignore
+
+        metadate = cast('LLMMetadata', llm.metadata)
         store_token_usage(
             self.name,
-            user_id=runtime.context.user_id,
-            thread_id=config['configurable'].get('thread_id'),
+            runtime.context.user_id,
+            config['configurable'].get('thread_id'),
             token_usage=response['raw'].usage_metadata,
-            **llm.metadata,
+            **metadate,
         )
 
         logger.debug(f'route to {response["parsed"].task}')
@@ -327,6 +333,7 @@ class WorkflowDesignAgent:
         """自主规划 Step1 - 获取待分析样本信息."""
         runtime.stream_writer({'info': 'Analyze available samples...'})
 
+        # pyrefly: ignore [no-matching-overload]
         response = await create_sample_agent.ainvoke(
             {'messages': state['messages']},
             context=SampleContext(user_id=runtime.context.user_id, project_id=runtime.context.project_id),
@@ -340,6 +347,7 @@ class WorkflowDesignAgent:
         writer({'info': 'Searching for tool information...'})
 
         agent_input = {'messages': state['messages']}
+        # pyrefly: ignore [bad-assignment]
         response: DesignState = await tool_info_searcher.ainvoke(agent_input, context=runtime.context)
 
         return {'tool_report': response['tool_report']}
@@ -350,6 +358,7 @@ class WorkflowDesignAgent:
         writer({'info': 'Reading paper...'})
 
         agent_input = {'messages': state['messages']}
+        # pyrefly: ignore [bad-assignment]
         response: DesignState = await paper_reader.ainvoke(agent_input, context=runtime.context)
 
         return {'paper_id': response['paper_id'], 'paper_context': response['paper_context']}
@@ -382,7 +391,7 @@ class WorkflowDesignAgent:
             ]
         }
 
-    async def reference_plan_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
+    async def reference_plan_node(self, state: DesignState, runtime: Runtime[DesignContext]) -> dict[str, Any]:
         """基于参考文献的方案撰写节点."""
         agent_input = {
             'messages': [
@@ -391,6 +400,7 @@ class WorkflowDesignAgent:
             ]
         }
 
+        # pyrefly: ignore [no-matching-overload]
         response = await self.reference_plan_agent.ainvoke(
             agent_input,
             context=runtime.context,
@@ -407,7 +417,7 @@ class WorkflowDesignAgent:
             ]
         }
 
-    async def generate_workflow_node(self, state: DesignState, runtime: Runtime) -> dict[str, Any]:
+    async def generate_workflow_node(self, state: DesignState, runtime: Runtime[DesignContext]) -> dict[str, Any]:
         """工作流生成."""
         if state['task'] == 'literature_reproduction':
             build_input = {
@@ -419,9 +429,10 @@ class WorkflowDesignAgent:
             build_input = {'messages': state['messages']}
             build_context: BuildContext = BuildContext(user_id=runtime.context.user_id, has_reference=False)
 
+        # pyrefly: ignore [no-matching-overload]
         response = await build_workflow_agent.ainvoke(
-            build_input,  # type: ignore
-            context=build_context,  # type: ignore
+            build_input,
+            context=build_context,
         )
 
         return {'messages': response['messages'], 'workflow_uids': response['workflow_uids']}
@@ -460,4 +471,5 @@ class WorkflowDesignAgent:
             with Path('images/workflow_design_agent.md').open('w') as f:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
+        # pyrefly: ignore [bad-return]
         return compiled_graph

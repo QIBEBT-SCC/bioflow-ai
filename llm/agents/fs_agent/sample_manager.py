@@ -1,5 +1,8 @@
+from typing import TYPE_CHECKING, cast
+
 from langchain.agents import create_agent
 
+from llm.agents.fs_agent.analysis_reporter import AGENT_LLM
 from llm.models import get_agent_model
 from llm.states import SampleContext, SampleState
 from llm.tools.human import ask_human
@@ -15,6 +18,9 @@ from llm.tools.sample import (
 )
 from llm.utils.middleware import StatusBarMiddleware, TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are a bioinformatics project file system initialization agent.
 Your task is to explore raw data paths provided by the user, identify the file structure,
@@ -108,6 +114,7 @@ Do not list individual file paths. Focus only on what downstream workflows can r
 """
 
 MANAGER_LLM = get_agent_model()
+metadata = cast('LLMMetadata', AGENT_LLM.metadata)
 
 create_sample_agent = create_agent(
     MANAGER_LLM,
@@ -126,8 +133,9 @@ create_sample_agent = create_agent(
     middleware=[
         StatusBarMiddleware(),
         CheckStateExistMiddleware('summary', 'write_conclusion'),
-        TokenStatisticMiddleware(agent_name='sample_manager', **MANAGER_LLM.metadata),
+        TokenStatisticMiddleware('sample_manager', **metadata),
     ],
-    state_schema=SampleState,  # type: ignore
-    context_schema=SampleContext,  # type: ignore
+    state_schema=SampleState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=SampleContext,
 )

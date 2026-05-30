@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
@@ -11,6 +11,9 @@ from llm.tools.container import run_command_tool
 from llm.tools.database import list_docs, save_doc, select_doc, view_doc
 from llm.tools.human import ask_human
 from llm.utils.middleware import TokenStatisticMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 GET_DOC_SYSTEM = """You are an expert Command Line Interface (CLI) tool documentation assistant.
 Your goal is to locate the help document that matches the user's request most "closely." This document may already exist in the database, or you may need to acquire it by running commands in real-time.
@@ -113,9 +116,11 @@ Your core task is to read the help document of the tool in the current environme
 </CommandDesignRule>
 """
 
+DOC_LLM = get_long_context_model()
+metadata = cast('LLMMetadata', DOC_LLM.metadata)
 
 doc_searcher = create_agent(
-    model=get_long_context_model(),
+    model=DOC_LLM,
     tools=[
         list_docs,
         view_doc,
@@ -125,9 +130,10 @@ doc_searcher = create_agent(
         ask_human,
     ],
     system_prompt=GET_DOC_SYSTEM,
-    middleware=[TokenStatisticMiddleware('doc_searcher', **get_long_context_model().metadata)],  # type: ignore
-    state_schema=GetDocState,  # type: ignore
-    context_schema=UserContext,  # type: ignore
+    middleware=[TokenStatisticMiddleware('doc_searcher', **metadata)],
+    state_schema=GetDocState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )
 
 
@@ -135,12 +141,19 @@ doc_reader = create_agent(
     model=get_long_context_model(),
     tools=[run_command_tool],
     system_prompt=DOC_READER_SYSTEM,
-    state_schema=GetDocState,  # type: ignore
+    middleware=[TokenStatisticMiddleware('doc_reader', **metadata)],
+    state_schema=GetDocState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )
 
 
 @tool(parse_docstring=True)
-async def read_doc(query: str, runtime: ToolRuntime[None, GetDocState], help_command: Optional[str] = None) -> str:
+async def read_doc(
+    query: str,
+    runtime: ToolRuntime[UserContext, GetDocState],
+    help_command: Optional[str] = None,
+) -> str:
     """Consult the tool's manual to get command usage instructions.
 
     Use this tool to get advice on how to construct commands for specific tasks.
@@ -160,6 +173,7 @@ async def read_doc(query: str, runtime: ToolRuntime[None, GetDocState], help_com
         'image': runtime.state['image'],
         'image_uid': runtime.state['image_uid'],
     }
-    result = await doc_reader.ainvoke(search_input)  # type: ignore
+    # pyrefly: ignore [no-matching-overload]
+    result = await doc_reader.ainvoke(search_input, context=UserContext(user_id=runtime.context.user_id))
 
     return result['messages'][-1].content

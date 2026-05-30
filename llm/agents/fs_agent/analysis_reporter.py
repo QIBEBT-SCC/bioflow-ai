@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from langchain.agents import create_agent
 from langchain_core.tools import tool
@@ -14,6 +14,9 @@ from llm.utils.middleware import (
     TokenStatisticMiddleware,
 )
 from llm.utils.middleware.final_check import CheckTaskReportMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 MAX_CHAR = 3000
 
@@ -175,6 +178,9 @@ async def run_command(command: str, runtime: ToolRuntime, workdir: Optional[str]
     return return_msg
 
 
+AGENT_LLM = get_coding_model()
+metadata = cast('LLMMetadata', AGENT_LLM.metadata)
+
 summary_analysis_agent = create_agent(
     get_coding_model(),
     [run_command],
@@ -184,8 +190,9 @@ summary_analysis_agent = create_agent(
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
         CheckTaskReportMiddleware(),
-        TokenStatisticMiddleware(agent_name='write_report', **get_coding_model().metadata),
+        TokenStatisticMiddleware('write_report', **metadata),
     ],
-    state_schema=SummaryState,  # type: ignore
-    context_schema=FolderContext,  # type: ignore
+    state_schema=SummaryState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=FolderContext,
 )

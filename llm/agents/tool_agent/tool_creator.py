@@ -1,6 +1,6 @@
 import uuid
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from langchain.agents import create_agent
 from langchain_core.documents import Document
@@ -31,7 +31,7 @@ from llm.agents.tool_agent.report_generator import test_run_agent
 from llm.agents.tool_agent.searcher.doc import doc_searcher
 from llm.agents.tool_agent.searcher.image import self_search_image_agent
 from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
-from llm.models import get_agent_model, get_high_performance_model, qwen3_embedding
+from llm.models import get_agent_model, qwen3_embedding
 from llm.states import (
     CreateToolContext,
     CreateToolOutput,
@@ -49,6 +49,9 @@ from llm.tools.database import (
 from llm.utils.formatters import handle_formatter, search_nodes_formatter
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SUMMARY_SYS = """You are an expert summarizer creating a concise log of previously completed web research to prevent redundant work.
 Analyze the provided context of `web_searcher` and `web_reader` tool calls. Your task is to create a historical record of what has been searched and what was learned from the pages that were actually **read**.
@@ -126,17 +129,18 @@ class TempIDClass(BaseModel):
 
 class CreateToolAgent:
     def __init__(self) -> None:
-        self.struct_llm = get_high_performance_model()
         self.think_llm = get_agent_model()
 
         # sub agents
+        metadata = cast('LLMMetadata', self.think_llm.metadata)
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
-            middleware=[TokenStatisticMiddleware(agent_name='select_group', **self.think_llm.metadata)],
-            state_schema=SelectGroupState,  # type: ignore
-            context_schema=UserContext,  # type: ignore
+            middleware=[TokenStatisticMiddleware('select_group', **metadata)],
+            state_schema=SelectGroupState,
+            # pyrefly: ignore [bad-argument-type]
+            context_schema=UserContext,
         )
 
     async def select_image_node(self, state: CreateToolState) -> dict[str, Any]:
@@ -167,8 +171,9 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': "Searching for tool's help document..."})
 
+        # pyrefly: ignore [no-matching-overload]
         response = await doc_searcher.ainvoke(
-            {  # type: ignore
+            {
                 'messages': state['messages'],
                 'image_uid': state['image_uid'],
                 'image': state['image'],
@@ -193,8 +198,9 @@ class CreateToolAgent:
             if not tools:
                 return Command(goto='get_report')
 
+        # pyrefly: ignore [no-matching-overload]
         pre_search_result = await search_exist_tool_agent.ainvoke(
-            {  # type: ignore
+            {
                 'messages': state['messages'],
                 'image_uid': state['image_uid'],
             },
@@ -203,6 +209,9 @@ class CreateToolAgent:
         if pre_search_result.get('tool_uid'):
             with Session(engine) as session:
                 tool_data = tool_crud.get(session, pre_search_result['tool_uid'])
+                if tool_data is None:
+                    err_msg = f'Tool with uid {pre_search_result["tool_uid"]} not found'
+                    raise LookupError(err_msg)
 
                 mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
                 tool_node = ToolNodePublic.model_validate(tool_data.model_dump())
@@ -248,9 +257,10 @@ class CreateToolAgent:
             'messages': state['messages'],
             'image': state['image'],
         }
+        # pyrefly: ignore [no-matching-overload]
         response = await test_run_agent.ainvoke(
-            testrun_input,  # type: ignore
-            context=TestRunContext(  # type: ignore
+            testrun_input,
+            context=TestRunContext(
                 user_id=runtime.context.user_id,
                 folder_name=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
@@ -266,6 +276,7 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Assigning groups to tools...'})
 
+        # pyrefly: ignore [no-matching-overload]
         response = await self.select_group_agent.ainvoke(
             {'messages': state['messages']},
             context=UserContext(user_id=runtime.context.user_id),
@@ -279,6 +290,7 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
+        # pyrefly: ignore [no-matching-overload]
         result = await config_generate_agent.ainvoke(
             {'messages': state['messages']},
             context=UserContext(user_id=runtime.context.user_id),
@@ -360,18 +372,19 @@ class CreateToolAgent:
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, *, visualize: bool = False) -> CompiledStateGraph:
         """Create Tool Agent."""
+        # pyrefly: ignore [bad-specialization]
         graph = StateGraph(
-            state_schema=CreateToolState,  # type: ignore
-            context_schema=CreateToolContext,  # type: ignore
-            output_schema=CreateToolOutput,  # type: ignore
+            state_schema=CreateToolState,
+            context_schema=CreateToolContext,
+            output_schema=CreateToolOutput,
         )
 
-        graph.add_node('select_image', self.select_image_node)  # type: ignore
-        graph.add_node('get_doc', self.get_doc_node)  # type: ignore
-        graph.add_node('search_exist_tool', self.search_exist_tool_node)  # type: ignore
-        graph.add_node('get_report', self.get_report_node)  # type: ignore
-        graph.add_node('choose_group', self.choose_group_node)  # type: ignore
-        graph.add_node('generate_tool_config', self.generate_tool_node)  # type: ignore
+        graph.add_node('select_image', self.select_image_node)
+        graph.add_node('get_doc', self.get_doc_node)
+        graph.add_node('search_exist_tool', self.search_exist_tool_node)
+        graph.add_node('get_report', self.get_report_node)
+        graph.add_node('choose_group', self.choose_group_node)
+        graph.add_node('generate_tool_config', self.generate_tool_node)
 
         graph.set_entry_point('select_image')
         graph.add_edge('select_image', 'get_doc')
@@ -389,4 +402,5 @@ class CreateToolAgent:
             with Path('images/create_tool_agent.md').open('w') as f:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
+        # pyrefly: ignore [bad-return]
         return compiled_graph

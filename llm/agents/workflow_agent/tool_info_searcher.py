@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 from langchain.agents import create_agent
 
 from llm.models import get_long_context_model
@@ -7,6 +9,9 @@ from llm.tools.writter import write_report
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.middleware.end_loop import EndAgentLoop
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """## Role
 You are a bioinformatics tool research assistant. Your job is to investigate bioinformatics tools that users ask about, gather information from official documentation, GitHub repositories, and other reliable sources, and produce a structured report covering installation and basic usage.
@@ -76,6 +81,7 @@ After calling `write_report`, call `ask_human` with a brief message to let the u
 - **Concise in conversation**: Keep intermediate messages short — the substance belongs in the report. Never output the report content as a chat message; always use write_report for the final output. """
 
 AGENT_MODEL = get_long_context_model()
+metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 
 tool_info_searcher = create_agent(
@@ -85,8 +91,9 @@ tool_info_searcher = create_agent(
     middleware=[
         EndAgentLoop(),
         CheckStateExistMiddleware('tool_report', 'write_report'),
-        TokenStatisticMiddleware(agent_name='tool_searcher', **AGENT_MODEL.metadata),
+        TokenStatisticMiddleware('tool_searcher', **metadata),
     ],
-    state_schema=DesignState,  # type: ignore
-    context_schema=UserContext,  # type: ignore
+    state_schema=DesignState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )

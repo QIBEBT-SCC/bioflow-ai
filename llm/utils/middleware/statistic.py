@@ -27,7 +27,7 @@ class TokenStatisticMiddleware(AgentMiddleware):
         self.output_price = output_price
         self.cache_read_price = cache_read_price
 
-    def after_model(self, state: AgentState, runtime: Runtime[UserContext]) -> dict[str, Any] | None:
+    def after_model(self, state: AgentState, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
         token_usage = getattr(state['messages'][-1], 'usage_metadata', None)
         thread_id = get_config()['configurable'].get('thread_id', None)
         store_token_usage(

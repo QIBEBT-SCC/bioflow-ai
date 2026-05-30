@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 from langchain.agents import create_agent
 
 from llm.models import get_long_context_model
@@ -7,6 +9,9 @@ from llm.tools.storage import view_pdf
 from llm.tools.writter import write_snippet
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics literature. Your task is to **precisely extract bioinformatics-related methods content from a given paper based on the user's request**, and output it via tools rather than in the conversation.
 
@@ -40,6 +45,7 @@ SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics lit
 - All substantive content must go through `write_snippet`. The conversation message should remain minimal."""
 
 AGENT_MODEL = get_long_context_model()
+metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 paper_reader = create_agent(
     AGENT_MODEL,
@@ -47,8 +53,9 @@ paper_reader = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[
         CheckStateExistMiddleware('paper_context', 'write_snippet'),
-        TokenStatisticMiddleware(agent_name='paper_reader', **AGENT_MODEL.metadata),
+        TokenStatisticMiddleware('paper_reader', **metadata),
     ],
-    state_schema=DesignState,  # type: ignore
-    context_schema=UserContext,  # type: ignore
+    state_schema=DesignState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )

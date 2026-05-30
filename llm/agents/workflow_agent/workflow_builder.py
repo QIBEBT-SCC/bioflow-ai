@@ -1,3 +1,5 @@
+from typing import cast
+
 from langchain.agents import create_agent
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -5,6 +7,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
+from llm.llm_client import LLMMetadata
 from llm.models import get_agent_model
 from llm.states import BuildContext, BuildSchema
 from llm.tools.human import ask_human
@@ -119,6 +122,9 @@ async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
     )
 
 
+BUILDER_LLM = get_agent_model()
+metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
+
 build_workflow_agent: CompiledStateGraph = create_agent(
     get_agent_model(),
     [
@@ -143,8 +149,9 @@ build_workflow_agent: CompiledStateGraph = create_agent(
         CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
-        TokenStatisticMiddleware(agent_name='reproduction_agent', **get_agent_model().metadata),
+        TokenStatisticMiddleware('reproduction_agent', **metadata),
     ],
-    state_schema=BuildSchema,  # type: ignore
-    context_schema=BuildContext,  # type: ignore
+    state_schema=BuildSchema,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=BuildContext,
 )

@@ -1,4 +1,5 @@
 import uuid
+from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
 from langgraph.graph import MessagesState
@@ -9,6 +10,9 @@ from llm.tools.database import read_tool_doc, select_tool
 from llm.tools.vector_store import search_tools_by_function
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are a professional bioinformatics data administrator. In this database, many common bioinformatics analysis tools are encapsulated.
 Your task is to call tools to search the database based on user requirements and determine whether there is a tool in the current database that meets these requirements.
@@ -42,6 +46,9 @@ class SearchToolNodeState(MessagesState, total=False):
     tool_uid: str
 
 
+SEARCH_LLM = get_agent_model()
+metadata = cast('LLMMetadata', SEARCH_LLM.metadata)
+
 search_exist_tool_agent = create_agent(
     model=get_agent_model(),
     tools=[
@@ -51,7 +58,7 @@ search_exist_tool_agent = create_agent(
     ],
     system_prompt=SYSTEM_PROMPT,
     middleware=[  # type: ignore
-        TokenStatisticMiddleware(agent_name='search_exist_node', **get_agent_model().metadata),
+        TokenStatisticMiddleware('search_exist_node', **metadata),
     ],
     state_schema=SearchToolNodeState,  # type: ignore
     context_schema=UserContext,  # type: ignore

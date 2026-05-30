@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import SummarizationMiddleware
@@ -17,12 +17,15 @@ import app.crud.tools.image as image_crud
 from app.core.session import engine
 from app.models.tools import ImageConfig, ToolImage
 from llm.models import get_agent_model, get_long_context_model
-from llm.states import SearchImageState
+from llm.states import SearchImageState, UserContext
 from llm.tools.database import search_local_image, select_image
 from llm.tools.human import ask_human
 from llm.tools.images import search_image, view_image_tags
 from llm.tools.web_search import web_reader, web_searcher, web_summary_middleware
 from llm.utils.middleware import DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SEARCH_INFO_SYS = """# Role and Task
 You are an AI assistant specializing in the field of bioinformatics.
@@ -240,13 +243,11 @@ class ToolInfoOutput(BaseModel):
 
 
 class ToolImageOutput(BaseModel):
-    image_url: Optional[str] = Field(
-        description='The Docker image of the tool, in the format `[registry]/[namespace]/[repository]:tag`. Note that docker.io images sometimes omit the registry, remember to add it.',
-        default=None,
+    image_url: str = Field(
+        description='The Docker image of the tool, in the format `[registry]/[namespace]/[repository]:tag`. Note that docker.io images sometimes omit the registry, remember to add it.'
     )
-    version: Optional[str] = Field(
+    version: str = Field(
         description='The version of the tool, note that it should be distinguished from the image tag (the latter may include some additional characters)',
-        default=None,
     )
 
 
@@ -255,13 +256,14 @@ class GetImageAgent:
         self.llm = get_agent_model()
 
         # subagents
+        metadata = cast('LLMMetadata', self.llm.metadata)
         self.search_info_agent = create_agent(
             model=self.llm,
             tools=[web_searcher, web_reader],
             system_prompt=SEARCH_INFO_SYS,
             middleware=[
                 web_summary_middleware,
-                TokenStatisticMiddleware(agent_name='search_info', **self.llm.metadata),
+                TokenStatisticMiddleware('search_info', **metadata),
             ],
             state_schema=SearchImageState,
             response_format=ToolInfoOutput,
@@ -366,6 +368,9 @@ class GetImageAgent:
         return compiled_graph
 
 
+SEARCH_IMAGE_LLM = get_agent_model()
+metadata = cast('LLMMetadata', SEARCH_IMAGE_LLM.metadata)
+
 search_image_agent = create_agent(
     model=get_agent_model(),
     tools=[
@@ -373,11 +378,13 @@ search_image_agent = create_agent(
         select_image,
     ],
     system_prompt=SEARCH_IMAGE_SYSTEM,
-    middleware=[  # type: ignore
+    middleware=[
         DisableParallelToolCallsMiddleware(),
-        TokenStatisticMiddleware(agent_name='search_image', **get_agent_model().metadata),
+        TokenStatisticMiddleware('search_image', **metadata),
     ],
-    state_schema=SearchImageState,  # type: ignore
+    state_schema=SearchImageState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )
 
 # TODO: 目前是手动补充
@@ -389,9 +396,11 @@ self_search_image_agent = create_agent(
         ask_human,
     ],
     system_prompt=SELF_SEARCH_IMAGE_SYSTEM,
-    middleware=[  # type: ignore
+    middleware=[
         DisableParallelToolCallsMiddleware(),
-        TokenStatisticMiddleware(agent_name='search_image', **get_agent_model().metadata),
+        TokenStatisticMiddleware('search_image', **metadata),
     ],
-    state_schema=SearchImageState,  # type: ignore
+    state_schema=SearchImageState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )

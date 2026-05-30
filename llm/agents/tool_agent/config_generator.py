@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 from langchain.agents import create_agent
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -9,6 +11,9 @@ from llm.models import get_high_performance_model
 from llm.states import ToolGeneratorState, UserContext
 from llm.utils.middleware import DisableParallelToolCallsMiddleware, SkillMiddleware, TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckGenerateMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are a bioinformatics engineer and will see a real execution report of a bioinformatics tool, including test run commands and the list of generated output files.
 Your task is to create a Docker execution template for the tool based on this information, so it can be used for subsequent automation.
@@ -193,6 +198,9 @@ def set_tool_info(
     )
 
 
+GENERATOR_LLM = get_high_performance_model()
+metadata = cast('LLMMetadata', GENERATOR_LLM.metadata)
+
 config_generate_agent = create_agent(
     get_high_performance_model(),
     [set_file_mounts, set_command_detail, set_tool_info],
@@ -201,8 +209,9 @@ config_generate_agent = create_agent(
         DisableParallelToolCallsMiddleware(disabled_tools={'set_file_mounts', 'set_command_detail', 'set_tool_info'}),
         SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
         CheckGenerateMiddleware(2),
-        TokenStatisticMiddleware('tool_generator', **get_high_performance_model().metadata),
+        TokenStatisticMiddleware('tool_generator', **metadata),
     ],
-    state_schema=ToolGeneratorState,  # type: ignore
-    context_schema=UserContext,  # type: ignore
+    state_schema=ToolGeneratorState,
+    # pyrefly: ignore [bad-argument-type]
+    context_schema=UserContext,
 )
