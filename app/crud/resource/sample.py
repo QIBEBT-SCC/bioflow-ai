@@ -1,12 +1,13 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
 
 import polars as pl
 from fastapi import HTTPException
-from sqlalchemy import Select, func
+from sqlalchemy import func
+from sqlalchemy import select as sa_select
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND
@@ -33,7 +34,7 @@ def _update_project_time(session: Session, project_id: int) -> None:
         session: 数据库会话
         project_id: 项目 ID
     """
-    project_query: Select = select(Project).where(Project.id == project_id)
+    project_query = select(Project).where(Project.id == project_id)
     project = session.exec(project_query).one_or_none()
 
     if project:
@@ -95,6 +96,7 @@ def _assign_default_tag(sample_file: SampleFiles) -> None:
             SampleFileType.SPECTRUM: 'spectrum',
             SampleFileType.IMAGE: 'image',
         }
+        # pyrefly: ignore [bad-assignment]
         sample_file.tag = default_tags.get(sample_file.data_type, 'unknown')
 
 
@@ -166,7 +168,7 @@ def update(session: Session, sample_uid: uuid.UUID, sample_update: SampleUpdate)
     return sample
 
 
-def get(session: Session, sample_uid: uuid.UUID, *, with_files: bool = False) -> Optional[Sample]:
+def get(session: Session, sample_uid: uuid.UUID, *, with_files: bool = False) -> Sample | None:
     """根据 UID 获取样本.
 
     Args:
@@ -174,43 +176,44 @@ def get(session: Session, sample_uid: uuid.UUID, *, with_files: bool = False) ->
         sample_uid: 样本 UID
         with_files: 是否预加载关联的文件 (使用 Relationship 优化查询)
     """
-    query: Select = select(Sample).where(Sample.uid == sample_uid)
+    query = select(Sample).where(Sample.uid == sample_uid)
     if with_files:
         query = query.options(selectinload(Sample.sample_files))  # type: ignore
     return session.exec(query).one_or_none()
 
 
-def get_with_files(session: Session, sample_uid: uuid.UUID) -> Optional[Sample]:
+def get_with_files(session: Session, sample_uid: uuid.UUID) -> Sample | None:
     """获取样本及其关联文件."""
     return get(session, sample_uid, with_files=True)
 
 
-def get_all(session: Session, sample_uids: list[str]) -> list[Sample]:
+def get_all(session: Session, sample_uids: list[str]) -> Sequence[Sample]:
     """Retrieve multiple samples by a list of UIDs."""
-    samples_stmt: Select = select(Sample).where(col(Sample.uid).in_(sample_uids))
+    samples_stmt = select(Sample).where(col(Sample.uid).in_(sample_uids))
 
     return session.exec(samples_stmt).all()
 
 
 def get_all_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
     """获取项目下的所有样本."""
-    query: Select = (
-        select(
-            Sample.uid,
-            Sample.project_id,
-            Sample.sample_name,
-            Sample.meta_data,
-            Sample.create_time,
-            func.count(SampleFiles.uid).label('file_count'),
+    query = (
+        sa_select(
+            col(Sample.uid),
+            col(Sample.project_id),
+            col(Sample.sample_name),
+            col(Sample.meta_data),
+            col(Sample.create_time),
+            func.count(col(SampleFiles.uid)).label('file_count'),
         )
-        .outerjoin(SampleFiles, Sample.uid == SampleFiles.sample_uid)
-        .where(Sample.project_id == project_id)
-        .group_by(Sample.uid)
+        .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(col(Sample.project_id) == project_id)
+        .group_by(col(Sample.uid))
         .order_by(col(Sample.create_time).desc())
         .offset(offset)
         .limit(limit)
     )
 
+    # pyrefly: ignore [no-matching-overload]
     results = session.exec(query).all()
 
     return [
@@ -228,23 +231,24 @@ def get_all_by_project(session: Session, project_id: int, limit: int = 20, offse
 
 def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
     """获取用户的所有样本."""
-    query: Select = (
-        select(
-            Sample.uid,
-            Sample.project_id,
-            Sample.sample_name,
-            Sample.meta_data,
-            Sample.create_time,
-            func.count(SampleFiles.uid).label('file_count'),
+    query = (
+        sa_select(
+            col(Sample.uid),
+            col(Sample.project_id),
+            col(Sample.sample_name),
+            col(Sample.meta_data),
+            col(Sample.create_time),
+            func.count(col(SampleFiles.uid)).label('file_count'),
         )
-        .outerjoin(SampleFiles, Sample.uid == SampleFiles.sample_uid)
-        .where(Sample.owner_id == user_id)
-        .group_by(Sample.uid)
+        .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(col(Sample.owner_id) == user_id)
+        .group_by(col(Sample.uid))
         .order_by(col(Sample.create_time).desc())
         .offset(offset)
         .limit(limit)
     )
 
+    # pyrefly: ignore [no-matching-overload]
     results = session.exec(query).all()
 
     return [
@@ -265,18 +269,19 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
 
     用于大规模项目 (数百样本) 的概览, 避免逐样本返回造成 token 浪费.
     """
-    query: Select = (
-        select(
-            Sample.uid,
-            Sample.sample_name,
-            Sample.meta_data,
-            SampleFiles.tag,
-            SampleFiles.data_type,
+    query = (
+        sa_select(
+            col(Sample.uid),
+            col(Sample.sample_name),
+            col(Sample.meta_data),
+            col(SampleFiles.tag),
+            col(SampleFiles.data_type),
         )
-        .outerjoin(SampleFiles, Sample.uid == SampleFiles.sample_uid)
-        .where(Sample.project_id == project_id)
-        .order_by(Sample.create_time)
+        .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(col(Sample.project_id) == project_id)
+        .order_by(col(Sample.create_time))
     )
+    # pyrefly: ignore [no-matching-overload]
     rows = session.exec(query).all()
 
     per_sample: dict[uuid.UUID, dict] = {}
@@ -314,13 +319,13 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
 
 def get_count_by_project(session: Session, project_id: int) -> int:
     """获取项目下的样本数量."""
-    query: Select = select(func.count()).select_from(Sample).where(Sample.project_id == project_id)
+    query = select(func.count()).select_from(Sample).where(Sample.project_id == project_id)
     return session.exec(query).one()
 
 
 def get_count_by_user(session: Session, user_id: int) -> int:
     """获取用户的样本数量."""
-    query: Select = select(func.count()).select_from(Sample).where(Sample.owner_id == user_id)
+    query = select(func.count()).select_from(Sample).where(Sample.owner_id == user_id)
     return session.exec(query).one()
 
 
@@ -351,7 +356,7 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
 
 def delete_file(session: Session, file_uid: uuid.UUID) -> None:
     """删除样本文件, 并更新项目时间."""
-    query: Select = select(SampleFiles).where(SampleFiles.uid == file_uid)
+    query = select(SampleFiles).where(SampleFiles.uid == file_uid)
     file = session.exec(query).one_or_none()
 
     if not file:
@@ -373,9 +378,9 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
 
 def delete_file_by_name_tag(session: Session, project_id: int, sample_name: str, tag: str) -> bool:
     """根据项目 + 样本名 + tag 删除样本文件. 返回是否实际删除."""
-    query: Select = (
+    query = (
         select(SampleFiles)
-        .join(Sample, Sample.uid == SampleFiles.sample_uid)
+        .join(Sample, col(Sample.uid) == SampleFiles.sample_uid)
         .where(Sample.project_id == project_id, Sample.sample_name == sample_name, SampleFiles.tag == tag)
     )
     file = session.exec(query).one_or_none()
@@ -452,9 +457,7 @@ def batch_import_from_csv(
             sample_name = str(sample_name).strip()
 
             meta_data = {
-                col: str(value)
-                for col in meta_columns
-                if (value := row.get(col)) is not None and str(value).strip()
+                col: str(value) for col in meta_columns if (value := row.get(col)) is not None and str(value).strip()
             }
 
             sample = Sample(

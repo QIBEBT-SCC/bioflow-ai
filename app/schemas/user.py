@@ -1,9 +1,14 @@
 from decimal import Decimal
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, SecretStr
 
 from app.models.user import UserRole
+
+
+class UserCreate(BaseModel):
+    email: str
+    username: str
+    password: SecretStr
 
 
 class UserPublic(BaseModel):
@@ -15,9 +20,10 @@ class UserPublic(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    username: Optional[str] = None
-    role: Optional[UserRole] = None
-    is_active: Optional[bool] = None
+    username: str | None = None
+    role: UserRole | None = None
+    is_active: bool | None = None
+    hashed_password: str | None = None
 
 
 class RoleUpdate(BaseModel):

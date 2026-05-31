@@ -1,15 +1,14 @@
 import uuid
 from datetime import UTC, datetime
 from enum import IntEnum
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import uuid_extensions
 from sqlalchemy import BigInteger, Column, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-if TYPE_CHECKING:
-    from app.models.user import User
+from app.models.user import User
 
 
 class SampleFileType(IntEnum):

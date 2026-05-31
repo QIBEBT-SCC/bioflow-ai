@@ -1,6 +1,4 @@
-from typing import Optional
-
-from sqlalchemy import Select, func, or_
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.models.resource import ReferenceGenomes
@@ -41,15 +39,15 @@ def update(session: Session, genome_update: GenomeUpdate) -> ReferenceGenomes:
     return db_genome
 
 
-def get(session: Session, genome_id: int) -> Optional[ReferenceGenomes]:
+def get(session: Session, genome_id: int) -> ReferenceGenomes | None:
     """Obtain the reference genome by ID."""
-    query: Select = select(ReferenceGenomes).where(ReferenceGenomes.id == genome_id)
+    query = select(ReferenceGenomes).where(ReferenceGenomes.id == genome_id)
     return session.exec(query).one_or_none()
 
 
-def get_by_taxid(session: Session, tax_id: int) -> Optional[ReferenceGenomes]:
-    """Retrieve the reference genome by species ID.."""
-    query: Select = select(ReferenceGenomes).where(ReferenceGenomes.ncbi_tax_id == tax_id)
+def get_by_taxid(session: Session, tax_id: int) -> ReferenceGenomes | None:
+    """Retrieve the reference genome by species ID."""
+    query = select(ReferenceGenomes).where(ReferenceGenomes.ncbi_tax_id == tax_id)
     return session.exec(query).one_or_none()
 
 
@@ -64,7 +62,7 @@ def search(session: Session, search_term: str, threshold: float = 0.3) -> list[R
     Returns:
         Matching genomes ordered by similarity descending.
     """
-    query: Select = (
+    query = (
         select(ReferenceGenomes)
         .where(
             or_(
@@ -90,5 +88,5 @@ def get_count(session: Session) -> int:
 
 def get_all(session: Session, limit: int = 20, offset: int = 0) -> list[ReferenceGenomes]:
     """分页获取参考基因组列表."""
-    query: Select = select(ReferenceGenomes).offset(offset).limit(limit)
+    query = select(ReferenceGenomes).offset(offset).limit(limit)
     return list(session.exec(query).all())

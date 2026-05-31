@@ -1,8 +1,8 @@
 import uuid
 from collections.abc import Sequence
-from typing import Optional
 
-from sqlalchemy import Select, delete
+from sqlalchemy import delete
+from sqlalchemy import select as sa_select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, case, col, func, select
@@ -60,15 +60,15 @@ def get_run_counts(session: Session, user_id: int) -> int:
     Returns:
         Total count of run instances
     """
-    statement: Select = select(func.count()).select_from(RunInstance).where(col(RunInstance.owner_id) == user_id)
+    statement = select(func.count()).select_from(RunInstance).where(col(RunInstance.owner_id) == user_id)
 
     return session.exec(statement).one()
 
 
 def get_run_status(session: Session, user_id: int) -> Statistics:
     """Get statistics of run instances by their status."""
-    stats: Select = (
-        select(  # type: ignore
+    stats = (
+        sa_select(
             func.count().label('total'),
             func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
             func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)).label('error'),
@@ -79,6 +79,7 @@ def get_run_status(session: Session, user_id: int) -> Statistics:
         .where(col(RunInstance.owner_id) == user_id)
     )
 
+    # pyrefly: ignore [no-matching-overload]
     total, success, error, running, waiting = session.exec(stats).one()
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
@@ -95,7 +96,7 @@ def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> Seq
     Returns:
         A sequence of run instances
     """
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.owner_id == user_id)
         .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
@@ -117,7 +118,7 @@ def get(session: Session, uid: str) -> RunInstance:
     Returns:
         The requested run instance
     """
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.uid == uid)
         .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
@@ -127,25 +128,26 @@ def get(session: Session, uid: str) -> RunInstance:
 
 def get_run_task_stats(session: Session, uid: str) -> Statistics:
     """Get task statistics for a specific run instance."""
-    statement: Select = (
-        select(  # type: ignore
+    statement = (
+        sa_select(
             func.count().label('total'),
-            func.sum(case((col(TaskInstance.status) == Status.SUCCESS, 1), else_=0)).label('success'),
-            func.sum(case((col(TaskInstance.status) == Status.ERROR, 1), else_=0)).label('error'),
-            func.sum(case((col(TaskInstance.status) == Status.RUNNING, 1), else_=0)).label('running'),
-            func.sum(case((col(TaskInstance.status) == Status.WAITING, 1), else_=0)).label('waiting'),
+            func.sum(case((TaskInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
+            func.sum(case((TaskInstance.status == Status.ERROR, 1), else_=0)).label('error'),
+            func.sum(case((TaskInstance.status == Status.RUNNING, 1), else_=0)).label('running'),
+            func.sum(case((TaskInstance.status == Status.WAITING, 1), else_=0)).label('waiting'),
         )
         .select_from(TaskInstance)
         .where(col(TaskInstance.instance_uid) == uid)
     )
 
+    # pyrefly: ignore [no-matching-overload]
     total, success, error, running, waiting = session.exec(statement).one()
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
 def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
     """Get all run instances for a specific project."""
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.project_id == project_id)
         .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
@@ -170,7 +172,7 @@ def get_runs_by_project_and_workflow(
     Returns:
         A sequence of run instances ordered by creation time descending
     """
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.project_id == project_id)
         .where(RunInstance.workflow_uid == workflow_uid)
@@ -192,7 +194,7 @@ def get_runs_by_sample(session: Session, sample_uid: str, limit: int = 20, offse
     Returns:
         List of run instances
     """
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.sample_uid == sample_uid)
         .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
@@ -214,7 +216,7 @@ def get_project_run_count(session: Session, project_id: int) -> int:
     Returns:
         Number of run instances
     """
-    statement: Select = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
+    statement = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
 
     return session.exec(statement).one()
 
@@ -229,8 +231,8 @@ def get_project_run_stats(session: Session, project_id: int) -> Statistics:
     Returns:
         Statistics: Counts of total, success, error, running, waiting run instances.
     """
-    stats: Select = (
-        select(  # type: ignore
+    stats = (
+        sa_select(
             func.count().label('total'),
             func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
             func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)).label('error'),
@@ -238,16 +240,17 @@ def get_project_run_stats(session: Session, project_id: int) -> Statistics:
             func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)).label('waiting'),
         )
         .select_from(RunInstance)
-        .where(RunInstance.project_id == project_id)
+        .where(col(RunInstance.project_id) == project_id)
     )
 
+    # pyrefly: ignore [no-matching-overload]
     total, success, error, running, waiting = session.exec(stats).one()
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
 def get_latest_run_by_sample_and_workflow(
     session: Session, sample_uid: uuid.UUID, workflow_uid: uuid.UUID
-) -> Optional[RunInstance]:
+) -> RunInstance | None:
     """Get the latest run instance for a specific sample and workflow combination.
 
     Args:
@@ -258,7 +261,7 @@ def get_latest_run_by_sample_and_workflow(
     Returns:
         The latest run instance, or None if not found
     """
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.sample_uid == sample_uid)
         .where(RunInstance.workflow_uid == workflow_uid)
@@ -271,7 +274,7 @@ def get_latest_run_by_sample_and_workflow(
 
 def get_latest_run_by_project_and_workflow(
     session: Session, project_id: int, workflow_uid: uuid.UUID
-) -> Optional[RunInstance]:
+) -> RunInstance | None:
     """Get the latest run instance for a specific project and workflow combination (project level).
 
     Args:
@@ -282,7 +285,7 @@ def get_latest_run_by_project_and_workflow(
     Returns:
         The latest project-level run instance, or None if not found
     """
-    statement: Select = (
+    statement = (
         select(RunInstance)
         .where(RunInstance.project_id == project_id)
         .where(RunInstance.workflow_uid == workflow_uid)

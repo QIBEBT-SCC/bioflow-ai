@@ -1,4 +1,4 @@
-from sqlalchemy import Select, func
+from sqlalchemy import func
 from sqlmodel import Session, or_, select
 
 from app.models.workflow import Workflow
@@ -38,14 +38,14 @@ def delete(session: Session, uid: str) -> None:
 
 def workflow_name_exists(session: Session, name: str) -> bool:
     """Return True if a workflow with the given name already exists."""
-    statement: Select = select(Workflow).where(Workflow.name == name)
+    statement = select(Workflow).where(Workflow.name == name)
     result = session.exec(statement).first()
     return result is not None
 
 
 def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[dict]:
     """Return a paginated list of workflows accessible to a user."""
-    statement: Select = (
+    statement = (
         select(Workflow.uid, Workflow.name)
         .where(or_(Workflow.public, Workflow.owner_id == user_id))
         .offset(offset)
@@ -58,16 +58,12 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[dic
 
 def get_count(session: Session, user_id: int) -> int:
     """Return the total count of workflows accessible to a user."""
-    statement: Select = (
-        select(func.count())
-        .select_from(Workflow)
-        .where(or_(Workflow.public, Workflow.owner_id == user_id))
-    )
+    statement = select(func.count()).select_from(Workflow).where(or_(Workflow.public, Workflow.owner_id == user_id))
 
     return session.exec(statement).one()
 
 
 def get(session: Session, wf_uid: str) -> Workflow:
     """Return a workflow by its uid."""
-    statement: Select = select(Workflow).where(Workflow.uid == wf_uid)
+    statement = select(Workflow).where(Workflow.uid == wf_uid)
     return session.exec(statement).one()

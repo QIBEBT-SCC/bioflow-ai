@@ -13,7 +13,7 @@ from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.models.user import User
 from app.schemas.auth import Token
-from app.schemas.user import PasswordUpdate, UserPublic
+from app.schemas.user import PasswordUpdate, UserPublic, UserUpdate
 from app.utils.security import (
     UserDep,
     authenticate_user,
@@ -130,6 +130,7 @@ async def refresh_access_token(request: Request, response: Response, redis: Redi
 @router.get('/me')
 async def read_users_me(current_user: Annotated[User, Depends(get_current_active_user)]) -> UserPublic:
     """Return the current authenticated user's information."""
+    # pyrefly: ignore [bad-return]
     return current_user
 
 
@@ -186,4 +187,6 @@ def update_password(body: PasswordUpdate, session: SessionDep, current_user: Use
     """Update the current user's password."""
     if not verify_password(body.current_password.get_secret_value(), current_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Current password is incorrect')
-    user_crud.update(session, current_user, hashed_password=get_password_hash(body.new_password.get_secret_value()))
+    update_data = UserUpdate(hashed_password=get_password_hash(body.new_password.get_secret_value()))
+    # pyrefly: ignore [bad-argument-type]
+    user_crud.update(session, current_user.id, update_data)

@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -8,41 +7,37 @@ from app.utils.input_format import build_command_template
 
 
 class ToolGroupPublic(BaseModel):
-    """工具分组公开信息，包含工具数量"""
-
     id: int
     name: str
-    parent_id: Optional[int]
-    tag_id: Optional[int]
+    parent_id: int | None
+    tag_id: int | None
     tool_count: int
 
 
 class ImagePublic(BaseModel):
     uid: uuid.UUID
     name: str
-    version: Optional[str]
-    description: Optional[str]
-    homepage: Optional[str]
-    paper_link: Optional[str]
+    version: str | None
+    description: str | None
+    homepage: str | None
+    paper_link: str | None
     image: ImageConfig
 
     tools: list['SimpleToolPublic']
 
 
 class ImageUpdate(BaseModel):
-    """更新镜像的请求模型"""
-
-    name: Optional[str] = None
-    version: Optional[str] = None
-    description: Optional[str] = None
-    homepage: Optional[str] = None
-    paper_link: Optional[str] = None
-    image: Optional[ImageConfig] = None
+    name: str | None = None
+    version: str | None = None
+    description: str | None = None
+    homepage: str | None = None
+    paper_link: str | None = None
+    image: ImageConfig | None = None
 
 
 class DocUpdate(BaseModel):
-    help_command: Optional[str] = None
-    content: Optional[str] = None
+    help_command: str | None = None
+    content: str | None = None
 
 
 class SimpleToolDoc(BaseModel):
@@ -55,8 +50,6 @@ class RunRequest(BaseModel):
 
 
 class DockerToolCreate(BaseModel):
-    """创建Docker工具的请求模型"""
-
     name: str
     image_uid: uuid.UUID
     description: str
@@ -67,8 +60,8 @@ class DockerToolCreate(BaseModel):
 
     command_template: str
     dynamic_params: list[ParamDefine]
-    immutable_static_params: Optional[str]
-    modifiable_static_params: Optional[str]
+    immutable_static_params: str | None
+    modifiable_static_params: str | None
     file_mounts: list[FileMount]
 
     def to_tool_data(self) -> ToolDefine:
@@ -87,21 +80,19 @@ class DockerToolCreate(BaseModel):
 
 
 class DockerToolUpdate(BaseModel):
-    """更新Docker工具的请求模型"""
+    name: str | None = None
+    image_uid: uuid.UUID | None = None
+    description: str | None = None
+    help_doc_uid: uuid.UUID | None = None
 
-    name: Optional[str] = None
-    image_uid: Optional[uuid.UUID] = None
-    description: Optional[str] = None
-    help_doc_uid: Optional[uuid.UUID] = None
+    group_id: int | None = None
+    tags: list[ToolTag] | None = None
 
-    group_id: Optional[int] = None
-    tags: Optional[list[ToolTag]] = None
-
-    command_template: Optional[str] = None
-    dynamic_params: Optional[list[ParamDefine]] = None
-    immutable_static_params: Optional[str] = None
-    modifiable_static_params: Optional[str] = None
-    file_mounts: Optional[list[FileMount]] = None
+    command_template: str | None = None
+    dynamic_params: list[ParamDefine] | None = None
+    immutable_static_params: str | None = None
+    modifiable_static_params: str | None = None
+    file_mounts: list[FileMount] | None = None
 
 
 class SimpleToolPublic(BaseModel):
@@ -109,9 +100,9 @@ class SimpleToolPublic(BaseModel):
     name: str
     description: str
     tool_type: ToolType
-    group_id: Optional[int]
+    group_id: int | None
 
-    image: Optional[ToolImage]
+    image: ToolImage | None
 
     tags: list[ToolTag]
 
@@ -123,16 +114,16 @@ class ToolPublic(BaseModel):
     name: str
     description: str
     tool_type: ToolType
-    group_id: Optional[int]
+    group_id: int | None
 
     file_mounts: list[FileMount]
 
     dynamic_params: list[ParamDefine]
-    immutable_static_params: Optional[str]
-    modifiable_static_params: Optional[str]
+    immutable_static_params: str | None
+    modifiable_static_params: str | None
     command_template: str
 
-    complete_command: Optional[str] = None
+    complete_command: str | None = None
 
     tags: list['ToolTag']
     help_doc: ToolHelpDoc
@@ -169,9 +160,9 @@ class ToolNodePublic(BaseModel):
     input_handles: list[Handle] = Field(default_factory=list)
     output_handles: list[Handle] = Field(default_factory=list)
 
-    immutable_static_params: Optional[str]
-    modifiable_static_params: Optional[str]
-    complete_command: Optional[str] = None
+    immutable_static_params: str | None
+    modifiable_static_params: str | None
+    complete_command: str | None = None
 
     @model_validator(mode='after')
     def build_handles(self):
@@ -205,8 +196,8 @@ class ToolTaskInfo(BaseModel):
 
     command_template: str
     dynamic_params: list[ParamDefine]
-    immutable_static_params: Optional[str]
-    modifiable_static_params: Optional[str]
+    immutable_static_params: str | None
+    modifiable_static_params: str | None
     file_mounts: list[FileMount]
 
     image: ToolImage

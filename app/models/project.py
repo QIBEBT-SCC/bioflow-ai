@@ -42,6 +42,7 @@ class ProjectTag(SQLModel, table=True):
     @project_count.expression
     def project_count(self):
         return (
+            # pyrefly: ignore [bad-argument-type]
             select(func.count(ProjectTagLink.project_id))
             .where(ProjectTagLink.tag_id == self.id)
             .correlate_except(ProjectTagLink)

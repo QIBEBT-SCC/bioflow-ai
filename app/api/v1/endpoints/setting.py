@@ -1,6 +1,6 @@
 import io
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 import polars as pl
 from fastapi import APIRouter, HTTPException, Query
@@ -40,12 +40,14 @@ async def create_llm_provider(
 ) -> LLMProviderPublic:
     """Create a new LLM provider."""
     provider = LLMProvider.model_validate(provider_data.model_dump())
+    # pyrefly: ignore [bad-return]
     return provider_crud.insert(session, provider)
 
 
 @router.get('/providers')
 async def get_llm_providers(session: SessionDep, _current_user: AdminDep) -> list[LLMProviderPublic]:
     """Get all LLM providers."""
+    # pyrefly: ignore [bad-return]
     return provider_crud.get_all(session)
 
 
@@ -55,6 +57,7 @@ async def get_llm_provider(provider_id: int, session: SessionDep, _current_user:
     provider = provider_crud.get(session, provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail='Provider not found')
+    # pyrefly: ignore [bad-return]
     return provider
 
 
@@ -66,6 +69,7 @@ async def update_llm_provider(
     provider = provider_crud.update(session, provider_id, provider_data)
     if provider is None:
         raise HTTPException(status_code=404, detail='Provider not found')
+    # pyrefly: ignore [bad-return]
     return provider
 
 
@@ -82,11 +86,8 @@ async def delete_llm_provider(provider_id: int, session: SessionDep, _current_us
 @router.post('/models')
 async def create_llm_model(model_data: LLMModelCreate, session: SessionDep, _current_user: AdminDep) -> LLMModelPublic:
     """Create a new LLM model under an existing provider."""
-    provider = provider_crud.get(session, model_data.provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail='Provider not found')
-
     model = LLMModel(**model_data.model_dump())
+    # pyrefly: ignore [bad-return]
     return model_crud.insert(session, model)
 
 
@@ -100,30 +101,27 @@ async def get_llm_models(session: SessionDep, _current_user: AdminDep) -> list[L
 @router.get('/models/{model_id}')
 async def get_llm_model(model_id: int, session: SessionDep, _current_user: AdminDep) -> LLMModelPublic:
     """Get a single LLM model by ID."""
-    model = model_crud.get(session, model_id)
-    if model is None:
-        raise HTTPException(status_code=404, detail='Model not found')
-    return model
+    # pyrefly: ignore [bad-return]
+    return model_crud.get(session, model_id)
 
 
 @router.get('/providers/{provider_id}/models')
 async def get_provider_models(provider_id: int, session: SessionDep, _current_user: AdminDep) -> list[LLMModelPublic]:
     """Get all models belonging to a specific provider."""
-    provider = provider_crud.get(session, provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail='Provider not found')
+    # pyrefly: ignore [bad-return]
     return model_crud.get_by_provider(session, provider_id)
 
 
 @router.patch('/models/{model_id}')
 async def update_llm_model(
-    model_id: int, model_data: LLMModelUpdate, session: SessionDep, _current_user: AdminDep
+    model_id: int,
+    model_data: LLMModelUpdate,
+    session: SessionDep,
+    _current_user: AdminDep,
 ) -> LLMModelPublic:
     """Update an existing LLM model."""
-    model = model_crud.update(session, model_id, model_data)
-    if model is None:
-        raise HTTPException(status_code=404, detail='Model not found')
-    return model
+    # pyrefly: ignore [bad-return]
+    return model_crud.update(session, model_id, model_data)
 
 
 @router.delete('/models/{model_id}')
@@ -142,6 +140,7 @@ async def get_llm_settings(session: SessionDep, _current_user: AdminDep) -> LLMS
 
     Returns all settings, each containing model_id, model_name and provider_name.
     """
+    # pyrefly: ignore [bad-return]
     return setting_crud.get_all_with_details(session)
 
 
@@ -154,10 +153,6 @@ async def update_llm_setting(setting_data: LLMSettingUpdate, session: SessionDep
     - **key**: setting key (e.g. chat_model, agent_model)
     - **model_id**: target model ID to associate
     """
-    model = model_crud.get(session, setting_data.model_id)
-    if model is None:
-        raise HTTPException(status_code=404, detail='Model not found')
-
     setting_crud.update(session, setting_data.key, setting_data.model_id)
     invalidate_model_cache(setting_data.key)
     return {'message': f'Setting {setting_data.key.value} updated successfully'}
@@ -169,10 +164,10 @@ async def get_llm_statistics_overview(
     session: SessionDep,
     _current_user: AdminDep,
     start_date: Annotated[
-        Optional[datetime], Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+        datetime | None, Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
     end_date: Annotated[
-        Optional[datetime], Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+        datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
 ) -> LLMStatisticOverview:
     """Get LLM usage statistics overview.
@@ -182,6 +177,7 @@ async def get_llm_statistics_overview(
     - **start_date**: optional start time; no lower bound if not provided
     - **end_date**: optional end time; no upper bound if not provided
     """
+    # pyrefly: ignore [bad-return]
     return statistic_crud.get_summary(session, start_date, end_date)
 
 
@@ -190,10 +186,10 @@ async def get_llm_statistics_details(
     session: SessionDep,
     _current_user: AdminDep,
     start_date: Annotated[
-        Optional[datetime], Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+        datetime | None, Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
     end_date: Annotated[
-        Optional[datetime], Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+        datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
     limit: Annotated[int, Query(ge=1, le=1000, description='Page size')] = 100,
     offset: Annotated[int, Query(ge=0, description='Offset for pagination')] = 0,
@@ -207,6 +203,7 @@ async def get_llm_statistics_details(
     - **limit**: page size, default 100, max 1000
     - **offset**: pagination offset
     """
+    # pyrefly: ignore [bad-return]
     return statistic_crud.get_details(session, start_date, end_date, limit, offset)
 
 
@@ -214,10 +211,10 @@ async def get_llm_statistics_details(
 async def download_statistic_details(
     _current_user: AdminDep,
     start_date: Annotated[
-        Optional[datetime], Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+        datetime | None, Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
     end_date: Annotated[
-        Optional[datetime], Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
+        datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
 ) -> StreamingResponse:
     """Download LLM usage records as CSV.

@@ -1,24 +1,19 @@
 import uuid
 from datetime import datetime
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.resource import SampleFileType
 
 
-class IndexStatus(str, Enum):
-    """Status of a single alignment index."""
-
+class IndexStatus(StrEnum):
     ready = 'ready'
     not_built = 'not_built'
     building = 'building'
 
 
 class GenomeIndexStatus(BaseModel):
-    """Per-index build status for a reference genome."""
-
     bowtie2: IndexStatus = IndexStatus.not_built
     bwa: IndexStatus = IndexStatus.not_built
     hisat2: IndexStatus = IndexStatus.not_built
@@ -28,9 +23,9 @@ class GenomeIndexStatus(BaseModel):
 
 class BioDbCreate(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     path: str
-    last_update: Optional[str] = None
+    last_update: str | None = None
 
 
 class BioDbSimple(BaseModel):
@@ -40,75 +35,63 @@ class BioDbSimple(BaseModel):
 
 class GenomeUpdate(BaseModel):
     id: int
-    aliases: Optional[str] = None
+    aliases: str | None = None
 
-    bowtie2_index: Optional[str] = None
-    bwa_index: Optional[str] = None
-    hisat2_index: Optional[str] = None
-    star_index: Optional[str] = None
-    minimap2_index: Optional[str] = None
+    bowtie2_index: str | None = None
+    bwa_index: str | None = None
+    hisat2_index: str | None = None
+    star_index: str | None = None
+    minimap2_index: str | None = None
 
 
 class ReferenceGenomeListItem(BaseModel):
-    """Reference genome list item (lightweight)."""
-
-    model_config = {'from_attributes': True}
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     ncbi_tax_id: int
     name: str
     accession: str
-    aliases: Optional[str] = None
+    aliases: str | None = None
     index_status: GenomeIndexStatus = Field(default_factory=GenomeIndexStatus)
 
 
 class ReferenceGenomePublic(BaseModel):
-    """Full details of a reference genome, including per-index build status."""
-
-    model_config = {'from_attributes': True}
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     ncbi_tax_id: int
     name: str
     accession: str
-    aliases: Optional[str] = None
+    aliases: str | None = None
     genome_sequences: str
     annotation_gff: str
     annotation_gtf: str
-    bowtie2_index: Optional[str] = None
-    bwa_index: Optional[str] = None
-    hisat2_index: Optional[str] = None
-    star_index: Optional[str] = None
-    minimap2_index: Optional[str] = None
+    bowtie2_index: str | None = None
+    bwa_index: str | None = None
+    hisat2_index: str | None = None
+    star_index: str | None = None
+    minimap2_index: str | None = None
     index_status: GenomeIndexStatus = Field(default_factory=GenomeIndexStatus)
 
 
 class ReferenceGenomeDownloadRequest(BaseModel):
-    """触发后台下载新参考基因组的请求体, ncbi_tax_id 和 species_name 二选一."""
-
-    ncbi_tax_id: Optional[int] = None
-    species_name: Optional[str] = None
+    ncbi_tax_id: int | None = None
+    species_name: str | None = None
     required_index: list[str] = Field(
         default_factory=list, description='需要构建的索引类型, 如 ["bowtie2_index", "hisat2_index"]'
     )
 
 
 class ReferenceGenomeBuildIndexRequest(BaseModel):
-    """对已有参考基因组补充构建索引的请求体."""
-
     required_index: list[str] = Field(description='需要构建的索引类型, 如 ["star_index"]')
 
 
 class CeleryTaskResponse(BaseModel):
-    """Response after submitting a Celery background task."""
-
     task_id: str
     message: str
 
 
 class GenomeDownloadResponse(BaseModel):
-    """Response for a genome download request, including NCBI metadata found before dispatching."""
-
     task_id: str
     message: str
     # NCBI metadata resolved before the download task was submitted
@@ -119,21 +102,13 @@ class GenomeDownloadResponse(BaseModel):
 
 # Sample Schemas
 class SampleFileCreate(BaseModel):
-    """创建样本文件的请求模型.
-
-    前端只需传递 data_type, tag 和 file_path
-    file_format、file_size 和 md5_checksum 由后端自动计算
-    """
-
     data_type: SampleFileType
     file_path: str
-    tag: Optional[str] = None
+    tag: str | None = None
 
 
 class SampleFilePublic(BaseModel):
-    """样本文件的公开信息."""
-
-    model_config = {'from_attributes': True}
+    model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
     sample_uid: uuid.UUID
@@ -142,29 +117,23 @@ class SampleFilePublic(BaseModel):
     file_format: str
     file_size: int
     md5_checksum: str
-    tag: Optional[str] = None
+    tag: str | None = None
     uploaded_time: datetime
 
 
 class SampleCreate(BaseModel):
-    """创建样本的请求模型."""
-
     project_id: int
     sample_name: str
-    meta_data: Optional[dict] = None
+    meta_data: dict | None = None
 
 
 class SampleUpdate(BaseModel):
-    """更新样本的请求模型."""
-
-    sample_name: Optional[str] = None
-    meta_data: Optional[dict] = None
+    sample_name: str | None = None
+    meta_data: dict | None = None
 
 
 class SamplePublic(BaseModel):
-    """样本的公开信息."""
-
-    model_config = {'from_attributes': True, 'populate_by_name': True}
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     uid: uuid.UUID
     owner_id: int
@@ -177,8 +146,6 @@ class SamplePublic(BaseModel):
 
 
 class SampleListItem(BaseModel):
-    """样本列表项."""
-
     uid: uuid.UUID
     project_id: int
     sample_name: str
@@ -188,15 +155,11 @@ class SampleListItem(BaseModel):
 
 
 class SampleTagInfo(BaseModel):
-    """样本组中共享的 tag 信息."""
-
     tag: str
     data_type: SampleFileType
 
 
 class SampleGroupSummary(BaseModel):
-    """按 (meta_data, tag 集合) 聚合后的样本组."""
-
     count: int
     meta_data: dict
     tags: list[SampleTagInfo]
@@ -204,8 +167,6 @@ class SampleGroupSummary(BaseModel):
 
 
 class SampleBatchImportResult(BaseModel):
-    """批量导入结果."""
-
     success: int  # 成功导入的样本数
     failed: int  # 失败的样本数
     errors: list[dict] = []  # 错误详情: [{"row": 1, "sample_name": "xxx", "error": "xxx"}]

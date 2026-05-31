@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 from starlette.requests import Request
+from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
@@ -31,24 +32,28 @@ def get_all_tasks(
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[SimpleTaskPublic]:
     """Get a paginated list of task instances for the current user."""
+    # pyrefly: ignore [bad-argument-type, bad-return]
     return task_crud.get_all(session, limit, offset, current_user.id)
 
 
 @router.get('/count')
 def get_task_count(session: SessionDep, current_user: UserDep) -> int:
     """Get the total count of task instances for the current user."""
+    # pyrefly: ignore [bad-argument-type]
     return task_crud.get_count(session, current_user.id)
 
 
 @router.get('/recent/{hour}')
 def get_by_time(hour: int, session: SessionDep, current_user: UserDep) -> list[SimpleTaskPublic]:
     """Get task instances created within the last N hours."""
+    # pyrefly: ignore [bad-argument-type, bad-return]
     return task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
 
 
 @router.get('/{uid}')
 def get_task_instance(uid: str, session: SessionDep) -> TaskPublic:
     """Get a task instance by its UID."""
+    # pyrefly: ignore [bad-return]
     return task_crud.get(session, uid)
 
 
@@ -56,6 +61,8 @@ def get_task_instance(uid: str, session: SessionDep) -> TaskPublic:
 def get_task_result(uid: str, session: SessionDep) -> ToolOutput:
     """Get the tool output result of a task instance."""
     task = task_crud.get(session, uid)
+    if task.tool_output is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task has no output')
     return task.tool_output
 
 
@@ -66,6 +73,7 @@ async def get_monitor_log(
     max_points: Annotated[int, Query(le=1000)] = 300,
 ) -> list[MonitorPublic]:
     """Get monitor log entries; reads from Redis if task is running, DB otherwise."""
+    # pyrefly: ignore [not-async]
     raw_list = await monitor_redis_client.lrange(f'task-monitor-{uid}', 0, -1)
 
     if raw_list:
@@ -85,7 +93,10 @@ async def get_monitor_log(
 def get_task_log(uid: str, session: SessionDep) -> dict:
     """Get the text log file content for a task instance."""
     task = task_crud.get(session, uid)
+    if task.tool_output is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task has no output')
 
+    # pyrefly: ignore [bad-argument-type]
     log_path = Path(task.tool_output.log) if hasattr(task.tool_output, 'log') else Path(task.base_dir) / '11_run.log'
     if Path(log_path).exists():
         with Path(log_path).open('r', encoding='utf-8') as f:

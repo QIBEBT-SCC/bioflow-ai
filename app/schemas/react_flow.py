@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,7 +29,7 @@ class EdgeBase(BaseModel):
 
 class Edge(EdgeBase):
     id: str
-    animated: Optional[bool] = True
+    animated: bool | None = True
 
 
 class WorkflowDefinition(BaseModel):

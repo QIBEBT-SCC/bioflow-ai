@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 from starlette import status
@@ -43,7 +43,7 @@ async def run_workflow(
     workflow: WorkflowDefinition,
     session: SessionDep,
     current_user: UserDep,
-    template_name: Optional[str] = None,
+    template_name: str | None = None,
 ) -> RunInstance:
     """Create a new workflow run instance from the editor."""
     if template_name is None:
@@ -63,6 +63,7 @@ async def run_workflow(
     run = RunInstance(
         name=f'temporarily-{template_name}',
         project_id=None,
+        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         workflow=workflow,
         base_dir=str(base_dir),
@@ -105,8 +106,11 @@ async def save_workflow(
 
     uid = uuid7(as_type='str')
     workflow = Workflow(
+        # pyrefly: ignore [bad-argument-type]
         uid=uid,
         name=workflow_prop.name,
+        description='',
+        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         wf_type=workflow_prop.wf_type,
         execution_scope=workflow_prop.execution_scope,

@@ -1,6 +1,6 @@
-from typing import Optional
+from collections.abc import Sequence
 
-from sqlalchemy import Select, func, text
+from sqlalchemy import func, text
 from sqlmodel import Session, col, select
 
 from app.models.tools import ToolTag
@@ -35,26 +35,27 @@ def drop_all(session: Session) -> int:
         return 0
 
     table_name = ToolTag.__tablename__
+    # pyrefly: ignore [no-matching-overload]
     session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
     session.commit()
 
     return count
 
 
-def get_all(session: Session) -> list[ToolTag]:
+def get_all(session: Session) -> Sequence[ToolTag]:
     """Return all tool tags ordered by ID."""
     query = select(ToolTag).order_by(col(ToolTag.id))
 
     return session.exec(query).all()
 
 
-def get_all_by_id(session: Session, ids: list[int]) -> list[ToolTag]:
+def get_all_by_id(session: Session, ids: list[int]) -> Sequence[ToolTag]:
     """Return all tool tags whose IDs are in the given list."""
-    query: Select = select(ToolTag).where(col(ToolTag.id).in_(ids))
+    query = select(ToolTag).where(col(ToolTag.id).in_(ids))
     return session.exec(query).all()
 
 
-def get_by_name(session: Session, name: str) -> Optional[ToolTag]:
+def get_by_name(session: Session, name: str) -> ToolTag | None:
     """Return a tool tag by its name, or None if not found."""
-    query: Select = select(ToolTag).where(ToolTag.name == name)
+    query = select(ToolTag).where(ToolTag.name == name)
     return session.exec(query).one_or_none()

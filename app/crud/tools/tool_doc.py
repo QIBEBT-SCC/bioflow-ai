@@ -1,7 +1,9 @@
-from typing import Optional
+from collections.abc import Sequence
 
-from sqlalchemy import Select, func, text
+from fastapi import HTTPException
+from sqlalchemy import func, text
 from sqlmodel import Session, col, select
+from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.tools import ToolHelpDoc
 from app.schemas.tools import DocUpdate
@@ -37,24 +39,25 @@ def delete(session: Session, doc_uid: str) -> None:
 
 def drop_all(session: Session) -> int:
     """Truncate the tool help doc table and return the number of deleted rows."""
-    count_query = select(func.count()).select_from(ToolHelpDoc)
-    count = session.exec(count_query).one()
+    count_stmt = select(func.count()).select_from(ToolHelpDoc)
+    count = session.exec(count_stmt).one()
 
     if count == 0:
         return 0
 
     table_name = ToolHelpDoc.__tablename__
+    # pyrefly: ignore [no-matching-overload]
     session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
     session.commit()
 
     return count
 
 
-def update(session: Session, image_uid: str, doc_update: DocUpdate) -> Optional[ToolHelpDoc]:
+def update(session: Session, image_uid: str, doc_update: DocUpdate) -> ToolHelpDoc:
     """部分更新镜像信息."""
     doc = get(session, image_uid)
-    if not doc:
-        return None
+    if doc is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Doc not found')
 
     update_data = doc_update.model_dump(exclude_unset=True)
     doc.sqlmodel_update(update_data)
@@ -65,35 +68,35 @@ def update(session: Session, image_uid: str, doc_update: DocUpdate) -> Optional[
     return doc
 
 
-def get_all(session: Session, limit: int, offset: int) -> list[ToolHelpDoc]:
+def get_all(session: Session, limit: int, offset: int) -> Sequence[ToolHelpDoc]:
     """Return a paginated list of all tool help documents ordered by UID."""
-    query: Select = select(ToolHelpDoc).order_by(col(ToolHelpDoc.uid)).limit(limit).offset(offset)
-    return session.exec(query).all()
+    stmt = select(ToolHelpDoc).order_by(col(ToolHelpDoc.uid)).limit(limit).offset(offset)
+    return session.exec(stmt).all()
 
 
 def get(session: Session, doc_uid: str) -> ToolHelpDoc:
     """Return a tool help document by its UID."""
-    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.uid == doc_uid)
+    stmt = select(ToolHelpDoc).where(ToolHelpDoc.uid == doc_uid)
 
-    return session.exec(query).one()
+    return session.exec(stmt).one()
 
 
-def get_by_image(session: Session, image_uid: str) -> list[ToolHelpDoc]:
+def get_by_image(session: Session, image_uid: str) -> Sequence[ToolHelpDoc]:
     """Return all tool help documents associated with the given image UID."""
-    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.image_uid == image_uid)
+    stmt = select(ToolHelpDoc).where(ToolHelpDoc.image_uid == image_uid)
 
-    return session.exec(query).all()
+    return session.exec(stmt).all()
 
 
-def get_by_command(session: Session, help_command: str) -> Optional[ToolHelpDoc]:
+def get_by_command(session: Session, help_command: str) -> ToolHelpDoc | None:
     """Return a tool help document by its help command, or None if not found."""
-    query: Select = select(ToolHelpDoc).where(ToolHelpDoc.help_command == help_command)
+    stmt = select(ToolHelpDoc).where(ToolHelpDoc.help_command == help_command)
 
-    return session.exec(query).one_or_none()
+    return session.exec(stmt).one_or_none()
 
 
 def get_counts(session: Session) -> int:
     """Return the total number of tool help documents."""
-    query: Select = select(func.count()).select_from(ToolHelpDoc)
+    stmt = select(func.count()).select_from(ToolHelpDoc)
 
-    return session.exec(query).one()
+    return session.exec(stmt).one()

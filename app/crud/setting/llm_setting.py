@@ -1,5 +1,5 @@
-
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlmodel import Session, col
 
 from app.models.setting import LLMModel, LLMProvider, LLMSetting, ModelRole
 
@@ -21,10 +21,15 @@ def get_all_with_details(session: Session) -> dict:
         model_id = getattr(setting, f'{role.value}_id') if setting else None
         if model_id is not None:
             stmt = (
-                select(LLMModel.id, LLMModel.name.label('model_name'), LLMProvider.name.label('provider_name'))
-                .join(LLMProvider, LLMModel.provider_id == LLMProvider.id)
+                select(
+                    col(LLMModel.id),
+                    col(LLMModel.name).label('model_name'),
+                    col(LLMProvider.name).label('provider_name'),
+                )
+                .join(LLMProvider, col(LLMModel.provider_id) == LLMProvider.id)
                 .where(LLMModel.id == model_id)
             )
+            # pyrefly: ignore [no-matching-overload]
             row = session.exec(stmt).one_or_none()
             if row:
                 result[role.value] = {

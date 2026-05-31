@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal, Optional, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -11,12 +11,10 @@ from app.schemas.user import UserPublic
 
 
 class RunData(BaseModel):
-    """运行状态数据, 注入到每个 node 的 data.run_data 中."""
-
-    status: Optional[Status] = None
-    create_time: Optional[datetime] = None
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    status: Status | None = None
+    create_time: datetime | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
 
 class TaskInfo4Run(BaseModel):
@@ -27,9 +25,9 @@ class TaskInfo4Run(BaseModel):
 
     status: Status
 
-    create_time: Optional[datetime]
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
+    create_time: datetime | None
+    start_time: datetime | None
+    end_time: datetime | None
 
 
 class SimpleRunPublic(BaseModel):
@@ -39,17 +37,17 @@ class SimpleRunPublic(BaseModel):
     name: str
     owner: UserPublic
 
-    project_id: Optional[int] = None
-    workflow_uid: Optional[uuid.UUID] = None
-    sample_uid: Optional[uuid.UUID] = None
+    project_id: int | None = None
+    workflow_uid: uuid.UUID | None = None
+    sample_uid: uuid.UUID | None = None
 
-    base_dir: Optional[str] = None
+    base_dir: str | None = None
 
     status: Status
-    task_statistics: Optional[Statistics] = None
-    create_time: Optional[datetime]
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
+    task_statistics: Statistics | None = None
+    create_time: datetime | None
+    start_time: datetime | None
+    end_time: datetime | None
 
 
 class RunPublic(SimpleRunPublic):
@@ -80,8 +78,6 @@ class RunPublic(SimpleRunPublic):
 
 
 class RunDetailPublic(SimpleRunPublic):
-    """详情接口返回, 包含 workflow 图结构和注入的运行状态."""
-
     tasks: list[TaskInfo4Run] = Field(exclude=True)
     workflow: WorkflowDefinition = Field(exclude=True)
 
@@ -135,11 +131,11 @@ class RunDetailPublic(SimpleRunPublic):
 
 
 class RunUpdate(BaseModel):
-    workflow: Optional[WorkflowDefinition] = None
-    status: Optional[Status] = None
+    workflow: WorkflowDefinition | None = None
+    status: Status | None = None
 
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
 
 class OutputFileItem(BaseModel):

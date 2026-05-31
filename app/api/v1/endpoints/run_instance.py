@@ -21,7 +21,6 @@ from app.schemas.run_instance import (
     RunDetailPublic,
     RunPublic,
     RunUpdate,
-    SimpleRunPublic,
 )
 from app.utils.security import UserDep
 from app.utils.system import build_file_tree, serve_file
@@ -38,6 +37,7 @@ async def get_all_runs(
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[RunPublic]:
     """获取所有运行实例(包含从 Redis 读取的实时统计信息)."""
+    # pyrefly: ignore [bad-argument-type]
     runs = run_crud.get_all_runs(session, limit, offset, current_user.id)
 
     result = [RunPublic.model_validate(run) for run in runs]
@@ -49,7 +49,7 @@ async def get_all_runs(
         stats_list = await pipe.execute()
 
         for run_data, raw_stats in zip(result, stats_list, strict=True):
-            if raw_stats:
+            if raw_stats and isinstance(raw_stats, dict):
                 run_data.task_statistics = Statistics(
                     total=int(raw_stats.get(b'total', 0)),
                     waiting=int(raw_stats.get(b'waiting', 0)),
@@ -64,12 +64,14 @@ async def get_all_runs(
 @router.get('/count')
 def get_run_counts(session: SessionDep, current_user: UserDep) -> int:
     """Get the total number of run instances for the current user."""
+    # pyrefly: ignore [bad-argument-type]
     return run_crud.get_run_counts(session, current_user.id)
 
 
 @router.get('/statistics')
 def get_run_stats(session: SessionDep, current_user: UserDep) -> Statistics:
     """Get aggregated run status statistics for the current user."""
+    # pyrefly: ignore [bad-argument-type]
     return run_crud.get_run_status(session, current_user.id)
 
 

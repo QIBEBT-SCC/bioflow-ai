@@ -1,8 +1,10 @@
-from typing import Optional
+from collections.abc import Sequence
 
-from sqlalchemy import Select, func, text
+from fastapi import HTTPException
+from sqlalchemy import func, text
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
+from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.tools import ToolDefine
 from app.schemas.tools import DockerToolUpdate
@@ -40,13 +42,14 @@ def delete(session: Session, tool_uid: str) -> None:
 
 def drop_all(session: Session) -> int:
     """Truncate the tool table and return the number of deleted rows."""
-    count_query = select(func.count()).select_from(ToolDefine)
-    count = session.exec(count_query).one()
+    count_stmt = select(func.count()).select_from(ToolDefine)
+    count = session.exec(count_stmt).one()
 
     if count == 0:
         return 0
 
     table_name = ToolDefine.__tablename__
+    # pyrefly: ignore [no-matching-overload]
     session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
     session.commit()
 
@@ -62,7 +65,7 @@ def update(session: Session, tool: ToolDefine) -> ToolDefine:
     return tool
 
 
-def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdate) -> Optional[ToolDefine]:
+def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdate) -> ToolDefine | None:
     """部分更新工具配置."""
     from app.crud.tools import tool_tag as tag_crud
 
@@ -76,9 +79,10 @@ def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdat
 
     # 处理标签更新
     if tool_update.tags is not None:
-        exist_ids: list[int] = [tag.id for tag in tool_update.tags if tag.id != -1]
+        # pyrefly: ignore [bad-assignment]
+        exist_ids: list[int] = [tag.id for tag in tool_update.tags if tag.id is not None and tag.id != -1]
         tags = tag_crud.get_all_by_id(session, exist_ids)
-        db_tool.tags = tags
+        db_tool.tags = list(tags)
 
     session.add(db_tool)
     session.commit()
@@ -89,27 +93,28 @@ def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdat
 
 def get_counts(session: Session) -> int:
     """Return the total number of tools."""
-    query: Select = select(func.count()).select_from(ToolDefine)
+    stmt = select(func.count()).select_from(ToolDefine)
 
-    return session.exec(query).one()
+    return session.exec(stmt).one()
 
 
-def get_all(session: Session, limit: int, offset: int) -> list[ToolDefine]:
+def get_all(session: Session, limit: int, offset: int) -> Sequence[ToolDefine]:
     """Return a paginated list of all tools ordered by name."""
-    query: Select = (
+    stmt = (
         select(ToolDefine)
         .order_by(col(ToolDefine.name))
-        .options(selectinload(ToolDefine.tags))  # type: ignore
+        # pyrefly: ignore [bad-argument-type]
+        .options(selectinload(ToolDefine.tags))
         .offset(offset)
         .limit(limit)
     )
 
-    return session.exec(query).all()
+    return session.exec(stmt).all()
 
 
-def get_all_by_group(session: Session, group_id: Optional[int], limit: int, offset: int) -> list[ToolDefine]:
+def get_all_by_group(session: Session, group_id: int | None, limit: int, offset: int) -> Sequence[ToolDefine]:
     """Return a paginated list of tools belonging to the given group."""
-    query: Select = (
+    stmt = (
         select(ToolDefine)
         .where(ToolDefine.group_id == group_id)
         .options(selectinload(ToolDefine.tags))  # type: ignore
@@ -117,25 +122,25 @@ def get_all_by_group(session: Session, group_id: Optional[int], limit: int, offs
         .limit(limit)
     )
 
-    return session.exec(query).all()
+    return session.exec(stmt).all()
 
 
-def get_all_by_image(session: Session, image_uid: str) -> list[ToolDefine]:
+def get_all_by_image(session: Session, image_uid: str) -> Sequence[ToolDefine]:
     """Return all tools associated with the given image UID."""
-    query: Select = select(ToolDefine).where(ToolDefine.image_uid == image_uid)
+    stmt = select(ToolDefine).where(ToolDefine.image_uid == image_uid)
 
-    return session.exec(query).all()
+    return session.exec(stmt).all()
 
 
-def get_all_by_uid(session: Session, uids: list[str]) -> list[ToolDefine]:
+def get_all_by_uid(session: Session, uids: list[str]) -> Sequence[ToolDefine]:
     """Return all tools whose UIDs are in the given list."""
-    query: Select = select(ToolDefine).where(col(ToolDefine.uid).in_(uids))
-    return session.exec(query).all()
+    stmt = select(ToolDefine).where(col(ToolDefine.uid).in_(uids))
+    return session.exec(stmt).all()
 
 
-def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> list[ToolDefine]:
+def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> Sequence[ToolDefine]:
     """Return tools whose names are similar to the given string, ordered by similarity."""
-    query: Select = (
+    stmt = (
         select(ToolDefine)
         .where(func.similarity(ToolDefine.name, name) > _FUZZY_SIMILARITY_THRESHOLD)
         .order_by(func.similarity(ToolDefine.name, name).desc())
@@ -144,10 +149,13 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> l
         .limit(limit)
     )
 
-    return session.exec(query).all()
+    return session.exec(stmt).all()
 
 
-def get(session: Session, tool_uid: str) -> Optional[ToolDefine]:
+def get(session: Session, tool_uid: str) -> ToolDefine:
     """Return a tool by its UID."""
-    query: Select = select(ToolDefine).where(ToolDefine.uid == tool_uid)
-    return session.exec(query).one_or_none()
+    stmt = select(ToolDefine).where(ToolDefine.uid == tool_uid)
+    tool = session.exec(stmt).one_or_none()
+    if tool is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
+    return tool

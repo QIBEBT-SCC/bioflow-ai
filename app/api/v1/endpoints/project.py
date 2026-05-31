@@ -3,7 +3,7 @@ import uuid
 import zipfile
 from collections.abc import Generator
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -93,6 +93,7 @@ def new_project(
         tags = tag_crud.get_all_by_id(session, project_prop.tag_ids)
 
     project = Project(
+        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         name=project_prop.name,
         description=project_prop.description,
@@ -127,7 +128,7 @@ def unstar_project(
 def get_project_list(
     session: SessionDep,
     current_user: UserDep,
-    filter_type: Annotated[Optional[str], Query(description='Filter: starred, my, all', alias='filter')] = 'all',
+    filter_type: Annotated[str | None, Query(description='Filter: starred, my, all', alias='filter')] = 'all',
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> list[ProjectPublic]:
@@ -175,11 +176,11 @@ async def create_sample_in_project(
     current_user: UserDep,
 ) -> SamplePublic:
     """Create a new sample in the specified project."""
-    # Ensure the sample belongs to the specified project
     if sample_prop.project_id != project_id:
         raise HTTPException(400, 'Project ID mismatch')
 
     sample = Sample(
+        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         project_id=project_id,
         sample_name=sample_prop.sample_name,
@@ -315,10 +316,11 @@ async def add_file_to_project_sample(
         sample_uid=sample_uid,
         data_type=file_prop.data_type,
         file_path=file_prop.file_path,
+        # pyrefly: ignore [bad-argument-type]
         tag=file_prop.tag,
-        file_format='',  # Calculated automatically by CRUD
-        file_size=0,  # Calculated automatically by CRUD
-        md5_checksum='',  # Calculated automatically by CRUD
+        file_format='',
+        file_size=0,
+        md5_checksum='',
     )
 
     return sample_crud.add_file(session, sample_file)  # type: ignore

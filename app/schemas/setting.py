@@ -1,8 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 from app.models.setting import LLMModel, ModelRole, ProviderType
 
@@ -11,27 +11,27 @@ from app.models.setting import LLMModel, ModelRole, ProviderType
 class LLMProviderCreate(BaseModel):
     name: str
     provider_type: ProviderType
-    base_url: Optional[str] = None
+    base_url: str | None = None
     api_key: str
     use_proxy: bool = False
     is_active: bool = True
 
 
 class LLMProviderUpdate(BaseModel):
-    name: Optional[str] = None
-    provider_type: Optional[ProviderType] = None
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    use_proxy: Optional[bool] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    provider_type: ProviderType | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    use_proxy: bool | None = None
+    is_active: bool | None = None
 
 
 class LLMProviderPublic(BaseModel):
     id: int
     name: str
     provider_type: ProviderType
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
+    base_url: str | None = None
+    api_key: str | None = None
     use_proxy: bool
     is_active: bool
     models: list[LLMModel]
@@ -49,12 +49,12 @@ class LLMModelCreate(BaseModel):
 
 
 class LLMModelUpdate(BaseModel):
-    name: Optional[str] = None
-    input_price: Optional[float] = None
-    output_price: Optional[float] = None
-    cache_read_price: Optional[float] = None
-    extra_body: Optional[dict[str, Any]] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    input_price: float | None = None
+    output_price: float | None = None
+    cache_read_price: float | None = None
+    extra_body: dict[str, Any] | None = None
+    is_active: bool | None = None
 
 
 class LLMModelPublic(BaseModel):
@@ -66,7 +66,7 @@ class LLMModelPublic(BaseModel):
     extra_body: dict[str, Any]
     is_active: bool
 
-    provider_name: Optional[str] = None
+    provider_name: str | None = None
 
 
 # ==================== LLMSetting Schemas ====================
@@ -120,8 +120,6 @@ class LLMStatisticByUser(LLMStatisticSummary):
 
 
 class LLMStatisticOverview(BaseModel):
-    """LLM 使用统计概览，包含总体统计和各维度分组"""
-
     total: LLMStatisticSummary
     by_agent: list[LLMStatisticByAgent]
     by_model: list[LLMStatisticByModel]
@@ -132,8 +130,8 @@ class LLMStatisticOverview(BaseModel):
 class LLMStatisticDetail(BaseModel):
     id: int
     agent_name: str
-    model_name: Optional[str] = None
-    setting_key: Optional[str] = None
+    model_name: str | None = None
+    setting_key: str | None = None
     input_tokens: int
     output_tokens: int
     cache_read: int
@@ -142,7 +140,5 @@ class LLMStatisticDetail(BaseModel):
 
 
 class LLMStatisticDetailsResponse(BaseModel):
-    """LLM 使用详细记录响应"""
-
     total: int
     items: list[LLMStatisticDetail]

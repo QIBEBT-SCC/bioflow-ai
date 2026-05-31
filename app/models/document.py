@@ -7,9 +7,8 @@ from sqlmodel import Field, SQLModel
 
 
 class ParentDocument(SQLModel, table=True):
-    """父文档表：存储完整的文档段落"""
     __tablename__ = 'parent_documents'
-    
+
     uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     doc_id: str = Field(index=True)  # 原始文档 ID
     content: str  # 完整的父文档内容

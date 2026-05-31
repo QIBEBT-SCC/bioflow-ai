@@ -1,4 +1,8 @@
+from collections.abc import Sequence
+
+from fastapi import HTTPException
 from sqlmodel import Session, col, select
+from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.setting import LLMModel, LLMProvider
 from app.schemas.setting import LLMModelUpdate
@@ -16,18 +20,20 @@ def insert(session: Session, model: LLMModel) -> LLMModel:
 def get(session: Session, model_id: int) -> LLMModel:
     """Retrieve an LLM model by its ID."""
     statement = select(LLMModel).where(LLMModel.id == model_id)
+    model = session.exec(statement).one_or_none()
+    if model is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Model not found')
+    return model
 
-    return session.exec(statement).one()
 
-
-def get_all(session: Session) -> list[LLMModel]:
+def get_all(session: Session) -> Sequence[LLMModel]:
     """Get all LLM models from active providers."""
     statement = select(LLMModel).join(LLMProvider).where(LLMProvider.is_active).order_by(col(LLMModel.id).asc())
 
     return session.exec(statement).all()
 
 
-def get_by_provider(session: Session, provider_id: int) -> list[LLMModel]:
+def get_by_provider(session: Session, provider_id: int) -> Sequence[LLMModel]:
     """Get all LLM models for a given provider."""
     statement = select(LLMModel).where(LLMModel.provider_id == provider_id).order_by(col(LLMModel.id).desc())
 

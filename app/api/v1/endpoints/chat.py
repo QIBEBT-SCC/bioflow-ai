@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -22,7 +22,7 @@ from app.core.session import SessionDep
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatResponse, ChatSessionPublic, ChatSessionUpdate, PaginatedChatSessions
 from app.utils.security import UserDep
-from llm.agents.workflow_agent import DesignContext, DesignState, WorkflowDesignAgent
+from llm.agents.workflow_agent import DesignContext, WorkflowDesignAgent
 from llm.utils.ai_sdk.stream_protocol import (
     data_part,
     done_marker,
@@ -70,6 +70,7 @@ async def get_chats_sessions(
 
     返回包含总数和是否有更多数据的分页信息
     """
+    assert current_user.id is not None
     chats = chat_crud.get_all(session, current_user.id, offset, limit)
     total = chat_crud.count_all(session, current_user.id)
     has_more = offset + limit < total
@@ -130,6 +131,7 @@ async def chat_completions(
     if not session_id:
         raise HTTPException(status_code=400, detail='会话ID不能为空')
 
+    assert current_user.id is not None
     if response.rebuild:
         # 针对构建工作流任务
         streaming_response = StreamingResponse(
@@ -179,8 +181,8 @@ async def generate_reproduction_stream(
             agent = WorkflowDesignAgent(memory=checkpoint).build()
             config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=500)
 
-            current_state: Optional[Literal['thinking', 'text', 'tool']] = None
-            wait_to_end: Optional[str] = None
+            current_state: Literal['thinking', 'text', 'tool'] | None = None
+            wait_to_end: str | None = None
             exclude_nodes = {'intent_recognition'}
             is_interrupt = False
             async for source, stream_mode, chunk in agent.astream(

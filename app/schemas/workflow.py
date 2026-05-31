@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import BaseModel
 
 from app.models.workflow import ExecutionScope, WorkflowType
@@ -13,12 +11,12 @@ class WorkflowCreateProp(BaseModel):
     workflow: WorkflowDefinition
     public: bool
     auto_summary: bool = False
-    summary_prompt: Optional[str] = None
+    summary_prompt: str | None = None
 
 
 class WorkflowUpdate(BaseModel):
-    name: Optional[str] = None
-    execution_scope: Optional[ExecutionScope] = None
-    workflow: Optional[WorkflowDefinition] = None
-    auto_summary: Optional[bool] = None
-    summary_prompt: Optional[str] = None
+    name: str | None = None
+    execution_scope: ExecutionScope | None = None
+    workflow: WorkflowDefinition | None = None
+    auto_summary: bool | None = None
+    summary_prompt: str | None = None

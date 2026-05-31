@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from pydantic import UUID7, BaseModel, ConfigDict
 
@@ -27,9 +26,9 @@ class SimpleTaskPublic(BaseModel):
 
     status: Status
 
-    create_time: Optional[datetime]
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
+    create_time: datetime | None
+    start_time: datetime | None
+    end_time: datetime | None
 
 
 class TaskPublic(BaseModel):
@@ -38,28 +37,28 @@ class TaskPublic(BaseModel):
     owner: UserPublic
     run_instance: RunInfo4Task
     tool: ToolInfo4Task
-    commands: Optional[str]
-    tool_output: Optional[ToolOutput]
+    commands: str | None
+    tool_output: ToolOutput | None
     status: Status
 
-    system: Optional[str]
-    hostname: Optional[str]
+    system: str | None
+    hostname: str | None
 
-    create_time: Optional[datetime]
-    start_time: Optional[datetime]
-    end_time: Optional[datetime]
+    create_time: datetime | None
+    start_time: datetime | None
+    end_time: datetime | None
 
 
 class TaskUpdate(BaseModel):
-    commands: Optional[str] = None
-    tool_output: Optional[ToolOutput] = None
-    status: Optional[Status] = None
+    commands: str | None = None
+    tool_output: ToolOutput | None = None
+    status: Status | None = None
 
-    system: Optional[str] = None
-    hostname: Optional[str] = None
+    system: str | None = None
+    hostname: str | None = None
 
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
 
 class MonitorPublic(BaseModel):

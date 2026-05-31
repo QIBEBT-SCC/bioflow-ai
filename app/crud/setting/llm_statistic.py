@@ -1,8 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
-from sqlmodel import Session, col, func, select
+from sqlalchemy import func
+from sqlalchemy import select as sa_select
+from sqlmodel import Session, col, select
+from sqlmodel.sql.expression import Select
 
 from app.models.setting import LLMModel, LLMStatistic
 from app.models.user import User
@@ -16,8 +18,8 @@ def insert(session: Session, statistic: LLMStatistic) -> None:
 
 def get_summary(
     session: Session,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
 ) -> dict:
     """获取 LLM 使用统计概览.
 
@@ -31,11 +33,11 @@ def get_summary(
     """
 
     # 构建基础条件
-    def apply_date_filter(stmt: object) -> object:
+    def apply_date_filter(stmt: Select) -> Select:
         if start_date is not None:
-            stmt = stmt.where(LLMStatistic.time >= start_date)  # type: ignore[union-attr]
+            stmt = stmt.where(col(LLMStatistic.time) >= start_date)
         if end_date is not None:
-            stmt = stmt.where(LLMStatistic.time <= end_date)  # type: ignore[union-attr]
+            stmt = stmt.where(col(LLMStatistic.time) <= end_date)
         return stmt
 
     # 总体统计
@@ -49,38 +51,40 @@ def get_summary(
     total_result = session.exec(total_statement).one()
 
     # 按 agent 分组统计
-    by_agent_statement = select(
-        LLMStatistic.agent_name,
-        func.count(LLMStatistic.id).label('count'),
+    by_agent_statement = sa_select(
+        col(LLMStatistic.agent_name),
+        func.count(col(LLMStatistic.id)).label('count'),
         func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
         func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
         func.sum(LLMStatistic.cache_read).label('total_cache_read'),
         func.sum(LLMStatistic.price).label('total_price'),
     ).group_by(LLMStatistic.agent_name)
+    # pyrefly: ignore [bad-argument-type]
     by_agent_statement = apply_date_filter(by_agent_statement)
     by_agent_results = session.exec(by_agent_statement).all()
 
     # 按 model 分组统计 (JOIN 获取 model name)
     by_model_statement = (
-        select(
-            LLMModel.name.label('model_name'),
-            func.count(LLMStatistic.id).label('count'),
+        sa_select(
+            col(LLMModel.name).label('model_name'),
+            func.count(col(LLMStatistic.id)).label('count'),
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
             func.sum(LLMStatistic.price).label('total_price'),
         )
-        .join(LLMModel, LLMStatistic.model_id == LLMModel.id, isouter=True)
+        .join(LLMModel, col(LLMStatistic.model_id) == LLMModel.id, isouter=True)
         .group_by(LLMModel.name)
     )
+    # pyrefly: ignore [bad-argument-type]
     by_model_statement = apply_date_filter(by_model_statement)
     by_model_results = session.exec(by_model_statement).all()
 
     # 按 setting_key (类型) 分组统计
     by_type_statement = (
-        select(
-            LLMStatistic.setting_key,
-            func.count(LLMStatistic.id).label('count'),
+        sa_select(
+            col(LLMStatistic.setting_key),
+            func.count(col(LLMStatistic.id)).label('count'),
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
@@ -89,22 +93,24 @@ def get_summary(
         .where(col(LLMStatistic.setting_key).is_not(None))
         .group_by(LLMStatistic.setting_key)
     )
+    # pyrefly: ignore [bad-argument-type]
     by_type_statement = apply_date_filter(by_type_statement)
     by_type_results = session.exec(by_type_statement).all()
 
     # 按 user 分组统计
     by_user_statement = (
-        select(
-            User.username.label('user_name'),
-            func.count(LLMStatistic.id).label('count'),
-            func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
-            func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
-            func.sum(LLMStatistic.cache_read).label('total_cache_read'),
-            func.sum(LLMStatistic.price).label('total_price'),
+        sa_select(
+            col(User.username).label('user_name'),
+            func.count(col(LLMStatistic.id)).label('count'),
+            func.sum(col(LLMStatistic.input_tokens)).label('total_input_tokens'),
+            func.sum(col(LLMStatistic.output_tokens)).label('total_output_tokens'),
+            func.sum(col(LLMStatistic.cache_read)).label('total_cache_read'),
+            func.sum(col(LLMStatistic.price)).label('total_price'),
         )
         .join(User, col(LLMStatistic.user_id) == User.id, isouter=True)
         .group_by(User.username)
     )
+    # pyrefly: ignore [bad-argument-type]
     by_user_statement = apply_date_filter(by_user_statement)
     by_user_results = session.exec(by_user_statement).all()
 
@@ -164,8 +170,8 @@ def get_summary(
 
 def get_details(
     session: Session,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> dict:
@@ -182,35 +188,36 @@ def get_details(
         详细记录列表和总数
     """
     # 构建查询, JOIN 获取 model name 和 user name
-    statement = select(
-        LLMStatistic.id,
-        LLMStatistic.agent_name,
-        LLMModel.name.label('model_name'),
-        LLMStatistic.setting_key,
-        LLMStatistic.input_tokens,
-        LLMStatistic.output_tokens,
-        LLMStatistic.cache_read,
-        LLMStatistic.price,
-        LLMStatistic.time,
+    statement = sa_select(
+        col(LLMStatistic.id),
+        col(LLMStatistic.agent_name),
+        col(LLMModel.name).label('model_name'),
+        col(LLMStatistic.setting_key),
+        col(LLMStatistic.input_tokens),
+        col(LLMStatistic.output_tokens),
+        col(LLMStatistic.cache_read),
+        col(LLMStatistic.price),
+        col(LLMStatistic.time),
     ).join(LLMModel, col(LLMStatistic.model_id) == LLMModel.id, isouter=True)
 
     if start_date is not None:
-        statement = statement.where(LLMStatistic.time >= start_date)
+        statement = statement.where(col(LLMStatistic.time) >= start_date)
 
     if end_date is not None:
-        statement = statement.where(LLMStatistic.time <= end_date)
+        statement = statement.where(col(LLMStatistic.time) <= end_date)
 
     # 获取总数
-    count_statement = select(func.count(LLMStatistic.id))
+    count_statement = select(func.count(col(LLMStatistic.id)))
     if start_date is not None:
-        count_statement = count_statement.where(LLMStatistic.time >= start_date)
+        count_statement = count_statement.where(col(LLMStatistic.time) >= start_date)
     if end_date is not None:
-        count_statement = count_statement.where(LLMStatistic.time <= end_date)
+        count_statement = count_statement.where(col(LLMStatistic.time) <= end_date)
 
     total = session.exec(count_statement).one()
 
     # 查询详细记录 (带分页)
     statement = statement.order_by(col(LLMStatistic.time).desc()).limit(limit).offset(offset)
+    # pyrefly: ignore [no-matching-overload]
     results = session.exec(statement).all()
 
     return {

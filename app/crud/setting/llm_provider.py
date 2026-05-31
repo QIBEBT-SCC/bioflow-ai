@@ -1,6 +1,8 @@
-from typing import Optional
+from collections.abc import Sequence
 
+from fastapi import HTTPException
 from sqlmodel import Session, col, select
+from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.setting import LLMProvider
 from app.schemas.setting import LLMProviderUpdate
@@ -15,14 +17,16 @@ def insert(session: Session, provider: LLMProvider) -> LLMProvider:
     return provider
 
 
-def get(session: Session, provider_id: int) -> Optional[LLMProvider]:
+def get(session: Session, provider_id: int) -> LLMProvider:
     """Retrieve an LLM provider by its ID."""
     statement = select(LLMProvider).where(LLMProvider.id == provider_id)
+    provider = session.exec(statement).one_or_none()
+    if provider is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Model not found')
+    return provider
 
-    return session.exec(statement).one_or_none()
 
-
-def get_all(session: Session) -> list[LLMProvider]:
+def get_all(session: Session) -> Sequence[LLMProvider]:
     """Get all LLM providers ordered by ID."""
     statement = select(LLMProvider).order_by(col(LLMProvider.id).asc())
 

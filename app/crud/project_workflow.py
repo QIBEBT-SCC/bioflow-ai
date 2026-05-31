@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import Select, delete
+from sqlalchemy import delete
 from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
@@ -25,13 +25,13 @@ def add_workflow_to_project(session: Session, project_id: int, workflow_uid: uui
         HTTPException: 工作流不存在或已存在于项目中
     """
     # 检查工作流是否存在
-    workflow_stmt: Select = select(Workflow).where(Workflow.uid == workflow_uid)
+    workflow_stmt = select(Workflow).where(Workflow.uid == workflow_uid)
     workflow = session.exec(workflow_stmt).one_or_none()
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
 
     # 检查是否已存在
-    existing_stmt: Select = select(ProjectWorkflow).where(
+    existing_stmt = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id, ProjectWorkflow.workflow_uid == workflow_uid
     )
     existing = session.exec(existing_stmt).one_or_none()
@@ -81,7 +81,7 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
         # 3. 删除运行实例 (RunInstance)
         session.exec(delete(RunInstance).where(col(RunInstance.uid).in_(run_instance_uids)))
 
-    stmt: Select = select(ProjectWorkflow).where(
+    stmt = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id, ProjectWorkflow.workflow_uid == workflow_uid
     )
     project_workflow = session.exec(stmt).one_or_none()
@@ -109,9 +109,9 @@ def get_project_workflows(
         list[ProjectWorkflowPublic]: 工作流列表
     """
     # 联合查询获取工作流详细信息
-    stmt: Select = (
+    stmt = (
         select(ProjectWorkflow, Workflow)
-        .join(Workflow, ProjectWorkflow.workflow_uid == Workflow.uid)
+        .join(Workflow, col(ProjectWorkflow.workflow_uid) == Workflow.uid)
         .where(ProjectWorkflow.project_id == project_id)
         .offset(offset)
         .limit(limit)
@@ -121,6 +121,7 @@ def get_project_workflows(
 
     return [
         ProjectWorkflowPublic(
+            # pyrefly: ignore [bad-argument-type]
             workflow_uid=pw.workflow_uid,
             workflow_name=wf.name,
             import_time=pw.import_time,
@@ -142,7 +143,7 @@ def is_workflow_in_project(session: Session, project_id: int, workflow_uid: uuid
     Returns:
         bool: 是否存在
     """
-    stmt: Select = select(ProjectWorkflow).where(
+    stmt = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id, ProjectWorkflow.workflow_uid == workflow_uid
     )
     return session.exec(stmt).one_or_none() is not None
@@ -165,7 +166,7 @@ def toggle_workflow_enabled(
     Raises:
         HTTPException: 工作流不在项目中
     """
-    stmt: Select = select(ProjectWorkflow).where(
+    stmt = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id, ProjectWorkflow.workflow_uid == workflow_uid
     )
     project_workflow = session.exec(stmt).one_or_none()

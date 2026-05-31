@@ -1,7 +1,6 @@
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import SQLModel
 
 from app.models.project import ProjectTag
@@ -42,32 +41,26 @@ class TagProp(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    starred: Optional[bool] = None
-    update_time: Optional[datetime] = None
-    tags: Optional[list[ProjectTag]] = None
+    name: str | None = None
+    description: str | None = None
+    starred: bool | None = None
+    update_time: datetime | None = None
+    tags: list[ProjectTag] | None = None
 
 
 class ProjectFileMappingCreate(SQLModel):
-    """创建项目文件映射的请求模型"""
-
     keyword: str = Field(max_length=50)
     file_path: str = Field(max_length=500)
     description: str = Field(default='')
 
 
 class ProjectFileMappingUpdate(SQLModel):
-    """更新项目文件映射的请求模型"""
-
-    file_path: Optional[str] = None
-    description: Optional[str] = None
+    file_path: str | None = None
+    description: str | None = None
 
 
 class ProjectFileMappingPublic(BaseModel):
-    """项目文件映射的公开信息"""
-
-    model_config = {'from_attributes': True}
+    model_config = ConfigDict(from_attributes=True)
 
     id: int
     project_id: int

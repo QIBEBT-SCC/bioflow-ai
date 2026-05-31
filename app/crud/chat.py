@@ -1,4 +1,4 @@
-from typing import Optional
+from collections.abc import Sequence
 
 from sqlmodel import Session, col, func, select
 
@@ -23,7 +23,7 @@ def delete(session: Session, chat: ChatSessions) -> None:
 
 def update(session: Session, chat_update: ChatSessionUpdate) -> ChatSessions:
     """Update an existing chat session with new data."""
-    db_chat = get(session, chat_update.uid)
+    db_chat = get(session, str(chat_update.uid))
     if not db_chat:
         msg = f'Chat with uid {chat_update.uid} not found'
         raise ValueError(msg)
@@ -37,7 +37,7 @@ def update(session: Session, chat_update: ChatSessionUpdate) -> ChatSessions:
     return db_chat
 
 
-def get_all(session: Session, owner_id: int, offset: int = 0, limit: int = 10) -> list[ChatSessions]:
+def get_all(session: Session, owner_id: int, offset: int = 0, limit: int = 10) -> Sequence[ChatSessions]:
     """Return a paginated list of chat sessions for a user."""
     query = (
         select(ChatSessions)
@@ -51,11 +51,12 @@ def get_all(session: Session, owner_id: int, offset: int = 0, limit: int = 10) -
 
 def count_all(session: Session, owner_id: int) -> int:
     """获取用户的聊天会话总数."""
+    # pyrefly: ignore [bad-argument-type]
     query = select(func.count(ChatSessions.uid)).where(ChatSessions.owner_id == owner_id)
     return session.exec(query).one()
 
 
-def get(session: Session, uid: str) -> Optional[ChatSessions]:
+def get(session: Session, uid: str) -> ChatSessions | None:
     """Return a chat session by its uid, or None if not found."""
     query = select(ChatSessions).where(ChatSessions.uid == uid)
     return session.exec(query).one_or_none()
