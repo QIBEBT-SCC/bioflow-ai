@@ -21,7 +21,7 @@ class SecurityConfig(BaseSectionConfig):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     COOKIE_SECURE: bool = False
     COOKIE_DOMAIN: str | None = None
-    COOKIE_SAMESITE: str = 'lax'
+    COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = 'lax'
 
 
 class LogConfig(BaseSectionConfig):
