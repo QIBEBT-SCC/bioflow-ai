@@ -11,8 +11,8 @@ from starlette import status
 from uuid_extensions import uuid7str
 
 from app.core.config import get_settings
-from app.core.session import SessionDep
 from app.core.redis_client import RedisDep
+from app.core.session import SessionDep
 from app.crud import user as user_crud
 from app.models.user import User, UserRole
 
@@ -57,7 +57,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 def create_refresh_token(sub: str) -> str:
-    """签发 refresh token，有效期由配置决定."""
+    """签发 refresh token."""
     expire = datetime.now(UTC) + timedelta(days=config.REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {'sub': sub, 'exp': expire, 'jti': uuid7str(), 'type': 'refresh'}
     return jwt.encode(payload, config.SECRET_KEY.get_secret_value(), algorithm=config.ALGORITHM)
@@ -68,13 +68,13 @@ async def revoke_token(redis: Redis, jti: str, expire_seconds: int) -> None:
 
 
 async def store_refresh_token(redis: Redis, jti: str, sub: str) -> None:
-    """写入 refresh token 白名单，TTL = 配置天数."""
+    """写入 refresh token 白名单."""
     ttl = config.REFRESH_TOKEN_EXPIRE_DAYS * 86400
     await redis.set(f'refresh-token:{jti}', sub, ex=ttl)
 
 
 async def validate_and_rotate_refresh_token(redis: Redis, token: str) -> tuple[str, str]:
-    """校验 refresh token，轮换后返回 (sub, old_jti).
+    """校验 refresh token, 轮换后返回 (sub, old_jti).
 
     Raises HTTPException 401 if invalid or revoked.
     """

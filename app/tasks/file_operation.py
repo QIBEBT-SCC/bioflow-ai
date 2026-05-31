@@ -22,6 +22,8 @@ def select_file_task(
 ) -> ToolOutput:
     """从文件夹中提取指定文件."""
     kwarg = inputs.get('folder_path')
+    if kwarg is None:
+        raise ValueError
     parent_dir, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
 
     selected_file = Path(parent_dir) / file_name
@@ -41,7 +43,7 @@ def collect_files_task(
     output_dir: str,
 ) -> ToolOutput:
     """从文件夹中提取指定文件."""
-    input_files = inputs.get('files')
+    input_files = inputs.get('files', [])
     kwargs = input_files if isinstance(input_files, list) else [input_files]
 
     output_folder = Path(output_dir)
@@ -68,7 +70,9 @@ def gzip_file_task(
     inputs: dict[str, TaskInput],
 ) -> ToolOutput:
     """对原始文件进行压缩."""
-    input_kwarg = inputs.get('file', '')
+    input_kwarg = inputs.get('file')
+    if input_kwarg is None:
+        raise ValueError
     file_path, sample_name = get_tool_output(input_kwarg.source_uid, input_kwarg.source_k)
     origin_file = Path(file_path)
     if origin_file.exists():
@@ -91,5 +95,7 @@ def bind_param_task(
 ) -> ToolOutput:
     """将文件绑定到指定参数名, 输出为 JSON 字符串."""
     kwarg = inputs.get('file')
+    if kwarg is None:
+        raise ValueError
     file_path, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
-    return ToolOutput(result={'file_with_param': json.dumps({parameter: str(file_path)})}, sample_name=sample_name)
+    return ToolOutput(result={'file_with_param': json.dumps({parameter: file_path})}, sample_name=sample_name)

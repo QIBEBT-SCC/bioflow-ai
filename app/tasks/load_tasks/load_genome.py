@@ -248,6 +248,7 @@ def load_ncbi_genome_task(
                 species_info = get_species_info(genome.organism.tax_id)
 
                 if genome_record := genome_crud.get_by_taxid(session, species_info.tax_id):
+                    # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, aliases=f'{genome_record.aliases}|{species_name}')
                     genome_record = genome_crud.update(session, genome_update)
                 else:
@@ -286,6 +287,7 @@ def load_ncbi_genome_task(
                     new_index = index_builders[index_name]()
                     # 更新数据库记录
                     update_data = {index_name: new_index}
+                    # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, **update_data)
                     genome_record = genome_crud.update(session, genome_update)
                     load_result[index_name] = getattr(genome_record, index_name)
@@ -429,6 +431,7 @@ def download_genome_admin_task(
                 species_info = get_species_info(genome.organism.tax_id)
                 if genome_record := genome_crud.get_by_taxid(session, species_info.tax_id):
                     genome_update = GenomeUpdate(
+                        # pyrefly: ignore [bad-argument-type]
                         id=genome_record.id,
                         aliases=f'{genome_record.aliases}|{species_name}',
                     )
@@ -463,6 +466,7 @@ def download_genome_admin_task(
                 else:
                     new_index = index_builders[index_name]()
                     update_data = {index_name: new_index}
+                    # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, **update_data)
                     genome_record = genome_crud.update(session, genome_update)
                     load_result[index_name] = getattr(genome_record, index_name)
@@ -504,6 +508,7 @@ def build_genome_index_admin_task(
                     load_result[index_name] = existing_index
                 else:
                     new_index = index_builders[index_name]()
+                    # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, **{index_name: new_index})
                     genome_record = genome_crud.update(session, genome_update)
                     load_result[index_name] = getattr(genome_record, index_name)

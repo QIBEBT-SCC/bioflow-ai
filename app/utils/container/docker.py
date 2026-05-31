@@ -44,7 +44,7 @@ def run_docker(
     workdir: Optional[str] = None,
     *,
     ensure_ascii: bool = True,
-    **kwargs,  # noqa: ANN003
+    **kwargs,
 ) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果.
 
@@ -78,6 +78,7 @@ def run_docker(
         if settings.GPU_DEVICES != 'all':
             device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
 
+    # pyrefly: ignore [no-matching-overload]
     container = client.containers.run(
         image_cfg.get_image(),
         [command],
@@ -112,7 +113,7 @@ def run_docker_background(
     working_dir: str,
     interval: float = 1.0,
     **kwargs: int,
-) -> Generator[dict[str, Any], None, None]:
+) -> Generator[dict[str, Any] | None, None, None]:
     """后台运行docker容器, 并实时返回容器资源占用信息.
 
     在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
@@ -145,6 +146,7 @@ def run_docker_background(
             device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
 
     try:
+        # pyrefly: ignore [no-matching-overload]
         container = client.containers.run(
             image_cfg.get_image(),
             [command],
@@ -207,11 +209,13 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     container = client.containers.create(
         image_cfg.get_image(),
         command='"tail -f /dev/null"',  # 保证容器常驻
+        # pyrefly: ignore [bad-argument-type]
         mounts=mounts,
         entrypoint=['/bin/sh', '-c'],
         detach=True,
         user=get_current_user_identity(),
         device_requests=device_requests,
+        # pyrefly: ignore [bad-argument-type]
         **kwargs,
     )
     container.start()
@@ -228,6 +232,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
 
     logger.debug(f'create container {container.name}')
 
+    # pyrefly: ignore [bad-return]
     return container.id
 
 
@@ -252,7 +257,9 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
         except UnicodeDecodeError as e:
             result = f'{e}'
 
+    # pyrefly: ignore [missing-attribute]
     result = _strip_ansi_escape_sequences(result.strip())
+    # pyrefly: ignore [bad-return]
     return code, result
 
 

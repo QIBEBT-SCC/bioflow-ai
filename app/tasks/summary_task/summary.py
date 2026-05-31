@@ -31,7 +31,7 @@ def downstream_summary_task(
     output_dir: str,
 ) -> ToolOutput:
     """将下游分析文件汇总, 同时生成编码prompt."""
-    input_files = inputs.get('input_files')
+    input_files = inputs.get('input_files', [])
     kwargs = input_files if isinstance(input_files, list) else [input_files]
 
     output_folder = Path(output_dir)
@@ -60,6 +60,7 @@ def downstream_summary_task(
 
 
 async def _get_summary(agent_input: dict[str, Any], config: RunnableConfig, context: FolderContext) -> None:
+    # pyrefly: ignore [no-matching-overload]
     await summary_analysis_agent.ainvoke(
         agent_input,
         config,

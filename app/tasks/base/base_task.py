@@ -26,7 +26,7 @@ from app.schemas.tools import ToolTaskInfo
 
 
 class BaseBioTask(celery.Task):
-    def before_start(self, task_id: str, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+    def before_start(self, task_id: str, *args, **kwargs) -> None:
         """任务开始前的钩子 - 更新 DB 状态并维护 Redis 计数."""
         try:
             with Session(engine) as session:
@@ -155,7 +155,9 @@ def _check_and_update_run_instance_success(run_uid: str) -> None:
         redis = _get_redis()
         key = f'run-stats-{run_uid}'
         stats = redis.hgetall(key)
+        # pyrefly: ignore [missing-attribute]
         total = int(stats.get(b'total', 0))
+        # pyrefly: ignore [missing-attribute]
         success = int(stats.get(b'success', 0))
         if 0 < total == success:
             with Session(engine) as session:
