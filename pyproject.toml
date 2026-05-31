@@ -91,10 +91,12 @@ docstring-code-format = true
 [tool.ruff.lint]
 extend-select = ["ALL"]
 ignore = [
+    "ANN002",
     "ANN003",
     "ANN401",
     "ARG002",
     "ARG004",
+    "ASYNC109",
     "BLE",
     "C90",
     "COM812",
@@ -140,14 +142,8 @@ convention = "google"
 ignore-var-parameters = true  # ignore missing documentation for *args and **kwargs parameters
 
 [tool.pyrefly]
-project-includes = [
-    "**/*.py*",
-    "**/*.ipynb",
-]
+project-includes = ["app/", "llm/", "script/"]
 
-project-excludes = [
-    "test/"
-]
 
 [tool.pyrefly.errors]
 bad-override = false
@@ -162,4 +158,6 @@ dev = [
     "pyrefly>=1.0.0",
     "ruff>=0.15.14",
     "seaborn>=0.13.2",
+    "types-docker>=7.1.0.20260518",
+    "types-markdown>=3.10.2.20260518",
 ]
