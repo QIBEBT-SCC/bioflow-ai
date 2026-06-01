@@ -3,7 +3,7 @@ import uuid
 import zipfile
 from collections.abc import Generator
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -54,6 +54,9 @@ from app.schemas.run_instance import SimpleRunPublic
 from app.utils.security import UserDep
 from app.utils.workflow import create_project_level_run, create_runs_from_samples, get_run_stats_from_redis
 
+if TYPE_CHECKING:
+    from app.models.user import User
+
 router = APIRouter()
 tag_router = APIRouter()
 workflow_router = APIRouter()
@@ -93,7 +96,6 @@ def new_project(
         tags = tag_crud.get_all_by_id(session, project_prop.tag_ids)
 
     project = Project(
-        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         name=project_prop.name,
         description=project_prop.description,
@@ -475,7 +477,7 @@ async def run_workflow_on_samples(
             session,
             project_id,
             workflow_uid,
-            current_user,
+            cast('User', current_user),
             run_request.run_name_prefix,
             auto_summary=effective_auto_summary,
             summary_prompt=workflow.summary_prompt,
@@ -493,7 +495,7 @@ async def run_workflow_on_samples(
         project_id,
         workflow_uid,
         run_request.sample_uids,
-        current_user,
+        cast('User', current_user),
         run_request.run_name_prefix,
         auto_summary=effective_auto_summary,
         summary_prompt=workflow.summary_prompt,

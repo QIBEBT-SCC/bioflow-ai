@@ -1,5 +1,6 @@
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, TypeAlias
+from typing import Annotated, Any, TypeAlias, cast
 
 import bcrypt
 import jwt
@@ -15,6 +16,7 @@ from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.crud import user as user_crud
 from app.models.user import User, UserRole
+from app.schemas.user import CurrentUser
 
 _USER_CACHE_TTL = 300
 config = get_settings().security
@@ -34,14 +36,14 @@ async def get_token_from_header_or_cookie(
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """验证密码."""
+    """Verify password by comparing plain text with bcrypt hashed password."""
     password_byte = plain_password.encode('utf-8')
     hashed_password_byte = hashed_password.encode('utf-8')
     return bcrypt.checkpw(password=password_byte, hashed_password=hashed_password_byte)
 
 
 def get_password_hash(password: str) -> str:
-    """返回密码的HASH."""
+    """Generate bcrypt hash for the given password."""
     pwd_bytes = password.encode('utf-8')
     salt = bcrypt.gensalt()
     hash_bytes = bcrypt.hashpw(password=pwd_bytes, salt=salt)
@@ -49,7 +51,7 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """计算token."""
+    """Generate JWT access token with the provided claims and expiration time."""
     to_encode = data.copy()
     expire = datetime.now(UTC) + expires_delta if expires_delta else datetime.now(UTC) + timedelta(minutes=15)
     to_encode.update({'exp': expire, 'jti': uuid7str(), 'type': 'access'})
@@ -57,24 +59,25 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 def create_refresh_token(sub: str) -> str:
-    """签发 refresh token."""
+    """Generate JWT refresh token for the given subject (user email)."""
     expire = datetime.now(UTC) + timedelta(days=config.REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {'sub': sub, 'exp': expire, 'jti': uuid7str(), 'type': 'refresh'}
     return jwt.encode(payload, config.SECRET_KEY.get_secret_value(), algorithm=config.ALGORITHM)
 
 
 async def revoke_token(redis: Redis, jti: str, expire_seconds: int) -> None:
+    """Add token JTI to blacklist in Redis with expiration time."""
     await redis.set(f'token-blacklist:{jti}', '1', ex=expire_seconds)
 
 
 async def store_refresh_token(redis: Redis, jti: str, sub: str) -> None:
-    """写入 refresh token 白名单."""
+    """Write the refresh token whitelist."""
     ttl = config.REFRESH_TOKEN_EXPIRE_DAYS * 86400
     await redis.set(f'refresh-token:{jti}', sub, ex=ttl)
 
 
 async def validate_and_rotate_refresh_token(redis: Redis, token: str) -> tuple[str, str]:
-    """校验 refresh token, 轮换后返回 (sub, old_jti).
+    """Validate the refresh token, and after rotation return (sub, old_jti).
 
     Raises HTTPException 401 if invalid or revoked.
     """
@@ -103,6 +106,7 @@ async def validate_and_rotate_refresh_token(redis: Redis, token: str) -> tuple[s
 
 
 def authenticate_user(session: SessionDep, email: str, password: str) -> User | None:
+    """Authenticate user by email and password. Returns User if valid, None otherwise."""
     user = user_crud.get(session, email)
     if not user:
         return None
@@ -116,6 +120,7 @@ async def get_current_user(
     session: SessionDep,
     redis: RedisDep,
 ) -> User:
+    """Validate JWT token and return corresponding user from database. Caches user in Redis."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail='Could not validate credentials',
@@ -151,14 +156,18 @@ async def get_current_user(
     return user
 
 
-async def get_current_active_user(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+async def get_current_active_user(current_user: Annotated[User, Depends(get_current_user)]) -> CurrentUser:
+    """Ensure current user is active, raise 400 if inactive."""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail='Inactive user')
-    return current_user
+    return cast('CurrentUser', current_user)
 
 
-def require_role(required_role: UserRole):
-    async def role_checker(current_user: Annotated[User, Depends(get_current_active_user)]) -> User:
+def require_role(required_role: UserRole) -> Callable[..., Coroutine[Any, Any, CurrentUser]]:
+    """Create a dependency that enforces minimum role requirement."""
+
+    async def role_checker(current_user: Annotated[CurrentUser, Depends(get_current_active_user)]) -> CurrentUser:
+        """Verify current user has required role level, raise 403 if insufficient permission."""
         if current_user.role < required_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=f'Requires {required_role.name} or higher permission'
@@ -168,6 +177,6 @@ def require_role(required_role: UserRole):
     return role_checker
 
 
-UserDep: TypeAlias = Annotated[User, Depends(get_current_active_user)]
-MemberDep: TypeAlias = Annotated[User, Depends(require_role(UserRole.MEMBER))]
-AdminDep: TypeAlias = Annotated[User, Depends(require_role(UserRole.ADMIN))]
+UserDep: TypeAlias = Annotated[CurrentUser, Depends(get_current_active_user)]
+MemberDep: TypeAlias = Annotated[CurrentUser, Depends(require_role(UserRole.MEMBER))]
+AdminDep: TypeAlias = Annotated[CurrentUser, Depends(require_role(UserRole.ADMIN))]

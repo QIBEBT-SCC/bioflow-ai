@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, SecretStr
 
@@ -9,6 +10,14 @@ class UserCreate(BaseModel):
     email: str
     username: str
     password: SecretStr
+
+
+class CurrentUser(Protocol):
+    id: int
+    username: str
+    email: str
+    role: UserRole
+    is_active: bool
 
 
 class UserPublic(BaseModel):
