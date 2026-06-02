@@ -1,6 +1,9 @@
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlmodel import Session, col, func, select
+from fastapi import HTTPException
+from sqlmodel import Session, col, select
+from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatSessionUpdate
@@ -37,26 +40,30 @@ def update(session: Session, chat_update: ChatSessionUpdate) -> ChatSessions:
     return db_chat
 
 
-def get_all(session: Session, owner_id: int, offset: int = 0, limit: int = 10) -> Sequence[ChatSessions]:
-    """Return a paginated list of chat sessions for a user."""
-    query = (
-        select(ChatSessions)
-        .where(ChatSessions.owner_id == owner_id)
-        .offset(offset)
-        .limit(limit)
-        .order_by(col(ChatSessions.update_time).desc())
-    )
-    return session.exec(query).all()
-
-
-def count_all(session: Session, owner_id: int) -> int:
-    """获取用户的聊天会话总数."""
-    # pyrefly: ignore [bad-argument-type]
-    query = select(func.count(ChatSessions.uid)).where(ChatSessions.owner_id == owner_id)
-    return session.exec(query).one()
-
-
-def get(session: Session, uid: str) -> ChatSessions | None:
+def get(session: Session, uid: str) -> ChatSessions:
     """Return a chat session by its uid, or None if not found."""
     query = select(ChatSessions).where(ChatSessions.uid == uid)
-    return session.exec(query).one_or_none()
+    chat = session.exec(query).one_or_none()
+    if chat is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Chat session not found')
+    return chat
+
+
+def get_page(
+    session: Session,
+    owner_id: int,
+    cursor: datetime | None = None,
+    limit: int = 10,
+) -> Sequence[ChatSessions]:
+    """Return a cursor-paginated slice of a user's chat sessions, newest first.
+
+    Uses ``update_time`` as the cursor so that scroll-based lazy loading stays stable
+    even when a session's ``update_time`` changes mid-scroll (offset pagination would
+    duplicate or skip rows in that case). Fetches ``limit + 1`` rows so the caller can
+    tell whether more data is available without a separate count query.
+    """
+    query = select(ChatSessions).where(ChatSessions.owner_id == owner_id)
+    if cursor is not None:
+        query = query.where(col(ChatSessions.update_time) < cursor)
+    query = query.order_by(col(ChatSessions.update_time).desc()).limit(limit + 1)
+    return session.exec(query).all()

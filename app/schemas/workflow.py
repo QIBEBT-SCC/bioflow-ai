@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+import uuid
+
+from pydantic import BaseModel, ConfigDict
 
 from app.models.workflow import ExecutionScope, WorkflowType
 from app.schemas.react_flow import WorkflowDefinition
@@ -12,6 +14,13 @@ class WorkflowCreateProp(BaseModel):
     public: bool
     auto_summary: bool = False
     summary_prompt: str | None = None
+
+
+class WorkflowSimple(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: str | uuid.UUID
+    name: str
 
 
 class WorkflowUpdate(BaseModel):

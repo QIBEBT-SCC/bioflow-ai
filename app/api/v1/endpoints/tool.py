@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.models.tools import ToolGroup, ToolHelpDoc, ToolImage, ToolTag
+from app.schemas.common import Paginated
 from app.schemas.tools import (
     DockerToolCreate,
     DockerToolUpdate,
@@ -85,23 +86,38 @@ async def create_image(image: ToolImage, session: SessionDep, _current_user: Adm
 
 
 @image_router.get('')
-async def get_images(session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20) -> list[ToolImage]:
+async def get_images(
+    session: SessionDep,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
+) -> Paginated[ToolImage]:
     """Get a paginated list of Docker images."""
-    return list(image_crud.get_all(session, limit, offset))
-
-
-@image_router.get('/count')
-async def get_image_count(session: SessionDep) -> int:
-    """Get the total count of Docker images."""
-    return image_crud.get_counts(session)
+    images, total = image_crud.get_page(session, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=list(images),
+    )
 
 
 @image_router.get('/search')
 def get_images_by_name(
-    session: SessionDep, name: str, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
-) -> list[ToolImage]:
+    session: SessionDep,
+    name: str,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
+) -> Paginated[ToolImage]:
     """Search Docker images by name (fuzzy match)."""
-    return list(image_crud.get_by_name_fuzzy(session, name, limit, offset))
+    images, total = image_crud.get_page_by_name_fuzzy(session, name, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=list(images),
+    )
 
 
 @image_router.get('/{uid}')
@@ -207,28 +223,39 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _curren
     return new_tool
 
 
-@router.get('/count')
-async def get_tool_count(session: SessionDep) -> int:
-    """Get the total count of tools."""
-    return tool_crud.get_counts(session)
-
-
 @router.get('')
 async def get_tool_list(
-    session: SessionDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
-) -> list[SimpleToolPublic]:
+    session: SessionDep,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
+) -> Paginated[SimpleToolPublic]:
     """Get a paginated list of tools."""
-    # pyrefly: ignore [bad-return]
-    return tool_crud.get_all(session, limit, offset)
+    tools, total = tool_crud.get_page(session, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=[SimpleToolPublic.model_validate(tool) for tool in tools],
+    )
 
 
 @router.get('/search')
 def get_tools_by_name(
-    session: SessionDep, name: str, offset: int = 0, limit: Annotated[int, Query(le=20)] = 20
-) -> list[SimpleToolPublic]:
+    session: SessionDep,
+    name: str,
+    offset: int = 0,
+    limit: Annotated[int, Query(le=20)] = 20,
+) -> Paginated[SimpleToolPublic]:
     """Search tools by name (fuzzy match)."""
-    # pyrefly: ignore [bad-return]
-    return tool_crud.get_by_name_fuzzy(session, name, limit, offset)
+    tools, total = tool_crud.get_page_by_name_fuzzy(session, name, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=[SimpleToolPublic.model_validate(tool, from_attributes=True) for tool in tools],
+    )
 
 
 @router.get('/{tool_uid}')

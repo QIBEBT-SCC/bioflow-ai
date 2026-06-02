@@ -29,18 +29,18 @@ def delete(session: Session, db_id: int) -> None:
     session.commit()
 
 
-def get_counts(session: Session) -> int:
-    """Get the total count of biological database entries."""
-    query = select(func.count()).select_from(BioDb)
-
-    return session.exec(query).one()
-
-
 def get_all(session: Session, limit: int, offset: int) -> Sequence[BioDb]:
     """Get a paginated list of all biological database entries."""
     query = select(BioDb).order_by(col(BioDb.name).desc()).limit(limit).offset(offset)
 
     return session.exec(query).all()
+
+
+def get_page(session: Session, limit: int, offset: int) -> tuple[Sequence[BioDb], int]:
+    """Return a page of biological database entries together with the total count."""
+    page_stmt = select(BioDb).order_by(col(BioDb.name).desc()).limit(limit).offset(offset)
+    count_stmt = select(func.count()).select_from(BioDb)
+    return session.exec(page_stmt).all(), session.exec(count_stmt).one()
 
 
 def get_by_name(session: Session, name: str) -> BioDb | None:
@@ -69,6 +69,21 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> S
     )
 
     return session.exec(query).all()
+
+
+def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[BioDb], int]:
+    """Return a page of fuzzy-matched tools together with the total match count."""
+    count_stmt = (
+        select(func.count())
+        .select_from(BioDb)
+        .where(
+            or_(
+                func.similarity(BioDb.name, name) > _FUZZY_SIMILARITY_THRESHOLD,
+                func.similarity(BioDb.description, name) > _FUZZY_SIMILARITY_THRESHOLD,
+            )
+        )
+    )
+    return get_by_name_fuzzy(session, name, limit, offset), session.exec(count_stmt).one()
 
 
 def get(session: Session, db_id: int) -> BioDb:

@@ -1,16 +1,16 @@
 import asyncio
+import json
+import sys
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import (
-    AIMessageChunk,
-)
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis import AsyncRedisSaver
+from langgraph.stream.transformers import CustomTransformer
 from langgraph.types import Command
 from loguru import logger
 from sqlmodel import Session
@@ -20,7 +20,7 @@ import app.crud.chat as chat_crud
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.chat import ChatSessions
-from app.schemas.chat import ChatResponse, ChatSessionPublic, ChatSessionUpdate, PaginatedChatSessions
+from app.schemas.chat import ChatResponse, ChatSessionPage, ChatSessionPublic, ChatSessionUpdate
 from app.utils.security import UserDep
 from llm.agents.workflow_agent import DesignContext, WorkflowDesignAgent
 from llm.utils.ai_sdk.stream_protocol import (
@@ -38,6 +38,7 @@ from llm.utils.ai_sdk.stream_protocol import (
     text_end,
     text_start,
 )
+from llm.utils.ai_sdk.stream_translator import AISDKStreamTranslator
 from llm.utils.ai_sdk.ui_message import UIMessage
 from llm.utils.lc.memory import PostgresMessageHistory
 from llm.utils.lc.messages import InterruptMessage
@@ -51,41 +52,44 @@ from llm.utils.multimodal import (
 router = APIRouter()
 
 
-@router.post('', response_model=ChatSessionPublic, description='创建新对话')
-async def new_chat_session(session: SessionDep, current_user: UserDep):
-    chat_id = uuid7()
-    chat = ChatSessions(uid=chat_id, owner_id=current_user.id)
-    chat = chat_crud.insert(session, chat)
-    return chat
+@router.post('', description='Create new chat session')
+async def new_chat_session(session: SessionDep, current_user: UserDep) -> ChatSessionPublic:
+    """Create new chat session."""
+    chat = ChatSessions(owner_id=current_user.id)
+    # pyrefly: ignore [bad-return]
+    return chat_crud.insert(session, chat)
 
 
-@router.get('', response_model=PaginatedChatSessions, description='获取历史对话列表（支持分页懒加载）')
+@router.get('', description='获取历史对话列表')
 async def get_chats_sessions(
-    session: SessionDep, current_user: UserDep, offset: int = 0, limit: Annotated[int, Query(le=20)] = 8
-):
-    """获取用户的聊天会话列表，支持分页懒加载
+    session: SessionDep,
+    current_user: UserDep,
+    cursor: datetime | None = None,
+    limit: Annotated[int, Query(le=20)] = 8,
+) -> ChatSessionPage:
+    """Retrieve the user's chat session list for scroll-based lazy loading.
 
-    - **offset**: 偏移量，用于分页（默认0）
-    - **limit**: 每页数量，最大20（默认8）
+    Args:
+        cursor: The ``update_time`` of the last item from the previous page; omit for the first page.
+        limit: The number of items per page, maximum of 20 (default is 8)
 
-    返回包含总数和是否有更多数据的分页信息
+    Returns:
+        a page of sessions plus ``next_cursor`` and a flag indicating whether more data is available.
     """
-    assert current_user.id is not None
-    chats = chat_crud.get_all(session, current_user.id, offset, limit)
-    total = chat_crud.count_all(session, current_user.id)
-    has_more = offset + limit < total
+    chats = chat_crud.get_page(session, current_user.id, cursor, limit)
+    has_more = len(chats) > limit
+    chats = chats[:limit]
 
-    return PaginatedChatSessions(
-        total=total,
-        offset=offset,
+    return ChatSessionPage(
         limit=limit,
         has_more=has_more,
-        data=[ChatSessionPublic.model_validate(chat.model_dump()) for chat in chats],
+        next_cursor=chats[-1].update_time if chats else None,
+        data=[ChatSessionPublic.model_validate(chat) for chat in chats],
     )
 
 
 @router.delete('/{session_id}', description='删除对话')
-async def delete_chat_session(session: SessionDep, session_id: str, current_user: UserDep):
+async def delete_chat_session(session: SessionDep, session_id: str, _current_user: UserDep):
     chat = chat_crud.get(session, session_id)
     if not chat:
         raise HTTPException(status_code=404, detail='对话不存在')
@@ -151,14 +155,14 @@ async def chat_completions(
 async def generate_reproduction_stream(
     response: ChatResponse, session_id: str, session: Session, user_id: int
 ) -> AsyncGenerator[str, None]:
-    yield start_message()
-
     history = PostgresMessageHistory(session, session_id)
+    chat = chat_crud.get(session, session_id)
 
+    prelude: list[str] = []
     if response.resume and response.approved:
         agent_input = Command(resume=True)
     else:
-        yield data_part('task', {'msg': 'Parsing user file...'})
+        prelude.append(data_part('info', {'message': 'Parsing user file...'}))
         human_input = ui_input_to_human_message(response.messages[-1])
         human_input = await filter_multimedia_message(human_input)
 
@@ -169,108 +173,54 @@ async def generate_reproduction_stream(
             await history.aadd_messages([human_input])
             agent_input = {'messages': [*history_messages, human_input]}
 
-    chat = chat_crud.get(session, session_id)
     if response.resume:
         thread_id = chat.checkpoint_uid
     else:
         thread_id = uuid7()
         chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, checkpoint_uid=thread_id))
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE) as checkpoint:
+    async with AsyncRedisSaver.from_conn_string(
+        get_settings().persistent.cache.LLM_CACHE.unicode_string()
+    ) as checkpoint:
+        agent = WorkflowDesignAgent(memory=checkpoint).build()
+        config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
+        translator = AISDKStreamTranslator(
+            text_nodes={'generate_workflow'},
+            exclude_nodes={'intent_recognition'},
+        )
         try:
-            agent = WorkflowDesignAgent(memory=checkpoint).build()
-            config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=500)
-
-            current_state: Literal['thinking', 'text', 'tool'] | None = None
-            wait_to_end: str | None = None
-            exclude_nodes = {'intent_recognition'}
-            is_interrupt = False
-            async for source, stream_mode, chunk in agent.astream(
+            run_stream = await agent.astream_events(
                 agent_input,
                 config,
+                version='v3',
                 context=DesignContext(user_id=user_id),
-                stream_mode=['messages', 'updates', 'custom'],
-                subgraphs=True,
-            ):
-                match stream_mode:
-                    case 'messages':
-                        chunk_data, chunk_meta = chunk
-
-                        now_node = (
-                            f'{source[-1].split(":")[0]}:{chunk_meta["langgraph_node"]}'
-                            if source
-                            else chunk_meta['langgraph_node']
-                        )
-                        if now_node in exclude_nodes:
-                            continue
-
-                        # 处理 AIMessageChunk
-                        logger.debug(now_node)
-                        logger.info(chunk)
-                        if isinstance(chunk_data, AIMessageChunk):
-                            # 处理思索内容
-                            if 'reasoning_content' in chunk_data.additional_kwargs:
-                                if reasoning_content := chunk_data.additional_kwargs['reasoning_content']:
-                                    if current_state != 'thinking':
-                                        current_state = 'thinking'
-                                        if wait_to_end:
-                                            yield wait_to_end
-                                            # yield finish_step()
-
-                                        wait_to_end = reasoning_end(chunk_data.id)
-                                        # yield start_step()
-                                        yield reasoning_start(chunk_data.id)
-
-                                    yield reasoning_delta(chunk_data.id, reasoning_content)
-
-                            # 处理正常文本内容
-                            if chunk_data.content and now_node not in exclude_nodes:
-                                if current_state != 'text':
-                                    current_state = 'text'
-                                    if wait_to_end:
-                                        yield wait_to_end
-
-                                    wait_to_end = text_end(chunk_data.id)
-                                    yield text_start(chunk_data.id)
-
-                                yield text_delta(chunk_data.id, chunk_data.content)
-                    case 'custom':
-                        logger.info(chunk)
-                        if 'info' in chunk:
-                            yield data_part('info', {'message': chunk['info']})
-                        elif 'link' in chunk:
-                            # 可选择映射为 source-url；这里保留为自定义数据
-                            yield data_part('link', chunk)
-                    case 'updates':
-                        yield finish_step()
-                        yield start_step()
-                        logger.debug(chunk)
-                        if '__interrupt__' in chunk:
-                            is_interrupt = True
-                    case _:
-                        logger.debug(chunk)
-
-            if wait_to_end:
-                yield wait_to_end
-                yield finish_step()
-
-            response = await agent.aget_state(config)
-            if not is_interrupt:
-                final_response = response.values['messages'][-1]
-                await history.aadd_messages([final_response])
-                await checkpoint.adelete_thread(thread_id)
-            else:
-                interrupt_value = response.interrupts[0].value
-                yield data_part('interrupt', interrupt_value)
-                await history.aadd_messages([InterruptMessage(content=interrupt_value)])
-                chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, interrupted=True))
-
+                transformers=[CustomTransformer],
+            )
+            async for line in translator.run(run_stream, prelude=prelude):
+                yield line
         except Exception as e:
             logger.exception(f'生成聊天响应时发生错误: {e!s}')
+            yield start_message()
             yield error_part(f'生成响应时发生错误: {e!s}')
-        finally:
             yield finish_message()
             yield done_marker()
+            return
+
+        # 恢复运行时，先把上一条中断消息标记为已处理并清除中断标志
+        if response.resume:
+            history.update_last_interrupt('approved' if response.approved else 'rejected')
+            chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, interrupted=False))
+
+        if translator.is_interrupt:
+            await history.aadd_messages(
+                [InterruptMessage(content=json.dumps(translator.interrupt_value, ensure_ascii=False))]
+            )
+            chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, interrupted=True))
+        else:
+            state = await agent.aget_state(config)
+            final_response = state.values['messages'][-1]
+            await history.aadd_messages([final_response])
+            await checkpoint.adelete_thread(thread_id)
 
 
 async def generate_test_stream() -> AsyncGenerator[str, None]:

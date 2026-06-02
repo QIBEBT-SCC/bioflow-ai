@@ -1,6 +1,6 @@
-from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, cast
 
+from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
 from starlette import status
 from uuid_extensions import uuid7
@@ -10,11 +10,15 @@ import app.crud.workflow as wf_crud
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Status, Workflow
+from app.schemas.common import Paginated
 from app.schemas.react_flow import WorkflowDefinition
-from app.schemas.workflow import WorkflowCreateProp, WorkflowUpdate
+from app.schemas.workflow import WorkflowCreateProp, WorkflowSimple, WorkflowUpdate
 from app.utils.input_format import to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
@@ -27,15 +31,16 @@ async def get_workflows(
     current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-) -> list[Workflow]:
+) -> Paginated[WorkflowSimple]:
     """Get a paginated list of workflows for the current user."""
-    return wf_crud.get_all(session, limit, offset, current_user.id)  # type: ignore
-
-
-@router.get('/count')
-async def get_workflows_count(session: SessionDep, current_user: UserDep) -> int:
-    """Get the total count of workflows for the current user."""
-    return wf_crud.get_count(session, current_user.id)  # type: ignore
+    workflows, total = wf_crud.get_page(session, limit, offset, current_user.id)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=[WorkflowSimple.model_validate(wf) for wf in workflows],
+    )
 
 
 @router.post('/run', description='从editor新建工作流运行实例')
@@ -50,7 +55,7 @@ async def run_workflow(
         template_name = 'unname'
 
     base_dir = (
-        Path(STORAGE_PATH).absolute()
+        await AsyncPath(STORAGE_PATH).absolute()
         / f'{current_user.username}({current_user.id})'
         / 'temporarily'
         / to_safe_path_segment(template_name)
@@ -78,7 +83,7 @@ async def run_workflow(
         None,
         None,
         None,
-        current_user,
+        cast('User',current_user),
         f'{base_dir}',
         run.uid,
     )
@@ -110,7 +115,6 @@ async def save_workflow(
         uid=uid,
         name=workflow_prop.name,
         description='',
-        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         wf_type=workflow_prop.wf_type,
         execution_scope=workflow_prop.execution_scope,

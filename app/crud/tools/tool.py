@@ -91,16 +91,9 @@ def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdat
     return db_tool
 
 
-def get_counts(session: Session) -> int:
-    """Return the total number of tools."""
-    stmt = select(func.count()).select_from(ToolDefine)
-
-    return session.exec(stmt).one()
-
-
-def get_all(session: Session, limit: int, offset: int) -> Sequence[ToolDefine]:
-    """Return a paginated list of all tools ordered by name."""
-    stmt = (
+def get_page(session: Session, limit: int, offset: int) -> tuple[Sequence[ToolDefine], int]:
+    """Return a page of tools together with the total count."""
+    page_stmt = (
         select(ToolDefine)
         .order_by(col(ToolDefine.name))
         # pyrefly: ignore [bad-argument-type]
@@ -108,8 +101,8 @@ def get_all(session: Session, limit: int, offset: int) -> Sequence[ToolDefine]:
         .offset(offset)
         .limit(limit)
     )
-
-    return session.exec(stmt).all()
+    count_stmt = select(func.count()).select_from(ToolDefine)
+    return session.exec(page_stmt).all(), session.exec(count_stmt).one()
 
 
 def get_all_by_group(session: Session, group_id: int | None, limit: int, offset: int) -> Sequence[ToolDefine]:
@@ -150,6 +143,16 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> S
     )
 
     return session.exec(stmt).all()
+
+
+def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolDefine], int]:
+    """Return a page of fuzzy-matched tools together with the total match count."""
+    count_stmt = (
+        select(func.count())
+        .select_from(ToolDefine)
+        .where(func.similarity(ToolDefine.name, name) > _FUZZY_SIMILARITY_THRESHOLD)
+    )
+    return get_by_name_fuzzy(session, name, limit, offset), session.exec(count_stmt).one()
 
 
 def get(session: Session, tool_uid: str) -> ToolDefine:

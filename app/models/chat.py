@@ -13,7 +13,7 @@ from app.models.user import User
 class ChatSessions(SQLModel, table=True):
     __tablename__ = 'chat_sessions'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: Optional[uuid.UUID] = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
     owner_id: int = Field(foreign_key='users.id')
     description: str = Field(default='')
     checkpoint_uid: Optional[uuid.UUID] = None

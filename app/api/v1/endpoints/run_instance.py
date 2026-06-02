@@ -14,7 +14,7 @@ import app.crud.run_instance as run_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Status
-from app.schemas.common import Statistics
+from app.schemas.common import Paginated, Statistics
 from app.schemas.run_instance import (
     FileContentRequest,
     OutputFileNode,
@@ -35,10 +35,9 @@ async def get_all_runs(
     current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-) -> list[RunPublic]:
+) -> Paginated[RunPublic]:
     """获取所有运行实例(包含从 Redis 读取的实时统计信息)."""
-    # pyrefly: ignore [bad-argument-type]
-    runs = run_crud.get_all_runs(session, limit, offset, current_user.id)
+    runs, total = run_crud.get_runs_page(session, limit, offset, current_user.id)
 
     result = [RunPublic.model_validate(run) for run in runs]
 
@@ -58,14 +57,13 @@ async def get_all_runs(
                     error=int(raw_stats.get(b'error', 0)),
                 )
 
-    return result
-
-
-@router.get('/count')
-def get_run_counts(session: SessionDep, current_user: UserDep) -> int:
-    """Get the total number of run instances for the current user."""
-    # pyrefly: ignore [bad-argument-type]
-    return run_crud.get_run_counts(session, current_user.id)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=result,
+    )
 
 
 @router.get('/statistics')

@@ -96,6 +96,7 @@ class DockerToolUpdate(BaseModel):
 
 
 class SimpleToolPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     uid: uuid.UUID
     name: str
     description: str

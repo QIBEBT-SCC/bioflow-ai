@@ -166,9 +166,7 @@ async def get_llm_statistics_overview(
     start_date: Annotated[
         datetime | None, Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
-    end_date: Annotated[
-        datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
-    ] = None,
+    end_date: Annotated[datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')] = None,
 ) -> LLMStatisticOverview:
     """Get LLM usage statistics overview.
 
@@ -188,9 +186,7 @@ async def get_llm_statistics_details(
     start_date: Annotated[
         datetime | None, Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
-    end_date: Annotated[
-        datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
-    ] = None,
+    end_date: Annotated[datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')] = None,
     limit: Annotated[int, Query(ge=1, le=1000, description='Page size')] = 100,
     offset: Annotated[int, Query(ge=0, description='Offset for pagination')] = 0,
 ) -> LLMStatisticDetailsResponse:
@@ -213,9 +209,7 @@ async def download_statistic_details(
     start_date: Annotated[
         datetime | None, Query(description='Start date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
     ] = None,
-    end_date: Annotated[
-        datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')
-    ] = None,
+    end_date: Annotated[datetime | None, Query(description='End date (inclusive), format: YYYY-MM-DDTHH:MM:SS')] = None,
 ) -> StreamingResponse:
     """Download LLM usage records as CSV.
 

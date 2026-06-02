@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, col, or_, select
+from sqlmodel import Session, col, func, or_, select
 from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.project import Project, ProjectFileMapping, ProjectStar
@@ -117,6 +117,24 @@ def get_all_my(session: Session, limit: int, offset: int, user_id: int) -> list[
     starred_ids = get_star_ids(session, user_id, project_ids)
 
     return [_to_project_public(project, starred=project.id in starred_ids) for project in projects]
+
+
+def get_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[list[ProjectPublic], int]:
+    """Return a page of public and owned projects together with the total count."""
+    count_stmt = select(func.count()).select_from(Project).where(or_(Project.public, Project.owner_id == user_id))
+    return get_all(session, limit, offset, user_id), session.exec(count_stmt).one()
+
+
+def get_page_star(session: Session, limit: int, offset: int, user_id: int) -> tuple[list[ProjectPublic], int]:
+    """Return a page of the user's starred projects together with the total count."""
+    count_stmt = select(func.count()).select_from(ProjectStar).where(ProjectStar.user_id == user_id)
+    return get_all_star(session, limit, offset, user_id), session.exec(count_stmt).one()
+
+
+def get_page_my(session: Session, limit: int, offset: int, user_id: int) -> tuple[list[ProjectPublic], int]:
+    """Return a page of the user's owned projects together with the total count."""
+    count_stmt = select(func.count()).select_from(Project).where(Project.owner_id == user_id)
+    return get_all_my(session, limit, offset, user_id), session.exec(count_stmt).one()
 
 
 def get(session: Session, user_id: int, project_id: int) -> ProjectPublic:

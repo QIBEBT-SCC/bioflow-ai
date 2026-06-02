@@ -5,6 +5,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, cast
 
+from anyio import Path as AsyncPath
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -25,7 +26,7 @@ from app.models.project import (
 )
 from app.models.resource import Sample, SampleFiles
 from app.models.workflow import ExecutionScope
-from app.schemas.common import Statistics
+from app.schemas.common import Paginated, Statistics
 from app.schemas.project import (
     ProjectCreateProp,
     ProjectFileMappingCreate,
@@ -133,7 +134,7 @@ def get_project_list(
     filter_type: Annotated[str | None, Query(description='Filter: starred, my, all', alias='filter')] = 'all',
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-) -> list[ProjectPublic]:
+) -> Paginated[ProjectPublic]:
     """Get project list.
 
     - filter=all: Get all visible projects (public or user-owned)
@@ -142,13 +143,21 @@ def get_project_list(
     """
     match filter_type:
         case 'starred':
-            return project_crud.get_all_star(session, limit, offset, current_user.id)  # type: ignore
+            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id)  # type: ignore
         case 'my':
-            return project_crud.get_all_my(session, limit, offset, current_user.id)  # type: ignore
+            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id)  # type: ignore
         case 'all':
-            return project_crud.get_all(session, limit, offset, current_user.id)  # type: ignore
+            projects, total = project_crud.get_page(session, limit, offset, current_user.id)  # type: ignore
         case _:
-            return []
+            projects, total = [], 0
+
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=projects,
+    )
 
 
 @router.get('/recent')
@@ -200,10 +209,16 @@ async def get_project_samples(
     _current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
-) -> list[SampleListItem]:
+) -> Paginated[SampleListItem]:
     """Get all samples under the project."""
-    return sample_crud.get_all_by_project(session, project_id, limit, offset)
-
+    samples, total = sample_crud.get_page_by_project(session, project_id, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=samples,
+    )
 
 @router.get('/{project_id}/samples/count')
 async def get_project_sample_count(
@@ -212,8 +227,7 @@ async def get_project_sample_count(
     _current_user: UserDep,
 ) -> int:
     """Get the number of samples under the project."""
-    return sample_crud.get_count_by_project(session, project_id)
-
+    return sample_crud.get_count(session, project_id)
 
 @router.post('/{project_id}/samples/batch-import')
 async def batch_import_samples(
@@ -528,7 +542,8 @@ async def package_workflow_runs(
         runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
         if not runs:
             raise HTTPException(HTTP_404_NOT_FOUND, 'No exist run instance for this workflow!')
-        run_dirs = [Path(runs[0].base_dir)] if runs[0].base_dir and Path(runs[0].base_dir).exists() else []
+        run_dirs = [Path(runs[0].base_dir)] if runs[0].base_dir and await AsyncPath(runs[0].base_dir).exists() else []
+
         # PROJECT_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name} (只有一个)
 
         def _iter_zip() -> Generator[bytes, None, None]:
@@ -553,7 +568,8 @@ async def package_workflow_runs(
 
     else:
         runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
-        run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and Path(run.base_dir).exists()]  # type: ignore
+        run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and await AsyncPath(run.base_dir).exists()]
+
         # SAMPLE_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name}/{sample_name} (多个)
 
         def _iter_zip() -> Generator[bytes, None, None]:
@@ -595,7 +611,7 @@ async def get_project_runs(
     _current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
-) -> list[SimpleRunPublic]:
+) -> Paginated[SimpleRunPublic]:
     """Get all run instances of the project.
 
     Args:
@@ -604,9 +620,9 @@ async def get_project_runs(
         limit: Limit count
 
     Returns:
-        list[SimpleRunPublic]: List of run instances (including real-time stats from Redis).
+        Paginated[SimpleRunPublic]: Page of run instances (including real-time stats from Redis).
     """
-    runs = run_crud.get_runs_by_project(session, project_id, limit, offset)
+    runs, total = run_crud.get_runs_by_project_page(session, project_id, limit, offset)
 
     # Read statistics for each run instance from Redis
     result = []
@@ -623,7 +639,13 @@ async def get_project_runs(
 
         result.append(run_data)
 
-    return result
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=result,
+    )
 
 
 @router.get('/{project_id}/runs/stats')
@@ -641,23 +663,6 @@ async def get_project_run_stats(
         Statistics: Counts of total, success, error, running, waiting run instances.
     """
     return run_crud.get_project_run_stats(session, project_id)
-
-
-@router.get('/{project_id}/runs/count')
-async def get_project_run_count(
-    project_id: int,
-    session: SessionDep,
-    _current_user: UserDep,
-) -> int:
-    """Get the number of run instances of the project.
-
-    Args:
-        project_id: Project ID
-
-    Returns:
-        int: Number of run instances.
-    """
-    return run_crud.get_project_run_count(session, project_id)
 
 
 @router.get('/{project_id}/runs/{run_uid}')

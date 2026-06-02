@@ -43,24 +43,15 @@ def workflow_name_exists(session: Session, name: str) -> bool:
     return result is not None
 
 
-def get_all(session: Session, limit: int, offset: int, user_id: int) -> list[dict]:
-    """Return a paginated list of workflows accessible to a user."""
-    statement = (
-        select(Workflow.uid, Workflow.name)
-        .where(or_(Workflow.public, Workflow.owner_id == user_id))
-        .offset(offset)
-        .limit(limit)
-    )
+def get_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[list[dict], int]:
+    """Return a page of workflows accessible to a user together with the total count."""
+    condition = or_(Workflow.public, Workflow.owner_id == user_id)
+    page_stmt = select(Workflow.uid, Workflow.name).where(condition).offset(offset).limit(limit)
+    count_stmt = select(func.count()).select_from(Workflow).where(condition)
 
-    result = session.exec(statement).all()
-    return [{'uid': uid, 'name': name} for uid, name in result]
-
-
-def get_count(session: Session, user_id: int) -> int:
-    """Return the total count of workflows accessible to a user."""
-    statement = select(func.count()).select_from(Workflow).where(or_(Workflow.public, Workflow.owner_id == user_id))
-
-    return session.exec(statement).one()
+    result = session.exec(page_stmt).all()
+    data = [{'uid': uid, 'name': name} for uid, name in result]
+    return data, session.exec(count_stmt).one()
 
 
 def get(session: Session, wf_uid: str) -> Workflow:

@@ -1,5 +1,4 @@
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -34,8 +33,8 @@ def _update_project_time(session: Session, project_id: int) -> None:
         session: 数据库会话
         project_id: 项目 ID
     """
-    project_query = select(Project).where(Project.id == project_id)
-    project = session.exec(project_query).one_or_none()
+    project_stmt = select(Project).where(Project.id == project_id)
+    project = session.exec(project_stmt).one_or_none()
 
     if project:
         project.update_time = datetime.now(UTC)
@@ -176,10 +175,10 @@ def get(session: Session, sample_uid: uuid.UUID, *, with_files: bool = False) ->
         sample_uid: 样本 UID
         with_files: 是否预加载关联的文件 (使用 Relationship 优化查询)
     """
-    query = select(Sample).where(Sample.uid == sample_uid)
+    stmt = select(Sample).where(Sample.uid == sample_uid)
     if with_files:
-        query = query.options(selectinload(Sample.sample_files))  # type: ignore
-    return session.exec(query).one_or_none()
+        stmt = stmt.options(selectinload(Sample.sample_files))  # type: ignore
+    return session.exec(stmt).one_or_none()
 
 
 def get_with_files(session: Session, sample_uid: uuid.UUID) -> Sample | None:
@@ -187,51 +186,11 @@ def get_with_files(session: Session, sample_uid: uuid.UUID) -> Sample | None:
     return get(session, sample_uid, with_files=True)
 
 
-def get_all(session: Session, sample_uids: list[str]) -> Sequence[Sample]:
-    """Retrieve multiple samples by a list of UIDs."""
-    samples_stmt = select(Sample).where(col(Sample.uid).in_(sample_uids))
-
-    return session.exec(samples_stmt).all()
-
-
-def get_all_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
-    """获取项目下的所有样本."""
-    query = (
-        sa_select(
-            col(Sample.uid),
-            col(Sample.project_id),
-            col(Sample.sample_name),
-            col(Sample.meta_data),
-            col(Sample.create_time),
-            func.count(col(SampleFiles.uid)).label('file_count'),
-        )
-        .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
-        .where(col(Sample.project_id) == project_id)
-        .group_by(col(Sample.uid))
-        .order_by(col(Sample.create_time).desc())
-        .offset(offset)
-        .limit(limit)
-    )
-
-    # pyrefly: ignore [no-matching-overload]
-    results = session.exec(query).all()
-
-    return [
-        SampleListItem(
-            uid=r.uid,
-            project_id=r.project_id,
-            sample_name=r.sample_name,
-            meta_data=r.meta_data,
-            create_time=r.create_time,
-            file_count=r.file_count or 0,
-        )
-        for r in results
-    ]
-
-
-def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int = 0) -> list[SampleListItem]:
+def get_page_by_user(
+    session: Session, user_id: int, limit: int = 20, offset: int = 0
+) -> tuple[list[SampleListItem], int]:
     """获取用户的所有样本."""
-    query = (
+    stmt = (
         sa_select(
             col(Sample.uid),
             col(Sample.project_id),
@@ -249,7 +208,54 @@ def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int
     )
 
     # pyrefly: ignore [no-matching-overload]
-    results = session.exec(query).all()
+    results = session.exec(stmt).all()
+
+    count_stmt = select(func.count()).select_from(Sample).where(Sample.owner_id == user_id)
+    return [
+        SampleListItem(
+            uid=r.uid,
+            project_id=r.project_id,
+            sample_name=r.sample_name,
+            meta_data=r.meta_data,
+            create_time=r.create_time,
+            file_count=r.file_count or 0,
+        )
+        for r in results
+    ], session.exec(count_stmt).one()
+
+
+def get_count(session: Session, project_id: int) -> int:
+    """Return project sample counts."""
+    stmt = select(func.count()).select_from(Sample).where(Sample.project_id == project_id)
+    return session.exec(stmt).one()
+
+
+def get_page_by_project(
+    session: Session,
+    project_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[SampleListItem], int]:
+    """Return a page of a project's samples together with the total count."""
+    stmt = (
+        sa_select(
+            col(Sample.uid),
+            col(Sample.project_id),
+            col(Sample.sample_name),
+            col(Sample.meta_data),
+            col(Sample.create_time),
+            func.count(col(SampleFiles.uid)).label('file_count'),
+        )
+        .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(col(Sample.project_id) == project_id)
+        .group_by(col(Sample.uid))
+        .order_by(col(Sample.create_time).desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    # pyrefly: ignore [no-matching-overload]
+    results = session.exec(stmt).all()
 
     return [
         SampleListItem(
@@ -261,7 +267,7 @@ def get_all_by_user(session: Session, user_id: int, limit: int = 20, offset: int
             file_count=r.file_count or 0,
         )
         for r in results
-    ]
+    ], get_count(session, project_id)
 
 
 def summarize_samples_by_project(session: Session, project_id: int) -> list[SampleGroupSummary]:
@@ -269,7 +275,7 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
 
     用于大规模项目 (数百样本) 的概览, 避免逐样本返回造成 token 浪费.
     """
-    query = (
+    stmt = (
         sa_select(
             col(Sample.uid),
             col(Sample.sample_name),
@@ -282,7 +288,7 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
         .order_by(col(Sample.create_time))
     )
     # pyrefly: ignore [no-matching-overload]
-    rows = session.exec(query).all()
+    rows = session.exec(stmt).all()
 
     per_sample: dict[uuid.UUID, dict] = {}
     for r in rows:
@@ -317,18 +323,6 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
     ]
 
 
-def get_count_by_project(session: Session, project_id: int) -> int:
-    """获取项目下的样本数量."""
-    query = select(func.count()).select_from(Sample).where(Sample.project_id == project_id)
-    return session.exec(query).one()
-
-
-def get_count_by_user(session: Session, user_id: int) -> int:
-    """获取用户的样本数量."""
-    query = select(func.count()).select_from(Sample).where(Sample.owner_id == user_id)
-    return session.exec(query).one()
-
-
 def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
     """为样本添加文件, 自动计算文件信息, 并更新项目时间."""
     # 验证样本是否存在
@@ -356,8 +350,8 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
 
 def delete_file(session: Session, file_uid: uuid.UUID) -> None:
     """删除样本文件, 并更新项目时间."""
-    query = select(SampleFiles).where(SampleFiles.uid == file_uid)
-    file = session.exec(query).one_or_none()
+    stmt = select(SampleFiles).where(SampleFiles.uid == file_uid)
+    file = session.exec(stmt).one_or_none()
 
     if not file:
         raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
@@ -378,12 +372,12 @@ def delete_file(session: Session, file_uid: uuid.UUID) -> None:
 
 def delete_file_by_name_tag(session: Session, project_id: int, sample_name: str, tag: str) -> bool:
     """根据项目 + 样本名 + tag 删除样本文件. 返回是否实际删除."""
-    query = (
+    stmt = (
         select(SampleFiles)
         .join(Sample, col(Sample.uid) == SampleFiles.sample_uid)
         .where(Sample.project_id == project_id, Sample.sample_name == sample_name, SampleFiles.tag == tag)
     )
-    file = session.exec(query).one_or_none()
+    file = session.exec(stmt).one_or_none()
     if not file:
         return False
 

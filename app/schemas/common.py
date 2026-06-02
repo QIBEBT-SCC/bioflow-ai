@@ -2,6 +2,14 @@ from loguru import logger
 from pydantic import BaseModel
 
 
+class Paginated[T](BaseModel):
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+    data: list[T]
+
+
 class Statistics(BaseModel):
     total: int
     waiting: int = 0

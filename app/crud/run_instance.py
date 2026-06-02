@@ -50,21 +50,6 @@ def update(session: Session, uid: str, run_update: RunUpdate) -> RunInstance:
     return db_run
 
 
-def get_run_counts(session: Session, user_id: int) -> int:
-    """Get the total count of run instances for a specific user.
-
-    Args:
-        session: Database session
-        user_id: ID of the user
-
-    Returns:
-        Total count of run instances
-    """
-    statement = select(func.count()).select_from(RunInstance).where(col(RunInstance.owner_id) == user_id)
-
-    return session.exec(statement).one()
-
-
 def get_run_status(session: Session, user_id: int) -> Statistics:
     """Get statistics of run instances by their status."""
     stats = (
@@ -84,28 +69,19 @@ def get_run_status(session: Session, user_id: int) -> Statistics:
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
-def get_all_runs(session: Session, limit: int, offset: int, user_id: int) -> Sequence[RunInstance]:
-    """Get a paginated list of all run instances for a specific user.
-
-    Args:
-        session: Database session
-        limit: Number of items to return
-        offset: Offset for pagination
-        user_id: ID of the user
-
-    Returns:
-        A sequence of run instances
-    """
-    statement = (
+def get_runs_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[Sequence[RunInstance], int]:
+    """Return a page of a user's run instances together with the total count."""
+    page_stmt = (
         select(RunInstance)
         .where(RunInstance.owner_id == user_id)
-        .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))  # type: ignore
+        # pyrefly: ignore [bad-argument-type]
+        .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))
         .order_by(col(RunInstance.create_time).desc())
         .limit(limit)
         .offset(offset)
     )
-
-    return session.exec(statement).all()
+    count_stmt = select(func.count()).select_from(RunInstance).where(col(RunInstance.owner_id) == user_id)
+    return session.exec(page_stmt).all(), session.exec(count_stmt).one()
 
 
 def get(session: Session, uid: str) -> RunInstance:
@@ -159,6 +135,14 @@ def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offs
     return session.exec(statement).all()
 
 
+def get_runs_by_project_page(
+    session: Session, project_id: int, limit: int = 20, offset: int = 0
+) -> tuple[Sequence[RunInstance], int]:
+    """Return a page of a project's run instances together with the total count."""
+    count_stmt = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
+    return get_runs_by_project(session, project_id, limit, offset), session.exec(count_stmt).one()
+
+
 def get_runs_by_project_and_workflow(
     session: Session, project_id: int, workflow_uid: uuid.UUID
 ) -> Sequence[RunInstance]:
@@ -204,21 +188,6 @@ def get_runs_by_sample(session: Session, sample_uid: str, limit: int = 20, offse
     )
 
     return session.exec(statement).all()
-
-
-def get_project_run_count(session: Session, project_id: int) -> int:
-    """Get the total count of run instances for a project.
-
-    Args:
-        session: Database session
-        project_id: Project ID
-
-    Returns:
-        Number of run instances
-    """
-    statement = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
-
-    return session.exec(statement).one()
 
 
 def get_project_run_stats(session: Session, project_id: int) -> Statistics:

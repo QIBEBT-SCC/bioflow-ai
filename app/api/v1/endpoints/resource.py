@@ -8,6 +8,7 @@ import app.crud.resource.bio_db as db_crud
 import app.crud.resource.sample as sample_crud
 from app.core.session import SessionDep
 from app.models.resource import BioDb
+from app.schemas.common import Paginated
 from app.schemas.resource import (
     BioDbCreate,
     BioDbSimple,
@@ -56,16 +57,16 @@ async def get_db_list(
     _current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-) -> list[BioDbSimple]:
+) -> Paginated[BioDbSimple]:
     """Get a paginated list of all bio databases."""
-    # pyrefly: ignore [bad-return]
-    return db_crud.get_all(session, limit, offset)
-
-
-@db_router.get('/count')
-async def get_db_count(session: SessionDep, _current_user: UserDep) -> int:
-    """Get the total count of bio databases."""
-    return db_crud.get_counts(session)
+    dbs, total = db_crud.get_page(session, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=[BioDbSimple.model_validate(db, from_attributes=True) for db in dbs],
+    )
 
 
 @db_router.get('/search')
@@ -75,10 +76,16 @@ async def get_dbs_by_name(
     name: str,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
-) -> list[BioDb]:
+) -> Paginated[BioDb]:
     """Search bio databases by name (fuzzy match)."""
-    # pyrefly: ignore [bad-return]
-    return db_crud.get_by_name_fuzzy(session, name, limit, offset)
+    dbs, total = db_crud.get_page_by_name_fuzzy(session, name, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=dbs,
+    )
 
 
 @db_router.get('/{db_id}')
@@ -90,23 +97,19 @@ async def get_db(db_id: int, session: SessionDep, _current_user: UserDep) -> Bio
 # ── Sample endpoints ───────────────────────────────────────────────────────────
 
 
-@sample_router.get('/count')
-async def get_total_sample_count(
-    session: SessionDep,
-    current_user: UserDep,
-) -> int:
-    """Get the total number of samples owned by the current user."""
-    # pyrefly: ignore [bad-argument-type]
-    return sample_crud.get_count_by_user(session, current_user.id)
-
-
 @sample_router.get('')
 async def get_all_user_samples(
     session: SessionDep,
     current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
-) -> list[SampleListItem]:
+) -> Paginated[SampleListItem]:
     """Get all samples owned by the current user (across all projects)."""
-    # pyrefly: ignore [bad-argument-type]
-    return sample_crud.get_all_by_user(session, current_user.id, limit, offset)
+    samples, total = sample_crud.get_page_by_user(session, current_user.id, limit, offset)
+    return Paginated(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=samples,
+    )
