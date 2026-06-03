@@ -70,8 +70,8 @@ def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdat
     from app.crud.tools import tool_tag as tag_crud
 
     db_tool = get(session, tool_uid)
-    if not db_tool:
-        return None
+    if db_tool is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
 
     # 准备更新数据
     update_data = tool_update.model_dump(exclude_unset=True)
@@ -155,10 +155,7 @@ def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int)
     return get_by_name_fuzzy(session, name, limit, offset), session.exec(count_stmt).one()
 
 
-def get(session: Session, tool_uid: str) -> ToolDefine:
+def get(session: Session, tool_uid: str) -> ToolDefine | None:
     """Return a tool by its UID."""
     stmt = select(ToolDefine).where(ToolDefine.uid == tool_uid)
-    tool = session.exec(stmt).one_or_none()
-    if tool is None:
-        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
-    return tool
+    return session.exec(stmt).one_or_none()

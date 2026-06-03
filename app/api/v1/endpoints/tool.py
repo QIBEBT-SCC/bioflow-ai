@@ -165,7 +165,7 @@ async def refresh_doc(session: SessionDep, uid: str) -> ToolHelpDoc:
 
     if doc.image is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Image associated with doc not found')
-    code, result = run_command(doc.image.image, [], doc.help_command)
+    _, result = run_command(doc.image.image, [], doc.help_command)
     update_data = DocUpdate(content=result)
     return doc_crud.update(session, uid, update_data)
 
@@ -183,7 +183,7 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _curren
         raise HTTPException(HTTP_404_NOT_FOUND, 'Image not found')
     tool_doc = doc_crud.get_by_command(session, tool_prop.help_command)
     if tool_doc is None:
-        code, result = run_command(tool_image.image, [], tool_prop.help_command)
+        _, result = run_command(tool_image.image, [], tool_prop.help_command)
         tool_doc = ToolHelpDoc(help_command=tool_prop.help_command, content=result, image_uid=tool_prop.image_uid)
         tool_doc = doc_crud.insert(session, tool_doc)
 
@@ -261,8 +261,11 @@ def get_tools_by_name(
 @router.get('/{tool_uid}')
 async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
     """Get full details of a tool by its UID."""
+    tool = tool_crud.get(session, tool_uid)
+    if tool is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
     # pyrefly: ignore [bad-return]
-    return tool_crud.get(session, tool_uid)
+    return tool
 
 
 @router.patch('/{tool_uid}')
@@ -300,6 +303,8 @@ async def get_tool_args(session: SessionDep, redis: RedisDep, tool_uid: str) -> 
             await redis.delete(cache_key)
 
     tool = tool_crud.get(session, tool_uid)
+    if tool is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
     await redis.set(cache_key, ToolNodePublic.model_validate(tool).model_dump_json(), ex=86400)
 
     # pyrefly: ignore [bad-return]
@@ -318,6 +323,8 @@ async def get_tool4task(session: SessionDep, redis: RedisDep, tool_uid: str) -> 
             await redis.delete(cache_key)
 
     tool = tool_crud.get(session, tool_uid)
+    if tool is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
     await redis.set(cache_key, ToolTaskInfo.model_validate(tool).model_dump_json(), ex=86400)
 
     # pyrefly: ignore [bad-return]
