@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Annotated, cast
 
 from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
+from langchain_core.documents import Document
+from langchain_milvus import BM25BuiltInFunction, Milvus
 from starlette import status
 from uuid_extensions import uuid7
 
@@ -16,6 +18,7 @@ from app.schemas.workflow import WorkflowCreateProp, WorkflowSimple, WorkflowUpd
 from app.utils.input_format import to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
+from llm.models import qwen3_embedding
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -68,7 +71,6 @@ async def run_workflow(
     run = RunInstance(
         name=f'temporarily-{template_name}',
         project_id=None,
-        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         workflow=workflow,
         base_dir=str(base_dir),
@@ -83,7 +85,7 @@ async def run_workflow(
         None,
         None,
         None,
-        cast('User',current_user),
+        cast('User', current_user),
         f'{base_dir}',
         run.uid,
     )
@@ -114,7 +116,7 @@ async def save_workflow(
         # pyrefly: ignore [bad-argument-type]
         uid=uid,
         name=workflow_prop.name,
-        description='',
+        description=workflow_prop.description,
         owner_id=current_user.id,
         wf_type=workflow_prop.wf_type,
         execution_scope=workflow_prop.execution_scope,
@@ -125,6 +127,29 @@ async def save_workflow(
     )
 
     wf_crud.insert(session, workflow)
+    embedding_model = qwen3_embedding()
+    vectorstore = Milvus(
+        collection_name='WorkflowCollection',
+        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+        embedding_function=embedding_model,
+        builtin_function=BM25BuiltInFunction(),
+        vector_field=['dense', 'sparse'],
+        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
+        consistency_level='Strong',
+        drop_old=False,
+        auto_id=True,
+    )
+
+    docs = [
+        Document(
+            page_content=workflow.description,
+            metadata={
+                'wf_uid': str(workflow.uid),
+                'name': workflow.name,
+            },
+        ),
+    ]
+    await vectorstore.aadd_documents(docs)
     return uid  # type: ignore
 
 

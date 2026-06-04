@@ -8,6 +8,7 @@ from app.schemas.react_flow import WorkflowDefinition
 
 class WorkflowCreateProp(BaseModel):
     name: str
+    description: str
     wf_type: WorkflowType
     execution_scope: ExecutionScope = ExecutionScope.SAMPLE_LEVEL
     workflow: WorkflowDefinition
@@ -21,6 +22,8 @@ class WorkflowSimple(BaseModel):
 
     uid: str | uuid.UUID
     name: str
+    description: str
+    execution_scope: ExecutionScope
 
 
 class WorkflowUpdate(BaseModel):
