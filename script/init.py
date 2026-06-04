@@ -1,8 +1,8 @@
 import asyncio
-from pathlib import Path
 from typing import Literal
 
 import click
+from anyio import Path
 from loguru import logger
 
 
@@ -51,7 +51,7 @@ async def init_images(*, drop_old: bool = True) -> None:
     from llm.models import qwen3_embedding
 
     parquet_file = 'presets/images.parquet'
-    if Path(parquet_file).exists():
+    if await Path(parquet_file).exists():
         logger.info('Initialize the image database with presets/images.parquet.')
     else:
         logger.info(
@@ -117,7 +117,7 @@ async def init_docs(*, drop_old: bool = True) -> None:
     from app.models.tools import ToolHelpDoc
 
     parquet_file = 'presets/tool_docs.parquet'
-    if Path(parquet_file).exists():
+    if await Path(parquet_file).exists():
         logger.info('Initialize the image database with presets/tool_docs.parquet.')
     else:
         logger.info(
@@ -165,7 +165,7 @@ async def init_tools(*, drop_old: bool = True) -> None:
     from llm.models import qwen3_embedding
 
     parquet_file = 'presets/tools.parquet'
-    if Path(parquet_file).exists():
+    if await Path(parquet_file).exists():
         logger.info('Initialize the image database with presets/tools.parquet.')
     else:
         logger.info(
@@ -237,6 +237,7 @@ async def init_tools(*, drop_old: bool = True) -> None:
             docs = [
                 Document(
                     page_content=tool.description,
+                    # pyrefly: ignore [missing-attribute]
                     metadata={'tool_uid': str(tool.uid), 'image_uid': str(tool.image.uid), 'name': tool.name},
                 )
                 for tool in batch_tools
@@ -304,7 +305,7 @@ async def rebuild_image_index() -> None:
 
     if empty_images:
         empty_file = Path('empty_images.txt')
-        empty_file.write_text('\n'.join(empty_images) + '\n')
+        await empty_file.write_text('\n'.join(empty_images) + '\n')
 
 
 async def rebuild_tool_index() -> None:
@@ -333,12 +334,7 @@ async def rebuild_tool_index() -> None:
     )
 
     with Session(engine) as session:
-        statement = select(
-            ToolDefine.uid,
-            ToolDefine.description,
-            ToolDefine.image_uid,
-            ToolDefine.name,
-        )
+        statement = select(ToolDefine)
         results = session.exec(statement).all()
 
     docs_to_add = []
@@ -369,7 +365,7 @@ async def rebuild_tool_index() -> None:
 
     if empty_tools:
         empty_file = Path('empty_tools.txt')
-        empty_file.write_text('\n'.join(empty_tools) + '\n')
+        await empty_file.write_text('\n'.join(empty_tools) + '\n')
 
 
 async def rebuild_processor_index() -> None:
@@ -409,6 +405,9 @@ async def rebuild_processor_index() -> None:
 @click.group()
 def cli() -> None:
     """Database initialization and management tool."""
+    from app.utils.logger import init_logging
+
+    init_logging()
 
 
 @cli.command()

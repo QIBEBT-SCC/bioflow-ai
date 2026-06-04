@@ -662,6 +662,9 @@ def statistic() -> None:
 @click.group()
 def cli() -> None:
     """开发人员使用工具."""
+    from app.utils.logger import init_logging
+
+    init_logging()
 
 
 @cli.command()

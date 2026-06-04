@@ -203,7 +203,3 @@ def get_settings() -> Settings:
         sys.exit(-1)
 
     return Settings()
-
-
-if __name__ == '__main__':
-    print(get_settings())

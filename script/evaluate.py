@@ -243,6 +243,9 @@ async def wf_eval(task_file: str, paper_file: str | None, thread_id: str, *, dro
 @click.group()
 def cli() -> None:
     """Command for agent evaluate."""
+    from app.utils.logger import init_logging
+
+    init_logging()
 
 
 @cli.command()
