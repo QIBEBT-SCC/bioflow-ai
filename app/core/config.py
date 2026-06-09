@@ -11,7 +11,11 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 
 class BaseSectionConfig(BaseModel):
-    model_config = ConfigDict(alias_generator=lambda field_name: field_name.lower(), extra='ignore')
+    model_config = ConfigDict(
+        alias_generator=lambda field_name: field_name.lower(),
+        populate_by_name=True,
+        extra='ignore',
+    )
 
 
 class SecurityConfig(BaseSectionConfig):
@@ -148,6 +152,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         toml_file='config.toml',
         alias_generator=lambda field_name: field_name.lower(),
+        populate_by_name=True,
         env_nested_delimiter='__',
         extra='ignore',
     )
