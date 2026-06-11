@@ -26,9 +26,7 @@ services:
       RUSTFS_SECRET_KEY: minioadmin
       RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_REGION: us-east-1
-      # RUSTFS_SERVER_DOMAINS: localhost# Optional; not required for local deployments
     ports:
-      - "9001:9001"
       - "9000:9000"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rustfs:/data
@@ -68,7 +66,6 @@ services:
       retries: 3
     ports:
       - "19530:19530"
-      - "9091:9091"
     depends_on:
       - "etcd"
       - "rustfs"
@@ -81,7 +78,6 @@ services:
     image: docker.io/library/rabbitmq:4.1.0-rc.1-management
     ports:
       - "5672:5672"
-      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: bioflow_ai
       RABBITMQ_DEFAULT_PASS: 123456
