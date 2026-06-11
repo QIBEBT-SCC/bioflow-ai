@@ -163,6 +163,7 @@ cython_debug/
 .idea/
 .claude/
 test/
+testdata/
 storage/
 log/
 volumes/
@@ -176,4 +177,5 @@ docs/
 
 *.docs.yaml
 
+docker-compose.yml
 config.toml
