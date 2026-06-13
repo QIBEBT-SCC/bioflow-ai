@@ -1,63 +1,68 @@
 import os
-import re
 import shutil
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import Settings
 from app.utils.init import tui
 from app.utils.init.common import run_command
+from app.utils.init.ports import UpdatePort
 
 if TYPE_CHECKING:
     from app.core.config import DockerConfig
 
-COMPOSE_TEMPLATE_FILE = Path('docker') / 'docker-compose.yml'
+COMPOSE_TEMPLATE_ROOT = Path('deploy')
 COMPOSE_FILE = Path('docker-compose.yml')
-WEB_BACKEND_API_PATTERN = re.compile(r'(BACKEND_API_URL:\s*http://host\.docker\.internal:)(\d+)(/api/v1)')
 
 
-@dataclass(frozen=True)
-class ComposeCommandResult:
-    command: list[str] | None
+class ComposeCommandResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    command: list[str] | None = None
     error: str | None = None
     warning: str | None = None
 
 
-@dataclass(frozen=True)
-class PortSyncResult:
+class ComposeFileResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     success: bool
-    current_port: int | None = None
     written: bool = False
-    updated: bool = False
+    updated_port: list[str] = Field(default_factory=list)
     error: str | None = None
 
 
-@dataclass(frozen=True)
-class RunningServicesResult:
+class RunningServicesResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     success: bool
     services: list[str]
     error: str | None = None
 
 
-@dataclass(frozen=True)
-class OperationResult:
+class OperationResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     success: bool
     message: str | None = None
     error: str | None = None
 
 
-def detect_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
+def compose_template_file(runtime: str) -> Path:
+    """Return the compose template for the selected runtime."""
+    return COMPOSE_TEMPLATE_ROOT / runtime / 'docker-compose.yml'
+
+
+def check_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
     """Detect the selected container runtime and a usable compose command."""
     runtime = docker.CONTAINER
     if shutil.which(runtime) is None:
         return ComposeCommandResult(command=None, error=f'未找到 {runtime} 命令, 请先安装 {runtime}。')
-
-    version_result = run_command([runtime, '--version'])
-    if version_result.returncode != 0:
-        return ComposeCommandResult(command=None, error=f'{runtime} 无法运行: {version_result.stderr.strip()}')
 
     if runtime == 'docker':
         compose_command = ['docker', 'compose']
@@ -89,36 +94,52 @@ def detect_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
     )
 
 
-def sync_web_backend_port(
-    port: int,
-    compose_file: Path = COMPOSE_FILE,
-    template_file: Path = COMPOSE_TEMPLATE_FILE,
-) -> PortSyncResult:
-    """Render root docker-compose.yml from template and sync web-ui BACKEND_API_URL."""
+def load_compose_file(
+    api_port: int,
+    update_port: UpdatePort | None,
+    template_file: Path,
+) -> ComposeFileResult:
+    """Render root docker-compose.yml from the fixed compose template."""
     if not template_file.exists():
-        return PortSyncResult(success=False, error=f'未找到 compose 模板 {template_file}, 无法启动项目容器。')
+        return ComposeFileResult(success=False, error=f'未找到 compose 模板 {template_file}, 无法启动项目容器。')
 
-    content = template_file.read_text(encoding='utf-8')
-    match = WEB_BACKEND_API_PATTERN.search(content)
-    if match is None:
-        return PortSyncResult(
-            success=False, error=f'未在 compose 模板 {template_file} 中找到 web-ui BACKEND_API_URL, 请手动检查。'
-        )
+    compose_object = yaml.safe_load(template_file.read_text(encoding='utf-8'))
+    updated_port: list[str] = []
 
-    current_port = int(match.group(2))
-    updated = current_port != port
-    if updated:
-        content = WEB_BACKEND_API_PATTERN.sub(rf'\g<1>{port}\g<3>', content, count=1)
+    try:
+        services = compose_object['services']
+        services['web-ui']['environment']['BACKEND_API_URL'] = f'http://host.docker.internal:{api_port}/api/v1'
+        if update_port:
+            if update_port.api:
+                updated_port.append(f'web-ui BACKEND_API_URL 端口: {api_port}')
+            if postgres_port := update_port.postgres:
+                services['postgres-db']['ports'][0] = f'{postgres_port}:5432'
+                updated_port.append(f'PostgreSQL 宿主机端口: {postgres_port}')
+            if redis_port := update_port.redis:
+                services['redis-db']['ports'][0] = f'{redis_port}:6379'
+                updated_port.append(f'Redis 宿主机端口: {redis_port}')
+            if rabbitmq_port := update_port.rabbitmq:
+                services['rabbitmq-db']['ports'][0] = f'{rabbitmq_port}:5672'
+                updated_port.append(f'RabbitMQ 宿主机端口: {rabbitmq_port}')
+            if rustfs_port := update_port.rustfs:
+                services['rustfs']['ports'][0] = f'{rustfs_port}:9000'
+                updated_port.append(f'RustFS/S3 宿主机端口: {rustfs_port}')
+            if milvus_port := update_port.milvus:
+                services['standalone']['ports'][0] = f'{milvus_port}:19530'
+                updated_port.append(f'Milvus 宿主机端口: {milvus_port}')
+            if web_ui_port := update_port.web_ui:
+                services['web-ui']['ports'][0] = f'{web_ui_port}:3000'
+                updated_port.append(f'Web UI 宿主机端口: {web_ui_port}')
+    except (KeyError, IndexError, TypeError) as exc:
+        return ComposeFileResult(success=False, error=f'compose 模板结构不符合预期: {exc}')
 
-    existing_content = compose_file.read_text(encoding='utf-8') if compose_file.exists() else None
-    written = existing_content != content
-    if written:
-        compose_file.write_text(content, encoding='utf-8')
+    content = yaml.safe_dump(compose_object, allow_unicode=True, sort_keys=False)
+    COMPOSE_FILE.write_text(content, encoding='utf-8')
 
-    return PortSyncResult(success=True, current_port=current_port, written=written, updated=updated)
+    return ComposeFileResult(success=True, written=True, updated_port=updated_port)
 
 
-def compose_project_running(compose_command: list[str]) -> RunningServicesResult:
+def check_exist_container(compose_command: list[str]) -> RunningServicesResult:
     """Check whether this compose project already has running services."""
     result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--services', '--status', 'running'])
     if result.returncode != 0:
@@ -141,7 +162,12 @@ def prepare_container_volumes() -> OperationResult:
     return OperationResult(success=True, message=f'已准备 RustFS 数据目录: {rustfs_path}')
 
 
-def initialize_project_containers(settings: Settings, confirm: Callable[..., bool]) -> bool | None:
+def initialize_project_containers(
+    settings: Settings,
+    confirm: Callable[..., bool],
+    *,
+    update_port: UpdatePort | None = None,
+) -> bool | None:
     """Prompt for and optionally start project compose containers."""
     tui.render_section('项目容器', '检查容器运行时、同步 web-ui 端口并启动依赖服务。')
 
@@ -150,7 +176,7 @@ def initialize_project_containers(settings: Settings, confirm: Callable[..., boo
         tui.render_notice('已跳过项目容器启动。', style='#94a3b8')
         return None
 
-    compose_result = detect_compose_command(settings.docker)
+    compose_result = check_compose_command(settings.docker)
     if compose_result.warning:
         tui.render_notice(compose_result.warning, style='#f59e0b')
     if compose_result.error:
@@ -161,21 +187,18 @@ def initialize_project_containers(settings: Settings, confirm: Callable[..., boo
     if compose_command is None:
         return False
 
-    port_result = sync_web_backend_port(settings.network.PORT)
-    if not port_result.success:
-        tui.render_notice(port_result.error or '同步 web-ui BACKEND_API_URL 端口失败。', style='#ef4444')
+    template_file = compose_template_file(runtime)
+    compose_file_result = load_compose_file(settings.network.PORT, update_port, template_file)
+    if not compose_file_result.success:
+        tui.render_notice(compose_file_result.error or '生成 docker-compose.yml 失败。', style='#ef4444')
         return False
-    if port_result.written:
-        tui.render_notice(f'已从 {COMPOSE_TEMPLATE_FILE} 生成 {COMPOSE_FILE}', style='#10b981')
-    if port_result.updated:
-        tui.render_notice(
-            f'已将 web-ui BACKEND_API_URL 端口从 {port_result.current_port} 同步为 {settings.network.PORT}',
-            style='#10b981',
-        )
-    else:
-        tui.console.print(f'[bold]web-ui BACKEND_API_URL 端口:[/bold] {settings.network.PORT}')
+    if compose_file_result.written:
+        tui.render_notice(f'已从 {template_file} 生成 {COMPOSE_FILE}', style='#10b981')
+    tui.console.print(f'[bold]web-ui BACKEND_API_URL 端口:[/bold] {settings.network.PORT}')
+    for message in compose_file_result.updated_port:
+        tui.render_notice(f'已同步 {message}', style='#10b981')
 
-    running_result = compose_project_running(compose_command)
+    running_result = check_exist_container(compose_command)
     if not running_result.success:
         tui.render_notice(running_result.error or '无法读取 compose 运行状态。', style='#f59e0b')
     if running_result.services:

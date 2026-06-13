@@ -1,0 +1,147 @@
+services:
+  # Milvus 相关服务
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.25
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: [ "CMD", "etcdctl", "endpoint", "health" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - milvus-net
+
+  rustfs:
+    container_name: milvus-rustfs
+    image: docker.io/rustfs/rustfs:1.0.0-alpha.97
+    environment:
+      RUSTFS_ACCESS_KEY: minioadmin
+      RUSTFS_SECRET_KEY: minioadmin
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_REGION: us-east-1
+      # RUSTFS_SERVER_DOMAINS: localhost# Optional; not required for local deployments
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rustfs:/data
+    command: >
+      --address :9000 
+      --console-enable 
+      /data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/health" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - milvus-net
+
+  standalone:
+    container_name: milvus-standalone
+    image: docker.io/milvusdb/milvus:v2.6.14
+    command: [ "milvus", "run", "standalone" ]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      MINIO_REGION: us-east-1
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: rustfs:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      MQ_TYPE: woodpecker
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9091/healthz" ]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - "etcd"
+      - "rustfs"
+    networks:
+      - milvus-net
+
+  # 数据库服务
+  rabbitmq-db:
+    image: rabbitmq:4.1.0-rc.1-management
+    ports:
+      - "5672:5672"   # AMQP 协议端口
+      - "15672:15672" # 管理界面端口
+    environment:
+      RABBITMQ_DEFAULT_USER: bioflow_ai
+      RABBITMQ_DEFAULT_PASS: 123456
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 31622400000"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rabbitmq/data:/var/lib/rabbitmq:rw
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rabbitmq/log:/var/log/rabbitmq:rw
+    networks:
+      - rabbitmq-net
+    restart: always
+
+  redis-db:
+    image: redis:8.0-rc1-bookworm
+    ports:
+      - "6379:6379"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/redis/data:/data:rw
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/redis/logs:/logs:rw
+    networks:
+      - redis-net
+    restart: always
+
+  postgres-db:
+    image: docker.io/library/postgres:18.0-alpine
+    shm_size: 2gb
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_USER: bioflow_ai
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: bioflow_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/postgres:/var/lib/postgresql/18/docker:rw
+      - ./presets/sql:/docker-entrypoint-initdb.d
+    networks:
+      - postgres-net
+    restart: unless-stopped
+
+  web-ui:
+    image: ghcr.io/qibebt-scc/bioflow-ai-web:0.2.4
+    environment:
+      BACKEND_API_URL: http://host.docker.internal:8003/api/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "3001:3000"
+    networks:
+      - web-ui-net
+    restart: unless-stopped
+
+networks:
+  milvus-net:
+    name: milvus
+  rabbitmq-net:
+    name: rabbitmq
+  redis-net:
+    name: redis
+  postgres-net:
+    name: postgres
+  web-ui-net:
+    name: web-ui

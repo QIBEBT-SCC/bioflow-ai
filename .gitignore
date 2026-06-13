@@ -178,4 +178,5 @@ docs/
 *.docs.yaml
 
 docker-compose.yml
+!deploy/**/docker-compose.yml
 config.toml

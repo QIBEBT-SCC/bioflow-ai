@@ -30,11 +30,12 @@ def run_auto_init() -> None:
 
         tui.render_notice('保留现有配置, 将继续执行系统初始化步骤。', style='#94a3b8')
         settings = get_settings()
+        update_port = None
     else:
-        settings = create_settings(config_path)
+        settings, update_port = create_settings(config_path)
 
     test_data_ready = initialize_test_data(settings.network, settings.persistent.storage, _confirm)
-    container_ready = initialize_project_containers(settings, _confirm)
+    container_ready = initialize_project_containers(settings, _confirm, update_port=update_port)
     if test_data_ready is False or container_ready is False:
         tui.render_notice('系统初始化流程已结束, 但存在未完成的初始化步骤。', style='#f59e0b')
     else:

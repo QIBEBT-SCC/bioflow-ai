@@ -1,11 +1,16 @@
-import socket
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import tomli_w
-from pydantic import SecretStr
+from pydantic import AmqpDsn, PostgresDsn, RedisDsn, SecretStr
 
 from app.utils.init import tui
+from app.utils.init.ports import (
+    SERVICE_DEFAULT_PORTS,
+    UpdatePort,
+    create_update_port,
+    get_service_label,
+)
 
 if TYPE_CHECKING:
     from app.core.config import (
@@ -18,42 +23,12 @@ if TYPE_CHECKING:
         StorageConfig,
     )
 
-DEFAULT_PORT = 8000
-MAX_PORT = 65536
-
 
 def validate_int(text: str) -> bool | str:
     """Validate that the input is a positive integer."""
     if text.strip().isdigit() and int(text) > 0:
         return True
     return '请输入一个正整数'
-
-
-def is_port_available(port: int, host: str = '0.0.0.0') -> bool:  # noqa: S104
-    """Check whether a host port is available."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        try:
-            sock.bind((host, port))
-        except OSError:
-            return False
-        return True
-
-
-def find_available_port(start: int, host: str = '0.0.0.0', limit: int = 100) -> int:  # noqa: S104
-    """Find the first available port from start, falling back to start."""
-    for port in range(start, min(start + limit, MAX_PORT)):
-        if is_port_available(port, host):
-            return port
-    return start
-
-
-def validate_port(text: str) -> bool | str:
-    """Validate that the input is a legal and currently available port."""
-    if not (text.strip().isdigit() and 0 < int(text) < MAX_PORT):
-        return '请输入一个有效的端口号 (1-65535)'
-    if not is_port_available(int(text)):
-        return f'端口 {text} 已被占用, 请换一个'
-    return True
 
 
 def sanitize_config(value: Any) -> Any:
@@ -76,24 +51,33 @@ def write_settings(settings: Any, config_path: Path) -> None:
         tomli_w.dump(config_dict, f)
 
 
+def render_port_preflight(update_port: UpdatePort) -> None:
+    """Render automatic port-shift results before config prompts."""
+    tui.render_section('端口预检查', '检查 API 与 compose 依赖服务宿主机端口。')
+    changed_ports = update_port.model_dump(exclude_none=True)
+    if not changed_ports:
+        tui.render_notice('默认端口均可用。', style='#10b981')
+        return
+
+    for key, port in changed_ports.items():
+        tui.render_notice(
+            f'{get_service_label(key)} 端口 {SERVICE_DEFAULT_PORTS[key]} 已被占用, 已自动顺延为 {port}',
+            style='#f59e0b',
+        )
+
+
 def ask_network() -> 'NetworkConfig':
     """Prompt for network settings."""
     from app.core.config import NetworkConfig
 
-    tui.render_section('网络配置', '设置服务监听端口和可选代理。')
+    tui.render_section('网络配置', '设置系统网络代理。')
 
-    default_port = find_available_port(DEFAULT_PORT)
-    if default_port != DEFAULT_PORT:
-        tui.render_notice(f'端口 {DEFAULT_PORT} 已被占用, 已自动顺延推荐 {default_port}')
-    port = int(tui.prompt_text('服务监听端口', default=str(default_port), validate=validate_port))
     use_proxy = tui.prompt_confirm('是否使用代理?', default=False)
-
     if use_proxy:
         proxy_type = tui.prompt_select('代理类型', choices=['http', 'socks5'], default='http')
         proxy_host = tui.prompt_text('代理主机', default='localhost')
         proxy_port = int(tui.prompt_text('代理端口', default='7890', validate=validate_int))
         return NetworkConfig(
-            PORT=port,
             USE_PROXY=True,
             # pyrefly: ignore [bad-argument-type]
             PROXY_TYPE=proxy_type,
@@ -101,7 +85,7 @@ def ask_network() -> 'NetworkConfig':
             PROXY_PORT=proxy_port,
         )
 
-    return NetworkConfig(PORT=port, USE_PROXY=False)
+    return NetworkConfig(USE_PROXY=False)
 
 
 def ask_storage() -> 'StorageConfig':
@@ -203,9 +187,38 @@ def ask_pdf_parser() -> 'PDFParserConfig':
     return parser
 
 
-def create_settings(config_path: Path) -> 'Settings':
+def apply_update_port(settings: 'Settings', update_port: UpdatePort) -> None:
+    """Apply automatically assigned dependency ports to settings."""
+    if host_port := update_port.api:
+        settings.network.PORT = host_port
+
+    if postgres_port := update_port.postgres:
+        settings.persistent.database.DB_URL = PostgresDsn(
+            f'postgresql+psycopg://bioflow_ai:123456@127.0.0.1:{postgres_port}/bioflow_ai'
+        )
+
+    if redis_port := update_port.redis:
+        settings.persistent.cache.LLM_CACHE = RedisDsn(f'redis://localhost:{redis_port}/0')
+        settings.persistent.cache.MONITOR_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
+        settings.persistent.cache.API_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
+        settings.celery.BACKEND = RedisDsn(f'redis://localhost:{redis_port}/1')
+        settings.develop.CHECKPOINT_URL = RedisDsn(f'redis://localhost:{redis_port}/0')
+
+    if rabbitmq_port := update_port.rabbitmq:
+        settings.celery.BROKER = AmqpDsn(f'amqp://bioflow_ai:123456@localhost:{rabbitmq_port}//')
+
+    if rustfs_port := update_port.rustfs:
+        settings.persistent.storage.s3.ENDPOINT = f'http://localhost:{rustfs_port}'
+
+    if milvus_port := update_port.milvus:
+        settings.knowledge_base.MILVUS_URL = f'http://localhost:{milvus_port}'
+
+
+def create_settings(config_path: Path) -> tuple['Settings', UpdatePort]:
     """Interactively create settings, persist them, and return the settings object."""
     from app.core.config import Settings
+
+    update_port = create_update_port()
 
     settings = Settings()
     settings.network = ask_network()
@@ -215,6 +228,9 @@ def create_settings(config_path: Path) -> 'Settings':
     settings.knowledge_base = ask_knowledge_base()
     settings.pdf_parser = ask_pdf_parser()
 
+    render_port_preflight(update_port)
+    apply_update_port(settings, update_port)
+
     write_settings(settings, config_path)
     tui.render_success(config_path)
-    return settings
+    return settings, update_port
