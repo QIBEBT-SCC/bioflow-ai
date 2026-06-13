@@ -1,17 +1,18 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Optional
 
-import uuid_extensions
 from sqlmodel import Field, SQLModel
+
+from app.utils.system import random_uid, utc_now
 
 
 class ParentDocument(SQLModel, table=True):
     __tablename__ = 'parent_documents'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
-    doc_id: str = Field(index=True)  # 原始文档 ID
-    content: str  # 完整的父文档内容
-    title: Optional[str] = Field(default=None)  # Markdown 标题
-    section: Optional[str] = Field(default=None)  # Markdown 子标题
-    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
+    doc_id: str = Field(index=True)
+    content: str
+    title: Optional[str] = Field(default=None)
+    section: Optional[str] = Field(default=None)
+    create_time: datetime = Field(default_factory=utc_now)

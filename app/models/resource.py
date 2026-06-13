@@ -1,14 +1,14 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import IntEnum
 from typing import Optional
 
-import uuid_extensions
 from sqlalchemy import BigInteger, Column, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.user import User
+from app.models.user import User  # noqa: TC001
+from app.utils.system import random_uid, utc_now
 
 
 class SampleFileType(IntEnum):
@@ -22,12 +22,12 @@ class SampleFileType(IntEnum):
 class Sample(SQLModel, table=True):
     __tablename__ = 'samples'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     owner_id: int = Field(foreign_key='users.id')
     project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
     sample_name: str
     meta_data: dict = Field(sa_column=Column(JSONB), default_factory=dict)
-    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    create_time: datetime = Field(default_factory=utc_now)
 
     owner: Optional['User'] = Relationship()
     sample_files: list['SampleFiles'] = Relationship(back_populates='sample', cascade_delete=True)
@@ -37,7 +37,7 @@ class SampleFiles(SQLModel, table=True):
     __tablename__ = 'sample_files'
     __table_args__ = (UniqueConstraint('sample_uid', 'tag', name='uq_sample_file_tag'),)
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     sample_uid: uuid.UUID = Field(foreign_key='samples.uid', ondelete='CASCADE')
     data_type: SampleFileType = Field(sa_type=Integer)
     file_path: str
@@ -45,7 +45,7 @@ class SampleFiles(SQLModel, table=True):
     file_size: int = Field(sa_type=BigInteger, default=0)
     md5_checksum: Optional[str] = None
     tag: str = Field(max_length=50, index=True)
-    uploaded_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    uploaded_time: datetime = Field(default_factory=utc_now)
 
     sample: Optional['Sample'] = Relationship(back_populates='sample_files')
 
@@ -87,4 +87,4 @@ class File(SQLModel, table=True):
     sha256: str = Field(unique=True)
     file_name: str
     s3_path: str
-    upload_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    upload_time: datetime = Field(default_factory=utc_now)

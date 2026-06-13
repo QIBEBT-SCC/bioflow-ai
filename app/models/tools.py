@@ -10,6 +10,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
+from app.utils.system import random_uid
 
 
 class ToolType(IntEnum):
@@ -98,7 +99,7 @@ class ToolTag(SQLModel, table=True):
 class ToolImage(SQLModel, table=True):
     __tablename__ = 'images'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     name: str
     version: str
     description: str
@@ -116,7 +117,7 @@ class ToolImage(SQLModel, table=True):
 class ToolHelpDoc(SQLModel, table=True):
     __tablename__ = 'tool_docs'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     help_command: str
     description: Optional[str] = Field(default=None)
     content: str
@@ -130,7 +131,7 @@ class ToolHelpDoc(SQLModel, table=True):
 class ToolDefine(SQLModel, table=True):
     __tablename__ = 'tools'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     name: str
     image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
     description: str

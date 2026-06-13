@@ -1,14 +1,16 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import UniqueConstraint, func
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel, select
 
+from app.models.user import User  # noqa: TC001
+from app.utils.system import utc_now
+
 if TYPE_CHECKING:
     from app.models.resource import Sample
-    from app.models.user import User
 
 
 class ProjectTagLink(SQLModel, table=True):
@@ -58,8 +60,8 @@ class Project(SQLModel, table=True):
     name: str
     description: str = Field(default='')
     public: bool = Field(default=True)
-    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    create_time: datetime = Field(default_factory=utc_now)
+    update_time: datetime = Field(default_factory=utc_now)
 
     tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
     owner: Optional['User'] = Relationship()
@@ -81,8 +83,8 @@ class ProjectFileMapping(SQLModel, table=True):
     keyword: str = Field(max_length=50, index=True)
     file_path: str = Field(max_length=500)
     description: str = Field(default='')
-    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    create_time: datetime = Field(default_factory=utc_now)
+    update_time: datetime = Field(default_factory=utc_now)
 
     project: Optional['Project'] = Relationship(back_populates='file_mappings')
 
@@ -94,7 +96,7 @@ class ProjectWorkflow(SQLModel, table=True):
 
     project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
     workflow_uid: Optional[uuid.UUID] = Field(foreign_key='workflows.uid', ondelete='SET NULL')
-    import_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    import_time: datetime = Field(default_factory=utc_now)
     enabled: bool = Field(default=True, description='是否启用该工作流')
 
     project: Optional['Project'] = Relationship(back_populates='workflows')

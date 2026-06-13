@@ -1,12 +1,15 @@
 import mimetypes
 import os
 import subprocess
+import uuid
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.status import HTTP_413_REQUEST_ENTITY_TOO_LARGE
+from uuid_extensions import uuid7str
 
 from app.schemas.run_instance import OutputFileItem, OutputFileNode, OutputFolderItem
 
@@ -36,7 +39,7 @@ _MAX_TEXT_BYTES = 10 * 1024 * 1024  # 10 MB
 @lru_cache
 def get_cpu_cores() -> int:
     """Get CPU core count."""
-    return os.cpu_count()
+    return os.cpu_count() or 1
 
 
 def _format_size(size_bytes: int) -> str:
@@ -73,6 +76,16 @@ def get_current_user_identity() -> str:
     uid = os.getuid()
     gid = os.getgid()
     return f'{uid}:{gid}'
+
+
+def random_uid() -> uuid.UUID:
+    """Generate a random UID."""
+    return uuid.UUID(uuid7str())
+
+
+def utc_now() -> datetime:
+    """Get current UTC time."""
+    return datetime.now(UTC)
 
 
 def build_file_tree(base_dir: Path, current_dir: Path) -> list[OutputFileNode]:

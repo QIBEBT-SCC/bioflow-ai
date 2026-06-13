@@ -1,21 +1,21 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-import uuid_extensions
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Column, Integer
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import PydanticJson
+from app.models.user import User  # noqa: TC001
 from app.schemas.react_flow import WorkflowDefinition
+from app.utils.system import random_uid, utc_now
 
 if TYPE_CHECKING:
     from app.models.resource import Sample
     from app.models.tools import ToolDefine
-    from app.models.user import User
 
 
 class Status(IntEnum):
@@ -38,7 +38,7 @@ class ExecutionScope(IntEnum):
 class Workflow(SQLModel, table=True):
     __tablename__ = 'workflows'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     name: str
     owner_id: int = Field(foreign_key='users.id')
     description: str
@@ -55,7 +55,7 @@ class Workflow(SQLModel, table=True):
 class RunInstance(SQLModel, table=True):
     __tablename__ = 'run_instances'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     name: str
     owner_id: int = Field(foreign_key='users.id')
 
@@ -68,7 +68,7 @@ class RunInstance(SQLModel, table=True):
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
 
     status: Status = Field(sa_type=Integer)
-    create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    create_time: Optional[datetime] = Field(default_factory=utc_now)
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
 
@@ -101,7 +101,7 @@ class ToolOutput(BaseModel):
 class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
 
-    uid: uuid.UUID = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     name: str
     instance_uid: uuid.UUID = Field(foreign_key='run_instances.uid', ondelete='CASCADE')
     owner_id: int = Field(foreign_key='users.id')
@@ -117,7 +117,7 @@ class TaskInstance(SQLModel, table=True):
     hostname: Optional[str] = Field(default=None)
 
     status: Status = Field(sa_type=Integer)
-    create_time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    create_time: Optional[datetime] = Field(default_factory=utc_now)
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
 
@@ -130,9 +130,7 @@ class TaskMonitor(SQLModel, table=True):
     __tablename__ = 'task_monitor_logs'
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    task_uid: uuid.UUID = Field(
-        default_factory=uuid_extensions.uuid7, foreign_key='task_instances.uid', ondelete='CASCADE'
-    )
+    task_uid: uuid.UUID = Field(default_factory=random_uid, foreign_key='task_instances.uid', ondelete='CASCADE')
     cpu_usage: float
     mem_usage: float
     mem_used: float

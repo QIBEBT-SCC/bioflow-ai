@@ -1,25 +1,25 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Optional
 
-import uuid_extensions
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.user import User
+from app.models.user import User  # noqa: TC001
+from app.utils.system import utc_now
 
 
 class ChatSessions(SQLModel, table=True):
     __tablename__ = 'chat_sessions'
 
-    uid: Optional[uuid.UUID] = Field(default_factory=uuid_extensions.uuid7, primary_key=True)
+    uid: uuid.UUID = Field(primary_key=True)
     owner_id: int = Field(foreign_key='users.id')
     description: str = Field(default='')
     checkpoint_uid: Optional[uuid.UUID] = None
     interrupted: bool = False
-    create_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    update_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    create_time: datetime = Field(default_factory=utc_now)
+    update_time: datetime = Field(default_factory=utc_now)
 
     owner: Optional['User'] = Relationship()
 

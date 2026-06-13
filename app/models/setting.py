@@ -1,13 +1,14 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Optional
 
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.user import User
+from app.models.user import User  # noqa: TC001
+from app.utils.system import utc_now
 
 
 class ProviderType(Enum):
@@ -16,7 +17,7 @@ class ProviderType(Enum):
     GOOGLE = 'google'
 
 
-class ModelRole(str, Enum):
+class ModelRole(StrEnum):
     CHAT = 'chat_model'
     VISION = 'vision_model'
     AGENT = 'agent_model'
@@ -86,7 +87,7 @@ class LLMStatistic(SQLModel, table=True):
     cache_read: Optional[int] = Field(default=0)
     price: Decimal
 
-    time: Optional[datetime] = Field(default_factory=lambda: datetime.now(UTC))
+    time: Optional[datetime] = Field(default_factory=utc_now)
 
     model: Optional['LLMModel'] = Relationship()
     user: Optional['User'] = Relationship()
