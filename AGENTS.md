@@ -47,19 +47,13 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 - Running a workflow on N samples creates N independent RunInstances
 - Each RunInstance contains multiple TaskInstances (one per node)
 
-## Configuration
+## Project Environment
 
-Configuration uses TOML format (`config.toml`). Key sections:
+This project uses `uv` to manage the Python environment and dependencies.
 
-- `[security]` - JWT settings
-- `[network]` - Host, port, proxy settings
-- `[persistent.database]` - PostgreSQL connection
-- `[persistent.cache]` - Redis URLs for LLM cache, monitoring, API cache
-- `[persistent.storage]` - Local storage paths
-- `[persistent.storage.s3]` - MinIO/S3 configuration
-- `[docker]` - Container runtime (docker/podman)
-- `[celery]` - RabbitMQ broker and Redis backend
-- `[knowledge_base]` - Milvus vector store and embedding models
+- Use `uv sync` to install or update dependencies from `pyproject.toml` and `uv.lock`.
+- Run Python modules, scripts, debugging commands, and tests through `uv run` so they execute inside the project environment.
+- Prefer commands such as `uv run python ...`, `uv run pytest ...`, `uv run ruff check ...`, and `uv run bioflow-ai ...` over invoking global Python or globally installed tools directly.
 
 ## Code Style
 
