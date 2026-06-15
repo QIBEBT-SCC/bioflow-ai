@@ -11,13 +11,14 @@ def cli() -> None:
 
 
 @cli.command()
-def api() -> None:
+@click.option('--log', 'enable_request_log', is_flag=True, help='Enable request body logging middleware.')
+def api(*, enable_request_log: bool) -> None:
     """Start the FastAPI API server."""
     from app.utils.logger import init_logging
     from script.server import main
 
     init_logging()
-    main()
+    main(log_requests=enable_request_log)
 
 
 @cli.command()

@@ -40,53 +40,59 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     logger.info('server stop')
 
 
-app = FastAPI(
-    title=meta['Name'],
-    version=meta['Version'],
-    description=meta['Summary'],
-    lifespan=lifespan,
-)
+def create_app(*, log_requests: bool = False) -> FastAPI:
+    """Create the FastAPI app."""
+    app = FastAPI(
+        title=meta['Name'],
+        version=meta['Version'],
+        description=meta['Summary'],
+        lifespan=lifespan,
+    )
 
-# 允许所有源地址
-origins = [
-    'http://localhost:3000',
-    'http://172.18.19.113:3000',
-]
+    # 允许所有源地址
+    origins = [
+        'http://localhost:3000',
+        'http://172.18.19.113:3000',
+    ]
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=['*'],
+        allow_headers=['*', 'X-CSRF-Token'],
+    )
+    app.add_middleware(CSRFMiddleware)
+    if log_requests:
+        app.add_middleware(LogRequestMiddleware)
+
+    app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
+    app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
+    app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'])
+    app.include_router(project.tag_router, prefix='/api/v1/project-tags', tags=['project'])
+    app.include_router(project.router, prefix='/api/v1/projects', tags=['project'])
+    app.include_router(workflow.router, prefix='/api/v1/workflows', tags=['workflow'])
+    app.include_router(run_instance.router, prefix='/api/v1/runs', tags=['runs'])
+    app.include_router(task_instance.router, prefix='/api/v1/tasks', tags=['tasks'])
+    app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'])
+    app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'])
+    app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'])
+    app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'])
+    app.include_router(tool.doc_router, prefix='/api/v1/documents', tags=['tool'])
+    app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
+    app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'])
+    app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'])
+    app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
+
+    return app
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*', 'X-CSRF-Token'],
-)
-app.add_middleware(CSRFMiddleware)
-app.add_middleware(LogRequestMiddleware)
+app = create_app()
 
 
-app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
-app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
-app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'])
-app.include_router(project.tag_router, prefix='/api/v1/project-tags', tags=['project'])
-app.include_router(project.router, prefix='/api/v1/projects', tags=['project'])
-app.include_router(workflow.router, prefix='/api/v1/workflows', tags=['workflow'])
-app.include_router(run_instance.router, prefix='/api/v1/runs', tags=['runs'])
-app.include_router(task_instance.router, prefix='/api/v1/tasks', tags=['tasks'])
-app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'])
-app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'])
-app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'])
-app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'])
-app.include_router(tool.doc_router, prefix='/api/v1/documents', tags=['tool'])
-app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
-app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'])
-app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'])
-app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
-
-
-def main() -> None:  # noqa: D103
+def main(*, log_requests: bool = False) -> None:  # noqa: D103
     config = uvicorn.Config(
-        'script.server:app',
+        create_app(log_requests=log_requests),
         host=get_settings().network.HOST,
         port=get_settings().network.PORT,
         access_log=True,
