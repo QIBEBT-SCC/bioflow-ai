@@ -1,9 +1,9 @@
 import asyncio
 import uuid
 from collections.abc import AsyncGenerator
-from pathlib import Path
 from typing import Annotated
 
+from anyio import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlmodel import Session
@@ -22,8 +22,8 @@ from app.schemas.run_instance import (
     RunPublic,
     RunUpdate,
 )
+from app.utils.file_browser import build_file_tree, serve_file
 from app.utils.security import UserDep
-from app.utils.system import build_file_tree, serve_file
 from app.utils.workflow import get_run_stats_from_redis
 
 router = APIRouter()
@@ -159,10 +159,10 @@ async def get_run_output_files(
     if not run:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
 
-    if not run.base_dir or not Path(run.base_dir).exists():
+    if not run.base_dir or not await Path(run.base_dir).exists():
         return []
 
-    return build_file_tree(Path(run.base_dir), Path(run.base_dir))
+    return await build_file_tree(Path(run.base_dir), Path(run.base_dir))
 
 
 @router.post('/{uid}/files/content')
@@ -192,13 +192,13 @@ async def get_run_output_file_content(
     if not run.base_dir:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Run has no output directory')
 
-    base = Path(run.base_dir).resolve()
-    full_path = (base / body.path).resolve()
+    base = await Path(run.base_dir).resolve()
+    full_path = await (base / body.path).resolve()
 
     if not full_path.is_relative_to(base):
         raise HTTPException(HTTP_403_FORBIDDEN, 'Access denied')
 
-    if not full_path.exists() or not full_path.is_file():
+    if not await full_path.exists() or not await full_path.is_file():
         raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
 
-    return serve_file(full_path)
+    return await serve_file(full_path)
