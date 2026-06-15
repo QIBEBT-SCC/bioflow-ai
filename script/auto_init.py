@@ -1,8 +1,10 @@
+import asyncio
 from pathlib import Path
 
 from app.utils.init import tui
 from app.utils.init.config import create_settings
 from app.utils.init.containers import initialize_project_containers
+from app.utils.init.database import initialize_preset_database
 from app.utils.init.test_data import initialize_test_data
 
 
@@ -36,7 +38,11 @@ def run_auto_init() -> None:
 
     test_data_ready = initialize_test_data(settings.network, settings.persistent.storage, _confirm)
     container_ready = initialize_project_containers(settings, _confirm, update_port=update_port)
-    if test_data_ready is False or container_ready is False:
+    database_ready = None
+    if container_ready is not False:
+        database_ready = asyncio.run(initialize_preset_database(_confirm))
+
+    if test_data_ready is False or container_ready is False or database_ready is False:
         tui.render_notice('系统初始化流程已结束, 但存在未完成的初始化步骤。', style='#f59e0b')
     else:
         tui.render_system_success()

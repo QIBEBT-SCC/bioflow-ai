@@ -126,6 +126,41 @@ def render_success(config_path: Path) -> None:
     )
 
 
+def render_preset_database_summary(result: Any) -> None:
+    """Render preset database initialization summary."""
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style='#cbd5e1')
+    table.add_column(style='#f8fafc')
+
+    admin_status = '已创建' if result.admin.created else '已存在, 已跳过'
+    table.add_row('管理员账户', admin_status)
+
+    for item in (result.images, result.docs, result.tools):
+        parts = [f'导入 {item.inserted_count} 条']
+        if item.deleted_count is not None:
+            parts.append(f'清理 {item.deleted_count} 条旧数据')
+        if item.downloaded:
+            parts.append('已下载 preset')
+        if item.validation_error_count:
+            parts.append(f'校验失败 {item.validation_error_count} 条')
+        if item.warning_count:
+            parts.append(f'警告 {item.warning_count} 项')
+        table.add_row(item.name, ', '.join(parts))
+
+    table.add_row('向量索引', '已重建')
+
+    console.print()
+    console.print(
+        Panel(
+            table,
+            title='[bold #10b981]预置数据初始化完成[/bold #10b981]',
+            border_style='#10b981',
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def render_system_success() -> None:
     """Render system initialization success."""
     console.print()
