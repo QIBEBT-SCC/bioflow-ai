@@ -138,31 +138,10 @@ def get_high_performance_model() -> BaseChatModel:
     return get_model(ModelRole.HIGH_PERFORMANCE)
 
 
-@cache_model()
-def _local_embedding_model() -> Embeddings:
-    """有缓存的本地向量模型."""
-    try:
-        # pyrefly: ignore [missing-import]
-        from langchain_qwen3 import Qwen3Embeddings
-    except Exception as e:
-        err_msg = 'Please install package langchain_qwen3 by "uv add langchain_qwen3"'
-        raise ImportError(err_msg) from e
-
-    return Qwen3Embeddings(
-        model=get_settings().knowledge_base.local.MODEL,
-        use_modelscope=get_settings().knowledge_base.local.USE_MODELSCOPE,
-        device=get_settings().knowledge_base.local.DEVICE,
-    )
-
-
-def qwen3_embedding() -> Embeddings:
+def qwen3_embedding() -> OpenAIEmbeddings:
     """加载向量模型."""
-    if get_settings().knowledge_base.USE_LOCAL_MODEL:
-        embedding = _local_embedding_model()
-    else:
-        embedding = OpenAIEmbeddings(
-            model=get_settings().knowledge_base.remote.MODEL,
-            base_url=get_settings().knowledge_base.remote.BASE_URL,
-            api_key=get_settings().knowledge_base.remote.API_KEY,
-        )
-    return embedding
+    return OpenAIEmbeddings(
+        model=get_settings().knowledge_base.EMBEDDING_MODEL,
+        base_url=get_settings().knowledge_base.BASE_URL,
+        api_key=get_settings().knowledge_base.API_KEY,
+    )

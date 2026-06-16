@@ -59,15 +59,7 @@ backend = "redis://localhost:6379/1"
 
 [knowledge_base]
 milvus_url = "http://localhost:19530"
-use_local_model = false
-
-[knowledge_base.local]
-model = "Qwen/Qwen3-Embedding-4B"
-use_modelscope = false
-device = "cuda:0"
-
-[knowledge_base.remote]
-model = "Qwen/Qwen3-Embedding-4B"
+embedding_model = "Qwen/Qwen3-Embedding-4B"
 base_url = "https://api.siliconflow.cn/v1/"
 api_key = ""
 

@@ -123,24 +123,12 @@ class PDFParserConfig(BaseSectionConfig):
     open_mineru: OpenMinerUConfig = OpenMinerUConfig()
 
 
-class LocalEmbeddingModel(BaseSectionConfig):
-    MODEL: str = 'Qwen/Qwen3-Embedding-4B'
-    USE_MODELSCOPE: bool = False
-    DEVICE: str = 'cuda:0'
-
-
-class RemoteEmbeddingModel(BaseSectionConfig):
-    MODEL: str = 'Qwen/Qwen3-Embedding-4B'
-    BASE_URL: str = 'https://api.siliconflow.cn/v1/'
-    API_KEY: SecretStr = SecretStr('')
-
-
 class KnowledgeBaseConfig(BaseSectionConfig):
     MILVUS_URL: str = 'http://localhost:19530'
-    USE_LOCAL_MODEL: bool = False
 
-    local: LocalEmbeddingModel = LocalEmbeddingModel()
-    remote: RemoteEmbeddingModel = RemoteEmbeddingModel()
+    EMBEDDING_MODEL: str = 'Qwen/Qwen3-Embedding-4B'
+    BASE_URL: str = 'https://api.siliconflow.cn/v1/'
+    API_KEY: SecretStr = SecretStr('')
 
 
 class DevelopConfig(BaseSectionConfig):
