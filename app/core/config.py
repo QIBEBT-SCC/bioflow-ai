@@ -111,7 +111,6 @@ class MinerUConfig(BaseSectionConfig):
 
 class OpenMinerUConfig(BaseSectionConfig):
     API_URL: str = 'http://localhost:8000'
-    SERVER_URL: str = 'http://localhost:30000'
     TIMEOUT: int = 600  # 秒
 
 
@@ -133,7 +132,6 @@ class KnowledgeBaseConfig(BaseSectionConfig):
 
 class DevelopConfig(BaseSectionConfig):
     CHECKPOINT_URL: RedisDsn = RedisDsn('redis://localhost:6379/0')
-    PHOENIX_ENDPOINT: str = 'http://localhost:4317'
 
 
 class Settings(BaseSettings):
@@ -188,10 +186,8 @@ def get_settings() -> Settings:
     """全局配置对象."""
     config_path = Path('config.toml')
     if not config_path.exists():
-        settings = Settings()
-        settings.save_to_file('config.example.toml')
         logger.warning(
-            f'The configuration file "{config_path}" does not exist. Default settings have been initialized automatically; please complete the relevant configuration.'
+            f'The configuration file "{config_path}" does not exist. Run `uv run bioflow-ai auto-init` to generate it.'
         )
         sys.exit(-1)
 
