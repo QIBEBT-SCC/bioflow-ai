@@ -208,13 +208,13 @@ Your final output must be a JSON object that strictly conforms to the `ToolImage
 
 SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
 
-According to the tool search results, if there is an image of the tool required by the user, use `select_image` to select it;
+According to the tool search results, if there is an image of the tool required by the user, use `select_image` with the exact image URL shown in the `<url>` field to select it;
 Otherwise, end the task directly and tell the user that the image does not exist.
 """
 
 SELF_SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
 
-According to the tool search results, if there is an image of the tool required by the user, use `select_image` to select it;
+According to the tool search results, if there is an image of the tool required by the user, use `select_image` with the exact image URL shown in the `<url>` field to select it;
 Otherwise, call the `ask_human` tool to request the user to add an available image.
 """
 

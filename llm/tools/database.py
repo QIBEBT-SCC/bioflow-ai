@@ -33,16 +33,12 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
         query: Search keywords, generally tool name
     """
     with Session(engine) as session:
-        images: list[ToolImage] = image_crud.get_by_name_fuzzy(session, query, 50, 0)
-        new_mapper = BidirectionalMapper(datas=images)
+        images = image_crud.get_by_name_fuzzy(session, query, 50, 0)
 
     if images:
-        exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-        merged_mapper = merge_mappers(exist_mapper, new_mapper)
         image_blocks = [
             (
                 f'  <image>\n'
-                f'    <id>{merged_mapper.get_index_by_uid(str(image.uid))}</id>\n'
                 f'    <name>{image.name}</name>\n'
                 f'    <description>{image.description}</description>\n'
                 f'    <url>{image.image.get_image()}</url>\n'
@@ -53,7 +49,6 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
 
         return Command(
             update={
-                'id_mapper': merged_mapper,
                 'messages': [
                     ToolMessage(
                         content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
@@ -77,23 +72,32 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
 
 @tool(parse_docstring=True)
 def select_image(
-    image_id: int,
+    image_url: str,
     runtime: ToolRuntime,
 ) -> Command:
     """Select existing image in the database.
 
     Args:
-        image_id: selected image id
+        image_url: selected image URL. Use the exact URL from `search_local_image` result.
     """
-    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-    image_uid = mapper.get_uid_by_index(image_id)
-
     with Session(engine) as session:
-        tool_image = image_crud.get(session, image_uid)
+        tool_image = image_crud.get_by_image_url(session, image_url)
+
+    if tool_image is None:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='The corresponding image was not found in the local database. Please verify the image URL or search again.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
 
     return Command(
         update={
-            'image_uid': image_uid,
+            'image_uid': tool_image.uid,
             'image': tool_image.image,
             'homepage': tool_image.homepage,
             'messages': [
@@ -249,7 +253,7 @@ def save_doc(
         description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
     """
     image = cast('ImageConfig', runtime.state.get('image'))
-    code, result = run_command(image, [], help_command)
+    _code, result = run_command(image, [], help_command)
 
     with Session(engine) as session:
         new_doc = ToolHelpDoc(

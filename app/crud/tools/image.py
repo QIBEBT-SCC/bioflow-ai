@@ -3,9 +3,9 @@ from collections.abc import Sequence
 from fastapi import HTTPException
 from sqlalchemy import func, text
 from sqlmodel import Session, col, select
-from starlette.status import HTTP_404_NOT_FOUND
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
-from app.models.tools import ToolImage
+from app.models.tools import ImageConfig, ToolImage
 from app.schemas.tools import ImageUpdate
 
 _FUZZY_SIMILARITY_THRESHOLD = 0.3
@@ -88,6 +88,45 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> S
     )
 
     return session.exec(stmt).all()
+
+
+def get_by_image_url(session: Session, image_url: str) -> ToolImage | None:
+    """Return a tool image by Docker image URL.
+
+    If the URL includes a tag, the tag is matched too. If the URL does not include a tag,
+    only registry/namespace/repository are matched, and multiple matches are treated as an
+    ambiguous image selection.
+    """
+    image_config = ImageConfig.from_str(image_url)
+    has_tag = _has_explicit_tag(image_url)
+    image_field = col(ToolImage.image)
+
+    conditions = [
+        image_field.op('->>')('registry') == image_config.registry,
+        image_field.op('->>')('namespace') == image_config.namespace,
+        image_field.op('->>')('repository') == image_config.repository,
+    ]
+    if has_tag:
+        conditions.append(image_field.op('->>')('tag') == image_config.tag)
+
+    stmt = select(ToolImage).where(*conditions).limit(2)
+    images = list(session.exec(stmt).all())
+
+    if not images:
+        return None
+    if len(images) > 1:
+        image_ref = image_config.get_image() if has_tag else f'{image_config.registry}/{image_config.namespace}/{image_config.repository}'
+        raise HTTPException(
+            HTTP_409_CONFLICT,
+            f'Multiple image records match "{image_ref}". Please provide a full image URL with tag.',
+        )
+
+    return images[0]
+
+
+def _has_explicit_tag(image_url: str) -> bool:
+    """Return whether a Docker image string explicitly includes a tag."""
+    return ':' in image_url.rsplit('/', 1)[-1]
 
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolImage], int]:
