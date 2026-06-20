@@ -133,27 +133,17 @@ def ask_docker() -> 'DockerConfig':
 
 def ask_knowledge_base() -> 'KnowledgeBaseConfig':
     """Prompt for knowledge-base embedding settings."""
-    from app.core.config import KnowledgeBaseConfig, LocalEmbeddingModel, RemoteEmbeddingModel
+    from app.core.config import KnowledgeBaseConfig
 
-    tui.render_section('知识库嵌入模型', '配置本地或远程 embedding 模型。')
+    tui.render_section('知识库嵌入模型', '配置 embedding 模型。')
 
-    use_local = tui.prompt_confirm('是否使用本地嵌入模型?', default=False)
-
-    if use_local:
-        model = tui.prompt_text('本地模型名称', default='Qwen/Qwen3-Embedding-4B')
-        use_modelscope = tui.prompt_confirm('是否使用 ModelScope 下载?', default=False)
-        device = tui.prompt_text('运行设备 (例如 cuda:0)', default='cuda:0')
-        return KnowledgeBaseConfig(
-            USE_LOCAL_MODEL=True,
-            local=LocalEmbeddingModel(MODEL=model, USE_MODELSCOPE=use_modelscope, DEVICE=device),
-        )
-
-    model = tui.prompt_text('远程模型名称', default='Qwen/Qwen3-Embedding-4B')
-    base_url = tui.prompt_text('远程模型 base_url', default='https://api.siliconflow.cn/v1/')
-    api_key = tui.prompt_password('远程模型 api_key')
+    model = tui.prompt_text('嵌入模型名称', default='Qwen/Qwen3-Embedding-4B')
+    base_url = tui.prompt_text('模型 base_url', default='https://api.siliconflow.cn/v1/')
+    api_key = tui.prompt_password('模型 api_key')
     return KnowledgeBaseConfig(
-        USE_LOCAL_MODEL=False,
-        remote=RemoteEmbeddingModel(MODEL=model, BASE_URL=base_url, API_KEY=api_key),
+        EMBEDDING_MODEL=model,
+        BASE_URL=base_url,
+        API_KEY=api_key,
     )
 
 
