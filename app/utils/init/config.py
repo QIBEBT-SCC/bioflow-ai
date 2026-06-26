@@ -92,14 +92,16 @@ def ask_storage() -> 'StorageConfig':
     """Prompt for storage settings."""
     from app.core.config import StorageConfig
 
-    tui.render_section('存储路径', '指定运行数据、基因组和测试数据目录。')
+    tui.render_section('存储路径', '指定运行数据、生物信息数据库、基因组和测试数据目录。')
 
     storage_path = tui.prompt_path('数据存储路径 (storage_path)', default='./storage')
+    bio_db_path = tui.prompt_path('生物信息数据库路径 (bio_db_path)', default='./storage/bio_dbs')
     genome_path = tui.prompt_path('基因组数据路径 (genome_path)', default='./storage/genome')
     test_data_path = tui.prompt_path('测试数据路径 (test_data_path)', default='./testdata')
 
     return StorageConfig(
         STORAGE_PATH=storage_path,
+        BIO_DB_PATH=bio_db_path,
         GENOME_PATH=genome_path,
         TEST_DATA_PATH=test_data_path,
     )

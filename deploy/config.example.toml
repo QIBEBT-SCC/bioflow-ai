@@ -30,6 +30,7 @@ api_cache = "redis://localhost:6379/2"
 
 [persistent.storage]
 storage_path = "./storage"
+bio_db_path = "./storage/bio_dbs"
 genome_path = "./storage/genome"
 test_data_path = "./testdata"
 

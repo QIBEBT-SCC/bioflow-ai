@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions
     owner_id       INTEGER                  NOT NULL,
     description    VARCHAR                  NOT NULL,
     checkpoint_uid uuid,
+    route          VARCHAR,
     interrupted    BOOLEAN                  NOT NULL,
     create_time    TIMESTAMP WITH TIME ZONE NOT NULL,
     update_time    TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -146,9 +147,11 @@ CREATE TABLE IF NOT EXISTS bio_dbs
     id          SERIAL,
     name        VARCHAR NOT NULL,
     description VARCHAR,
-    path        VARCHAR NOT NULL,
-    size        VARCHAR NOT NULL,
+    path        VARCHAR,
+    size        VARCHAR,
     last_update VARCHAR,
+    download_command VARCHAR,
+    download_image JSONB,
     PRIMARY KEY (id),
     UNIQUE (name)
 );

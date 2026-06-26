@@ -74,6 +74,7 @@ class S3StorageConfig(BaseSectionConfig):
 class StorageConfig(BaseSectionConfig):
     STORAGE_PATH: str = './storage'
     GENOME_PATH: str = './storage/genome'
+    BIO_DB_PATH: str = './storage/bio_dbs'
     TEST_DATA_PATH: str = './testdata'
     s3: S3StorageConfig = S3StorageConfig()
 
