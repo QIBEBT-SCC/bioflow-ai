@@ -1,22 +1,24 @@
-from pathlib import Path
-from typing import TYPE_CHECKING, NotRequired, Optional, cast
+import re
+from typing import TYPE_CHECKING, Any, NotRequired, cast
 
+from anyio import Path
+from fastapi import HTTPException
 from langchain.agents import AgentState, create_agent
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from sqlmodel import Session
 
+import app.crud.tools.image as image_crud
 from app.core.config import get_settings
+from app.core.session import engine
 from app.models.tools import ImageConfig
-from app.utils.container import ContainerMount
-from app.utils.container import run_command as run_command_once
+from app.utils.container import ContainerMount, run_command
 from llm.agents.tool_agent.report_generator import CHECK_PROMPT
-from llm.agents.tool_agent.searcher.image import search_image_agent
 from llm.models import get_high_performance_model, get_long_context_model
 from llm.states import TestRunContext
-from llm.tools.database import search_biodb
+from llm.tools.database import search_biodb, search_local_image
 from llm.tools.human import ask_human
 from llm.tools.writter import write_report
 from llm.utils.middleware import (
@@ -31,71 +33,115 @@ from llm.utils.middleware.statistic import TokenStatisticMiddleware
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
-
 MAX_CHAR = 3000
 MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
 MAX_MEM = get_settings().persistent.resource.MAX_MEM
-DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.1.0')
+DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.1.2')
 
-
-DIRECT_TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
+TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 您的核心目标是根据用户需求运行生物信息学命令行工具, 并生成一份全面的工具试运行报告。
 
 最终目标只是撰写关于这个工具如何运行、会生成什么文件的报告, **而不是进行实际的数据分析**。
 因此, 当您执行整个任务时, 只需抱着“只要能运行”的心态, 而无需过多关注具体文件内容和质量。
 
-
-## 新执行模型
-您不再需要显式创建或维护容器。请直接调用 `run_command` 运行命令:
-- 当运行目标生物信息学工具时, 传入对应的 `image_url`
-- 当只需要执行文件浏览、复制、下采样、查看日志等通用 Linux 操作时, 省略 `image_url`, 系统会使用默认 Linux 工具镜像
-- `/data/testdata` 和 `/data/output` 由程序自动固定挂载, 不要请求或传入这两个挂载
-- 只有缺少数据库或外部资源时, 才通过 `mounts` 参数增挂数据库目录
-
-
 ## 任务流程
-1. **[可选]搜索数据库**: 判断工具是否需要额外数据库文件
-    - 如果需要参考基因组和注释文件, 它们已预先存储在 `/data/testdata` 中。无需搜索或询问
-    - 对于普通数据库文件, 使用 `search_biodb` 搜索主机上是否已有数据库
+1. **选择测试数据**:
+    1. 阅读 `/data/testdata/DESCRIPTION.md` 了解 `/data/testdata` 中可用的测试数据, 并根据用户需求和工具特性选择合适的原始测试数据
+    2. 创建 `/data/output/00_raw` 目录, 并将您选择的测试数据从 `/data/testdata` 复制到此处。对于后续运行, **必须始终使用此复制的副本**, 以免污染原始数据
+    3. 计算开销大的任务考虑进行下采样, 只保留足以跑通工具的最小数据
+2. **构建计划**: 在正式开始运行命令前, 使用 `add_todos` 工具初始化任务列表
+    - **规划逻辑**: 根据工具特性判断是否需要分步生成文件 (例如: 先建立索引 -> 再进行比对 -> 最后排序)
+    - **内容要求**: 将整个分析过程拆解为按顺序执行的子任务。
+        - 如果工具需要上游文件 (如索引) , 先列出生成上游文件的任务
+        - 最后列出运行当前工具核心命令的任务
+        - 不要包含“数据准备”、“结果检查”等通用琐事, 只关注分析步骤本身
+3. **执行**:
+    1. 检查 Todo 列表, 选择下一个 `pending` 任务并调用 `update_todo(..., status='in_progress')` 更新其状态
+    2. 阅读持久化日志以及对应的命令记录, 了解之前的工作状态
+    3. 使用 `run_command` 运行当前步骤需要的命令
+    4. 当前任务完成之后, 记录任务命令并更新持久化日志, 然后调用 `update_todo(..., status='completed')`更新任务状态
+4. **生成报告**: 当所有任务状态均为 `completed` 时, 调用`write_report`工具按照指定的格式输出测试运行报告。之后告知用户报告已经生成, 结束任务
+
+
+## `run_command` 工具
+工作的核心是调用 `run_command` 工具以运行命令行指令, 该工具包括以下四个重要参数:
+
+### `command`: 具体的执行命令
+具体需要运行的linux命令行指令, 当运行生物信息分析命令时, 遵循以下规则:
+- **核心原则**: 构建的命令只需要包含最基本和必要的参数, 能让工具成功运行并输出结果就够了
+- **参数添加策略**: 在满足上述核心原则的基础上, 检查工具是否支持以下类型的参数。**如果支持, 则必须添加**:
+    - 与线程(设置为{MAX_THREAD})和内存(设置为{MAX_MEM})相关的参数
+    - 与输出路径、文件名相关的参数 (如`--prefix`、`--name`), 目的是不要让工具使用默认的输出路径和输出名称, 保证对输出结果的可控性
+    - 添加与强制覆盖现有数据相关的参数 (如`--force`), 目的是防止重复运行工具时报错
+- **效率优先**: 如果要进行的是一个计算开销较大的任务, 除了提前对分析数据做下采样之外, 工具本身如果有相关参数(如`--max-target-seqs`、`--fast`等), 请尽量设置为较小的结果, 保证工具能快速运行完成。其他类似的参数同理
+- **输出重定向**:
+    - 对于所有工具, 无论工具本身是否生成日志, 都使用`> 11_run.log 2>&1`将工具的输出重定向到名为`11_run.log`的文件。
+    - 如果工具使用标准输出作为输出且, 则只重定向错误输出 (例如 `bedtools nuc ... > result.tsv 2> 11_run.log`)
+
+### `image_ref`: 指定镜像
+当需要运行生物信息工具时, 首先调用 `search_local_image` 工具搜索对应工具的镜像url
+- `image_ref` 可以先传唯短引用, 例如 `samtools` 或 `biocontainers/samtools`
+- 如果 `run_command` 提示短引用有多个匹配镜像, 使用更具体的仓库路径、完整 `<url>` 或带 tag 的引用再次调用
+
+当不指定此参数时, 命令使用一个默认的Linux镜像, 除了基础的系统指令外, 该镜像中还包含了:
+- fd: 更快、更易用的文件查找工具
+- rg: ripgrep, 高性能文本搜索工具
+- jq: 用于查询、过滤、格式化和转换 JSON 数据
+- yq: 查询、过滤、修改和转换 YAML 数据
+- mlr: Miller, 结构化文本数据处理工具
+适用于普通的文件搜索、浏览任务
+
+### `workdir`: 工作目录
+由于命令是通过docker容器执行的, 需要通过此参数指定命令运行的工作目录
+- 需要为每一个任务在`/data/output`下为其创建一个子文件夹。通常, 只需使用序号+工具名称即可(例如, `/data/output/01_[toolname]/`), 序号从01开始, 因为00是存放原始数据的
+- 当使用一个工具的多个子命令或不同的操作时, 您也可以添加相应的后缀(例如, `/data/output/03_[toolname]_[subcommand]/`)
+
+### `mounts`: 额外挂载
+工具默认挂载测试数据(/data/testdata)和输出根目录(/data/output), 当除此之外还需要额外的外部文件时, 通过此参数指定挂载路径
+- 如果需要参考基因组和注释文件, 它们已预先存储在 /data/testdata 中, 无需搜索和额外挂载
+- 对于普通数据库文件, 使用 `search_biodb` 搜索主机上是否已有数据库
+    - 如果有可用的数据库, 通过此参数添加外部挂载
     - 如果没有可用数据库, 调用 `ask_human` 告知人类需要什么数据库以及如何下载。**请勿自行下载数据库**
-2. **搜索镜像**: 如果需要运行当前目标工具以外的工具, 调用 `search_tool_image` 查找镜像, 然后在 `run_command` 中传入返回的 `image_url`
-3. **选择测试数据**:
-    1. 使用默认 Linux 镜像阅读 `/data/testdata/DESCRIPTION.md`
-    2. 创建 `/data/output/00_raw`, 并将选择的测试数据从 `/data/testdata` 复制到此处。后续运行必须始终使用此副本
-    3. 计算开销大的任务必须下采样, 只保留足以跑通工具的最小数据
-4. **构建计划**: 在正式运行分析命令前, 使用 `add_todos` 初始化任务列表
-    - 只列出分析步骤本身, 不包含“数据准备”、“结果检查”等通用琐事
-    - 如果需要上游文件, 先列出生成上游文件的任务
-    - 最后列出运行当前工具核心命令的任务
-5. **执行**:
-    1. 查看 Todo, 将下一个 `pending` 任务标记为 `in_progress`
-    2. 使用 `run_command` 运行当前步骤需要的命令
-    3. 每个任务成功后, 在对应工作目录写入 `00_running_command.txt`
-    4. 追加更新 `/data/output/task_log.txt`
-    5. 将当前 Todo 标记为 `completed`
-6. **生成报告**: 所有 Todo 完成后, 调用 `write_report` 输出英文试运行报告
 
+## 持久化记录
+在每一个任务成功完成之后, 你都需要完成以下两个任务以记录你所做的工作并方便后面的专家接手工作
+- 执行一次 `echo` 操作, 将你完成这个任务所使用的分析命令完整的记录到对应工作目录下的 `00_running_command.txt` 文件中
+    - 系统命令、错误执行的命令等不需要记录, 只记录最终完成此任务的那个核心工具命令
+    - 理论上, `00_running_command.txt` 中应该只有一条内容
+- 执行一次**追加写入**操作, 更新持久化日志 `/data/output/task_log.txt`
+    - 写入的内容用"==="和换行与之前的内容分开
+    - 记录这是Task几, 你为了完成此任务使用了什么文件、成功执行的操作、最终产生了什么输出文件、位于哪里
+    - 不用记录辅助的系统操作、错误尝试、文档读取等信息
 
-## 工作路径设置
-- 每个分析任务在 `/data/output` 下创建一个子目录, 通常使用 `序号+工具名`, 如 `/data/output/01_samtools_sort`
-- `/data/output/00_raw` 专门存放原始测试数据副本
+## 异常处理
+### 用户需求模糊
+如果用户的原始需求存在以下任何问题, 不要开始任务, 首先调用 `ask_human` 工具向用户请求更清晰的指令:
+- 让您感到困惑(看起来像任务 A, 但也像任务 B)
+- 描述不正确(实际上并非此工具具备的功能)
 
+### 文件缺失
+如果当前任务所需要的输入文件不存在时, 依照以下思路进行处理:
+- 如果缺少的是中间文件, 更新当前任务的 Todo 列表, 添加生成所需文件的任务, 并优先完成该任务
+    - 只要你有办法继续进行下一步, 自行选择一个最优解执行就可以, 不要仅仅是因为“我现在有两个方案, 你觉得哪一个更好”这种问题就调用 `ask_human` 工具。该工具调用会导致整个自动化流水线卡死, 代价较大
+- 如果确信缺失的是源头数据, 无法使用任何工具生成, 调用 `ask_human` 工具告知人类缺失的文件情况, 并请求用户提供相应文件
 
-## 参数选择
-- 命令只需要包含最基本、必要且能成功运行的参数
-- 如果工具支持, 必须加入:
-    - 线程参数, 设置为 {MAX_THREAD}
-    - 内存参数, 设置为 {MAX_MEM}
-    - 输出路径、输出前缀或输出文件名参数
-    - 强制覆盖已有输出的参数
-    - 工具内置日志参数
-- 所有工具都应把日志写入 `11_run.log`
-    - 普通情况使用 `> 11_run.log 2>&1`
-    - 如果工具用 stdout 输出结果, 则使用 `> result_file 2> 11_run.log`
+### 没有生成新文件
+如果命令行工具运行成功, 但是没有产生新的文件, 你需要考虑以下两种可能:
+- 工具使用标准输出流(stdout)作为输出方式
+    - 使用查看 `11_run.log` 文件, 检查是否将输出结果错误的重定向到了日志文件中
+    - 如果是, 按照要求重新设计命令和重定向方式, 然后重新运行工具
+- 工具直接修改了原始文件
+    - 极少数工具可能会直接修改原始文件, 你可以通过相应命令来确认工具是否直接修改了输入文件
+    - 如果是, 调用 `ask_human` 工具请求用户提供意见
+- 如果经过检查不是上述两者情况, 而且你确定工具运行正常没有错误, 则调用 `ask_human` 工具请求用户介入
 
+### 运行命令错误
+当多次出现命令运行失败以及其它你无法处理的错误时, 不要盲目重试, 请立即停止。
+总结执行上下文 (命令/错误/已尝试的修复) , 调用`ask_human`工具请求人工协助, 明确告知“我不确定如何解决此错误”。
 
 ## 输出格式
-最终报告必须是英文, 且符合以下结构:
+你最终需要给出一份遵循如<OutputStructure>所示的工具运行报告, 语言为英语:
+<OutputStructure>
 ## Test Run Report
 working dir: [working_dir]
 ```bash
@@ -104,11 +150,31 @@ working dir: [working_dir]
 
 **Command Explain**
 - [param1]: [description]
+- [param2]: [description]
 
 **Output Files**
-- [path]: [file/folder][description]
+- [path]: [type][description]
+- [path]: [type][description]
 
 [note(Optional)]
+</OutputStructure>
+
+其中具体字段遵循以下要求:
+- `working_dir`: 工具的目标输出目录 (如 `/data/output/[your_sub_folder]`)
+- `running_command`: 最终成功执行并生成相应输出的命令, 包括重定向日志的部分
+- `command_explain`: 根据文档, 描述运行命令中使用到的所有参数
+- `output_files`: 参考最终工作目录下的内容, 列出`running_command`产生的**所有输出文件**
+    - 每个条目包含三个值:
+        - `path`: 如 `/data/output/[your_sub_folder]/[file/folder name]`
+        - `type`: 'file' 或 'folder'
+        - `description`: 此文件/文件夹的简要说明
+        - 示例: `/data/output/samtools_sort/A1.sorted.bam: [file] Sorted bam file`
+    - 一般只需要列出根目录下的文件(文件夹), 不需要递归查看
+    - 特别的, 如果该工具产生的输出全部在一个文件夹下, 或你知道后续分析会使用某些文件夹内的文件时, 需要深入到此文件夹下列出运行产生的文件
+    - 只列出**工具运行产生的文件**, 像`00_running_command.txt`或其它作为输入的文件等**不要列出**
+- `note`: 可选内容, 对`running_command`的追加说明
+    - 示例1: 此工具会直接修改原始文件
+    - 示例2: 此工具直接使用 stdout 作为输出, 因此只重定向 stderr 用于日志记录
 """
 
 
@@ -122,118 +188,79 @@ class DirectTestRunState(AgentState, total=False):
     checked: NotRequired[bool]
 
 
-class SearchToolImageSchema(BaseModel):
-    tool_name: str = Field(description='Name of the command-line tool whose image should be searched.')
-    requirement: Optional[str] = Field(
-        default=None,
-        description='Optional short description of the task, used to disambiguate similarly named tools.',
-    )
+def _resolve_image_ref(
+    image_ref: str | None,
+    runtime: ToolRuntime[TestRunContext],
+) -> tuple[ImageConfig, dict[str, str], Command | None]:
+    """Resolve a short image reference to an ImageConfig and update cache mappings."""
+    known_images = dict(runtime.state.get('known_images') or {})
+    if not image_ref:
+        return DEFAULT_LINUX_IMAGE, known_images, None
 
+    cached_image = known_images.get(image_ref)
+    if cached_image:
+        return ImageConfig.from_str(cached_image), known_images, None
 
-@tool(
-    description='Search for a runnable container image for a command-line bioinformatics tool.',
-    args_schema=SearchToolImageSchema,
-)
-async def search_tool_image(
-    tool_name: str,
-    runtime: ToolRuntime,
-    requirement: Optional[str] = None,
-) -> Command:
-    """Search image and expose its URL to the main agent."""
-    user_require = f'tool_name: {tool_name}'
-    if requirement:
-        user_require += f'\nrequirement: {requirement}'
+    try:
+        with Session(engine) as session:
+            tool_image = image_crud.get_by_image_ref(session, image_ref)
+            if tool_image is None:
+                tool_image = image_crud.get_unique_by_name(session, image_ref)
+    except HTTPException as exc:
+        return DEFAULT_LINUX_IMAGE, known_images, _blocked_command(exc.detail, runtime.tool_call_id)
 
-    response = await search_image_agent.ainvoke(
-        {'messages': [HumanMessage(content=f'<UserRequire>\n{user_require}\n</UserRequire>')]}
-    )
-
-    image = response.get('image')
-    if image is None:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f'No available image was found for "{tool_name}".',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
+    if tool_image is None:
+        return (
+            DEFAULT_LINUX_IMAGE,
+            known_images,
+            _blocked_command(
+                f'No local image matches `{image_ref}`. Use `search_local_image` first, then pass a unique image reference from the results.',
+                runtime.tool_call_id,
+            ),
         )
 
-    image = cast('ImageConfig', image)
-    image_url = image.get_image()
-    known_images = dict(runtime.state.get('known_images', {}))
-    known_images[tool_name] = image_url
+    full_image = tool_image.image.get_image()
+    known_images[image_ref] = full_image
+    known_images[full_image] = full_image
+    return tool_image.image, known_images, None
 
+
+def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:
+    if re.search(r'\brm\b', command) and (workdir and '/data/output' not in workdir) and '/data/output' not in command:
+        return _blocked_command('It is forbidden to use `rm` command outside of the /data/output path!', tool_call_id)
+
+    if re.search(r'\bcd\b', command):
+        return _blocked_command(
+            'The `cd` command is prohibited. To specify the working directory, please use the `workdir` parameter.',
+            tool_call_id,
+        )
+
+    return None
+
+
+def _blocked_command(content: str, tool_call_id: str | None) -> Command:
     return Command(
         update={
-            'known_images': known_images,
             'messages': [
                 ToolMessage(
-                    content=f'Found image for {tool_name}: {image_url}',
-                    tool_call_id=runtime.tool_call_id,
+                    content=content,
+                    tool_call_id=tool_call_id,
                 )
             ],
         }
     )
 
 
-class RunCommandSchema(BaseModel):
-    command: str = Field(description='The bash command to run in the selected image.')
-    image_url: Optional[str] = Field(
-        default=None,
-        description='Container image URL. Omit this to use the default Linux utility image.',
-    )
-    workdir: Optional[str] = Field(default=None, description='Working directory inside the container.')
-    mounts: list[ContainerMount] = Field(
-        default_factory=list,
-        description='Extra database/resource mounts only. /data/testdata and /data/output are mounted automatically.',
-    )
+def _validate_extra_mounts(mounts: list[ContainerMount] | None) -> list[ContainerMount]:
+    if mounts is None:
+        return []
 
-
-@tool('run_command', args_schema=RunCommandSchema)
-def run_direct_command(
-    command: str,
-    image_url: Optional[str],
-    workdir: Optional[str],
-    mounts: list[ContainerMount],
-    runtime: ToolRuntime[TestRunContext],
-) -> str:
-    """Run a command in a one-shot container with fixed testdata/output mounts."""
-    image = ImageConfig.from_str(image_url) if image_url else DEFAULT_LINUX_IMAGE
-    all_mounts = [*_fixed_mounts(runtime), *_validate_extra_mounts(mounts)]
-
-    code, output = run_command_once(image, all_mounts, command, workdir)
-    status = 'successfully' if code == 0 else 'failed'
-    output = _truncate_output(command, output)
-
-    if output.strip():
-        return f'[Image: {image.get_image()}]\nCommand ran {status}.\n\n{output}'
-
-    return f'[Image: {image.get_image()}]\nCommand ran {status}. No other output.'
-
-
-def _fixed_mounts(runtime: ToolRuntime[TestRunContext]) -> list[ContainerMount]:
-    output_path = (
-        Path(get_settings().persistent.storage.STORAGE_PATH).expanduser().resolve()
-        / 'testrun'
-        / runtime.context.folder_name
-    )
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    testdata_path = Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve()
-
-    return [
-        ContainerMount(target='/data/testdata', source=str(testdata_path), read_only=True),
-        ContainerMount(target='/data/output', source=str(output_path), read_only=False),
-    ]
-
-
-def _validate_extra_mounts(mounts: list[ContainerMount]) -> list[ContainerMount]:
     for mount in mounts:
         if mount.target in {'/data/testdata', '/data/output'}:
-            err_msg = f'Extra mounts cannot override fixed mount target: {mount.target}'
+            err_msg = (
+                'The default test data directory `/data/testdata` and the output root directory `/data/output` are already mounted by default, so manual configuration is not required. '
+                'If additional data needs to be mounted, use a different path.'
+            )
             raise ValueError(err_msg)
         if not mount.target.startswith('/data/'):
             err_msg = f'Extra mount target must be under /data/: {mount.target}'
@@ -243,33 +270,97 @@ def _validate_extra_mounts(mounts: list[ContainerMount]) -> list[ContainerMount]
 
 
 def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('find', 'grep', 'rg', 'help', 'DESCRIPTION.md')) or len(output) <= MAX_CHAR:
+    if any(k in command for k in ('about.md', 'DESCRIPTION.md')) or len(output) <= MAX_CHAR:
         return output
-    return f'{output[:1500]}\n...\n{output[-500:]}'
+    return f'{output[:1500]}\n\n...(collapsed)...\n\n{output[-500:]}'
 
 
-DIRECT_TEST_RUN_MODEL = get_long_context_model()
-DIRECT_CHECK_MODEL = get_high_performance_model()
-metadata = cast('LLMMetadata', DIRECT_TEST_RUN_MODEL.metadata)
+@tool('run_command', parse_docstring=True)
+async def run_command_tool(
+    command: str,
+    runtime: ToolRuntime[TestRunContext],
+    image_ref: str | None = None,
+    workdir: str | None = '/data/output',
+    mounts: list[ContainerMount] | None = None,
+) -> Command:
+    """在容器环境中运行指定 bash 命令或生物信息学命令行工具并返回执行结果.
 
+    Args:
+        command: 要运行的Linux命令行指令
+        image_ref: 用于执行命令的docker镜像, 必须包含镜像的repository, registry、namespace和tag可以视情况省略; 若不指定则使用默认的Linux基础镜像
+        workdir: 指定命令运行的工作目录
+        mounts: 除默认测试数据和输出目录外, **额外的**数据挂载
+    """
+    # 指令合法性检查
+    if invalid_command := _validate_command(command, workdir, runtime.tool_call_id):
+        return invalid_command
+
+    # 镜像解析
+    image, known_images, error = _resolve_image_ref(image_ref, runtime)
+    if error is not None:
+        return error
+
+    # 固定挂载
+    base_path = await (await Path(get_settings().persistent.storage.STORAGE_PATH).expanduser()).resolve()
+    output_path = base_path / 'testrun' / runtime.context.folder_name
+    await output_path.mkdir(parents=True, exist_ok=True)
+
+    testdata_path = await (await Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser()).resolve()
+
+    all_mounts = [
+        ContainerMount(target='/data/testdata', source=str(testdata_path), read_only=True),
+        ContainerMount(target='/data/output', source=str(output_path), read_only=False),
+        *_validate_extra_mounts(mounts),
+    ]
+
+    code, output = run_command(image, all_mounts, command, workdir)
+    status = 'successfully' if code == 0 else 'failed'
+
+    image_name = image_ref or 'linux_default'
+    if output.strip():
+        return_msg = (
+            f'[Image: {image_name}]\n{_truncate_output(command, output)}'
+            if code == 0
+            else f'[Image: {image_name}]\nCommand ran {status}.\n\n......\n{_truncate_output(command, output)}'
+        )
+    else:
+        return_msg = f'[Image: {image_name}]\nCommand ran {status}. No other output.'
+
+    update: dict[str, Any] = {
+        'messages': [
+            ToolMessage(
+                content=return_msg,
+                tool_call_id=runtime.tool_call_id,
+            )
+        ],
+    }
+    if image_ref:
+        update['known_images'] = known_images
+
+    return Command(update=update)
+
+
+TEST_RUN_MODEL = get_long_context_model()
+CHECK_MODEL = get_high_performance_model()
+metadata = cast('LLMMetadata', TEST_RUN_MODEL.metadata)
 
 direct_test_run_agent = create_agent(
-    model=DIRECT_TEST_RUN_MODEL,
+    model=TEST_RUN_MODEL,
     tools=[
         search_biodb,
-        search_tool_image,
-        run_direct_command,
+        search_local_image,
+        run_command_tool,
         ask_human,
         write_report,
     ],
-    system_prompt=DIRECT_TEST_RUN_SYSTEM,
+    system_prompt=TEST_RUN_SYSTEM,
     middleware=[
         DisableParallelToolCallsMiddleware(),
         StatusBarMiddleware(),
-        SaveMessagesMiddleware('direct_test_run'),
-        CheckReportMiddleware(DIRECT_CHECK_MODEL, CHECK_PROMPT),
+        SaveMessagesMiddleware('test_run'),
+        CheckReportMiddleware(CHECK_MODEL, CHECK_PROMPT),
         TodoMiddleware(),
-        TokenStatisticMiddleware('direct_test_run', **metadata),
+        TokenStatisticMiddleware('test_run', **metadata),
     ],
     state_schema=DirectTestRunState,
     # pyrefly: ignore [bad-argument-type]
