@@ -1,8 +1,10 @@
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from importlib.metadata import metadata
 
 import uvicorn
 from fastapi import FastAPI
+from langgraph.checkpoint.redis import AsyncRedisSaver
+from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
@@ -23,7 +25,8 @@ from app.core.config import get_settings
 from app.core.redis_client import close_cache_regis, setup_cache_redis
 from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
-from app.utils.middleware import CSRFMiddleware, LogRequestMiddleware
+from app.utils.middleware import LogRequestMiddleware
+from llm.prebuild.dispatch import build_agents
 
 meta = metadata('bioflow-ai')
 
@@ -34,7 +37,27 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     init_bucket()
     main_app.state.redis = await setup_cache_redis()
 
-    yield
+    async with AsyncExitStack() as stack:
+        # A single long-lived checkpointer shared by every top-level agent. The agents are
+        # compiled once here and cached on app.state; per request only thread_id/context vary.
+        checkpointer = await stack.enter_async_context(
+            AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE.unicode_string())
+        )
+        checkpointer.serde = JsonPlusRedisSerializer(
+            allowed_msgpack_modules=[
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                ('app.models.tools', 'FileMount'),
+                ('app.models.tools', 'ImageConfig'),
+                ('app.models.tools', 'ParamDefine'),
+            ]
+        )
+        main_app.state.checkpointer = checkpointer
+        main_app.state.chat_agents = build_agents(checkpointer)
+
+        yield
 
     await close_cache_regis(main_app.state.redis)
     logger.info('server stop')
@@ -60,9 +83,8 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
         allow_origins=origins,
         allow_credentials=True,
         allow_methods=['*'],
-        allow_headers=['*', 'X-CSRF-Token'],
+        allow_headers=['*'],
     )
-    app.add_middleware(CSRFMiddleware)
     if log_requests:
         app.add_middleware(LogRequestMiddleware)
 

@@ -1,4 +1,5 @@
-from app.utils.middleware.csrf import CSRFMiddleware
+"""Application middleware exports."""
+
 from app.utils.middleware.log import LogRequestMiddleware
 
-__all__ = ['CSRFMiddleware', 'LogRequestMiddleware']
+__all__ = ['LogRequestMiddleware']

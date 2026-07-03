@@ -1,4 +1,3 @@
-import secrets
 import time
 from datetime import timedelta
 from typing import Annotated
@@ -53,17 +52,6 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         refresh_token,
         max_age=cfg.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         **kw,
-    )
-    csrf_token = secrets.token_urlsafe(32)
-    response.set_cookie(
-        'csrf_token',
-        csrf_token,
-        max_age=cfg.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        httponly=False,
-        secure=cfg.COOKIE_SECURE,
-        samesite=cfg.COOKIE_SAMESITE,
-        domain=cfg.COOKIE_DOMAIN,
-        path=_COOKIE_PATH,
     )
 
 
@@ -179,6 +167,7 @@ async def logout(
 
     response.delete_cookie('access_token', path=_COOKIE_PATH, domain=cfg.COOKIE_DOMAIN)
     response.delete_cookie('refresh_token', path=_COOKIE_PATH, domain=cfg.COOKIE_DOMAIN)
+    response.delete_cookie('csrf_token', path=_COOKIE_PATH, domain=cfg.COOKIE_DOMAIN)
     return {'message': 'Successfully logged out'}
 
 
