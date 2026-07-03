@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 MAX_CHAR = 3000
 MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
 MAX_MEM = get_settings().persistent.resource.MAX_MEM
-DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.1.2')
+DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')
 
 TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 您的核心目标是根据用户需求运行生物信息学命令行工具, 并生成一份全面的工具试运行报告。
@@ -80,8 +80,8 @@ TEST_RUN_SYSTEM = f"""您是一名专业的生物信息学工具分析师。
 
 ### `image_ref`: 指定镜像
 当需要运行生物信息工具时, 首先调用 `search_local_image` 工具搜索对应工具的镜像url
-- `image_ref` 可以先传唯短引用, 例如 `samtools` 或 `biocontainers/samtools`
-- 如果 `run_command` 提示短引用有多个匹配镜像, 使用更具体的仓库路径、完整 `<url>` 或带 tag 的引用再次调用
+- `image_ref` 可以先只传镜像名称, 例如 `samtools` 或 `biocontainers/samtools`
+- 如果 `run_command` 提示有多个匹配镜像, 使用更具体的仓库路径、完整 `<url>` 或带 tag 的引用再次调用
 
 当不指定此参数时, 命令使用一个默认的Linux镜像, 除了基础的系统指令外, 该镜像中还包含了:
 - fd: 更快、更易用的文件查找工具
@@ -181,11 +181,23 @@ working dir: [working_dir]
 class DirectTestRunState(AgentState, total=False):
     """State for the direct command based test-run agent."""
 
-    image: ImageConfig
     known_images: dict[str, str]
     tool_report: NotRequired[str]
     updated: NotRequired[bool]
     checked: NotRequired[bool]
+
+
+def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:
+    if re.search(r'\brm\b', command) and (workdir and '/data/output' not in workdir) and '/data/output' not in command:
+        return _blocked_command('It is forbidden to use `rm` command outside of the /data/output path!', tool_call_id)
+
+    if re.search(r'\bcd\b', command):
+        return _blocked_command(
+            'The `cd` command is prohibited. To specify the working directory, please use the `workdir` parameter.',
+            tool_call_id,
+        )
+
+    return None
 
 
 def _resolve_image_ref(
@@ -225,17 +237,22 @@ def _resolve_image_ref(
     return tool_image.image, known_images, None
 
 
-def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:
-    if re.search(r'\brm\b', command) and (workdir and '/data/output' not in workdir) and '/data/output' not in command:
-        return _blocked_command('It is forbidden to use `rm` command outside of the /data/output path!', tool_call_id)
+def _validate_extra_mounts(
+    mounts: list[ContainerMount] | None,
+    tool_call_id: str | None,
+) -> tuple[list[ContainerMount], Command | None]:
+    if mounts is None:
+        return [], None
 
-    if re.search(r'\bcd\b', command):
-        return _blocked_command(
-            'The `cd` command is prohibited. To specify the working directory, please use the `workdir` parameter.',
-            tool_call_id,
-        )
+    for mount in mounts:
+        if mount.target in {'/data/testdata', '/data/output'}:
+            return [], _blocked_command(
+                'The default test data directory `/data/testdata` and the output root directory `/data/output` are already mounted by default, so manual configuration is not required. '
+                'If additional data needs to be mounted, use a different path.',
+                tool_call_id,
+            )
 
-    return None
+    return mounts, None
 
 
 def _blocked_command(content: str, tool_call_id: str | None) -> Command:
@@ -249,24 +266,6 @@ def _blocked_command(content: str, tool_call_id: str | None) -> Command:
             ],
         }
     )
-
-
-def _validate_extra_mounts(mounts: list[ContainerMount] | None) -> list[ContainerMount]:
-    if mounts is None:
-        return []
-
-    for mount in mounts:
-        if mount.target in {'/data/testdata', '/data/output'}:
-            err_msg = (
-                'The default test data directory `/data/testdata` and the output root directory `/data/output` are already mounted by default, so manual configuration is not required. '
-                'If additional data needs to be mounted, use a different path.'
-            )
-            raise ValueError(err_msg)
-        if not mount.target.startswith('/data/'):
-            err_msg = f'Extra mount target must be under /data/: {mount.target}'
-            raise ValueError(err_msg)
-
-    return mounts
 
 
 def _truncate_output(command: str, output: str) -> str:
@@ -296,9 +295,9 @@ async def run_command_tool(
         return invalid_command
 
     # 镜像解析
-    image, known_images, error = _resolve_image_ref(image_ref, runtime)
-    if error is not None:
-        return error
+    image, known_images, invalid_image = _resolve_image_ref(image_ref, runtime)
+    if invalid_image is not None:
+        return invalid_image
 
     # 固定挂载
     base_path = await (await Path(get_settings().persistent.storage.STORAGE_PATH).expanduser()).resolve()
@@ -307,10 +306,14 @@ async def run_command_tool(
 
     testdata_path = await (await Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser()).resolve()
 
+    extra_mounts, invalid_mount = _validate_extra_mounts(mounts, runtime.tool_call_id)
+    if invalid_mount is not None:
+        return invalid_mount
+
     all_mounts = [
         ContainerMount(target='/data/testdata', source=str(testdata_path), read_only=True),
         ContainerMount(target='/data/output', source=str(output_path), read_only=False),
-        *_validate_extra_mounts(mounts),
+        *extra_mounts,
     ]
 
     code, output = run_command(image, all_mounts, command, workdir)
@@ -355,7 +358,7 @@ direct_test_run_agent = create_agent(
     ],
     system_prompt=TEST_RUN_SYSTEM,
     middleware=[
-        DisableParallelToolCallsMiddleware(),
+        DisableParallelToolCallsMiddleware(disabled_tools={'add_todos', 'update_todo'}),
         StatusBarMiddleware(),
         SaveMessagesMiddleware('test_run'),
         CheckReportMiddleware(CHECK_MODEL, CHECK_PROMPT),

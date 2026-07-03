@@ -1,3 +1,4 @@
+from llm.agents.tool_agent.report_generator_v2 import direct_test_run_agent
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -73,7 +74,7 @@ To achieve this, your first task is to **find available Docker images** based on
 <ThinkingProcess>
 To find them, you just need to follow these steps:
 First, use the `search_local_image` tool to search the local database for existing tool images.
-    - If an image for the tool exists, directly use `select_image` to select the corresponding image.
+    - If an image for the tool exists, directly use `select_image` with the exact image URL shown in the `<url>` field to select the corresponding image.
     - Otherwise, call `search_image` to search for images on Docker Hub, and based on the results, use the `pull_and_save_image` tool to pull and save the image.
 
 If you encounter any unresolvable issues at any point, you can call the `ask_human` tool to ask for human assistance.
@@ -253,21 +254,21 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
 
-        testrun_input: TestRunState = {
-            'messages': state['messages'],
-            'image': state['image'],
+        testrun_input = {
+            'messages': state['messages']
         }
         # pyrefly: ignore [no-matching-overload]
-        response = await test_run_agent.ainvoke(
+        response = await direct_test_run_agent.ainvoke(
             testrun_input,
             context=TestRunContext(
                 user_id=runtime.context.user_id,
+                # pyrefly: ignore [bad-argument-type]
                 folder_name=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
                 test_run_id=runtime.context.test_run_id,
             ),
         )
-        run_report = response['messages'][-1].content
+        run_report = response['tool_report']
 
         return {'messages': [HumanMessage(content=run_report)]}
 
