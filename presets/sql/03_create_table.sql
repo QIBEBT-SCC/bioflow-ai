@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS bio_dbs
     size        VARCHAR,
     last_update VARCHAR,
     download_command VARCHAR,
-    download_image JSONB,
+    download_image VARCHAR,
     PRIMARY KEY (id),
     UNIQUE (name)
 );

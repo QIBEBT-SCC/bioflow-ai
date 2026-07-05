@@ -29,6 +29,30 @@ def delete(session: Session, db_id: int) -> None:
     session.commit()
 
 
+def update_download_result(session: Session, db_id: int, *, path: str, last_update: str) -> BioDb:
+    """Update the database path after a download task completes."""
+    bio_db = get(session, db_id)
+    bio_db.path = path
+    bio_db.size = None
+    bio_db.last_update = last_update
+    session.add(bio_db)
+    session.commit()
+    session.refresh(bio_db)
+    return bio_db
+
+
+def clear_download_result(session: Session, db_id: int) -> BioDb:
+    """Clear stored download result before a fresh download attempt."""
+    bio_db = get(session, db_id)
+    bio_db.path = None
+    bio_db.size = None
+    bio_db.last_update = None
+    session.add(bio_db)
+    session.commit()
+    session.refresh(bio_db)
+    return bio_db
+
+
 def get_all(session: Session, limit: int, offset: int) -> Sequence[BioDb]:
     """Get a paginated list of all biological database entries."""
     query = select(BioDb).order_by(col(BioDb.name).desc()).limit(limit).offset(offset)

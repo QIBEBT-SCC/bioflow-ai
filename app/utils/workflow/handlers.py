@@ -9,12 +9,12 @@ from typing import Optional
 import nanoid
 from celery import Signature
 
-import app.crud.resource.bio_db as db_crud
 import app.crud.tools.tool as tool_crud
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
 from app.tasks.code import bash_task
 from app.tasks.file_operation import bind_param_task, collect_files_task, gzip_file_task, select_file_task
+from app.tasks.load_tasks.load_bio_db import load_bio_db_task
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
 from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, load_ncbi_genome_task
 from app.tasks.load_tasks.static_value import set_value_task
@@ -136,8 +136,7 @@ class ResourceDbTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        db_path = db_crud.get(context.session, int(task_node.data.get('db_id'))).path
-        return load_file_task.s(file=db_path).set(task_id=task_node.id)
+        return load_bio_db_task.s(db_id=int(task_node.data.get('db_id'))).set(task_id=task_node.id)
 
 
 @register_handler('resource_ncbi_genome')

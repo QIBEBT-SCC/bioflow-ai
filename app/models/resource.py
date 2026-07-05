@@ -56,9 +56,11 @@ class BioDb(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True)
     description: Optional[str] = Field(default=None)
-    path: str
-    size: str
+    path: Optional[str] = Field(default=None)
+    size: Optional[str] = Field(default=None)
     last_update: Optional[str] = Field(default=None)
+    download_command: Optional[str] = Field(default=None)
+    download_image: Optional[str] = Field(default=None)
 
 
 class ReferenceGenomes(SQLModel, table=True):

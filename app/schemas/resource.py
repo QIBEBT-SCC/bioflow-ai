@@ -24,13 +24,35 @@ class GenomeIndexStatus(BaseModel):
 class BioDbCreate(BaseModel):
     name: str
     description: str | None = None
-    path: str
+    path: str | None = None
     last_update: str | None = None
+    download_command: str | None = None
+    download_image: str | None = None
 
 
 class BioDbSimple(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
+    path: str | None = None
+    size: str | None = None
+
+
+class BioDbDownloadResponse(BaseModel):
+    task_id: str
+    message: str
+
+
+class BioDbDownloadStatus(StrEnum):
+    not_downloaded = 'not_downloaded'
+    downloading = 'downloading'
+    ready = 'ready'
+
+
+class BioDbDownloadStatusResponse(BaseModel):
+    status: BioDbDownloadStatus
+    message: str | None = None
 
 
 class GenomeUpdate(BaseModel):
