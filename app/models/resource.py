@@ -1,22 +1,13 @@
 import uuid
 from datetime import datetime
-from enum import IntEnum
 from typing import Optional
 
-from sqlalchemy import BigInteger, Column, Integer, UniqueConstraint
+from sqlalchemy import BigInteger, Column, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.user import User  # noqa: TC001
 from app.utils.system import random_uid, utc_now
-
-
-class SampleFileType(IntEnum):
-    SEQUENCING_R1 = 0
-    SEQUENCING_R2 = 1
-    SEQUENCING = 2
-    SPECTRUM = 3
-    IMAGE = 4
 
 
 class Sample(SQLModel, table=True):
@@ -26,7 +17,7 @@ class Sample(SQLModel, table=True):
     owner_id: int = Field(foreign_key='users.id')
     project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
     sample_name: str
-    meta_data: dict = Field(sa_column=Column(JSONB), default_factory=dict)
+    meta_data: dict[str, str] = Field(sa_column=Column(JSONB), default_factory=dict)
     create_time: datetime = Field(default_factory=utc_now)
 
     owner: Optional['User'] = Relationship()
@@ -39,7 +30,6 @@ class SampleFiles(SQLModel, table=True):
 
     uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     sample_uid: uuid.UUID = Field(foreign_key='samples.uid', ondelete='CASCADE')
-    data_type: SampleFileType = Field(sa_type=Integer)
     file_path: str
     file_format: Optional[str] = None
     file_size: int = Field(sa_type=BigInteger, default=0)

@@ -1,7 +1,6 @@
 import uuid
-from pathlib import Path
-from typing import Literal
 
+from anyio import Path
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
@@ -11,18 +10,10 @@ from sqlmodel import Session
 import app.crud.project as proj_crud
 import app.crud.resource.sample as sample_crud
 from app.core.session import engine
-from app.models.resource import Sample, SampleFiles, SampleFileType
+from app.models.resource import Sample, SampleFiles
 from app.models.tools import ImageConfig
 from app.utils.container import ContainerMount, run_command
-from llm.states import SampleContext
-
-TYPE_MAP = {
-    'SEQUENCING_R1': SampleFileType.SEQUENCING_R1,
-    'SEQUENCING_R2': SampleFileType.SEQUENCING_R2,
-    'SEQUENCING': SampleFileType.SEQUENCING,
-    'SPECTRUM': SampleFileType.SPECTRUM,
-    'IMAGE': SampleFileType.IMAGE,
-}
+from llm.context import ProjectContext
 
 
 def _truncate_output(output: str) -> str:
@@ -54,7 +45,7 @@ async def set_base_dir(base_path: str, runtime: ToolRuntime) -> Command:
 
 
 @tool('run_command', parse_docstring=True)
-async def run_command_tool(command: str, runtime: ToolRuntime[SampleContext]) -> str:
+async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext]) -> str:
     """Execute shell commands inside a Docker container.
 
     Available commands: seqkit, awk, grep, find, head, file, etc.
@@ -67,7 +58,7 @@ async def run_command_tool(command: str, runtime: ToolRuntime[SampleContext]) ->
     if not base_dir:
         return 'Call `set_base_dir` to set the root directory first.'
 
-    if not Path(base_dir).exists():
+    if not await Path(base_dir).exists():
         return 'The root directory does not exist. Call the `set_base_dir` tool to set the correct root directory, or ask human to confirm the correct path.'
 
     run_image = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
@@ -90,7 +81,7 @@ async def run_command_tool(command: str, runtime: ToolRuntime[SampleContext]) ->
 async def add_samples(
     names: list[str],
     meta_data: dict[str, str] | None,
-    runtime: ToolRuntime[SampleContext],
+    runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     """Create sample objects.
 
@@ -105,7 +96,7 @@ async def add_samples(
             owner_id=runtime.context.user_id,
             project_id=runtime.context.project_id,
             sample_name=n,
-            meta_data=meta_data,
+            meta_data=meta_data or {},
         )
         for n in names
     ]
@@ -118,7 +109,7 @@ async def add_samples(
             'sample_maps': sample_maps,
             'messages': [
                 ToolMessage(
-                    content=f'Added {len(names)} sample objects. Now you can call `register_sample_file` to add sample files.',
+                    content=f'Added {len(names)} sample objects. Now you can call `add_sample_file` to add files.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -127,27 +118,25 @@ async def add_samples(
 
 
 @tool(parse_docstring=True)
-async def register_sample_file(
+async def add_sample_file(
     sample_name: str,
-    data_type: Literal['SEQUENCING_R1', 'SEQUENCING_R2', 'SEQUENCING', 'SPECTRUM', 'IMAGE'],
+    tag: str,
     file_path: str,
-    runtime: ToolRuntime[SampleContext],
-    tag: str | None = None,
+    runtime: ToolRuntime[ProjectContext],
 ) -> str:
     """Register the sample file.
 
     Args:
         sample_name: The sample name of the file to add
-        data_type: File type
         file_path: The file_path uses a path relative to **base_dir**.
-        tag: When tag is not provided, the system uses a default value.
+        tag: Unique file tag within the sample, such as r1, r2, single, spectrum, or image.
     """
     base_dir: str | None = runtime.state.get('base_path')
     if not base_dir:
         return 'Call `set_base_dir` to set the root directory first.'
 
     sample_path = Path(base_dir) / file_path
-    if not sample_path.exists():
+    if not await sample_path.exists():
         return f'The sample file does not exist. The path constructed by concatenating base_dir and the provided file_path is: {sample_path}. Please verify that the path is correct.'
 
     sample_maps: dict[str, str] = runtime.state.get('sample_maps', {})
@@ -158,7 +147,6 @@ async def register_sample_file(
         with Session(engine) as session:
             sample_file = SampleFiles(
                 sample_uid=uuid.UUID(sample_uid),
-                data_type=TYPE_MAP[data_type],
                 file_path=f'{sample_path}',
                 tag=tag,
             )
@@ -170,11 +158,11 @@ async def register_sample_file(
 
 
 @tool(parse_docstring=True)
-async def register_project_file(
+async def add_project_file(
     keyword: str,
     file_path: str,
     description: str,
-    runtime: ToolRuntime[SampleContext],
+    runtime: ToolRuntime[ProjectContext],
 ) -> str:
     """Register project-level shared files.
 
@@ -188,7 +176,7 @@ async def register_project_file(
         return 'Call `set_base_dir` to set the root directory first.'
 
     final_path = Path(base_dir) / file_path
-    if not final_path.exists():
+    if not await final_path.exists():
         return f'The sample file does not exist. The path constructed by concatenating base_dir and the provided file_path is: {final_path}. Please verify that the path is correct.'
 
     with Session(engine) as session:
@@ -203,7 +191,7 @@ async def register_project_file(
 
 
 @tool(parse_docstring=True)
-async def list_project_samples(runtime: ToolRuntime[SampleContext]) -> str:
+async def list_project_samples(runtime: ToolRuntime[ProjectContext]) -> str:
     """List existing samples already registered in the database for the current project.
 
     Returns an aggregated summary grouped by shared metadata and tag set, suitable for projects
@@ -226,7 +214,7 @@ async def list_project_samples(runtime: ToolRuntime[SampleContext]) -> str:
         lines.append(f'\n### Group {idx} — {g.count} sample(s)')
         lines.append(f'- meta: {g.meta_data or "{}"}')
         if g.tags:
-            tag_str = ', '.join(f'{t.tag} ({t.data_type.name})' for t in g.tags)
+            tag_str = ', '.join(g.tags)
             lines.append(f'- tags: {tag_str}')
         else:
             lines.append('- tags: (none registered)')
@@ -240,7 +228,7 @@ async def list_project_samples(runtime: ToolRuntime[SampleContext]) -> str:
 
 
 @tool('remove_sample_file', parse_docstring=True)
-async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[SampleContext]) -> str:
+async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[ProjectContext]) -> str:
     """Remove a registered sample file by sample name and tag.
 
     Use this only on the "local files updated" branch to drop stale entries before
@@ -258,11 +246,15 @@ async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[Sa
 
 
 @tool
-async def write_conclusion(content: str, runtime: ToolRuntime[SampleContext]) -> Command:
+async def write_conclusion(content: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     """Write a summary for the file system."""
+    sample_summary_file = Path(runtime.context.workdir) / 'SAMPLES.md'
+    await sample_summary_file.parent.mkdir(parents=True, exist_ok=True)
+    await sample_summary_file.write_text(content, encoding='utf-8')
+
     return Command(
         update={
-            'summary': content,
+            'summary': 'done',
             'updated': True,
             'messages': [ToolMessage(content='Done.', tool_call_id=runtime.tool_call_id)],
         }

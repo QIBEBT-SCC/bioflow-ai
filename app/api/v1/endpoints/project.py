@@ -1,4 +1,5 @@
 import io
+import shutil
 import uuid
 import zipfile
 from collections.abc import Generator
@@ -103,7 +104,11 @@ def new_project(
         public=project_prop.public,
         tags=tags,
     )
-    project_crud.insert(session, project)
+    project = project_crud.insert(session, project)
+
+    project_path = Path(STORAGE_PATH) / 'proj' / f'{project.id}'
+    project_path.mkdir(parents=True, exist_ok=True)
+
     return project
 
 
@@ -176,6 +181,19 @@ def get_project(
     return project_crud.get(session, current_user.id, project_id)  # type: ignore
 
 
+@router.delete('/{project_id}')
+def delete_project(
+    project_id: int,
+    session: SessionDep,
+    current_user: UserDep,
+) -> None:
+    """Delete project."""
+    project_crud.delete(session, project_id)
+
+    project_path = Path(STORAGE_PATH) / 'proj' / f'{project_id}'
+    shutil.rmtree(project_path)
+
+
 # ==================== Sample Management Endpoints (Under Project) ====================
 
 
@@ -220,6 +238,7 @@ async def get_project_samples(
         data=samples,
     )
 
+
 @router.get('/{project_id}/samples/count')
 async def get_project_sample_count(
     project_id: int,
@@ -228,6 +247,7 @@ async def get_project_sample_count(
 ) -> int:
     """Get the number of samples under the project."""
     return sample_crud.get_count(session, project_id)
+
 
 @router.post('/{project_id}/samples/batch-import')
 async def batch_import_samples(
@@ -327,10 +347,9 @@ async def add_file_to_project_sample(
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    # Only data_type and file_path are required, other info is calculated automatically by the backend
+    # File metadata is calculated automatically by the backend.
     sample_file = SampleFiles(
         sample_uid=sample_uid,
-        data_type=file_prop.data_type,
         file_path=file_prop.file_path,
         # pyrefly: ignore [bad-argument-type]
         tag=file_prop.tag,

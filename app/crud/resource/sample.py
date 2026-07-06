@@ -12,12 +12,11 @@ from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.project import Project
-from app.models.resource import Sample, SampleFiles, SampleFileType
+from app.models.resource import Sample, SampleFiles
 from app.schemas.resource import (
     SampleBatchImportResult,
     SampleGroupSummary,
     SampleListItem,
-    SampleTagInfo,
     SampleUpdate,
 )
 from app.utils.file.hash import calculate_file_md5
@@ -78,25 +77,6 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
     md5_checksum = calculate_file_md5(file_path)
 
     return file_format, file_size, md5_checksum
-
-
-def _assign_default_tag(sample_file: SampleFiles) -> None:
-    """为样本文件分配默认标签 (如果未指定).
-
-    Args:
-        sample_file: 样本文件对象
-    """
-    if sample_file.tag is None:
-        # 根据 data_type 分配默认标签
-        default_tags = {
-            SampleFileType.SEQUENCING_R1: 'r1',
-            SampleFileType.SEQUENCING_R2: 'r2',
-            SampleFileType.SEQUENCING: 'single',
-            SampleFileType.SPECTRUM: 'spectrum',
-            SampleFileType.IMAGE: 'image',
-        }
-        # pyrefly: ignore [bad-assignment]
-        sample_file.tag = default_tags.get(sample_file.data_type, 'unknown')
 
 
 def insert(session: Session, sample: Sample) -> Sample:
@@ -281,7 +261,6 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
             col(Sample.sample_name),
             col(Sample.meta_data),
             col(SampleFiles.tag),
-            col(SampleFiles.data_type),
         )
         .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
         .where(col(Sample.project_id) == project_id)
@@ -294,14 +273,14 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
     for r in rows:
         entry = per_sample.setdefault(
             r.uid,
-            {'name': r.sample_name, 'meta': r.meta_data or {}, 'tags': {}},
+            {'name': r.sample_name, 'meta': r.meta_data or {}, 'tags': set()},
         )
         if r.tag is not None:
-            entry['tags'][r.tag] = r.data_type
+            entry['tags'].add(r.tag)
 
     groups: dict[tuple, dict] = {}
     for entry in per_sample.values():
-        tags_key = tuple(sorted(entry['tags'].items()))
+        tags_key = tuple(sorted(entry['tags']))
         meta_key = tuple(sorted(entry['meta'].items()))
         key = (meta_key, tags_key)
         bucket = groups.setdefault(
@@ -316,7 +295,7 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
         SampleGroupSummary(
             count=b['count'],
             meta_data=b['meta'],
-            tags=[SampleTagInfo(tag=t, data_type=dt) for t, dt in sorted(b['tags'].items())],
+            tags=sorted(b['tags']),
             sample_name_examples=b['names'],
         )
         for b in groups.values()
@@ -330,8 +309,6 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
     if not sample:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
 
-    # 分配默认标签
-    _assign_default_tag(sample_file)
     # 自动计算文件信息
     file_format, file_size, md5_checksum = _calculate_file_info(sample_file.file_path)
     sample_file.file_format = file_format
@@ -412,13 +389,7 @@ def batch_import_from_csv(
     Returns:
         SampleBatchImportResult: 导入结果
     """
-    file_columns = {
-        'r1': SampleFileType.SEQUENCING_R1,
-        'r2': SampleFileType.SEQUENCING_R2,
-        'single': SampleFileType.SEQUENCING,
-        'spectrum': SampleFileType.SPECTRUM,
-        'image': SampleFileType.IMAGE,
-    }
+    file_columns = {'r1', 'r2', 'single', 'spectrum', 'image'}
 
     result = SampleBatchImportResult(success=0, failed=0, errors=[], samples=[])
 
@@ -463,14 +434,14 @@ def batch_import_from_csv(
             session.add(sample)
             session.flush()
 
-            for col_name, file_type in file_columns.items():
+            for col_name in file_columns:
                 file_path = row.get(col_name)
                 if file_path and str(file_path).strip():
                     file_path = str(file_path).strip()
                     file_format, file_size, md5_checksum = _calculate_file_info(file_path)
                     sample_file = SampleFiles(
                         sample_uid=sample.uid,
-                        data_type=file_type,
+                        tag=col_name,
                         file_path=file_path,
                         file_format=file_format,
                         file_size=file_size,

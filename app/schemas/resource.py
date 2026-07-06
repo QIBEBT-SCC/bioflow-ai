@@ -4,8 +4,6 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.resource import SampleFileType
-
 
 class IndexStatus(StrEnum):
     ready = 'ready'
@@ -124,7 +122,6 @@ class GenomeDownloadResponse(BaseModel):
 
 # Sample Schemas
 class SampleFileCreate(BaseModel):
-    data_type: SampleFileType
     file_path: str
     tag: str | None = None
 
@@ -134,7 +131,6 @@ class SampleFilePublic(BaseModel):
 
     uid: uuid.UUID
     sample_uid: uuid.UUID
-    data_type: SampleFileType
     file_path: str
     file_format: str
     file_size: int
@@ -176,15 +172,10 @@ class SampleListItem(BaseModel):
     file_count: int = 0
 
 
-class SampleTagInfo(BaseModel):
-    tag: str
-    data_type: SampleFileType
-
-
 class SampleGroupSummary(BaseModel):
     count: int
     meta_data: dict
-    tags: list[SampleTagInfo]
+    tags: list[str]
     sample_name_examples: list[str]
 
 

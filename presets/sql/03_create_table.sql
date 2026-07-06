@@ -193,7 +193,6 @@ CREATE TABLE IF NOT EXISTS sample_files
 (
     uid           uuid                     NOT NULL,
     sample_uid    uuid,
-    data_type     INTEGER                  NOT NULL,
     tag           VARCHAR(50),
     file_path     VARCHAR                  NOT NULL,
     file_format   VARCHAR,

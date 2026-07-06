@@ -145,6 +145,30 @@ class DesignState(AgentState, total=False):
     workflow_uids: list[uuid.UUID]
 
 
+# =====================unified planner state==========================
+class PlannerState(AgentState, total=False):
+    """聚合三种规划场景 (自主设计/工具扩展/文献复现) 所需的全部可选状态字段.
+
+    所有字段均为可选: 不同场景只会写入其中一部分, 后续处理时按需读取.
+    """
+
+    task: str
+    plan: str
+
+    # 工具探索用
+    tool_report: str
+
+    # 文献复现用
+    paper_id: str
+    paper_context: str
+
+    # 写入类工具标记
+    updated: bool
+
+    # 透传给下游 workflow_builder
+    workflow_uids: list[uuid.UUID]
+
+
 # =====================build workflow agent state==========================
 @dataclass
 class BuildContext(UserContext):

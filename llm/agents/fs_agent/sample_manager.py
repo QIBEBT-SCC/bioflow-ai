@@ -1,17 +1,19 @@
 from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph.state import CompiledStateGraph
 
 from llm.agents.fs_agent.analysis_reporter import AGENT_LLM
+from llm.context import ProjectContext
 from llm.models import get_agent_model
-from llm.states import SampleContext, SampleState
+from llm.states import SampleState
 from llm.tools.human import ask_human
 from llm.tools.sample import (
+    add_project_file,
+    add_sample_file,
     add_samples,
     list_project_samples,
-    register_project_file,
-    register_sample_file,
-    remove_sample_file,
     run_command_tool,
     set_base_dir,
     write_conclusion,
@@ -23,8 +25,7 @@ if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are a bioinformatics project file system initialization agent.
-Your task is to explore raw data paths provided by the user, identify the file structure,
-and register files into the system's two-level index.
+Your task is to explore raw data paths provided by the user, identify the file structure, and register files into the system's two-level index.
 
 ## Two-level file
 
@@ -34,32 +35,27 @@ Note: Reference genomes and tool databases are managed by separate system module
 
 ## Execution steps
 
-0. **Check existing registry** — Always call `list_project_samples` first.
-   - If the database already has samples AND the user has NOT stated that local files were changed:
+1. **Check existing registry** — Always call `list_project_samples` first.
+   - If the database already has samples:
      skip steps 1-3 entirely. Write the conclusion directly from the registry content via `write_conclusion`.
-   - If samples exist AND the user explicitly says local files were updated / added / removed:
-     proceed to steps 1-3, but first call `remove_sample_file` to drop stale entries that no longer match
-     local files. Reuse existing sample names — do NOT call `add_samples` for samples that already exist
-     (only call it for genuinely new sample names).
    - If no samples exist: proceed to steps 1-3 normally.
-
-1. **Explore** — Call `set_base_dir`, then use `run_command` to map the directory structure.
+2. **Explore** — Call `set_base_dir`, then use `run_command` to map the directory structure.
    - `base_dir` is mounted as `/app/data` inside the container; use `/app/data` as the working path in all shell commands.
    - Drill into subdirectories as needed to build a complete file inventory.
    - If the path is inaccessible, call `ask_human` — this is the **only** situation to use it.
-2. **Infer** — Determine how each file should be registered.
+3. **Infer** — Determine how each file should be registered.
    - Files with one copy per sample → sample-level; files shared across all samples → project-level.
-   - Identify `data_type` from filename patterns; verify with `seqkit` or `head` when ambiguous.
+   - Choose a stable sample file `tag` from filename patterns; verify with `seqkit` or `head` when ambiguous.
    - Infer sequencing metadata (platform, technology) from filename patterns, directory names, or file headers; omit uncertain fields.
-3. **Write to database** — Call `add_samples` → `register_sample_file` → `register_project_file` in order.
+4. **Write to database** — Call `add_samples` → `add_sample_file` → `add_project_file` in order.
    - Group samples sharing the same metadata into a single `add_samples` call.
    - If the dataset spans multiple subdirectories with different data types or metadata, call `set_base_dir` again for each and repeat steps 1-3.
-4. **Write conclusion** — Call `write_conclusion` with a structured Markdown summary (see template below).
+5. **Write conclusion** — Call `write_conclusion` with a structured Markdown summary (see template below).
 
 ## Conclusion template
 
 ```markdown
-## File system initialization summary
+# Samples Info
 
 ### Sample metadata
 - Sample count: N
@@ -93,49 +89,77 @@ Do not list individual file paths. Focus only on what downstream workflows can r
 ### Sample naming
 
 - Derive sample names from actual filenames or subdirectory names — do not invent arbitrary names.
-- Sample names must be unique within the project; duplicates will cause registration to fail.
-
-### File type reference
-
-| Pattern | data_type |
-|---|---|
-| Paired-end R1 | SEQUENCING_R1 |
-| Paired-end R2 | SEQUENCING_R2 |
-| Single-end sequencing | SEQUENCING |
-| Mass spectrometry | SPECTRUM |
-| Image file | IMAGE |
+- Sample names must be **unique** within the project; duplicates will cause registration to fail.
 
 ### Tag and keyword naming
 
+The following are tag/keyword selections for some common scenarios:
+| Pattern | tag |
+|---|---|
+| Paired-end R1 | `r1` |
+| Paired-end R2 | `r2` |
+| Single-end sequencing | `read` |
+| Mass spectrometry | `spectrum` |
+| Image file | `img` |
+| Other files | `contig`, `bam`... |
+
 - Format: lowercase letters and underscores only, max 50 characters.
-- Default tags: `r1`, `r2`, `single`, `spectrum`, `image`.
-- When a sample contains multiple files, append a descriptive prefix: `tumor_r1` / `normal_r1`, etc.
-- Keywords must be unique within the project and semantically descriptive.
+- When a sample contains multiple files, append a descriptive **prefix**: `tumor_r1` / `normal_r1` / `light_img`, etc.
+- Tags/Keywords must be **unique** within the project and semantically descriptive.
 """
 
 MANAGER_LLM = get_agent_model()
 metadata = cast('LLMMetadata', AGENT_LLM.metadata)
 
-create_sample_agent = create_agent(
-    MANAGER_LLM,
-    [
-        set_base_dir,
-        run_command_tool,
-        list_project_samples,
-        add_samples,
-        register_sample_file,
-        remove_sample_file,
-        register_project_file,
-        write_conclusion,
-        ask_human,
-    ],
-    system_prompt=SYSTEM_PROMPT,
-    middleware=[
-        StatusBarMiddleware(),
-        CheckStateExistMiddleware('summary', 'write_conclusion'),
-        TokenStatisticMiddleware('sample_manager', **metadata),
-    ],
-    state_schema=SampleState,
-    # pyrefly: ignore [bad-argument-type]
-    context_schema=SampleContext,
-)
+
+def build_create_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+    """Create smaple agent."""
+    if checkpointer:
+        # pyrefly: ignore [no-matching-overload]
+        return create_agent(
+            MANAGER_LLM,
+            [
+                set_base_dir,
+                run_command_tool,
+                list_project_samples,
+                add_samples,
+                add_sample_file,
+                add_project_file,
+                write_conclusion,
+                ask_human,
+            ],
+            system_prompt=SYSTEM_PROMPT,
+            middleware=[
+                StatusBarMiddleware(),
+                CheckStateExistMiddleware('summary', 'write_conclusion'),
+                TokenStatisticMiddleware('sample_manager', **metadata),
+            ],
+            state_schema=SampleState,
+            context_schema=ProjectContext,
+            checkpointer=checkpointer,
+        )
+    # pyrefly: ignore [no-matching-overload]
+    return create_agent(
+        MANAGER_LLM,
+        [
+            set_base_dir,
+            run_command_tool,
+            list_project_samples,
+            add_samples,
+            add_sample_file,
+            add_project_file,
+            write_conclusion,
+            ask_human,
+        ],
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[
+            StatusBarMiddleware(),
+            CheckStateExistMiddleware('summary', 'write_conclusion'),
+            TokenStatisticMiddleware('sample_manager', **metadata),
+        ],
+        state_schema=SampleState,
+        context_schema=ProjectContext,
+    )
+
+
+create_sample_agent = build_create_sample_agent()
