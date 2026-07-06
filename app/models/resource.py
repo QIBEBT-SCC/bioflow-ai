@@ -12,6 +12,7 @@ from app.utils.system import random_uid, utc_now
 
 class Sample(SQLModel, table=True):
     __tablename__ = 'samples'
+    __table_args__ = (UniqueConstraint('project_id', 'sample_name', name='uq_sample_project_name'),)
 
     uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
     owner_id: int = Field(foreign_key='users.id')

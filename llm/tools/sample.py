@@ -5,6 +5,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 import app.crud.project as proj_crud
@@ -82,7 +83,7 @@ async def add_samples(
     names: list[str],
     meta_data: dict[str, str] | None,
     runtime: ToolRuntime[ProjectContext],
-) -> Command:
+) -> Command | str:
     """Create sample objects.
 
     Samples added in the same batch share the same metadata.
@@ -91,6 +92,10 @@ async def add_samples(
         names: The list of sample names. Each sample name must be unique and may use uppercase letters, hyphens, and numbers.
         meta_data: Meta information of the sample
     """
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        return f'Duplicate sample name(s) in this batch: {duplicates}. Sample names must be unique, please rename and retry.'
+
     samples = [
         Sample(
             owner_id=runtime.context.user_id,
@@ -101,7 +106,14 @@ async def add_samples(
         for n in names
     ]
     with Session(engine) as session:
-        samples = sample_crud.batch_insert(session, samples)
+        try:
+            samples = sample_crud.batch_insert(session, samples)
+        except IntegrityError:
+            session.rollback()
+            return (
+                'One or more sample names already exist in this project. '
+                'Call `list_project_samples` to check existing names, then retry with unique ones.'
+            )
         sample_maps = {s.sample_name: f'{s.uid}' for s in samples}
 
     return Command(
@@ -150,7 +162,11 @@ async def add_sample_file(
                 file_path=f'{sample_path}',
                 tag=tag,
             )
-            sample_file = sample_crud.add_file(session, sample_file)
+            try:
+                sample_file = sample_crud.add_file(session, sample_file)
+            except IntegrityError:
+                session.rollback()
+                return f'Tag "{tag}" already exists for sample {sample_name}. Choose a different tag.'
 
         return f'Add "{sample_file.tag}" file for sample {sample_name}.'
 

@@ -186,7 +186,8 @@ CREATE TABLE IF NOT EXISTS samples
     create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
-    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
+    CONSTRAINT uq_sample_project_name UNIQUE (project_id, sample_name)
 );
 
 CREATE TABLE IF NOT EXISTS sample_files

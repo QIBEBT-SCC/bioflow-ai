@@ -118,7 +118,7 @@ class SampleContext(UserContext):
 
 class SampleState(AgentState, total=False):
     base_path: str
-    sample_maps: dict[str, str]  # {sample_name: sample_id}
+    sample_maps: Annotated[dict[str, str], operator.or_]  # {sample_name: sample_id}
 
     summary: str
 
