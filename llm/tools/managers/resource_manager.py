@@ -1,7 +1,7 @@
 import json
 from typing import Any, Optional
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
@@ -35,6 +35,18 @@ class SearchDbSchema(BaseModel):
     )
 
 
+class CreateDbSchema(BaseModel):
+    """Add a new biological database to be downloaded."""
+
+    name: str = Field(description='The name of the database to be added.')
+    description: str = Field(
+        description='A functional description of the database, including its application scenarios and the tools that may be used with it.'
+    )
+    query: str = Field(
+        description='Specific requirement descriptions, the task of creating database is assigned to a sub-agent. You need to provide a detailed description of your usage scenario and the expected type of database.'
+    )
+
+
 class AddResourceSchema(BaseModel):
     """Add a resource node to the workflow."""
 
@@ -51,13 +63,15 @@ class AddResourceSchema(BaseModel):
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'view': ViewResourceSchema,
     'search_db': SearchDbSchema,
+    'create_db': CreateDbSchema,
     'add': AddResourceSchema,
 }
 
 HELP_MESSAGE = """## Actions
 The resource_node_manager includes the following operations:
 - `view`: View detailed information of a specific resource node type (inputs, outputs, parameter formats, etc.)
-- `search_db`: Search for specific bioinformatics tools based on keywords
+- `search_db`: Search for a biological database by keyword before adding a database resource node
+- `create_db`: Create a missing biological database record with an automatic download command
 - `add`: Add a resource node to the panel
 
 Before using a specific operation, always use action="help" with params={"action": "<action_name>"} to obtain the parameter description for that operation.
@@ -65,7 +79,7 @@ Before using a specific operation, always use action="help" with params={"action
 
 ## Resource Node Types
 The current system contains the following resource node types (resource_type):
-- db: Encapsulates information of a bioinformatics database, such as the NCBI nr database
+- db: Loads a biological database record by `db_id`, such as the NCBI nr database. Use `search_db` first; if no suitable database exists, use `create_db`, then add the node with the returned `db_id`.
 - genome: Specifically used for inputting a reference genome and its corresponding index files
 - sequence: A resource node for paired-end sequencing files
 - file: A general file input node
@@ -85,6 +99,7 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
     """
     match action:
         case 'help':
+            # pyrefly: ignore [bad-argument-type]
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view':
@@ -118,6 +133,22 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                     }
                 )
             return _search_db(validate_param.query, runtime)
+
+        case 'create_db':
+            try:
+                validate_param = CreateDbSchema.model_validate(params)
+            except ValidationError as e:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=format_validation_error('create_db', e, CreateDbSchema),
+                                tool_call_id=runtime.tool_call_id,
+                            )
+                        ]
+                    }
+                )
+            return _create_db(validate_param.name, validate_param.description, validate_param.query, runtime)
 
         case 'add':
             try:
@@ -198,11 +229,18 @@ def _search_db(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
     if exist_dbs:
         db_blocks = [
             (
-                f'<db>\n'
-                f'  <id>{db.id}</id>\n'
+                f'<db id="{db.id}">\n'
                 f'  <name>{db.name}</name>\n'
                 f'  <description>{db.description}</description>\n'
                 f'  <path>{db.path}</path>\n'
+                f'</db>'
+            )
+            if db.path
+            else (
+                f'<db id="{db.id}">\n'
+                f'  <name>{db.name}</name>\n'
+                f'  <description>{db.description}</description>\n'
+                f'  <download_command>{db.download_command}</download_command>\n'
                 f'</db>'
             )
             for db in exist_dbs
@@ -211,11 +249,43 @@ def _search_db(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
     else:
         content = (
             'Based on the keywords you provided, no results found. Use another keyword to search.'
-            'Or consider add a file node and note node at the corresponding location, '
+            'Or consider use `create_db` action '
             'explaining that a database is needed here and how to download it.'
         )
 
     return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
+
+
+async def _create_db(name: str, description: str, query: str, runtime: ToolRuntime[BuildContext]) -> Command:
+    from llm.agents.workflow_agent.bio_db_creater import bio_db_creator
+
+    try:
+        response = await bio_db_creator.ainvoke(
+            {
+                'messages': [
+                    HumanMessage(
+                        content=f'Create a new database with:\n'
+                        f'name: {name}\n'
+                        f'description: {description}\n'
+                        f'User query: {query}'
+                    )
+                ]
+            }
+        )
+        content = response['messages'][-1].content
+    except Exception as exc:
+        content = f'Failed to create biological database "{name}": {exc}'
+
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=content,
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 def _add_resource(
@@ -314,9 +384,22 @@ def _add_resource(
         case 'ncbi_genome' | 'GRCh38' | 'GRCm39':
             node_data = {'required_index': []}
         case 'db':
-            with Session(engine) as session:
-                bio_db = db_crud.get(session, int(arguments.get('db_id', '-1')))
-                node_data = {**arguments, 'db_name': bio_db.name}
+            db_id = arguments.get('db_id', -1)
+            try:
+                with Session(engine) as session:
+                    bio_db = db_crud.get(session, int(db_id))
+                    node_data = {**arguments, 'db_name': bio_db.name}
+            except Exception as exc:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=f'Error: Invalid biological database id "{db_id}": {exc}',
+                                tool_call_id=runtime.tool_call_id,
+                            )
+                        ]
+                    }
+                )
         case _:
             node_data = arguments
 

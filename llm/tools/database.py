@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -13,14 +13,12 @@ import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 from app.core.session import engine
+from app.models.resource import BioDb
 from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage
 from app.schemas.tools import ToolNodePublic
 from app.utils.container import run_command
 from llm.utils.formatters import search_nodes_formatter
 from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
-
-if TYPE_CHECKING:
-    from app.models.resource import BioDb
 
 
 @tool(parse_docstring=True)
@@ -433,13 +431,12 @@ def search_biodb(query: str) -> str:
         query: Keyword for Search, It can be the tool that uses this database (e.g., Kraken2), or the name of this database (e.g., nr or eggnog).
     """
     with Session(engine) as session:
-        exist_dbs: list[BioDb] = db_crud.get_by_name_fuzzy(session, query, 10, offset=0)
+        exist_dbs = db_crud.get_by_name_fuzzy(session, query, 10, offset=0)
 
     if exist_dbs:
         db_blocks = [
             (
-                f'<db>\n'
-                f'  <id>{db.id}</id>\n'
+                f'<db id="{db.id}">\n'
                 f'  <name>{db.name}</name>\n'
                 f'  <description>{db.description}</description>\n'
                 f'  <path>{db.path}</path>\n'
@@ -454,3 +451,46 @@ def search_biodb(query: str) -> str:
         'Based on the keywords you provided, no results found. '
         'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.'
     )
+
+
+@tool(parse_docstring=True)
+def create_biodb(
+    name: str,
+    description: str,
+    download_command: str,
+    download_image: str,
+    runtime: ToolRuntime,
+) -> Command:
+    """Add a new downloadable biological database to the system.
+
+    Args:
+        name: Unique database name shown to workflow builders.
+        description: Functional database description, including source/version/use case when known.
+        download_command: Non-interactive shell command that downloads and prepares files under `/data/db`.
+        download_image: Container image used to run the command. Use an empty string for the default download image.
+    """
+    with Session(engine) as session:
+        new_db = BioDb(
+            name=name, description=description, download_command=download_command, download_image=download_image
+        )
+        new_db = db_crud.insert(session, new_db)
+
+        return Command(
+            update={
+                'should_end': True,
+                'messages': [
+                    ToolMessage(
+                        content=(
+                            f'Based on your request, a biological database has been added:\n'
+                            f'<db id="{new_db.id}">\n'
+                            f'  <name>{new_db.name}</name>\n'
+                            f'  <description>{new_db.description}</description>\n'
+                            f'  <download_command>{new_db.download_command}</download_command>\n'
+                            f'  <download_image>{new_db.download_image}</download_image>\n'
+                            f'</db>'
+                        ),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )

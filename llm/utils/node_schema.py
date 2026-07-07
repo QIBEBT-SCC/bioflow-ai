@@ -127,7 +127,7 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'db': {
         'name': 'Biological Database',
-        'description': 'This node is used to load a specific biological database. Before use, use the `search_biodb` tool to search for available databases. If data is available, pass an integer `db_id` parameter to indicate your chosen database. If no parameters are found, call the `ask_human` parameter to request staff to add them.',
+        'description': 'This node is used to load a specific biological database. Before adding it, use `resource_node_manager` with action="search_db" to find available databases. If no suitable database exists, use action="create_db" to create a downloadable database record, then pass the returned integer `db_id` parameter when adding this node.',
         'args': DbResourceSchema,
         'input_handles': [],
         'output_handles': [Handle(name='file_path', description='db file path')],
