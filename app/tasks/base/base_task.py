@@ -245,6 +245,11 @@ def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: floa
                     raise ValueError(error_msg)  # noqa: TRY301
 
                 if task.tool_output is not None:
+                    if k == 'workdir' and task.base_dir:
+                        result = str(Path(task.base_dir).absolute())
+                        logger.debug(f'成功获取输出 {k}: {result}')
+                        return result, task.tool_output.sample_name
+
                     all_files = task.tool_output.all_files()
                     if k in all_files:
                         result = str(all_files[k])

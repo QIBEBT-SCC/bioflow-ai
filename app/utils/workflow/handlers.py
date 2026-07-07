@@ -13,7 +13,13 @@ import app.crud.tools.tool as tool_crud
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
 from app.tasks.code import bash_task
-from app.tasks.file_operation import bind_param_task, collect_files_task, gzip_file_task, select_file_task
+from app.tasks.file_operation import (
+    bind_param_task,
+    collect_files_task,
+    collect_mount_dirs_task,
+    gzip_file_task,
+    select_file_task,
+)
 from app.tasks.load_tasks.load_bio_db import load_bio_db_task
 from app.tasks.load_tasks.load_file import load_file_task, load_sequence_task
 from app.tasks.load_tasks.load_genome import load_hg38_task, load_mm39_task, load_ncbi_genome_task
@@ -250,6 +256,25 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
         output_dir = f'{context.output_base}/{task_node.data.get("folder_name", nanoid.generate(size=8))}'
         return collect_files_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
+
+
+@register_handler('collect_mount_dirs')
+class CollectMountDirsTaskHandler(BaseTaskHandler):
+    """收集多个工具目录, 生成可展开挂载的目录清单."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='collect_mount_dirs',
+            base_dir=f'{context.output_base}/{task_node.id}_mount_dirs',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        output_dir = f'{context.output_base}/{task_node.id}_mount_dirs'
+        return collect_mount_dirs_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
 
 
 @register_handler('select_file_in_folder')

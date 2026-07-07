@@ -162,7 +162,7 @@ metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
 
 WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work', 'ask_human'}
 WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
-    'tool_node_manager': {'add', 'update_args', 'create'},
+    'tool_node_manager': {'add', 'update_args', 'create', 'search_by_name'},
     'resource_node_manager': {'create_db', 'add'},
     'processor_node_manager': {'add_processor'},
     'other_node_manager': {'add_code', 'add_note', 'add_downstream_summary'},
@@ -209,6 +209,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                     [
                         'FILE_SYSTEM',
                         'USING_BASH_NODE',
+                        'MULTI_DIRECTORY_INPUT',
                         'WRITE_DOWNSTREAM_SUMMARY',
                     ]
                 ),
@@ -243,6 +244,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 [
                     'USING_BASH_NODE',
                     'FILE_SYSTEM',
+                    'MULTI_DIRECTORY_INPUT',
                     'WRITE_DOWNSTREAM_SUMMARY',
                 ]
             ),

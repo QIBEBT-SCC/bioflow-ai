@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from celery import Task
 from loguru import logger
@@ -19,6 +20,8 @@ from app.tasks.base.base_task import (
 from app.utils.container import ContainerMount, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
 from script.worker import celery_app, monitor_redis_client
+
+MOUNTLIST_PREFIX = 'mountlist:'
 
 
 def _resolve_mount_path(
@@ -66,6 +69,65 @@ def _resolve_mount_path(
     return candidate
 
 
+def _load_mountlist_manifest(manifest_ref: str) -> dict[str, Any]:
+    """Load a mount-list manifest produced by the collect_mount_dirs processor."""
+    manifest_path = Path(manifest_ref.removeprefix(MOUNTLIST_PREFIX)).absolute()
+    if not manifest_path.exists():
+        raise FileNotFoundError(manifest_path)
+
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get('type') != 'mount_dir_list':
+        err_msg = f'Invalid mount-list manifest type: {manifest.get("type")}'
+        raise ValueError(err_msg)
+    if not isinstance(manifest.get('entries'), list):
+        err_msg = 'Invalid mount-list manifest: entries must be a list'
+        raise TypeError(err_msg)
+    if not manifest.get('root_dir'):
+        err_msg = 'Invalid mount-list manifest: missing root_dir'
+        raise ValueError(err_msg)
+
+    return manifest
+
+
+def _add_mountlist_mounts(
+    manifest_ref: str,
+    file: FileMount,
+    mount_paths: dict[str, Path],
+    param_inputs: dict[str, str],
+    conflicted_paths: set[str],
+) -> str:
+    """Expand a mount-list manifest into a logical container input directory."""
+    manifest = _load_mountlist_manifest(manifest_ref)
+    host_root = Path(manifest['root_dir']).absolute()
+    host_root.mkdir(parents=True, exist_ok=True)
+
+    container_root = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_root)
+    if container_root not in mount_paths:
+        mount_paths[container_root] = host_root
+
+    seen_mount_names: set[str] = set()
+    for index, entry in enumerate(manifest['entries'], start=1):
+        source_path = Path(entry['source_path']).absolute()
+        if not source_path.exists():
+            raise FileNotFoundError(source_path)
+        if not source_path.is_dir():
+            raise NotADirectoryError(source_path)
+
+        mount_name = str(entry.get('mount_name') or f'dir_{index:03d}')
+        if mount_name in seen_mount_names:
+            mount_name = f'{index:03d}_{mount_name}'
+        seen_mount_names.add(mount_name)
+
+        container_path = f'{container_root}/{mount_name}'
+        if container_path in mount_paths and mount_paths[container_path] != source_path:
+            err_msg = f'Mount-list target conflict: {container_path}'
+            raise ValueError(err_msg)
+
+        mount_paths[container_path] = source_path
+
+    return container_root
+
+
 def build_mounts(
     file_mounts: list[FileMount],
     host_output_dir: str,
@@ -90,6 +152,17 @@ def build_mounts(
         else:
             kwarg = inputs[file.name]
             file_path, source_sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+            if file_path.startswith(MOUNTLIST_PREFIX):
+                source_sample_names.append(source_sample_name)
+                param_inputs[file.name] = _add_mountlist_mounts(
+                    file_path,
+                    file,
+                    mount_paths,
+                    param_inputs,
+                    conflicted_paths,
+                )
+                continue
+
             host_file_path = Path(file_path)
             source_sample_names.append(source_sample_name)
 
@@ -115,7 +188,7 @@ def build_mounts(
 
     # 刷新样本名称
     common_sample_name = get_prefix(source_sample_names)
-    output_sample_name = common_sample_name if common_sample_name else sample_name
+    output_sample_name = common_sample_name or sample_name
     expected_output.sample_name = output_sample_name
 
     for file in output_files:

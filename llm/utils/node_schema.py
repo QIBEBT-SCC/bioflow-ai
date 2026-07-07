@@ -91,6 +91,13 @@ PROCESSORS: dict[str, NodeSchema] = {
         'input_handles': [Handle(name='files', description='Input files')],
         'output_handles': [Handle(name='folder_path', description='Folder path')],
     },
+    'collect_mount_dirs': {
+        'name': 'Collect Mount Directories',
+        'description': 'This node collects multiple upstream tool working directories and outputs a mount-list manifest. The output is intended to be connected to a tool directory input that supports mountlist expansion.',
+        'args': SimpleSchema,
+        'input_handles': [Handle(name='dirs', description='Tool working directories')],
+        'output_handles': [Handle(name='mount_dir_list', description='Mount-list manifest for downstream tool input')],
+    },
     'gzip': {
         'name': 'Gzip',
         'description': 'This node is used to compress the input file using Gzip.',

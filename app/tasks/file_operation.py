@@ -8,7 +8,8 @@ from loguru import logger
 
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
-from app.tasks.base.base_task import BaseBioTask, get_tool_output
+from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
+from app.utils.input_format import to_safe_path_segment
 from script.worker import celery_app
 
 
@@ -60,6 +61,67 @@ def collect_files_task(
             logger.warning(f'file {origin_file} did not exist!')
 
     return ToolOutput(result={'folder_path': output_folder})
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def collect_mount_dirs_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput | list[TaskInput]],
+    output_dir: str,
+) -> ToolOutput:
+    """Collect multiple upstream directories into a mount-list manifest.
+
+    The returned value is intentionally not a normal path. Downstream tool
+    execution can recognize the ``mountlist:`` prefix and expand the manifest
+    into multiple container mounts under one logical input directory.
+    """
+    input_dirs = inputs.get('dirs', [])
+    kwargs = input_dirs if isinstance(input_dirs, list) else [input_dirs]
+    if not kwargs:
+        err_msg = 'collect_mount_dirs requires at least one input directory'
+        raise ValueError(err_msg)
+
+    output_folder = Path(output_dir).absolute()
+    output_folder.mkdir(parents=True, exist_ok=True)
+    mount_root = output_folder / 'mount_root'
+    mount_root.mkdir(parents=True, exist_ok=True)
+
+    entries = []
+    sample_names = []
+    for index, kwarg in enumerate(kwargs, start=1):
+        source_path_str, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+        source_path = Path(source_path_str).absolute()
+        if not source_path.exists():
+            raise FileNotFoundError(source_path)
+        if not source_path.is_dir():
+            raise NotADirectoryError(source_path)
+
+        source_name = to_safe_path_segment(source_path.name, fallback='dir')
+        mount_name = f'{index:03d}_{source_name}'
+        entries.append(
+            {
+                'mount_name': mount_name,
+                'source_path': str(source_path),
+                'source_uid': kwarg.source_uid,
+                'source_key': kwarg.source_k,
+                'sample_name': sample_name,
+            }
+        )
+        sample_names.append(sample_name)
+
+    manifest_path = output_folder / 'mount_manifest.json'
+    manifest = {
+        'version': 1,
+        'type': 'mount_dir_list',
+        'root_dir': str(mount_root),
+        'entries': entries,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+
+    common_sample_name = get_prefix(sample_names)
+    return ToolOutput(result={'mount_dir_list': f'mountlist:{manifest_path}'}, sample_name=common_sample_name)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

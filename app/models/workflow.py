@@ -82,20 +82,22 @@ class RunInstance(SQLModel, table=True):
 class ToolOutput(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    result: dict[str, Path] = Field(default_factory=dict)
+    result: dict[str, Path | str] = Field(default_factory=dict)
     log: Optional[Path] = None
-    reports: dict[str, Path] = Field(default_factory=dict)
+    reports: dict[str, Path | str] = Field(default_factory=dict)
 
     sample_name: Optional[str] = None
 
-    def all_files(self) -> dict[str, Path]:
+    def all_files(self) -> dict[str, Path | str]:
+        """Return all declared output paths or path-like references."""
         files = (self.result | self.reports).copy()
         if self.log:
             files['log'] = self.log
         return files
 
-    def all_exist(self):
-        return all(file.exists() for file in self.all_files().values())
+    def all_exist(self) -> bool:
+        """Return whether all declared outputs exist on disk."""
+        return all(Path(file).exists() for file in self.all_files().values())
 
 
 class TaskInstance(SQLModel, table=True):
