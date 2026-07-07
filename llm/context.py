@@ -9,6 +9,7 @@ class BaseContext:
 @dataclass
 class CreateToolContext(BaseContext):
     auto_save: bool = True
+    skip_search: bool = False
 
     save_message: bool = False
     dataset_file: str = 'test_run.parquet'

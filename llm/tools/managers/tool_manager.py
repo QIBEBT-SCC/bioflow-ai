@@ -70,6 +70,7 @@ class UpdateArgsSchema(BaseModel):
 class CreateToolSchema(BaseModel):
     """Create a new tool node."""
 
+    name: str = Field(description='The naming of a new node must be distinguishable from existing nodes.')
     request: str = Field(
         description='Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the input is, and what the main expected output is)"'
     )
@@ -192,10 +193,20 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
 
             sub_agent = CreateToolAgent().build()
             agent_input: CreateToolState = {
-                'messages': [HumanMessage(content=f'<Require>\n{validate_param.request}\n</Require>')]
+                'messages': [
+                    HumanMessage(
+                        content=f'Create a new tool node named `{validate_param.name}`\n'
+                        f'<Require>\n{validate_param.request}\n</Require>'
+                    )
+                ]
             }
             run_id = nanoid.generate(size=8)
-            context = CreateToolContext(user_id=runtime.context.user_id, auto_save=True, test_run_id=run_id)
+            context = CreateToolContext(
+                user_id=runtime.context.user_id,
+                auto_save=True,
+                skip_search=True,
+                test_run_id=run_id,
+            )
             response = await sub_agent.ainvoke(agent_input, context=context)  # type: ignore
 
             return Command(

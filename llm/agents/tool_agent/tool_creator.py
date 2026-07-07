@@ -1,4 +1,3 @@
-from llm.agents.tool_agent.report_generator_v2 import direct_test_run_agent
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -28,20 +27,18 @@ from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
 from llm.agents.tool_agent.config_generator import config_generate_agent
-from llm.agents.tool_agent.report_generator import test_run_agent
+from llm.agents.tool_agent.report_generator_v2 import direct_test_run_agent
 from llm.agents.tool_agent.searcher.doc import doc_searcher
 from llm.agents.tool_agent.searcher.image import self_search_image_agent
 from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
+from llm.context import BaseContext, CreateToolContext
 from llm.models import get_agent_model, qwen3_embedding
 from llm.states import (
-    CreateToolContext,
     CreateToolOutput,
     CreateToolState,
     SearchImageState,
     SelectGroupState,
     TestRunContext,
-    TestRunState,
-    UserContext,
 )
 from llm.tools.database import (
     select_group,
@@ -134,14 +131,14 @@ class CreateToolAgent:
 
         # sub agents
         metadata = cast('LLMMetadata', self.think_llm.metadata)
+        # pyrefly: ignore [no-matching-overload]
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
             middleware=[TokenStatisticMiddleware('select_group', **metadata)],
             state_schema=SelectGroupState,
-            # pyrefly: ignore [bad-argument-type]
-            context_schema=UserContext,
+            context_schema=BaseContext,
         )
 
     async def select_image_node(self, state: CreateToolState) -> dict[str, Any]:
@@ -179,7 +176,7 @@ class CreateToolAgent:
                 'image_uid': state['image_uid'],
                 'image': state['image'],
             },
-            context=UserContext(user_id=runtime.context.user_id),
+            context=BaseContext(user_id=runtime.context.user_id),
         )
         doc_uid = response['doc_uid']
 
@@ -205,7 +202,7 @@ class CreateToolAgent:
                 'messages': state['messages'],
                 'image_uid': state['image_uid'],
             },
-            context=UserContext(user_id=runtime.context.user_id),
+            context=BaseContext(user_id=runtime.context.user_id),
         )
         if pre_search_result.get('tool_uid'):
             with Session(engine) as session:
@@ -254,9 +251,7 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
 
-        testrun_input = {
-            'messages': state['messages']
-        }
+        testrun_input = {'messages': state['messages']}
         # pyrefly: ignore [no-matching-overload]
         response = await direct_test_run_agent.ainvoke(
             testrun_input,
@@ -280,7 +275,7 @@ class CreateToolAgent:
         # pyrefly: ignore [no-matching-overload]
         response = await self.select_group_agent.ainvoke(
             {'messages': state['messages']},
-            context=UserContext(user_id=runtime.context.user_id),
+            context=BaseContext(user_id=runtime.context.user_id),
         )
 
         # 不更新消息
@@ -294,7 +289,7 @@ class CreateToolAgent:
         # pyrefly: ignore [no-matching-overload]
         result = await config_generate_agent.ainvoke(
             {'messages': state['messages']},
-            context=UserContext(user_id=runtime.context.user_id),
+            context=BaseContext(user_id=runtime.context.user_id),
         )
 
         with Session(engine) as session:
@@ -366,10 +361,10 @@ class CreateToolAgent:
         runtime: Runtime[CreateToolContext],
     ) -> Literal['search_exist_tool', 'get_report']:
         """如果是以智能体模式运行, 需要检查冗余."""
-        if runtime.context.auto_save:
-            return 'search_exist_tool'
+        if runtime.context.skip_search:
+            return 'get_report'
 
-        return 'get_report'
+        return 'search_exist_tool'
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, *, visualize: bool = False) -> CompiledStateGraph:
         """Create Tool Agent."""
