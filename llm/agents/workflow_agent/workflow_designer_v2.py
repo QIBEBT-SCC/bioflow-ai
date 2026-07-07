@@ -19,7 +19,7 @@ from llm.utils.middleware import (
     StatusBarMiddleware,
     TokenStatisticMiddleware,
 )
-from llm.utils.middleware.end_loop import EndAgentLoop
+from llm.utils.middleware.end_loop import AskAndEndMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
@@ -200,7 +200,7 @@ def build_workflow_planner(checkpointer: Optional[BaseCheckpointSaver] = None) -
                     ]
                 ),
                 DisableParallelToolCallsMiddleware(disabled_tools={'ask_human'}),
-                EndAgentLoop(),
+                AskAndEndMiddleware(),
                 StatusBarMiddleware(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
                 TokenStatisticMiddleware('planner', **metadata),
@@ -226,7 +226,7 @@ def build_workflow_planner(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 ]
             ),
             DisableParallelToolCallsMiddleware(disabled_tools={'ask_human'}),
-            EndAgentLoop(),
+            AskAndEndMiddleware(),
             StatusBarMiddleware(),
             CheckStateExistMiddleware('plan', 'write_plan'),
             TokenStatisticMiddleware('planner', **metadata),

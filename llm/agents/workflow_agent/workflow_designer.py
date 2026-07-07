@@ -27,7 +27,7 @@ from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
     TokenStatisticMiddleware,
 )
-from llm.utils.middleware.end_loop import EndAgentLoop
+from llm.utils.middleware.end_loop import AskAndEndMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 from llm.utils.token import store_token_usage
 
@@ -274,7 +274,7 @@ class WorkflowDesignAgent:
             system_prompt=SELF_DESIGN_SYSTEM,
             middleware=[
                 DisableParallelToolCallsMiddleware(),
-                EndAgentLoop(),
+                AskAndEndMiddleware(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
                 TokenStatisticMiddleware('workflow_designer', **plan_model_metadata),
             ],
@@ -287,7 +287,7 @@ class WorkflowDesignAgent:
             system_prompt=REF_DESIGN_SYSTEM,
             middleware=[
                 DisableParallelToolCallsMiddleware(),
-                EndAgentLoop(),
+                AskAndEndMiddleware(),
                 CheckStateExistMiddleware('plan', 'write_plan'),
                 TokenStatisticMiddleware('workflow_designer', **plan_model_metadata),
             ],
