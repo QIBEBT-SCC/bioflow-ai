@@ -37,7 +37,7 @@ class HelpSchema(BaseModel):
 class NameSearchSchema(BaseModel):
     """Search for tool nodes by name."""
 
-    query: str = Field(description='Name of the tool to search for')
+    query: str = Field(description='Name of the tool to search for, e.g. `samtools`')
 
 
 class FunctionSearchSchema(BaseModel):
@@ -246,7 +246,7 @@ def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Comm
         tool_nodes = []
         for exist_tool in exist_tools:
             try:
-                tool_nodes.append(ToolNodePublic.model_validate(exist_tool.model_dump()))
+                tool_nodes.append(ToolNodePublic.model_validate(exist_tool))
             except TypeError:
                 logger.warning(f'Failed to parse tool "{exist_tool.name}"({exist_tool.uid})')
 
@@ -296,7 +296,8 @@ async def _search_tools_by_function(query: str, runtime: ToolRuntime[BuildContex
         )
 
     exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-    merged_mapper = merge_mappers(exist_mapper, new_mapper)  # type: ignore
+    # pyrefly: ignore [bad-argument-type]
+    merged_mapper = merge_mappers(exist_mapper, new_mapper)
 
     return Command(
         update={
@@ -403,7 +404,7 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
     tool_uid = tool_node.data['tool_uid']
     with Session(engine) as session:
         db_tool = tool_crud.get(session, tool_uid)
-        tool_doc = db_tool.help_doc.content
+        tool_doc: str = getattr(db_tool, 'help_doc', {}).get('content', '')
 
     origin_command = tool_node.command
     if db_tool.modifiable_static_params:

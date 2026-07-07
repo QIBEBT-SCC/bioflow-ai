@@ -178,6 +178,8 @@ class ToolNodePublic(BaseModel):
             for file in self.file_mounts
             if file.file_type == 'OUTPUT' and not (file.is_log or file.is_report)
         ]
+        if not any(handle.name == 'workdir' for handle in self.output_handles):
+            self.output_handles.append(Handle(name='workdir', description='The working directory of the tool run.'))
 
         self.complete_command = build_command_template(
             command_template=self.command_template,
