@@ -161,6 +161,26 @@ def get(session: Session, sample_uid: uuid.UUID, *, with_files: bool = False) ->
     return session.exec(stmt).one_or_none()
 
 
+def get_by_uids(session: Session, sample_uids: list[uuid.UUID], *, project_id: int | None = None) -> list[Sample]:
+    """Return samples matching the given UIDs.
+
+    Args:
+        session: 数据库会话
+        sample_uids: 样本 UID 列表
+        project_id: 可选项目 ID, 用于限制样本必须属于指定项目
+    """
+    if not sample_uids:
+        return []
+
+    stmt = select(Sample).where(col(Sample.uid).in_(sample_uids))
+    if project_id is not None:
+        stmt = stmt.where(Sample.project_id == project_id)
+
+    samples = session.exec(stmt).all()
+    sample_by_uid = {sample.uid: sample for sample in samples}
+    return [sample_by_uid[uid] for uid in sample_uids if uid in sample_by_uid]
+
+
 def get_with_files(session: Session, sample_uid: uuid.UUID) -> Sample | None:
     """获取样本及其关联文件."""
     return get(session, sample_uid, with_files=True)

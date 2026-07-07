@@ -29,6 +29,14 @@ from script.worker import monitor_redis_client
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
 
+def _get_project_run_base_dir(project_id: int, workflow_name: str, sample_name: str | None = None) -> Path:
+    """Return the run output directory under the project's storage root."""
+    base_dir = Path(STORAGE_PATH).absolute() / 'proj' / f'{project_id}' / 'runs' / to_safe_path_segment(workflow_name)
+    if sample_name is not None:
+        base_dir = base_dir / to_safe_path_segment(sample_name)
+    return base_dir
+
+
 def create_runs_from_samples(
     session: Session,
     project_id: int,
@@ -36,6 +44,7 @@ def create_runs_from_samples(
     sample_uids: list[uuid.UUID],
     current_user: User,
     run_name_prefix: Optional[str] = None,
+    *,
     auto_summary: bool = False,
     summary_prompt: Optional[str] = None,
 ) -> WorkflowRunResult:
@@ -67,8 +76,8 @@ def create_runs_from_samples(
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
 
-    # Get all samples
-    samples = sample_crud.get_all(session, sample_uids)
+    # Get all samples in this project
+    samples = sample_crud.get_by_uids(session, sample_uids, project_id=project_id)
     if len(samples) != len(sample_uids):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Some samples not found')
 
@@ -80,6 +89,7 @@ def create_runs_from_samples(
         existing_run = run_crud.get_latest_run_by_sample_and_workflow(session, sample.uid, workflow_uid)
         # Update workflow node IDs
         workflow_definition = update_node_id(workflow.workflow.model_copy(deep=True))
+        base_dir = _get_project_run_base_dir(project_id, workflow.name, sample.sample_name)
 
         if existing_run:
             # If running, reject rerun
@@ -91,8 +101,10 @@ def create_runs_from_samples(
 
             # Clear old execution data and reuse the existing instance
             run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
-            if Path(existing_run.base_dir).exists():
+            if existing_run.base_dir and Path(existing_run.base_dir).exists():
                 shutil.rmtree(existing_run.base_dir)
+            existing_run.base_dir = str(base_dir)
+            session.add(existing_run)
             logger.debug(f'Reusing run instance {existing_run.uid} (Sample: {sample.sample_name})')
 
             run = existing_run
@@ -102,15 +114,6 @@ def create_runs_from_samples(
                 run_name = f'{run_name_prefix}-{sample.sample_name}'
             else:
                 run_name = f'{project.name}-{workflow.name}-{sample.sample_name}'
-
-            # Build run base path
-            base_dir = (
-                Path(STORAGE_PATH).absolute()
-                / f'{current_user.username}({current_user.id})'
-                / to_safe_path_segment(project.name)
-                / to_safe_path_segment(workflow.name)
-                / sample.sample_name
-            )
 
             # Create a new run instance
             run = RunInstance(
@@ -165,6 +168,7 @@ def create_project_level_run(
     workflow_uid: uuid.UUID,
     current_user: User,
     run_name_prefix: Optional[str] = None,
+    *,
     auto_summary: bool = False,
     summary_prompt: Optional[str] = None,
 ) -> WorkflowRunResult:
@@ -201,6 +205,7 @@ def create_project_level_run(
 
     # Update workflow node IDs
     workflow_definition = update_node_id(workflow.workflow.model_copy(deep=True))
+    base_dir = _get_project_run_base_dir(project_id, workflow.name)
 
     # Check if a run instance already exists for this project+workflow combination
     existing_run = run_crud.get_latest_run_by_project_and_workflow(session, project_id, workflow_uid)
@@ -215,22 +220,16 @@ def create_project_level_run(
 
         # Clear old execution data and reuse the existing instance
         run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
-        if Path(existing_run.base_dir).exists():
+        if existing_run.base_dir and Path(existing_run.base_dir).exists():
             shutil.rmtree(existing_run.base_dir)
+        existing_run.base_dir = str(base_dir)
+        session.add(existing_run)
         logger.debug(f'Reusing project-level run instance {existing_run.uid}')
 
         run = existing_run
     else:
         # Build run name
         run_name = f'{run_name_prefix}-{project.name}' if run_name_prefix else f'{project.name}-{workflow.name}'
-
-        # Build run base path
-        base_dir = (
-            Path(STORAGE_PATH).absolute()
-            / f'{current_user.username}({current_user.id})'
-            / to_safe_path_segment(project.name)
-            / to_safe_path_segment(workflow.name)
-        )
 
         # Create a new run instance (sample_uid=None)
         run = RunInstance(

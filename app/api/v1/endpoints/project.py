@@ -185,7 +185,7 @@ def get_project(
 def delete_project(
     project_id: int,
     session: SessionDep,
-    current_user: UserDep,
+    _current_user: UserDep,
 ) -> None:
     """Delete project."""
     project_crud.delete(session, project_id)
@@ -563,7 +563,7 @@ async def package_workflow_runs(
             raise HTTPException(HTTP_404_NOT_FOUND, 'No exist run instance for this workflow!')
         run_dirs = [Path(runs[0].base_dir)] if runs[0].base_dir and await AsyncPath(runs[0].base_dir).exists() else []
 
-        # PROJECT_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name} (只有一个)
+        # PROJECT_LEVEL 运行示例路径格式: base_dir={storage}/proj/{project_id}/runs/{workflow_name} (只有一个)
 
         def _iter_zip() -> Generator[bytes, None, None]:
             buf = io.BytesIO()
@@ -589,7 +589,7 @@ async def package_workflow_runs(
         runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
         run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and await AsyncPath(run.base_dir).exists()]
 
-        # SAMPLE_LEVEL 运行示例路径格式: base_dir={story_base}/{user_name}/{project_name}/{workflow_name}/{sample_name} (多个)
+        # SAMPLE_LEVEL 运行示例路径格式: base_dir={storage}/proj/{project_id}/runs/{workflow_name}/{sample_name} (多个)
 
         def _iter_zip() -> Generator[bytes, None, None]:
             buf = io.BytesIO()
