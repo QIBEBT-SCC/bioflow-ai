@@ -122,11 +122,14 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
 
     sample_file = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}' / 'SAMPLES.md'
     if await sample_file.exists():
-        return await sample_file.read_text(encoding='utf-8')
+        sample_info = await sample_file.read_text(encoding='utf-8')
+        logger.info(f'Reusing persisted sample info from {sample_file}.')
+        return sample_info
 
     console = Console()
 
     thread_id = uuid7str()
+    logger.info(f'Generating sample info for project {project_id}.')
     async with AsyncRedisSaver.from_conn_string(
         get_settings().persistent.cache.LLM_CACHE.unicode_string()
     ) as checkpoint:
@@ -166,7 +169,9 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
                         rich.print(interrupt)
                         sys.exit(-1)
 
-        return await sample_file.read_text(encoding='utf-8')
+        sample_info = await sample_file.read_text(encoding='utf-8')
+        logger.info(f'Sample info generated at {sample_file} ({len(sample_info)} chars).')
+        return sample_info
 
 
 async def _build_input(
@@ -253,11 +258,14 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
 
     plan_file = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}' / 'PLAN.md'
     if await plan_file.exists():
-        return await plan_file.read_text(encoding='utf-8')
+        plan = await plan_file.read_text(encoding='utf-8')
+        logger.info(f'Reusing persisted plan from {plan_file}.')
+        return plan
 
     console = Console()
 
     thread_id = uuid7str()
+    logger.info(f'Generating plan for project {project_id}.')
     async with AsyncRedisSaver.from_conn_string(
         get_settings().persistent.cache.LLM_CACHE.unicode_string()
     ) as checkpoint:
@@ -290,7 +298,9 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
 
         state = await agent.aget_state(config)
 
-        return state.values.get('plan', '')
+        plan = state.values.get('plan', '')
+        logger.info(f'Plan generated for project {project_id} ({len(plan)} chars).')
+        return plan
 
 
 async def _generate_workflow(
@@ -317,6 +327,7 @@ async def _generate_workflow(
             allowed_msgpack_modules=[
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
+                ('llm.states', 'WorkflowDraft'),
                 ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.utils.uid_mapper', 'BidirectionalMapper'),
                 ('app.models.tools', 'FileMount'),
