@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import func, text
+from sqlalchemy import func, text, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
@@ -99,15 +100,15 @@ def get_by_image_url(session: Session, image_url: str) -> ToolImage | None:
     """
     image_config = ImageConfig.from_str(image_url)
     has_tag = _has_explicit_tag(image_url)
-    image_field = col(ToolImage.image)
+    image_field = type_coerce(col(ToolImage.image), JSONB)
 
     conditions = [
-        image_field.op('->>')('registry') == image_config.registry,
-        image_field.op('->>')('namespace') == image_config.namespace,
-        image_field.op('->>')('repository') == image_config.repository,
+        image_field['registry'].astext == image_config.registry,
+        image_field['namespace'].astext == image_config.namespace,
+        image_field['repository'].astext == image_config.repository,
     ]
     if has_tag:
-        conditions.append(image_field.op('->>')('tag') == image_config.tag)
+        conditions.append(image_field['tag'].astext == image_config.tag)
 
     stmt = select(ToolImage).where(*conditions).limit(2)
     images = list(session.exec(stmt).all())
@@ -115,7 +116,11 @@ def get_by_image_url(session: Session, image_url: str) -> ToolImage | None:
     if not images:
         return None
     if len(images) > 1:
-        image_ref = image_config.get_image() if has_tag else f'{image_config.registry}/{image_config.namespace}/{image_config.repository}'
+        image_ref = (
+            image_config.get_image()
+            if has_tag
+            else f'{image_config.registry}/{image_config.namespace}/{image_config.repository}'
+        )
         raise HTTPException(
             HTTP_409_CONFLICT,
             f'Multiple image records match "{image_ref}". Please provide a full image URL with tag.',
@@ -124,9 +129,63 @@ def get_by_image_url(session: Session, image_url: str) -> ToolImage | None:
     return images[0]
 
 
+def get_by_image_ref(session: Session, image_ref: str) -> ToolImage | None:
+    """Return a tool image by full or partial Docker image reference.
+
+    Supported references include repository, namespace/repository, full
+    registry/namespace/repository, and any of those forms with an explicit tag.
+    Ambiguous matches raise a conflict error.
+    """
+    image_name, tag = _split_image_tag(image_ref)
+    url_group = image_name.split('/')
+    image_field = type_coerce(col(ToolImage.image), JSONB)
+
+    match len(url_group):
+        case 3:
+            conditions = [
+                image_field['registry'].astext == url_group[0],
+                image_field['namespace'].astext == url_group[1],
+                image_field['repository'].astext == url_group[2],
+            ]
+        case 2:
+            conditions = [
+                image_field['namespace'].astext == url_group[0],
+                image_field['repository'].astext == url_group[1],
+            ]
+        case 1:
+            conditions = [image_field['repository'].astext == url_group[0]]
+        case _:
+            err_msg = 'Incorrect image format. It MUST be like `[registry/][namespace/]<repository>[:tag]`'
+            raise ValueError(err_msg)
+
+    if tag is not None:
+        conditions.append(image_field['tag'].astext == tag)
+
+    stmt = select(ToolImage).where(*conditions).limit(2)
+    images = list(session.exec(stmt).all())
+
+    if not images:
+        return None
+    if len(images) > 1:
+        raise HTTPException(
+            HTTP_409_CONFLICT,
+            f'Multiple image records match "{image_ref}". Please provide a more specific image reference.',
+        )
+
+    return images[0]
+
+
 def _has_explicit_tag(image_url: str) -> bool:
     """Return whether a Docker image string explicitly includes a tag."""
     return ':' in image_url.rsplit('/', 1)[-1]
+
+
+def _split_image_tag(image_ref: str) -> tuple[str, str | None]:
+    """Split a Docker image reference into name and optional explicit tag."""
+    if not _has_explicit_tag(image_ref):
+        return image_ref, None
+    image_name, tag = image_ref.rsplit(':', 1)
+    return image_name, tag
 
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolImage], int]:
@@ -152,3 +211,19 @@ def get_by_name(session: Session, name: str) -> ToolImage | None:
     """Return a tool image by its name."""
     stmt = select(ToolImage).where(ToolImage.name == name)
     return session.exec(stmt).one_or_none()
+
+
+def get_unique_by_name(session: Session, name: str) -> ToolImage | None:
+    """Return a unique tool image by tool name, or raise on ambiguity."""
+    stmt = select(ToolImage).where(ToolImage.name == name).limit(2)
+    images = list(session.exec(stmt).all())
+
+    if not images:
+        return None
+    if len(images) > 1:
+        raise HTTPException(
+            HTTP_409_CONFLICT,
+            f'Multiple image records match tool name "{name}". Please provide an image repository reference.',
+        )
+
+    return images[0]
