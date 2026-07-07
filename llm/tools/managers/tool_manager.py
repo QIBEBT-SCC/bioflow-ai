@@ -15,8 +15,9 @@ from app.core.session import engine
 from app.schemas.tools import ToolNodePublic
 from app.utils.input_format import build_command_template
 from llm.agents.tool_agent import CreateToolAgent
+from llm.context import CreateToolContext, ProjectContext
 from llm.prebuild.chains import check_update_args
-from llm.states import BuildContext, BuildEdge, BuildNode, CreateToolContext, CreateToolState
+from llm.states import BuildEdge, BuildNode, CreateToolState
 from llm.utils.edge_validation import check_edge_handles, check_tool_node_edges
 from llm.utils.formatters import (
     format_validation_error,
@@ -106,7 +107,7 @@ How to determine whether a found tool node is suitable:
 
 
 @tool(parse_docstring=True)
-async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[BuildContext]) -> Command:
+async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[ProjectContext]) -> Command:
     """Tool manager, execute operations related to tool nodes.
 
     Args:
@@ -235,7 +236,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
             )
 
 
-def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
+def _search_tool_by_name(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     with Session(engine) as session:
         exist_tools = tool_crud.get_by_name_fuzzy(session, query, 15, 0)
         new_mapper = BidirectionalMapper(datas=exist_tools)
@@ -280,7 +281,7 @@ def _search_tool_by_name(query: str, runtime: ToolRuntime[BuildContext]) -> Comm
     )
 
 
-async def _search_tools_by_function(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
+async def _search_tools_by_function(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     tool_nodes, new_mapper = await retrieve_tools(query)
 
     if not tool_nodes:
@@ -317,7 +318,7 @@ def _add_tool_node(
     input_edges: list[BuildEdge],
     pos_x: int,
     pos_y: int,
-    runtime: ToolRuntime[BuildContext],
+    runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     tool_uid = runtime.state['id_mapper'].get_uid_by_index(selected_id)
 
@@ -373,7 +374,7 @@ def _add_tool_node(
     )
 
 
-async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: ToolRuntime[BuildContext]) -> Command:
+async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     exist_nodes = cast('list[BuildNode]', runtime.state.get('exist_nodes'))
     tool_node: BuildNode | None = next((n for n in exist_nodes if n.id == node_id), None)
 

@@ -197,6 +197,14 @@ class BuildEdge(BaseModel):
     target_handle: str = Field(description='The name value of the corresponding handle on the target node')
 
 
+class WorkflowDraft(BaseModel):
+    draft_id: str
+    name: str
+    description: str = ''
+    nodes: list[BuildNode] = Field(default_factory=list)
+    edges: list[BuildEdge] = Field(default_factory=list)
+
+
 class GlobalMarker(BaseModel):
     mark_name: str
     description: str
@@ -210,6 +218,9 @@ class BuildSchema(AgentState, total=False):
     id_mapper: BidirectionalMapper
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
+
+    active_workflow_id: str | None
+    workflow_drafts: dict[str, WorkflowDraft]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
 

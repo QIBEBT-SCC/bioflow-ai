@@ -7,6 +7,15 @@ class BaseContext:
 
 
 @dataclass
+class CreateToolContext(BaseContext):
+    auto_save: bool = True
+
+    save_message: bool = False
+    dataset_file: str = 'test_run.parquet'
+    test_run_id: str | None = None
+
+
+@dataclass
 class ProjectContext(BaseContext):
     project_id: int
     workdir: str

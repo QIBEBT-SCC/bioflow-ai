@@ -7,7 +7,8 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
 
 from app.schemas.tools import Handle
-from llm.states import BuildContext, BuildEdge, BuildNode
+from llm.context import ProjectContext
+from llm.states import BuildEdge, BuildNode
 from llm.utils.edge_validation import check_code_node_edges, check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
@@ -66,7 +67,7 @@ Use action="help" with params={"action": "<action_name>"} to get the parameter s
 
 
 @tool(parse_docstring=True)
-async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[BuildContext]) -> Command:
+async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[ProjectContext]) -> Command:
     """Code and Note manager, execute operations related to code nodes and note nodes.
 
     Args:
@@ -75,6 +76,7 @@ async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolR
     """
     match action:
         case 'help':
+            # pyrefly: ignore [bad-argument-type]
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'add_code':
@@ -154,7 +156,7 @@ def _add_code(
     pos_x: int,
     pos_y: int,
     input_edges: list[BuildEdge],
-    runtime: ToolRuntime[BuildContext],
+    runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     code_input_handles = [Handle(name='input_files', description='The files required by this code')]
@@ -195,7 +197,7 @@ def _add_code(
     )
 
 
-def _add_note_node(note_content: str, pos_x: int, pos_y: int, runtime: ToolRuntime[BuildContext]) -> Command:
+def _add_note_node(note_content: str, pos_x: int, pos_y: int, runtime: ToolRuntime[ProjectContext]) -> Command:
     node_count = len(runtime.state.get('exist_nodes', []))
     node_id = generate_char_index(node_count + 1)
 
@@ -228,7 +230,7 @@ def _add_downstream_node(
     pos_x: int,
     pos_y: int,
     input_edges: list[BuildEdge],
-    runtime: ToolRuntime[BuildContext],
+    runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required for downstream analyse')]

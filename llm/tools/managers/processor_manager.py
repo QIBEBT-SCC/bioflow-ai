@@ -7,7 +7,8 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
 
-from llm.states import BuildContext, BuildEdge, BuildNode
+from llm.context import ProjectContext
+from llm.states import BuildEdge, BuildNode
 from llm.utils.edge_validation import check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import PROCESSORS
@@ -62,7 +63,7 @@ Before using a corresponding operation, it is necessary to use `action="help"` w
 
 
 @tool(parse_docstring=True)
-async def processor_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[BuildContext]) -> Command:
+async def processor_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[ProjectContext]) -> Command:
     """Processor node manager, execute operations related to processor nodes.
 
     Args:
@@ -71,6 +72,7 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
     """
     match action:
         case 'help':
+            # pyrefly: ignore [bad-argument-type]
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view_processor':
@@ -141,7 +143,7 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
             )
 
 
-def _view_processor(node_name: str, runtime: ToolRuntime[BuildContext]) -> Command:
+def _view_processor(node_name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     if node_name not in PROCESSORS:
         return Command(
             update={
@@ -165,7 +167,7 @@ def _view_processor(node_name: str, runtime: ToolRuntime[BuildContext]) -> Comma
     return Command(update={'messages': [ToolMessage(content=json.dumps(node_obj), tool_call_id=runtime.tool_call_id)]})
 
 
-async def _search_processor(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
+async def _search_processor(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     results = await retrieve_processor(query)
 
     if not results:
@@ -191,7 +193,7 @@ def _add_processor(
     input_edges: list[BuildEdge],
     pos_x: int,
     pos_y: int,
-    runtime: ToolRuntime[BuildContext],
+    runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     node_id = generate_char_index(len(exist_nodes) + 1)

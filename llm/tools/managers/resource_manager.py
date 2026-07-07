@@ -10,7 +10,8 @@ from sqlmodel import Session
 
 import app.crud.resource.bio_db as db_crud
 from app.core.session import engine
-from llm.states import BuildContext, BuildEdge, BuildNode
+from llm.context import ProjectContext
+from llm.states import BuildEdge, BuildNode
 from llm.utils.edge_validation import check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import RESOURCES
@@ -88,7 +89,7 @@ The current system contains the following resource node types (resource_type):
 
 
 @tool(parse_docstring=True)
-async def resource_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[BuildContext]) -> Command:
+async def resource_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[ProjectContext]) -> Command:
     """Resource node manager, execute operations related to resource nodes.
 
     Resources include files, databases, variables, and so on.
@@ -186,7 +187,7 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
             )
 
 
-def _view_resource(resource_type: str, runtime: ToolRuntime[BuildContext]) -> Command:
+def _view_resource(resource_type: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     if resource_type == 'genome':
         content = (
             'The system currently includes the following nodes for reference genomes (available resource_type):\n'
@@ -222,7 +223,7 @@ def _view_resource(resource_type: str, runtime: ToolRuntime[BuildContext]) -> Co
     return Command(update={'messages': [ToolMessage(content=json.dumps(node_obj), tool_call_id=runtime.tool_call_id)]})
 
 
-def _search_db(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
+def _search_db(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     with Session(engine) as session:
         exist_dbs = db_crud.get_by_name_fuzzy(session, query, 10, offset=0)
 
@@ -256,7 +257,7 @@ def _search_db(query: str, runtime: ToolRuntime[BuildContext]) -> Command:
     return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
 
 
-async def _create_db(name: str, description: str, query: str, runtime: ToolRuntime[BuildContext]) -> Command:
+async def _create_db(name: str, description: str, query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     from llm.agents.workflow_agent.bio_db_creater import bio_db_creator
 
     try:
@@ -293,7 +294,7 @@ def _add_resource(
     input_edges: list[BuildEdge],
     pos_x: int,
     pos_y: int,
-    runtime: ToolRuntime[BuildContext],
+    runtime: ToolRuntime[ProjectContext],
     arguments: Optional[dict[str, Any]] = None,
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
