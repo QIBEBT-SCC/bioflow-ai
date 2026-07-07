@@ -16,7 +16,11 @@ DB_PATH = 'presets/build/evaluate.sqlite3'
 
 
 def _resolve_thread_id(task_file: str, thread_id: str | None) -> str:
-    return FilePath(task_file).name if thread_id is None else thread_id
+    if thread_id:
+        return thread_id
+
+    path = FilePath(task_file)
+    return path.parent.name if path.name == 'task.md' else path.name
 
 
 def _check_db(db_path: str = DB_PATH) -> sqlite3.Connection:
@@ -107,11 +111,9 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
     return task_project.id, f'{project_path}'
 
 
-async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: str) -> str:
+async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: str, checkpoint: Any) -> str:
     import rich
     from langchain_core.runnables import RunnableConfig
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from rich.console import Console
     from uuid_extensions import uuid7str
 
@@ -129,49 +131,34 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
     console = Console()
 
     thread_id = uuid7str()
-    logger.info(f'Generating sample info for project {project_id}.')
-    async with AsyncRedisSaver.from_conn_string(
-        get_settings().persistent.cache.LLM_CACHE.unicode_string()
-    ) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
+    logger.info(f'Generating sample info for project {project_id}; checkpoint thread_id={thread_id}.')
+    agent = build_create_sample_agent(checkpointer=checkpoint)
+    config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
+    agent_input = {'messages': [user_input]}
 
-        agent = build_create_sample_agent(checkpointer=checkpoint)
-        config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
-        agent_input = {'messages': [user_input]}
+    # pyrefly: ignore [no-matching-overload]
+    async for chunk in agent.astream(
+        agent_input,
+        config,
+        context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
+        stream_mode=['updates', 'custom'],
+        version='v2',
+        subgraphs=True,
+    ):
+        print_stream_chunk(console, chunk)
 
-        # pyrefly: ignore [no-matching-overload]
-        async for chunk in agent.astream(
-            agent_input,
-            config,
-            context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
-            stream_mode=['updates', 'custom'],
-            version='v2',
-            subgraphs=True,
-        ):
-            print_stream_chunk(console, chunk)
+    state = await agent.aget_state(config)
+    # 有中断
+    if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
+        for task in state.tasks:
+            if hasattr(task, 'interrupts'):
+                for interrupt in task.interrupts:
+                    rich.print(interrupt)
+                    sys.exit(-1)
 
-        state = await agent.aget_state(config)
-        # 有中断
-        if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
-            for task in state.tasks:
-                if hasattr(task, 'interrupts'):
-                    for interrupt in task.interrupts:
-                        rich.print(interrupt)
-                        sys.exit(-1)
-
-        sample_info = await sample_file.read_text(encoding='utf-8')
-        logger.info(f'Sample info generated at {sample_file} ({len(sample_info)} chars).')
-        return sample_info
+    sample_info = await sample_file.read_text(encoding='utf-8')
+    logger.info(f'Sample info generated at {sample_file} ({len(sample_info)} chars).')
+    return sample_info
 
 
 async def _build_input(
@@ -244,10 +231,8 @@ async def _build_input(
     return human_input
 
 
-async def _generate_plan(human_input: list[HumanMessage], project_id: int, workdir: str) -> str:
+async def _generate_plan(human_input: list[HumanMessage], project_id: int, workdir: str, checkpoint: Any) -> str:
     from langchain_core.runnables import RunnableConfig
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from rich.console import Console
     from uuid_extensions import uuid7str
 
@@ -265,54 +250,42 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
     console = Console()
 
     thread_id = uuid7str()
-    logger.info(f'Generating plan for project {project_id}.')
-    async with AsyncRedisSaver.from_conn_string(
-        get_settings().persistent.cache.LLM_CACHE.unicode_string()
-    ) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
+    logger.info(f'Generating plan for project {project_id}; checkpoint thread_id={thread_id}.')
+    agent = build_workflow_planner(checkpointer=checkpoint)
+    config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
+    agent_input = {'messages': human_input}
 
-        agent = build_workflow_planner(checkpointer=checkpoint)
-        config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
-        agent_input = {'messages': human_input}
+    # pyrefly: ignore [no-matching-overload]
+    async for chunk in agent.astream(
+        agent_input,
+        config,
+        context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir, auto_approve=True),
+        stream_mode=['updates', 'custom'],
+        version='v2',
+        subgraphs=True,
+    ):
+        print_stream_chunk(console, chunk)
 
-        # pyrefly: ignore [no-matching-overload]
-        async for chunk in agent.astream(
-            agent_input,
-            config,
-            context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir, auto_approve=True),
-            stream_mode=['updates', 'custom'],
-            version='v2',
-            subgraphs=True,
-        ):
-            print_stream_chunk(console, chunk)
+    state = await agent.aget_state(config)
 
-        state = await agent.aget_state(config)
-
-        plan = state.values.get('plan', '')
-        logger.info(f'Plan generated for project {project_id} ({len(plan)} chars).')
-        return plan
+    plan = state.values.get('plan', '')
+    logger.info(f'Plan generated for project {project_id} ({len(plan)} chars).')
+    return plan
 
 
 async def _generate_workflow(
-    human_input: list[Any], thread_id: str, project_id: int, workdir: str, *, reset_checkpoint: bool = False
+    human_input: list[Any],
+    thread_id: str,
+    project_id: int,
+    workdir: str,
+    checkpoint: Any,
+    *,
+    reset_checkpoint: bool = False,
 ) -> list[str]:
     import rich
     from langchain_core.runnables import RunnableConfig
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
     from rich.console import Console
 
-    from app.core.config import get_settings
     from llm.agents.workflow_agent.workflow_builder import build_workflow_builder
     from llm.context import ProjectContext
     from llm.utils.render import print_stream_chunk
@@ -320,51 +293,36 @@ async def _generate_workflow(
 
     console = Console()
 
-    async with AsyncRedisSaver.from_conn_string(
-        get_settings().persistent.cache.LLM_CACHE.unicode_string()
-    ) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.states', 'WorkflowDraft'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
-            ]
-        )
-        if reset_checkpoint:
-            await delete_checkpoint(checkpoint, thread_id)
+    if reset_checkpoint:
+        await delete_checkpoint(checkpoint, thread_id)
 
-        agent = build_workflow_builder(checkpointer=checkpoint)
-        config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
-        agent_input = {'messages': human_input}
+    agent = build_workflow_builder(checkpointer=checkpoint)
+    config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
+    agent_input = {'messages': human_input}
 
-        # pyrefly: ignore [no-matching-overload]
-        async for chunk in agent.astream(
-            agent_input,
-            config,
-            context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
-            stream_mode=['updates', 'custom'],
-            version='v2',
-            subgraphs=True,
-        ):
-            print_stream_chunk(console, chunk)
+    # pyrefly: ignore [no-matching-overload]
+    async for chunk in agent.astream(
+        agent_input,
+        config,
+        context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
+        stream_mode=['updates', 'custom'],
+        version='v2',
+        subgraphs=True,
+    ):
+        print_stream_chunk(console, chunk)
 
-        state = await agent.aget_state(config)
-        # 有中断
-        if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
-            for task in state.tasks:
-                if hasattr(task, 'interrupts'):
-                    for interrupt in task.interrupts:
-                        rich.print(interrupt)
-                        sys.exit(-1)
+    state = await agent.aget_state(config)
+    # 有中断
+    if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
+        for task in state.tasks:
+            if hasattr(task, 'interrupts'):
+                for interrupt in task.interrupts:
+                    rich.print(interrupt)
+                    sys.exit(-1)
 
-        workflow_uids = state.values.get('workflow_uids', [])
-        logger.success(f'工作流已生成: {workflow_uids}')
-        return workflow_uids
+    workflow_uids = state.values.get('workflow_uids', [])
+    logger.success(f'工作流已生成: {workflow_uids}')
+    return workflow_uids
 
 
 def _send_run_task(
@@ -409,6 +367,9 @@ async def wf_eval(
     """运行bioflow ai 测试."""
     import os
 
+    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+
     os.environ['LANGCHAIN_TRACING_V2'] = 'true'
     os.environ['LANGCHAIN_PROJECT'] = 'bioflow-ai-eval'
 
@@ -426,23 +387,42 @@ async def wf_eval(
 
         user_input = await _build_input(con, task_file, paper_file, thread_id)
         project_id, workdir = _init_project(con, thread_id)
-        sample_info = await _get_sample_info(user_input, project_id, workdir)
-        standard_plan = await _generate_plan([user_input, HumanMessage(content=sample_info)], project_id, workdir)
+        async with AsyncRedisSaver.from_conn_string(
+            get_settings().persistent.cache.LLM_CACHE.unicode_string()
+        ) as checkpoint:
+            checkpoint.serde = JsonPlusRedisSerializer(
+                allowed_msgpack_modules=[
+                    ('llm.states', 'BuildEdge'),
+                    ('llm.states', 'BuildNode'),
+                    ('llm.states', 'WorkflowDraft'),
+                    ('llm.utils.middleware.todo', 'Todo'),
+                    ('llm.utils.uid_mapper', 'BidirectionalMapper'),
+                    ('app.models.tools', 'FileMount'),
+                    ('app.models.tools', 'ImageConfig'),
+                    ('app.models.tools', 'ParamDefine'),
+                ]
+            )
 
-        agent_input = [
-            HumanMessage(content=sample_info),
-            HumanMessage(content=standard_plan),
-            HumanMessage(
-                content='Please complete the task of constructing a work roadmap based on the above information.'
-            ),
-        ]
-        workflow_uids = await _generate_workflow(
-            agent_input,
-            thread_id,
-            project_id,
-            workdir,
-            reset_checkpoint=reset_checkpoint,
-        )
+            sample_info = await _get_sample_info(user_input, project_id, workdir, checkpoint)
+            standard_plan = await _generate_plan(
+                [user_input, HumanMessage(content=sample_info)], project_id, workdir, checkpoint
+            )
+
+            agent_input = [
+                HumanMessage(content=sample_info),
+                HumanMessage(content=standard_plan),
+                HumanMessage(
+                    content='Please complete the task of constructing a work roadmap based on the above information.'
+                ),
+            ]
+            workflow_uids = await _generate_workflow(
+                agent_input,
+                thread_id,
+                project_id,
+                workdir,
+                checkpoint,
+                reset_checkpoint=reset_checkpoint,
+            )
         _send_run_task(con, thread_id, project_id, workflow_uids, '')
     finally:
         con.close()
