@@ -56,14 +56,10 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'add_downstream_summary': AddSummarySchema,
 }
 
-HELP_MESSAGE = """other_node_manager contains the following available actions:
-- `add_code`: Add a bash code node to the workflow panel
-- `add_note`: Add a note node to the workflow panel
-- `add_downstream_summary`: Add a downstream summary node to the workflow panel
-
-Use action="help" with params={"action": "<action_name>"} to get the parameter schema for a specific action.
-(e.g. other_node_manager(action="help" params={"action": "add_note"}))
-"""
+HELP_MESSAGE = (
+    'Call other_node_manager with action="help" and params={"action": "<action_name>"} '
+    'to obtain the parameter schema for a specific action.'
+)
 
 
 @tool(parse_docstring=True)
@@ -143,7 +139,7 @@ async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolR
                 update={
                     'messages': [
                         ToolMessage(
-                            content=f'Unknown action: "{action}". Use action="help" with params={{}} to see available actions.',
+                            content=f'Unknown action: "{action}". Check the workflow-builder system prompt for available actions.',
                             tool_call_id=runtime.tool_call_id,
                         )
                     ]

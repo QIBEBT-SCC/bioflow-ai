@@ -68,24 +68,10 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'add': AddResourceSchema,
 }
 
-HELP_MESSAGE = """## Actions
-The resource_node_manager includes the following operations:
-- `view`: View detailed information of a specific resource node type (inputs, outputs, parameter formats, etc.)
-- `search_db`: Search for a biological database by keyword before adding a database resource node
-- `create_db`: Create a missing biological database record with an automatic download command
-- `add`: Add a resource node to the panel
-
-Before using a specific operation, always use action="help" with params={"action": "<action_name>"} to obtain the parameter description for that operation.
-(e.g., resource_node_manager(action="help" params={"action": "view"}))
-
-## Resource Node Types
-The current system contains the following resource node types (resource_type):
-- db: Loads a biological database record by `db_id`, such as the NCBI nr database. Use `search_db` first; if no suitable database exists, use `create_db`, then add the node with the returned `db_id`.
-- genome: Specifically used for inputting a reference genome and its corresponding index files
-- sequence: A resource node for paired-end sequencing files
-- file: A general file input node
-- value_string: Encapsulates a string variable that can be used as value input for other nodes
-"""
+HELP_MESSAGE = (
+    'Specify the action to inspect, for example: '
+    'resource_node_manager(action="help", params={"action": "view"}).'
+)
 
 
 @tool(parse_docstring=True)
@@ -179,7 +165,7 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                 update={
                     'messages': [
                         ToolMessage(
-                            content=f'Unknown action: "{action}". Use action="help" with params={{}} to see available actions.',
+                            content=f'Unknown action: "{action}". Check the workflow-builder system prompt for available actions.',
                             tool_call_id=runtime.tool_call_id,
                         )
                     ]

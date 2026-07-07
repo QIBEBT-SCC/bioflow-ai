@@ -83,27 +83,9 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'create': CreateToolSchema,
 }
 
-HELP_MESSAGE = """## Actions
-The tool_node_manager includes the following actions:
-- `search_by_name`: Search for a tool by name
-- `add`: Add a tool node to the panel
-- `update_args`: Update node parameters
-- `create`: Create a new tool node (when no existing node meets the requirements)
-
-Before using any action, always use action="help" and pass params={"action": "<action_name>"} to obtain parameter descriptions for the specific action.
-(e.g., tool_node_manager(action="help" params={"action": "search_by_name"}))
-
-## Explanation
-How to determine whether a found tool node is suitable:
-- Meets requirements
-    - A usable tool is found, and its functionality perfectly matches user needs.
-    - A usable tool is found, though its parameter settings do not fully match user needs; however, this can be resolved by adding or adjusting modifiable parameters (args_editable).
-- Does not meet requirements
-    - The search tool returns no results.
-    - The search tool returns results, but none of them match user requirements.
-    - A usable tool is found, but the required functionality conflicts with the tool's non-modifiable parameters (args_static).
-    - A usable tool is found, but the required functionality is inconsistent with the current node's input (additional files are needed or certain inputs are unnecessary).
-"""
+HELP_MESSAGE = (
+    'Specify the action to inspect, for example: tool_node_manager(action="help", params={"action": "search_by_name"}).'
+)
 
 
 @tool(parse_docstring=True)
@@ -228,7 +210,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                 update={
                     'messages': [
                         ToolMessage(
-                            content=f'Unknown action: "{action}". Use action="help" with params={{}} to see available actions.',
+                            content=f'Unknown action: "{action}". Check the workflow-builder system prompt for available actions.',
                             tool_call_id=runtime.tool_call_id,
                         )
                     ]
@@ -405,10 +387,28 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
     tool_uid = tool_node.data['tool_uid']
     with Session(engine) as session:
         db_tool = tool_crud.get(session, tool_uid)
-        tool_doc: str = getattr(db_tool, 'help_doc', {}).get('content', '')
+        if db_tool is None:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content='The information corresponding to the node is not found in the database. This may be due to data corruption or other reasons. '
+                            'Check whether the provided ID is correct, or consider performing a new search to refresh the database information.',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
+        # pyrefly: ignore [missing-attribute]
+        tool_doc: str = db_tool.help_doc.content
 
     origin_command = tool_node.command
+    if origin_command is None:
+        err_msg = 'Tool command is None.'
+        raise ValueError(err_msg)
+
     if db_tool.modifiable_static_params:
+        # pyrefly: ignore [missing-attribute]
         origin_command = origin_command.replace(
             db_tool.modifiable_static_params, f'[{db_tool.modifiable_static_params}]'
         )

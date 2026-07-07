@@ -65,15 +65,40 @@ These can be used when loading or saving files. For more details, please refer t
 
 ### Interactive Tools
 All interactive tools (XX_manager) adopt a progressive disclosure mode of `action + params`:
-- `action="help", params={}` — lists all available actions and their descriptions for the tool
 - `action="help", params={"action": "<name>"}` — views the parameter schema of a specified action
+Available actions are already listed below. Do not call `action="help"` with empty params.
 
-The interaction targets for each tool are as follows:
+The interaction targets and available actions for each tool are as follows:
+
 - `tool_node_manager` — tool nodes
-- `resource_node_manager` — resource nodes
-- `processor_node_manager` — processor nodes
+  - `search_by_name`: search for an existing tool node by tool name
+  - `add`: add a selected tool node to the workflow panel
+  - `update_args`: update editable parameters of an existing tool node on the panel
+  - `create`: create a new tool node when no existing node meets the requirement
+- `resource_node_manager` — resource nodes, including files, databases, genomes, and variables
+  - Valid `resource_type` values are `db`, `genome`, `sequence`, `file`, and `value_string`
+  - `view`: view details of a specific resource node type, including inputs, outputs, and parameter format
+  - `search_db`: search for a biological database before adding a database resource node
+  - `create_db`: create a missing biological database record with an automatic download command
+  - `add`: add a resource node to the workflow panel
+- `processor_node_manager` — processor nodes for system/file operations unrelated to bioinformatics analysis
+  - `search_processor`: search for processor nodes by function
+  - `view_processor`: view details of a specific processor node, including inputs, outputs, and parameter format
+  - `add_processor`: add a processor node to the workflow panel
 - `other_node_manager` — code nodes, note nodes, and downstream summary nodes
-- `workflow_manager` — workflow draft and panel operations (creating/switching workflow drafts, viewing, deleting nodes, saving all workflows, etc.)
+  - `add_code`: add a custom bash code node to the workflow panel
+  - `add_note`: add a note node to annotate the workflow panel
+  - `add_downstream_summary`: add a downstream summary node for later downstream analysis
+- `workflow_manager` — workflow draft and panel operations
+  - `list_workflow_drafts`: list all workflow drafts in the current editing session
+  - `create_workflow_draft`: create a new workflow draft and switch the current panel to it
+  - `switch_workflow_draft`: snapshot the current panel and switch to another workflow draft
+  - `update_workflow_metadata`: update the active workflow draft name or description
+  - `view_workflow`: view the current active workflow panel structure
+  - `view_node`: view details of a specific node in the active workflow
+  - `delete_node`: remove an existing node from the active workflow panel
+  - `fix_edge`: replace orphan edges in the active workflow panel
+  - `save_all_workflows`: save all workflow drafts into the database after every workflow is complete
 
 
 ## Task Process

@@ -50,16 +50,10 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'add_processor': AddProcessorSchema,
 }
 
-HELP_MESSAGE = """## Actions
-The `processor_node_manager` includes the following operations:
-
-- `view_processor`: View the detailed information of a specific processor node, including inputs, outputs, parameter formats, and so on.
-- `search_processor`: Search for processor nodes by function using vector search.
-- `add_processor`: Add a processor node to the panel.
-
-Before using a corresponding operation, it is necessary to use `action="help"` with `params={"action": "<action_name>"}` to obtain the parameter description for the specific operation.
-(e.g., `processor_node_manager(action="help" params={"action": "view_processor"})`)
-"""
+HELP_MESSAGE = (
+    'Call processor_node_manager with action="help" and params={"action": "<action_name>"} '
+    'to obtain the parameter schema for a specific action.'
+)
 
 
 @tool(parse_docstring=True)
@@ -135,7 +129,7 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
                 update={
                     'messages': [
                         ToolMessage(
-                            content=f'Unknown action: "{action}". Use action="help" with params={{}} to see available actions.',
+                            content=f'Unknown action: "{action}". Check the workflow-builder system prompt for available actions.',
                             tool_call_id=runtime.tool_call_id,
                         )
                     ]

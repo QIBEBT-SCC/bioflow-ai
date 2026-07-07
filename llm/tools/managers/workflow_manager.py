@@ -87,20 +87,10 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'save_all_workflows': None,
 }
 
-HELP_MESSAGE = """workflow_manager contains the following available actions:
-- `list_workflow_drafts`: List all workflow drafts in the current editing session
-- `create_workflow_draft`: Create a new workflow draft and switch the current panel to it
-- `switch_workflow_draft`: Snapshot the current panel and switch to another workflow draft
-- `update_workflow_metadata`: Update the active workflow draft name or description
-- `view_workflow`: View the current active workflow panel structure
-- `view_node`: View the details of a specific node in the active workflow
-- `delete_node`: Remove an existing node from the active workflow panel
-- `fix_edge`: Replace orphan edges in the active workflow panel
-- `save_all_workflows`: Save all workflow drafts into the database after every workflow is complete
-
-Use action="help" with params={"action": "<action_name>"} to get the parameter schema for a specific action.
-(e.g. workflow_manager(action="help" params={"action": "view_workflow"}))
-"""
+HELP_MESSAGE = (
+    'Call workflow_manager with action="help" and params={"action": "<action_name>"} '
+    'to obtain the parameter schema for a specific action.'
+)
 
 
 @tool(parse_docstring=True)
@@ -228,7 +218,7 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                 update={
                     'messages': [
                         ToolMessage(
-                            content=f'Unknown action: "{action}". Use action="help" with params={{}} to see available actions.',
+                            content=f'Unknown action: "{action}". Check the workflow-builder system prompt for available actions.',
                             tool_call_id=runtime.tool_call_id,
                         )
                     ]
