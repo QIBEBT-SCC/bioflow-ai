@@ -2,13 +2,12 @@ from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
 
+from llm.context import BaseContext
 from llm.models import get_long_context_model
-from llm.states import DesignState, UserContext
+from llm.states import DesignState
 from llm.tools.web_search import web_reader, web_searcher
 from llm.tools.writter import write_report
-from llm.utils.middleware import TokenStatisticMiddleware
-from llm.utils.middleware.end_loop import EndAgentLoop
-from llm.utils.middleware.final_check import CheckStateExistMiddleware
+from llm.utils.middleware import AskAndEndMiddleware, CheckStateExistMiddleware, TokenStatisticMiddleware
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -84,16 +83,16 @@ AGENT_MODEL = get_long_context_model()
 metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 
+# pyrefly: ignore [no-matching-overload]
 tool_info_searcher = create_agent(
     AGENT_MODEL,
     [web_searcher, web_reader, write_report],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
-        EndAgentLoop(),
+        AskAndEndMiddleware(),
         CheckStateExistMiddleware('tool_report', 'write_report'),
         TokenStatisticMiddleware('tool_searcher', **metadata),
     ],
     state_schema=DesignState,
-    # pyrefly: ignore [bad-argument-type]
-    context_schema=UserContext,
+    context_schema=BaseContext,
 )

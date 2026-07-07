@@ -2,8 +2,9 @@ from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
 
+from llm.context import BaseContext
 from llm.models import get_long_context_model
-from llm.states import DesignState, UserContext
+from llm.states import DesignState
 from llm.tools.human import ask_human
 from llm.tools.storage import view_pdf
 from llm.tools.writter import write_snippet
@@ -47,6 +48,7 @@ SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics lit
 AGENT_MODEL = get_long_context_model()
 metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
+# pyrefly: ignore [no-matching-overload]
 paper_reader = create_agent(
     AGENT_MODEL,
     [view_pdf, write_snippet, ask_human],
@@ -56,6 +58,5 @@ paper_reader = create_agent(
         TokenStatisticMiddleware('paper_reader', **metadata),
     ],
     state_schema=DesignState,
-    # pyrefly: ignore [bad-argument-type]
-    context_schema=UserContext,
+    context_schema=BaseContext,
 )
