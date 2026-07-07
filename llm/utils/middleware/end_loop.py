@@ -10,12 +10,14 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 from langgraph.typing import ContextT
 
+from llm.context import ProjectContext
+
 
 @tool('ask_human')
-async def ask_human_and_end(question: str, runtime: ToolRuntime) -> Command:
+async def ask_human_and_end(question: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     """Seek human feedback."""
     # 若自动运行模式开启, 直接批准
-    if getattr(runtime.context, 'auto_approve', False):
+    if runtime.context.auto_approve:
         return Command(
             update={
                 'should_end': True,

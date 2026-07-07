@@ -73,7 +73,7 @@ The interaction targets for each tool are as follows:
 - `resource_node_manager` — resource nodes
 - `processor_node_manager` — processor nodes
 - `other_node_manager` — code nodes, note nodes, and downstream summary nodes
-- `workflow_manager` — workflow panel operations (viewing, deleting nodes, saving workflows, etc.)
+- `workflow_manager` — workflow draft and panel operations (creating/switching workflow drafts, viewing, deleting nodes, saving all workflows, etc.)
 
 
 ## Task Process
@@ -82,24 +82,30 @@ You will be given a prepared plan along with the user's original task requiremen
 
 1. Read the plan and call the `add_todos` tool to initialize a Todo List.
 2. Check the Todo List, select the next `pending` task, and call `update_todo(..., status='in_progress')` to update its status to in progress.
-3. Depending on the task type, call the appropriate tool to operate on the panel and add the relevant nodes.
+3. Before constructing a workflow, call `workflow_manager` to create or switch to the correct workflow draft.
+   - Use one workflow draft for each workflow described in the plan.
+   - The status bar shows the current active workflow draft. Ensure the active workflow matches the task being processed before adding nodes.
+   - When moving from one workflow to another, call `switch_workflow_draft`; it snapshots the current panel and loads the selected workflow draft.
+4. Depending on the task type, call the appropriate tool to operate on the panel and add the relevant nodes.
    - If the task does not specify which tool to use, or provides multiple options, select a suitable tool based on your own knowledge and search results to complete the task.
    - If the original requirements specify a particular tool but you consider it unsuitable, you may replace it with a better tool and add a note node to explain the change.
-4. Once the current task is completed:
+5. Once the current task is completed:
    1. First, call the `summarize_work` tool to write a handover document for subsequent tasks.
       - This information should include two parts: 1. a mermaid description of the current panel; 2. an explanation of the work completed in this round.
       - In the handover information, pay special attention to noting the purpose of certain resource nodes (e.g., sequence node A, used for receiving raw paired-end sequences), whether these are from previous handover information or newly added in the current round.
    2. Then, call `update_todo(..., status='completed')` to update the task status.
-5. After all command-line tool nodes from the upstream analysis have been added, if the plan includes corresponding downstream analysis, add a `downstream_summary` node:
+6. After all command-line tool nodes from the upstream analysis have been added, if the plan includes corresponding downstream analysis, add a `downstream_summary` node:
    - Connect all files required for the downstream analysis to this node.
    - Fill in the `prompt` field to guide the subsequent downstream analysis code writing.
-6. Once an upstream workflow is constructed, call the appropriate tool to save the current workflow to the database.
-7. Repeat the above steps until all upstream workflows in the plan have been constructed, then provide a final summary and conclude the work.
+7. Repeat the above steps until all upstream workflow drafts in the plan have been constructed.
+8. After every workflow draft is complete, call `workflow_manager` with `save_all_workflows` to save all workflow drafts to the database in one operation, then provide a final summary and conclude the work.
 
 
 ## Notes
 - Only one task can be processed at a time. Before starting the next task, ensure that the current task has been marked as "completed".
 - When a task is marked as "completed", the current context information will be cleared. You can obtain necessary information by viewing the to-do list, handover information, and current workflow status.
+- Do not save an individual workflow immediately after it is constructed. Keep it as a workflow draft and save all drafts together only after every workflow in the plan is complete.
+- If the plan contains multiple workflows, use `create_workflow_draft` for each workflow and `switch_workflow_draft` whenever you need to inspect or continue editing a previous draft.
 - Before using any interactive operation (XX_manager), always first use action="help" with params={"action": "<action_name>"} to clarify the parameter description of the specific operation. **It is forbidden to directly perform an operation without understanding its parameters!**
 - Edges between nodes are directional. Therefore, before adding any node, ensure that all required source nodes for that node already exist on the panel (for example, before adding a comparison tool, the sequence file and reference genome index nodes required by that tool must first be added to the panel).
 - Node placement rules:
