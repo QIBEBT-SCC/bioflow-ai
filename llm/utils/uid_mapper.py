@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from typing import Optional, Protocol, Self, runtime_checkable
 
 from langchain_core.documents import Document
@@ -16,7 +17,7 @@ class BidirectionalMapper(BaseModel):
 
     def __init__(
         self,
-        datas: list[HasUid | Document] | None = None,
+        datas: Sequence[HasUid | Document] | None = None,
         *,
         use_metadata: bool = False,
         metadata_field: Optional[str] = None,
@@ -30,11 +31,15 @@ class BidirectionalMapper(BaseModel):
             if metadata_field is None:
                 err_msg = 'When use_metadata=True is set, the metadata_field parameter must be specified.'
                 raise ValueError(err_msg)
-            self.uid_to_idx = {data.metadata[metadata_field]: idx for idx, data in enumerate(datas)}
-            self.idx_to_uid = {idx: data.metadata[metadata_field] for idx, data in enumerate(datas)}
+            self.uid_to_idx = {
+                getattr(data, 'metadata', {}).get(metadata_field, ''): idx for idx, data in enumerate(datas)
+            }
+            self.idx_to_uid = {
+                idx: getattr(data, 'metadata', {}).get(metadata_field, '') for idx, data in enumerate(datas)
+            }
         else:
-            self.uid_to_idx = {str(data.uid): idx for idx, data in enumerate(datas)}
-            self.idx_to_uid = {idx: str(data.uid) for idx, data in enumerate(datas)}
+            self.uid_to_idx = {str(getattr(data, 'uid', '')): idx for idx, data in enumerate(datas)}
+            self.idx_to_uid = {idx: str(getattr(data, 'uid', '')) for idx, data in enumerate(datas)}
 
     @classmethod
     def from_dicts(cls, uid_to_idx: dict[str, int], idx_to_uid: dict[int, str]) -> Self:
@@ -46,11 +51,11 @@ class BidirectionalMapper(BaseModel):
 
     def get_index_by_uid(self, uid: str) -> int:
         """Get the index of a UID."""
-        return self.uid_to_idx.get(uid)
+        return self.uid_to_idx.get(uid, -1)
 
     def get_uid_by_index(self, index: int) -> str:
         """Get the UID of an index."""
-        return self.idx_to_uid.get(index)
+        return self.idx_to_uid.get(index, '')
 
 
 def merge_mappers(existing: BidirectionalMapper, new: BidirectionalMapper) -> BidirectionalMapper:
