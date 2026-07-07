@@ -1,7 +1,10 @@
+from anyio import Path
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+
+from llm.context import ProjectContext
 
 
 @tool
@@ -33,13 +36,16 @@ async def write_snippet(content: str, runtime: ToolRuntime) -> Command:
 
 
 @tool
-async def write_plan(content: str, runtime: ToolRuntime) -> Command:
+async def write_plan(content: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     """Write or update plan."""
-    return_msg = 'Updated the plan content.' if runtime.state.get('plan') else 'The plan content has been saved.'
+    sample_summary_file = Path(runtime.context.workdir) / 'PLAN.md'
+    await sample_summary_file.parent.mkdir(parents=True, exist_ok=True)
+    await sample_summary_file.write_text(content, encoding='utf-8')
 
+    return_msg = 'Updated the plan content.' if runtime.state.get('plan') else 'The plan content has been saved.'
     return Command(
         update={
-            'plan': content,
+            'plan': 'done',
             'updated': True,
             'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
         },
