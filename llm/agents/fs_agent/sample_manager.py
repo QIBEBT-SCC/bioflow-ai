@@ -31,7 +31,6 @@ Your task is to explore raw data paths provided by the user, identify the file s
 
 - **Sample-level** (`sample:<tag>`): Files belonging to individual samples, stored in `sample_files`.
 - **Project-level** (`proj:<keyword>`): Shared files used across samples (e.g. BED annotation files), stored in `project_file_mappings`.
-Note: Reference genomes and tool databases are managed by separate system modules — no need to register them here.
 
 ## Execution steps
 

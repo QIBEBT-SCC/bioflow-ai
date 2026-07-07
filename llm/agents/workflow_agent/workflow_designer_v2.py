@@ -95,11 +95,9 @@ Describe only a linear process; do not design conditional branches or fallback l
     - If it requires users to write R or Python scripts to implement, it falls under the Scripted Analysis category, must be placed in Section 5, and must not be included in the Pipeline Workflow.
 - A Workflow is the minimal unit "written as a single script and run in one go." The basis for splitting is the execution granularity (how many times to run, on what), not functional steps. Most analysis tasks require only one per-sample workflow. Additional workflows are created only when genuinely distinct execution stages exist:
     - Preparatory workflow (run once globally, as needed): Created only when the process includes preparatory work that must be executed once globally (e.g., building indexes, generate chrom size).
-      Note: Indexes for alignment tools BWA, STAR, HISAT2, Bowtie2, and minimap2 are pre-built by the system; no need to create a preparatory workflow for them.
-    - Per-sample workflow (run once per sample): The complete main process from QC to core analysis, serving as the essential body for all analysis tasks. If different sample types require different
-      processes (e.g., RNA samples vs. metagenomic samples), write one per type, with samples of the same type sharing the same workflow.
-    - Aggregation workflow (run once globally, as needed): Created only when the analysis logic requires aggregating results from all samples before proceeding to subsequent steps (e.g., co-assembly,
-      binning, merging count matrices, etc.).
+      Note: If ready-made reference genomes such as NCBI RefSeq or HG38 are used, the indices for alignment tools BWA, STAR, HISAT2, Bowtie2, and minimap2 will be provided automatically by the system. If a user-prepared reference genome is used, the alignment index must be built manually.
+    - Per-sample workflow (run once per sample): The complete main process from QC to core analysis, serving as the essential body for all analysis tasks. If different sample types require different processes (e.g., RNA samples vs. metagenomic samples), write one per type, with samples of the same type sharing the same workflow.
+    - Aggregation workflow (run once globally, as needed): Created only when the analysis logic requires aggregating results from all samples before proceeding to subsequent steps (e.g., co-assembly, binning, merging count matrices, etc.).
     - Do not forcibly split out preparatory or aggregation workflows for the sake of format completeness; omit them if not needed.
 - Beyond the above execution boundaries, a workflow is not further split regardless of the number of internal steps.
 - In the "Key Output Files" section at the end of each workflow, describe the file type, content meaning, and subsequent use of the final products. This is the only place where expected outputs should be described.
