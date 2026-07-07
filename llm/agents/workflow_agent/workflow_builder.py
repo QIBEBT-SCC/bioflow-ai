@@ -1,15 +1,16 @@
-from typing import cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from langchain.agents import create_agent
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
-from llm.llm_client import LLMMetadata
+from llm.context import ProjectContext
 from llm.models import get_agent_model
-from llm.states import BuildContext, BuildSchema
+from llm.states import BuildSchema
 from llm.tools.human import ask_human
 from llm.tools.managers import (
     other_node_manager,
@@ -26,6 +27,9 @@ from llm.utils.middleware import (
     TokenStatisticMiddleware,
 )
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
+
+if TYPE_CHECKING:
+    from llm.llm_client import LLMMetadata
 
 BUILD_FLOW_SYSTEM = """You are a bioinformatics expert using a visual bioinformatics analysis platform based on a node editor.
 Your task is to call the corresponding tools and add appropriate nodes to the panel in order to design a bioinformatics analysis workflow that meets user requirements.
@@ -125,33 +129,81 @@ async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
 BUILDER_LLM = get_agent_model()
 metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
 
-build_workflow_agent: CompiledStateGraph = create_agent(
-    get_agent_model(),
-    [
-        tool_node_manager,
-        resource_node_manager,
-        processor_node_manager,
-        other_node_manager,
-        workflow_manager,
-        summarize_work,
-        ask_human,
-    ],
-    system_prompt=BUILD_FLOW_SYSTEM,
-    middleware=[
-        TodoMiddleware(),
-        SkillMiddleware(
+
+def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
+    """Compile the workflow-builder agent.
+
+    Pass a checkpointer to run it as a top-level graph with native interrupt/resume; pass
+    ``None`` when embedding it as a subgraph so it inherits the parent graph's checkpointer.
+
+    Args:
+        checkpointer: Checkpointer to bind, or ``None`` to inherit from a parent graph.
+
+    Returns:
+        The compiled workflow-builder agent.
+    """
+    if checkpointer:
+        # pyrefly: ignore [no-matching-overload]
+        return create_agent(
+            get_agent_model(),
             [
-                'USING_BASH_NODE',
-                'FILE_SYSTEM',
-                'WRITE_DOWNSTREAM_SUMMARY',
-            ]
-        ),
-        CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
-        DisableParallelToolCallsMiddleware(),
-        StatusBarMiddleware(),
-        TokenStatisticMiddleware('reproduction_agent', **metadata),
-    ],
-    state_schema=BuildSchema,
-    # pyrefly: ignore [bad-argument-type]
-    context_schema=BuildContext,
-)
+                tool_node_manager,
+                resource_node_manager,
+                processor_node_manager,
+                other_node_manager,
+                workflow_manager,
+                summarize_work,
+                ask_human,
+            ],
+            system_prompt=BUILD_FLOW_SYSTEM,
+            middleware=[
+                TodoMiddleware(),
+                SkillMiddleware(
+                    [
+                        'FILE_SYSTEM',
+                        'USING_BASH_NODE',
+                        'WRITE_DOWNSTREAM_SUMMARY',
+                    ]
+                ),
+                CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
+                DisableParallelToolCallsMiddleware(),
+                StatusBarMiddleware(),
+                TokenStatisticMiddleware('workflow_builder', **metadata),
+            ],
+            state_schema=BuildSchema,
+            context_schema=ProjectContext,
+            checkpointer=checkpointer,
+        )
+    # pyrefly: ignore [no-matching-overload]
+    return create_agent(
+        get_agent_model(),
+        [
+            tool_node_manager,
+            resource_node_manager,
+            processor_node_manager,
+            other_node_manager,
+            workflow_manager,
+            summarize_work,
+            ask_human,
+        ],
+        system_prompt=BUILD_FLOW_SYSTEM,
+        middleware=[
+            TodoMiddleware(),
+            SkillMiddleware(
+                [
+                    'USING_BASH_NODE',
+                    'FILE_SYSTEM',
+                    'WRITE_DOWNSTREAM_SUMMARY',
+                ]
+            ),
+            CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
+            DisableParallelToolCallsMiddleware(),
+            StatusBarMiddleware(),
+            TokenStatisticMiddleware('reproduction_agent', **metadata),
+        ],
+        state_schema=BuildSchema,
+        context_schema=ProjectContext,
+    )
+
+
+build_workflow_agent: CompiledStateGraph = build_workflow_builder()
