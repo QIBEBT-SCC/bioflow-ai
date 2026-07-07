@@ -19,8 +19,48 @@ The following tools must be called alone in a separate response. They cannot be 
 
 
 class DisableParallelToolCallsMiddleware(AgentMiddleware):
-    def __init__(self, disabled_tools: Optional[set[str]] = None):
+    def __init__(
+        self,
+        disabled_tools: Optional[set[str]] = None,
+        disabled_tool_actions: Optional[dict[str, set[str]]] = None,
+    ):
         self.disabled_tools = disabled_tools
+        self.disabled_tool_actions = (
+            {tool_name: set(actions) for tool_name, actions in disabled_tool_actions.items()}
+            if disabled_tool_actions is not None
+            else None
+        )
+
+    @staticmethod
+    def _get_tool_action(tool_call: dict[str, Any]) -> str | None:
+        args = tool_call.get('args')
+        if not isinstance(args, dict):
+            return None
+
+        action = args.get('action')
+        if not isinstance(action, str):
+            return None
+
+        return action
+
+    def _get_parallel_restriction(self, tool_call: dict[str, Any]) -> str | None:
+        tool_name = tool_call['name']
+
+        if self.disabled_tools and tool_name in self.disabled_tools:
+            return f"Tool '{tool_name}'"
+
+        if not self.disabled_tool_actions:
+            return None
+
+        disabled_actions = self.disabled_tool_actions.get(tool_name)
+        if not disabled_actions:
+            return None
+
+        action = self._get_tool_action(tool_call)
+        if action in disabled_actions:
+            return f"Tool '{tool_name}' action '{action}'"
+
+        return None
 
     # 部分模型不支持, 用这种方法反而会报错。改为直接使用工具提示来限制。
     # @staticmethod
@@ -64,7 +104,7 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
         if not last_message.tool_calls or len(last_message.tool_calls) == 1:
             return None
 
-        if not self.disabled_tools:
+        if self.disabled_tool_actions is None and not self.disabled_tools:
             # 全局禁止并行调用
             error_msg = 'Parallel tool calls detected; this invocation has been invalidated. Only one tool call is allowed at a time!'
             return {
@@ -72,16 +112,20 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
                 'messages': [ToolMessage(content=error_msg, tool_call_id=tc['id']) for tc in last_message.tool_calls],
             }
 
-        # 检查是否有禁止并行的工具被并行调用
-        called_names = {tc['name'] for tc in last_message.tool_calls}
-        if not called_names & self.disabled_tools:
+        # 检查是否有禁止并行的工具或 manager action 被并行调用
+        restricted_calls = {
+            tc['id']: restriction
+            for tc in last_message.tool_calls
+            if (restriction := self._get_parallel_restriction(tc))
+        }
+        if not restricted_calls:
             return None
 
-        # 有禁止并行的工具混入了并行调用, 截断本次调用
+        # 有禁止并行的工具或 action 混入了并行调用, 截断本次调用
         messages = []
         for tc in last_message.tool_calls:
-            if tc['name'] in self.disabled_tools:
-                msg = f"Tool '{tc['name']}' must be called alone and cannot be used in parallel with other tools."
+            if restriction := restricted_calls.get(tc['id']):
+                msg = f'{restriction} must be called alone and cannot be used in parallel with other tools.'
             else:
                 msg = 'This tool invocation has been invalidated due to the presence of tools that do not allow parallel calls.'
             messages.append(ToolMessage(content=msg, tool_call_id=tc['id']))

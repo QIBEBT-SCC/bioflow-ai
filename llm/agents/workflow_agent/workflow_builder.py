@@ -160,6 +160,22 @@ async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
 BUILDER_LLM = get_agent_model()
 metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
 
+WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work', 'ask_human'}
+WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
+    'tool_node_manager': {'add', 'update_args', 'create'},
+    'resource_node_manager': {'create_db', 'add'},
+    'processor_node_manager': {'add_processor'},
+    'other_node_manager': {'add_code', 'add_note', 'add_downstream_summary'},
+    'workflow_manager': {
+        'create_workflow_draft',
+        'switch_workflow_draft',
+        'update_workflow_metadata',
+        'delete_node',
+        'fix_edge',
+        'save_all_workflows',
+    },
+}
+
 
 def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
     """Compile the workflow-builder agent.
@@ -197,7 +213,10 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                     ]
                 ),
                 CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
-                DisableParallelToolCallsMiddleware(),
+                DisableParallelToolCallsMiddleware(
+                    disabled_tools=WORKFLOW_BUILDER_DISABLED_TOOLS,
+                    disabled_tool_actions=WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS,
+                ),
                 StatusBarMiddleware(),
                 TokenStatisticMiddleware('workflow_builder', **metadata),
             ],
@@ -228,7 +247,10 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 ]
             ),
             CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
-            DisableParallelToolCallsMiddleware(),
+            DisableParallelToolCallsMiddleware(
+                disabled_tools=WORKFLOW_BUILDER_DISABLED_TOOLS,
+                disabled_tool_actions=WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS,
+            ),
             StatusBarMiddleware(),
             TokenStatisticMiddleware('reproduction_agent', **metadata),
         ],
