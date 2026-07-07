@@ -10,3 +10,4 @@ class BaseContext:
 class ProjectContext(BaseContext):
     project_id: int
     workdir: str
+    auto_approve: bool = False

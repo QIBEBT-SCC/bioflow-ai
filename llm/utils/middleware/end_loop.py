@@ -1,14 +1,54 @@
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
+from langgraph.types import Command, interrupt
 from langgraph.typing import ContextT
 
-from llm.tools.human import ask_human_and_end
+
+@tool('ask_human')
+async def ask_human_and_end(question: str, runtime: ToolRuntime) -> Command:
+    """Seek human feedback."""
+    # 若自动运行模式开启, 直接批准
+    if getattr(runtime.context, 'auto_approve', False):
+        return Command(
+            update={
+                'should_end': True,
+                'updated': False,
+                'messages': [
+                    ToolMessage(content='The user agreed with your point.', tool_call_id=runtime.tool_call_id)
+                ],
+            },
+        )
+
+    answer = interrupt({'question': question})
+
+    if isinstance(answer, bool) and answer:
+        return Command(
+            update={
+                'should_end': True,
+                'updated': False,
+                'messages': [
+                    ToolMessage(content='The user agreed with your point.', tool_call_id=runtime.tool_call_id)
+                ],
+            },
+        )
+
+    return Command(
+        update={
+            'should_end': False,
+            'updated': False,
+            'messages': [ToolMessage(content=f'Human feedback is: "{answer}"', tool_call_id=runtime.tool_call_id)],
+        },
+    )
 
 
-class EndLoopSchema(TypedDict):
+class EndLoopSchema(AgentState):
     should_end: NotRequired[bool]
 
 
@@ -27,5 +67,5 @@ class EndAgentLoop(AgentMiddleware):
         return None
 
     @hook_config(can_jump_to=['end'])
-    async def abefore_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    async def abefore_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return self.before_model(state, runtime)
