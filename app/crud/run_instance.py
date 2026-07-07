@@ -55,10 +55,10 @@ def get_run_status(session: Session, user_id: int) -> Statistics:
     stats = (
         sa_select(
             func.count().label('total'),
-            func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
-            func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)).label('error'),
-            func.sum(case((RunInstance.status == Status.RUNNING, 1), else_=0)).label('running'),
-            func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)).label('waiting'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)), 0).label('success'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)), 0).label('error'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.RUNNING, 1), else_=0)), 0).label('running'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)), 0).label('waiting'),
         )
         .select_from(RunInstance)
         .where(col(RunInstance.owner_id) == user_id)
@@ -107,10 +107,10 @@ def get_run_task_stats(session: Session, uid: str) -> Statistics:
     statement = (
         sa_select(
             func.count().label('total'),
-            func.sum(case((TaskInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
-            func.sum(case((TaskInstance.status == Status.ERROR, 1), else_=0)).label('error'),
-            func.sum(case((TaskInstance.status == Status.RUNNING, 1), else_=0)).label('running'),
-            func.sum(case((TaskInstance.status == Status.WAITING, 1), else_=0)).label('waiting'),
+            func.coalesce(func.sum(case((TaskInstance.status == Status.SUCCESS, 1), else_=0)), 0).label('success'),
+            func.coalesce(func.sum(case((TaskInstance.status == Status.ERROR, 1), else_=0)), 0).label('error'),
+            func.coalesce(func.sum(case((TaskInstance.status == Status.RUNNING, 1), else_=0)), 0).label('running'),
+            func.coalesce(func.sum(case((TaskInstance.status == Status.WAITING, 1), else_=0)), 0).label('waiting'),
         )
         .select_from(TaskInstance)
         .where(col(TaskInstance.instance_uid) == uid)
@@ -203,10 +203,10 @@ def get_project_run_stats(session: Session, project_id: int) -> Statistics:
     stats = (
         sa_select(
             func.count().label('total'),
-            func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)).label('success'),
-            func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)).label('error'),
-            func.sum(case((RunInstance.status == Status.RUNNING, 1), else_=0)).label('running'),
-            func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)).label('waiting'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.SUCCESS, 1), else_=0)), 0).label('success'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.ERROR, 1), else_=0)), 0).label('error'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.RUNNING, 1), else_=0)), 0).label('running'),
+            func.coalesce(func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)), 0).label('waiting'),
         )
         .select_from(RunInstance)
         .where(col(RunInstance.project_id) == project_id)
