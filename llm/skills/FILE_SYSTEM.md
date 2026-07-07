@@ -3,51 +3,52 @@ name: FILE_SYSTEM
 description: How to use the file auto-loading mechanism of this system
 ---
 
-# 文件系统自动加载机制
+# File System Auto-Loading Mechanism
 
-本系统支持在工作流节点中使用**路径引用**来动态加载文件，而不必硬编码具体路径。引用在任务执行时解析，分为两个层级。
+This system supports dynamic file loading in workflow nodes using **path references** without hardcoding specific paths. References are resolved during task execution and operate at two levels.
 
-## 引用语法
+## Reference Syntax
 
-| 格式               | 层级  | 说明          |
-|------------------|-----|-------------|
-| `proj:<keyword>` | 项目级 | 引用项目的共享文件   |
-| `sample:<tag>`   | 样本级 | 引用当前样本的某个文件 |
-| 普通路径字符串          | —   | 直接使用，不做解析   |
+| Format            | Level   | Description                                      |
+|-------------------|---------|--------------------------------------------------|
+| `proj:<keyword>`  | Project | References project-level shared files            |
+| `sample:<tag>`    | Sample  | References a specific file of the current sample |
+| Plain path string | —       | Used directly without resolution                 |
 
-## 项目级引用：`proj:<keyword>`
+## Project-Level Reference: `proj:<keyword>`
 
-项目可以维护一张关键字→路径的映射表（`project_file_mappings`），用于存放跨样本共享的资源，例如参考基因组索引、数据库路径等。
+A project maintains a keyword-to-path mapping table (`project_file_mappings`) for cross-sample shared resources, such as reference genome indices or database paths.
 
-**适用场景**：所有样本共用同一份资源（如比对索引、注释文件）
+**Applicable Scenario**: All samples share the same resource (e.g., alignment indices, annotation files)
 
-## 样本级引用：`sample:<tag>`
+## Sample-Level Reference: `sample:<tag>`
 
-每个样本可以有多个文件，每个文件有一个 `tag` 标识。 系统默认的 tag 分配规则：
+Each sample can have multiple files, each identified by a `tag`. Common tags include:
 
-| data_type      | 默认 tag     |
-|----------------|------------|
-| SEQUENCING_R1  | `r1`       |
-| SEQUENCING_R2  | `r2`       |
-| SEQUENCING（单端） | `single`   |
-| SPECTRUM       | `spectrum` |
-| IMAGE          | `image`    |
+| File Type             | Common Tag         |
+|-----------------------|--------------------|
+| Paired-end R1         | `r1`               |
+| Paired-end R2         | `r2`               |
+| Single-end sequencing | `read`             |
+| Mass spectrometry     | `spectrum`         |
+| Image file            | `img`              |
+| Other files           | `contig`, `bam`... |
 
-**适用场景**：每个样本内各自的不同文件
+**Applicable Scenario**: Different files within each sample
 
-## 节点中的使用方式
+## Usage in Nodes
 
-在系统中，可以使用以下节点读取(写入)动态文件类型：
+The system supports reading (and writing) dynamic file types through the following nodes:
 
-- resource_sequence: 读取样本级文件
-- resource_file: 读取项目级、样本级文件
-- global_mark(处理器节点): 将一个文件标为项目级引用
+- resource_sequence: Reads sample-level files
+- resource_file: Reads both project-level and sample-level files
+- global_mark (processor node): Marks a file as a project-level reference
 
-## 典型场景示例
+## Typical Use Case Examples
 
-### 场景一：单样本标准测序分析
+### Use Case One: Standard Single-Sample Sequencing Analysis
 
-使用默认的 tag 名称加载样本中的双端序列：
+Use default tag names to load paired-end sequences from a sample:
 
 ```
 {
@@ -56,32 +57,32 @@ description: How to use the file auto-loading mechanism of this system
 }
 ```
 
-### 场景二：一个样本包含阳性 + 对照两组测序数据
+### Use Case Two: Sample Containing Both Positive and Control Sequencing Data
 
-上传文件时指定自定义 tag：
+Specify custom tags when uploading files:
 
-- 阳性 R1 → tag: `r1_pos`，阳性 R2 → tag: `r2_pos`
-- 对照 R1 → tag: `r1_ctrl`，对照 R2 → tag: `r2_ctrl`
+- Positive R1 → tag: `pos_r1`, Positive R2 → tag: `pos_r2`
+- Control R1 → tag: `ctrl_r1`, Control R2 → tag: `ctrl_r2`
 
-工作流中使用两个 resource_sequence 节点：
+Use two resource_sequence nodes in the workflow:
 
 ```
-// 节点1（阳性）
+// Node 1 (Positive)
 {
-  "r1": "sample:r1_pos",
-  "r2": "sample:r2_pos"
+  "r1": "sample:pos_r1",
+  "r2": "sample:pos_r2"
 }
 
-// 节点2（对照）
+// Node 2 (Control)
 {
-  "r1": "sample:r1_ctrl",
-  "r2": "sample:r2_ctrl"
+  "r1": "sample:ctrl_r1",
+  "r2": "sample:ctrl_r2"
 }
 ```
 
-### 场景三：共享bed注释文件
+### Use Case Three: Sharing a BED Annotation File
 
-首先在全局工作流中使用相应的工具得到了一个bed文件，将这个文件连接至 global_mark 节点，标记为全局文件：
+First, generate a BED file using an appropriate tool in a global workflow, then connect this file to a global_mark node to mark it as a project-level file:
 
 ```
 {
@@ -90,9 +91,9 @@ description: How to use the file auto-loading mechanism of this system
 }
 ```
 
-注意这里 `mark_name` 字段直接输入 keyword 就行，不用在前面加上 proj:
+Note that the `mark_name` field only requires the keyword itself without the `proj:` prefix.
 
-在其它工作流中使用 resource_file 节点引用：
+Reference this file in other workflows using the resource_file node:
 
 ```json
 {
@@ -100,9 +101,9 @@ description: How to use the file auto-loading mechanism of this system
 }
 ```
 
-## 注意事项
+## Important Notes
 
-- keyword 全项目唯一
-- 同一样本内 tag 唯一
-- tag 和 keyword 命名使用小写字母+下划线的形式, 不要超过50个字符
-- tag 和 keyword 的名字由你来决定，用户使用时根据你的定义配置相应的文件
+- A keyword must be unique across the entire project
+- A tag must be unique within the same sample
+- Tags and keywords use lowercase letters and underscores, with a maximum length of 50 characters
+- You define the names of tags and keywords; users configure the corresponding files based on your definitions during usage
