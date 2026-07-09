@@ -37,6 +37,7 @@ celery_app.conf.update(
 )
 celery_app.autodiscover_tasks(
     [
+        'app.tasks.load_tasks.load_bio_db',
         'app.tasks.load_tasks.load_file',
         'app.tasks.load_tasks.load_genome',
         'app.tasks.load_tasks.static_value',
@@ -45,17 +46,19 @@ celery_app.autodiscover_tasks(
         'app.tasks.file_operation',
         'app.tasks.run_tool',
     ],
+    # pyrefly: ignore [bad-argument-type]
     None,
 )
 
 
 @worker_process_init.connect
-def on_worker_process_init(**kwargs) -> None:  # noqa: ANN003, ARG001
+def on_worker_process_init(**kwargs) -> None:  # noqa: ARG001
     """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
     engine.dispose()
 
 
 def main() -> None:
+    """Start the Celery worker."""
     args = ['worker', f'--loglevel={get_settings().logger.CELERY_LEVEL}']
     celery_app.worker_main(argv=args)
 
