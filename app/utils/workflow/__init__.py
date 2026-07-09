@@ -23,10 +23,6 @@ from app.utils.workflow.scheduler import (
     send_task,
     update_node_id,
 )
-from app.utils.workflow.stats import (
-    get_run_stats_from_redis,
-    get_run_stats_from_redis_sync,
-)
 
 __all__ = [
     'BaseTaskHandler',
@@ -36,8 +32,6 @@ __all__ = [
     'create_runs_from_samples',
     'get_all_handlers',
     'get_handler',
-    'get_run_stats_from_redis',
-    'get_run_stats_from_redis_sync',
     'register_alias',
     'register_handler',
     'send_task',

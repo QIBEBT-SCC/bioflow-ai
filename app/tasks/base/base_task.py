@@ -27,7 +27,7 @@ from app.schemas.tools import ToolTaskInfo
 
 class BaseBioTask(celery.Task):
     def before_start(self, task_id: str, *args, **kwargs) -> None:
-        """任务开始前的钩子 - 更新 DB 状态并维护 Redis 计数."""
+        """任务开始前的钩子 - 落盘任务启动状态."""
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
@@ -41,13 +41,12 @@ class BaseBioTask(celery.Task):
 
                 instance_uid = str(task.instance_uid)
 
-            _update_run_stats(instance_uid, Status.WAITING, Status.RUNNING)
-            _check_and_update_run_instance_running(instance_uid)
+            _mark_run_instance_running(instance_uid)
         except Exception as e:
             logger.exception(f'更新任务 {task_id} 启动状态失败: {e}')
 
     def on_success(self, retval, task_id, args, kwargs) -> None:  # noqa: ANN001
-        """任务成功后的钩子 - 更新 DB 状态、Redis 计数、flush 监控日志."""
+        """任务成功后的钩子 - 落盘任务终态并 flush 监控日志."""
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
@@ -60,8 +59,7 @@ class BaseBioTask(celery.Task):
 
                 instance_uid = str(task.instance_uid)
 
-            _update_run_stats(instance_uid, Status.RUNNING, Status.SUCCESS)
-            _check_and_update_run_instance_success(instance_uid)
+            _mark_run_instance_success_if_complete(instance_uid)
         except Exception as e:
             logger.exception(f'更新任务 {task_id} 成功状态失败: {e}')
 
@@ -71,7 +69,7 @@ class BaseBioTask(celery.Task):
             logger.warning(f'flush 监控日志失败: {e}')
 
     def on_failure(self, exc, task_id, args, kwargs, einfo) -> None:  # noqa: ANN001
-        """任务失败后的钩子 - 更新 DB 状态、Redis 计数、flush 监控日志."""
+        """任务失败后的钩子 - 落盘任务终态并 flush 监控日志."""
         try:
             with Session(engine) as session:
                 task = task_crud.get(session, task_id)
@@ -83,8 +81,7 @@ class BaseBioTask(celery.Task):
 
                 instance_uid = str(task.instance_uid)
 
-            _update_run_stats(instance_uid, Status.RUNNING, Status.ERROR)
-            _check_and_update_run_instance_error(instance_uid)
+            _mark_run_instance_error(instance_uid)
         except Exception as e:
             logger.error(f'更新任务 {task_id} 失败状态失败: {e}')
 
@@ -95,7 +92,7 @@ class BaseBioTask(celery.Task):
 
 
 # ---------------------------------------------------------------------------
-# Redis helpers
+# Runtime persistence helpers
 # ---------------------------------------------------------------------------
 
 
@@ -105,72 +102,41 @@ def _get_redis() -> Redis:
     return monitor_redis_client
 
 
-def _ensure_run_stats(redis_client: Redis, run_uid: str) -> str:
-    """确保 Redis Hash run-stats-{run_uid} 存在, 不存在则从 DB 初始化."""
-    key = f'run-stats-{run_uid}'
-    if not redis_client.exists(key):
+def _mark_run_instance_running(run_uid: str) -> None:
+    """Mark a run instance as running when any task starts."""
+    try:
         with Session(engine) as session:
-            stats = run_crud.get_run_task_stats(session, run_uid)
-        redis_client.hset(
-            key,
-            mapping={
-                'total': stats.total,
-                'waiting': stats.waiting or 0,
-                'running': stats.running or 0,
-                'success': stats.success or 0,
-                'error': stats.error or 0,
-            },
-        )
-        redis_client.expire(key, 86400)
-    return key
-
-
-def _update_run_stats(run_uid: str, from_status: Status, to_status: Status) -> None:
-    """原子更新 Redis Hash 中的运行统计计数."""
-    try:
-        redis = _get_redis()
-        key = _ensure_run_stats(redis, run_uid)
-        redis.hincrby(key, from_status.name.lower(), -1)
-        redis.hincrby(key, to_status.name.lower(), 1)
-    except Exception as e:
-        logger.warning(f'更新 Redis run-stats 失败: {e}')
-
-
-def _check_and_update_run_instance_running(run_uid: str) -> None:
-    """如果是第一个 RUNNING 任务, 将 RunInstance 状态更新为 RUNNING."""
-    try:
-        redis = _get_redis()
-        key = f'run-stats-{run_uid}'
-        running_count = redis.hget(key, 'running')
-        if running_count and int(running_count) == 1:  # type: ignore
-            with Session(engine) as session:
-                run_crud.update(session, run_uid, RunUpdate(status=Status.RUNNING, start_time=datetime.now(tz=UTC)))
+            run = run_crud.get(session, run_uid)
+            if run.status not in {Status.RUNNING, Status.SUCCESS, Status.ERROR}:
+                run.status = Status.RUNNING
+                run.start_time = datetime.now(tz=UTC)
+                session.add(run)
+                session.commit()
     except Exception as e:
         logger.warning(f'更新 RunInstance RUNNING 状态失败: {e}')
 
 
-def _check_and_update_run_instance_success(run_uid: str) -> None:
-    """如果所有任务都 SUCCESS, 将 RunInstance 标记为 SUCCESS."""
+def _mark_run_instance_success_if_complete(run_uid: str) -> None:
+    """Mark a run instance as success when all tasks have succeeded."""
     try:
-        redis = _get_redis()
-        key = f'run-stats-{run_uid}'
-        stats = redis.hgetall(key)
-        # pyrefly: ignore [missing-attribute]
-        total = int(stats.get(b'total', 0))
-        # pyrefly: ignore [missing-attribute]
-        success = int(stats.get(b'success', 0))
-        if 0 < total == success:
-            with Session(engine) as session:
+        with Session(engine) as session:
+            stats = run_crud.get_run_task_stats(session, run_uid)
+            if 0 < stats.total == stats.success:
                 run_crud.update(session, run_uid, RunUpdate(status=Status.SUCCESS, end_time=datetime.now(tz=UTC)))
     except Exception as e:
         logger.warning(f'更新 RunInstance SUCCESS 状态失败: {e}')
 
 
-def _check_and_update_run_instance_error(run_uid: str) -> None:
-    """有任务失败时, 将 RunInstance 标记为 ERROR."""
+def _mark_run_instance_error(run_uid: str) -> None:
+    """Mark a run instance as failed when any task fails."""
     try:
         with Session(engine) as session:
-            run_crud.update(session, run_uid, RunUpdate(status=Status.ERROR, end_time=datetime.now(tz=UTC)))
+            run = run_crud.get(session, run_uid)
+            if run.status != Status.ERROR:
+                run.status = Status.ERROR
+                run.end_time = datetime.now(tz=UTC)
+                session.add(run)
+                session.commit()
     except Exception as e:
         logger.warning(f'更新 RunInstance ERROR 状态失败: {e}')
 

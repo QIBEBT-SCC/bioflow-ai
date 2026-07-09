@@ -9,7 +9,6 @@ from loguru import logger
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
 
 from app.core.config import get_settings
-from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.crud import project as project_crud
 from app.crud import project_file_mapping as project_file_mapping_crud
@@ -51,8 +50,9 @@ from app.schemas.resource import (
 )
 from app.schemas.run_instance import SimpleRunPublic
 from app.services import project_workflow as project_workflow_service
+from app.services import runtime_status
 from app.utils.security import UserDep
-from app.utils.workflow import create_project_level_run, create_runs_from_samples, get_run_stats_from_redis
+from app.utils.workflow import create_project_level_run, create_runs_from_samples
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -567,23 +567,15 @@ async def get_project_runs(
         limit: Limit count
 
     Returns:
-        Paginated[SimpleRunPublic]: Page of run instances (including real-time stats from Redis).
+        Paginated[SimpleRunPublic]: Page of run instances with refreshed runtime task statistics.
     """
     runs, total = run_crud.get_runs_by_project_page(session, project_id, limit, offset)
 
-    # Read statistics for each run instance from Redis
     result = []
     for run in runs:
+        stats = runtime_status.refresh_run_status(run)
         run_data = SimpleRunPublic.model_validate(run)
-
-        # Try to read stats from Redis
-        stats = await get_run_stats_from_redis(monitor_redis_client, str(run.uid))
-        if stats:
-            run_data.task_statistics = stats
-        else:
-            # If not in Redis, calculate from database
-            run_data.task_statistics = run_crud.get_run_task_stats(session, str(run.uid))
-
+        run_data.task_statistics = stats
         result.append(run_data)
 
     return Paginated(
@@ -609,7 +601,11 @@ async def get_project_run_stats(
     Returns:
         Statistics: Counts of total, success, error, running, waiting run instances.
     """
-    return run_crud.get_project_run_stats(session, project_id)
+    stats = run_crud.get_project_run_stats(session, project_id)
+    return runtime_status.apply_effective_nonterminal_run_stats(
+        stats,
+        run_crud.get_nonterminal_runs_by_project(session, project_id),
+    )
 
 
 @router.get('/{project_id}/runs/{run_uid}')
@@ -626,21 +622,15 @@ async def get_project_run(
         run_uid: Run instance UID
 
     Returns:
-        SimpleRunPublic: Details of the run instance (including real-time stats from Redis).
+        SimpleRunPublic: Details of the run instance with refreshed runtime task statistics.
     """
     run = run_crud.get(session, str(run_uid))
     if not run or run.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
 
+    stats = runtime_status.refresh_run_status(run)
     run_data = SimpleRunPublic.model_validate(run)
-
-    # Try to read stats from Redis
-    stats = await get_run_stats_from_redis(monitor_redis_client, str(run_uid))
-    if stats:
-        run_data.task_statistics = stats
-    else:
-        # If not in Redis, calculate from database
-        run_data.task_statistics = run_crud.get_run_task_stats(session, str(run_uid))
+    run_data.task_statistics = stats
 
     return run_data
 

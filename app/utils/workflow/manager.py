@@ -23,8 +23,6 @@ from app.models.workflow import ExecutionScope, RunInstance, Status
 from app.schemas.project_workflow import WorkflowRunResult
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
-from app.utils.workflow.stats import reset_run_stats_in_redis
-from script.worker import monitor_redis_client
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
@@ -132,12 +130,6 @@ def create_runs_from_samples(
 
         # Build task list
         task_list = build_task_list(workflow_definition)
-
-        # Calculate total tasks
-        total_tasks = sum(len(sub_group) for sub_group in task_list)
-
-        # Initialize/reset task statistics for the run instance in Redis
-        reset_run_stats_in_redis(monitor_redis_client, str(run.uid), total_tasks)
 
         # Commit the current run instance to the database
         session.commit()
@@ -248,12 +240,6 @@ def create_project_level_run(
 
     # Build task list
     task_list = build_task_list(workflow_definition)
-
-    # Calculate total tasks
-    total_tasks = sum(len(sub_group) for sub_group in task_list)
-
-    # Initialize/reset task statistics for the run instance in Redis
-    reset_run_stats_in_redis(monitor_redis_client, str(run.uid), total_tasks)
 
     # Commit the current run instance to the database
     session.commit()

@@ -135,6 +135,28 @@ def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offs
     return session.exec(statement).all()
 
 
+def get_nonterminal_runs_by_user(session: Session, user_id: int) -> Sequence[RunInstance]:
+    """Get all non-terminal run instances for a user."""
+    statement = (
+        select(RunInstance)
+        .where(RunInstance.owner_id == user_id)
+        .where(col(RunInstance.status).not_in([Status.SUCCESS, Status.ERROR]))
+        .options(selectinload(RunInstance.tasks))  # type: ignore
+    )
+    return session.exec(statement).all()
+
+
+def get_nonterminal_runs_by_project(session: Session, project_id: int) -> Sequence[RunInstance]:
+    """Get all non-terminal run instances for a project."""
+    statement = (
+        select(RunInstance)
+        .where(RunInstance.project_id == project_id)
+        .where(col(RunInstance.status).not_in([Status.SUCCESS, Status.ERROR]))
+        .options(selectinload(RunInstance.tasks))  # type: ignore
+    )
+    return session.exec(statement).all()
+
+
 def get_runs_by_project_page(
     session: Session, project_id: int, limit: int = 20, offset: int = 0
 ) -> tuple[Sequence[RunInstance], int]:

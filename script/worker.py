@@ -32,6 +32,7 @@ celery_app.conf.update(
     task_serializer='pickle',
     result_serializer='pickle',
     accept_content=['pickle'],
+    task_track_started=True,
     enable_utc=True,
     timezone='Asia/Shanghai',
 )

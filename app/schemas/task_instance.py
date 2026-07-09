@@ -36,7 +36,7 @@ class TaskPublic(BaseModel):
     name: str
     owner: UserPublic
     run_instance: RunInfo4Task
-    tool: ToolInfo4Task
+    tool: ToolInfo4Task | None = None
     commands: str | None
     tool_output: ToolOutput | None
     status: Status

@@ -62,12 +62,12 @@ class RunPublic(SimpleRunPublic):
             running = sum(1 for task in self.tasks if task.status == Status.RUNNING)
             waiting = sum(1 for task in self.tasks if task.status == Status.WAITING)
 
-            if running > 0:
-                self.status = Status.RUNNING
-            elif success == total:
-                self.status = Status.SUCCESS
-            elif error > 0:
+            if error > 0:
                 self.status = Status.ERROR
+            elif 0 < total == success:
+                self.status = Status.SUCCESS
+            elif running > 0:
+                self.status = Status.RUNNING
             else:
                 self.status = Status.WAITING
 
@@ -116,12 +116,12 @@ class RunDetailPublic(SimpleRunPublic):
             running = sum(1 for task in self.tasks if task.status == Status.RUNNING)
             waiting = sum(1 for task in self.tasks if task.status == Status.WAITING)
 
-            if running > 0:
-                self.status = Status.RUNNING
+            if error > 0:
+                self.status = Status.ERROR
             elif 0 < total == success:
                 self.status = Status.SUCCESS
-            elif error > 0:
-                self.status = Status.ERROR
+            elif running > 0:
+                self.status = Status.RUNNING
 
             self.task_statistics = Statistics(
                 total=total, success=success, error=error, running=running, waiting=waiting

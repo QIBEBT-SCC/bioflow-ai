@@ -11,7 +11,6 @@ from starlette.requests import Request
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 import app.crud.run_instance as run_crud
-from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Status
 from app.schemas.common import Paginated, Statistics
@@ -22,9 +21,9 @@ from app.schemas.run_instance import (
     RunPublic,
     RunUpdate,
 )
+from app.services import runtime_status
 from app.utils.file_browser import build_file_tree, serve_file
 from app.utils.security import UserDep
-from app.utils.workflow import get_run_stats_from_redis
 
 router = APIRouter()
 
@@ -36,26 +35,15 @@ async def get_all_runs(
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[RunPublic]:
-    """获取所有运行实例(包含从 Redis 读取的实时统计信息)."""
+    """获取所有运行实例, 并用 Celery 后端刷新非终态任务状态."""
     runs, total = run_crud.get_runs_page(session, limit, offset, current_user.id)
 
-    result = [RunPublic.model_validate(run) for run in runs]
-
-    if result:
-        pipe = monitor_redis_client.pipeline()
-        for run in runs:
-            pipe.hgetall(f'run-stats-{run.uid}')
-        stats_list = await pipe.execute()
-
-        for run_data, raw_stats in zip(result, stats_list, strict=True):
-            if raw_stats and isinstance(raw_stats, dict):
-                run_data.task_statistics = Statistics(
-                    total=int(raw_stats.get(b'total', 0)),
-                    waiting=int(raw_stats.get(b'waiting', 0)),
-                    running=int(raw_stats.get(b'running', 0)),
-                    success=int(raw_stats.get(b'success', 0)),
-                    error=int(raw_stats.get(b'error', 0)),
-                )
+    result = []
+    for run in runs:
+        stats = runtime_status.refresh_run_status(run)
+        run_data = RunPublic.model_validate(run)
+        run_data.task_statistics = stats
+        result.append(run_data)
 
     return Paginated(
         total=total,
@@ -70,7 +58,11 @@ async def get_all_runs(
 def get_run_stats(session: SessionDep, current_user: UserDep) -> Statistics:
     """Get aggregated run status statistics for the current user."""
     # pyrefly: ignore [bad-argument-type]
-    return run_crud.get_run_status(session, current_user.id)
+    stats = run_crud.get_run_status(session, current_user.id)
+    return runtime_status.apply_effective_nonterminal_run_stats(
+        stats,
+        run_crud.get_nonterminal_runs_by_user(session, current_user.id),
+    )
 
 
 @router.patch('/{uid}')
@@ -83,13 +75,9 @@ def update_workflow(uid: str, run_update: RunUpdate, session: SessionDep) -> Run
 async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunDetailPublic:
     """获取单个运行实例, 返回 workflow 图结构并注入运行状态."""
     run = run_crud.get(session, uid)
-
+    stats = runtime_status.refresh_run_status(run)
     run_detail = RunDetailPublic.model_validate(run)
-
-    # 尝试从 Redis 读取统计信息(覆盖 model_validator 计算的值)
-    stats = await get_run_stats_from_redis(monitor_redis_client, uid)
-    if stats:
-        run_detail.task_statistics = stats
+    run_detail.task_statistics = stats
 
     return run_detail
 
@@ -109,11 +97,9 @@ async def _stream_run_updates(
         session.expire_all()  # Force fresh DB read each iteration
 
         run = run_crud.get(session, uid)
+        stats = runtime_status.refresh_run_status(run)
         run_data = RunDetailPublic.model_validate(run)
-
-        stats = await get_run_stats_from_redis(monitor_redis_client, uid)
-        if stats:
-            run_data.task_statistics = stats
+        run_data.task_statistics = stats
 
         yield f'data: {run_data.model_dump_json()}\n\n'
 

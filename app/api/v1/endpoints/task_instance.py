@@ -17,6 +17,7 @@ from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.workflow import Status, ToolOutput
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic
+from app.services import runtime_status
 from app.utils.security import UserDep
 
 router = APIRouter()
@@ -33,7 +34,9 @@ def get_all_tasks(
 ) -> list[SimpleTaskPublic]:
     """Get a paginated list of task instances for the current user."""
     # pyrefly: ignore [bad-argument-type, bad-return]
-    return task_crud.get_all(session, limit, offset, current_user.id)
+    tasks = task_crud.get_all(session, limit, offset, current_user.id)
+    runtime_status.refresh_task_statuses(tasks)
+    return tasks
 
 
 @router.get('/count')
@@ -47,14 +50,17 @@ def get_task_count(session: SessionDep, current_user: UserDep) -> int:
 def get_by_time(hour: int, session: SessionDep, current_user: UserDep) -> list[SimpleTaskPublic]:
     """Get task instances created within the last N hours."""
     # pyrefly: ignore [bad-argument-type, bad-return]
-    return task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
+    tasks = task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
+    runtime_status.refresh_task_statuses(tasks)
+    return tasks
 
 
 @router.get('/{uid}')
 def get_task_instance(uid: str, session: SessionDep) -> TaskPublic:
     """Get a task instance by its UID."""
     # pyrefly: ignore [bad-return]
-    return task_crud.get(session, uid)
+    task = task_crud.get(session, uid)
+    return runtime_status.refresh_task_status(task)
 
 
 @router.get('/{uid}/result')
@@ -112,14 +118,14 @@ async def _stream_task_log(uid: str, session: Session, request: Request) -> Asyn
     DB query strategy:
     - Query once at start to resolve log_path (re-poll if task hasn't started yet).
     - While the log file is actively producing content, skip DB queries entirely.
-    - Only re-query DB after IDLE_THRESHOLD consecutive empty reads (~6s of silence),
-      which naturally coincides with when a task has just finished writing.
+    - After log_path is resolved, use Celery backend state to stop on terminal status.
     """
     terminal_states = {Status.ERROR, Status.SUCCESS}
 
     file_offset = 0
     idle_cycles = 0
     log_path: Path | None = None
+    db_status = Status.WAITING
 
     while True:
         if await request.is_disconnected():
@@ -129,13 +135,14 @@ async def _stream_task_log(uid: str, session: Session, request: Request) -> Asyn
         if log_path is None:
             session.expire_all()
             task = task_crud.get(session, uid)
+            db_status = task.status
             if task.tool_output and hasattr(task.tool_output, 'log') and task.tool_output.log:
                 log_path = Path(task.tool_output.log)
             elif task.base_dir:
                 log_path = Path(task.base_dir) / '11_run.log'
             else:
                 # Task hasn't started yet (no base_dir); check terminal and keep waiting
-                if task.status in terminal_states:
+                if runtime_status.get_task_status(uid, task.status) in terminal_states:
                     break
                 await asyncio.sleep(2)
                 continue
@@ -154,9 +161,7 @@ async def _stream_task_log(uid: str, session: Session, request: Request) -> Asyn
         else:
             idle_cycles += 1
             if idle_cycles >= IDLE_THRESHOLD:
-                session.expire_all()
-                task = task_crud.get(session, uid)
-                if task.status in terminal_states:
+                if runtime_status.get_task_status(uid, db_status) in terminal_states:
                     break
                 idle_cycles = 0
 
