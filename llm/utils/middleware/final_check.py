@@ -6,7 +6,6 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
 from langgraph.config import get_config
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
@@ -14,8 +13,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from llm.context import BaseContext
-from llm.states import FolderContext, StructuredResponse
-from llm.utils.token import store_token_usage
+from llm.states import FolderContext
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -79,14 +77,16 @@ class CheckReportMiddleware(AgentMiddleware):
         """
         super().__init__()
 
-        prompt = ChatPromptTemplate(
-            messages=[
-                ('system', check_prompt),
-                ('human', '<ToolReport>\n{tool_report}\n</ToolReport>'),
-            ]
-        )
-        self.check_chain = prompt | model.with_structured_output(CheckResult, include_raw=True)
         self.model_metadata = cast('LLMMetadata', model.metadata)
+        from llm.prebuild.json_output import json_output
+
+        self.check_chain = json_output(
+            model,
+            check_prompt,
+            CheckResult,
+            metadata=self.model_metadata,
+            name='check_report',
+        )
 
     def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return {'check_failed_count': 0, 'updated': False}
@@ -123,19 +123,16 @@ class CheckReportMiddleware(AgentMiddleware):
                 ],
             )
 
-        check_result: StructuredResponse[CheckResult] = self.check_chain.invoke({'tool_report': tool_report})  # type: ignore
-        store_token_usage(
-            'check_report',
-            runtime.context.user_id,
-            get_config()['configurable'].get('thread_id', None),
-            token_usage=check_result['raw'].usage_metadata,
-            **self.model_metadata,
+        check_result = self.check_chain.invoke(
+            HumanMessage(content=f'<ToolReport>\n{tool_report}\n</ToolReport>'),
+            config=get_config(),
+            context=runtime.context,
         )
-        if not check_result['parsed'].checked:
+        if not check_result.checked:
             logger.warning('Check failed')
             return _handle_check_failed(
                 check_failed_count,
-                messages=[HumanMessage(content=check_result['parsed'].reason)],
+                messages=[HumanMessage(content=check_result.reason)],
             )
 
         logger.success('Check passed')
@@ -173,19 +170,16 @@ class CheckReportMiddleware(AgentMiddleware):
                 ],
             )
 
-        check_result: StructuredResponse[CheckResult] = await self.check_chain.ainvoke({'tool_report': tool_report})  # type: ignore
-        store_token_usage(
-            'check_report',
-            runtime.context.user_id,
-            get_config()['configurable'].get('thread_id', None),
-            token_usage=check_result['raw'].usage_metadata,
-            **self.model_metadata,
+        check_result = await self.check_chain.ainvoke(
+            HumanMessage(content=f'<ToolReport>\n{tool_report}\n</ToolReport>'),
+            config=get_config(),
+            context=runtime.context,
         )
-        if not check_result['parsed'].checked:
+        if not check_result.checked:
             logger.warning('Check failed')
             return _handle_check_failed(
                 check_failed_count,
-                messages=[HumanMessage(content=check_result['parsed'].reason)],
+                messages=[HumanMessage(content=check_result.reason)],
             )
 
         logger.success('Check passed')

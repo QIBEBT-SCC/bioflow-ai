@@ -2,8 +2,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.graph import CurveStyle
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -21,7 +20,8 @@ from llm.agents.workflow_agent.paper_reader import paper_reader
 from llm.agents.workflow_agent.tool_info_searcher import tool_info_searcher
 from llm.agents.workflow_agent.workflow_builder import build_workflow_agent
 from llm.models import get_high_performance_model, get_simple_model
-from llm.states import BuildContext, DesignContext, DesignState, SampleContext, StructuredResponse
+from llm.prebuild.json_output import json_output
+from llm.states import BuildContext, DesignContext, DesignState, SampleContext
 from llm.tools.writter import write_plan
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
@@ -29,7 +29,6 @@ from llm.utils.middleware import (
 )
 from llm.utils.middleware.end_loop import AskAndEndMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
-from llm.utils.token import store_token_usage
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -299,35 +298,35 @@ class WorkflowDesignAgent:
         self, state: DesignState, runtime: Runtime[DesignContext], config: RunnableConfig
     ) -> Command[Literal['search_tool', 'self_plan', 'summary_paper', '__end__']]:
         """意图识别."""
-        prompt = ChatPromptTemplate(
-            messages=[
-                SystemMessage(content=INTENT_RECOGNITION_SYSTEM),
-                MessagesPlaceholder(variable_name='history'),
-                HumanMessage(content="Based on the above conversation, please classify the user's requirement."),
-            ]
-        )
         llm = get_simple_model()
-        chain = prompt | llm.with_structured_output(IntentResult, include_raw=True).with_retry(stop_after_attempt=3)
-
-        response: StructuredResponse[IntentResult] = await chain.ainvoke({'history': state['messages']})  # type: ignore
-
         metadate = cast('LLMMetadata', llm.metadata)
-        store_token_usage(
-            self.name,
-            runtime.context.user_id,
-            config['configurable'].get('thread_id'),
-            token_usage=response['raw'].usage_metadata,
-            **metadate,
+        chain = json_output(
+            llm,
+            INTENT_RECOGNITION_SYSTEM,
+            IntentResult,
+            metadata=metadate,
+            name=self.name,
+        ).with_retry(stop_after_attempt=3)
+
+        response = await chain.ainvoke(
+            {
+                'messages': [
+                    *state['messages'],
+                    HumanMessage(content="Based on the above conversation, please classify the user's requirement."),
+                ]
+            },
+            config=config,
+            context=runtime.context,
         )
 
-        logger.debug(f'route to {response["parsed"].task}')
-        match response['parsed'].task:
+        logger.debug(f'route to {response.task}')
+        match response.task:
             case 'autonomous_design':
-                return Command(goto='information_collect', update={'task': response['parsed'].task})
+                return Command(goto='information_collect', update={'task': response.task})
             case 'tool_expansion':
-                return Command(goto='search_tool', update={'task': response['parsed'].task})
+                return Command(goto='search_tool', update={'task': response.task})
             case 'literature_reproduction':
-                return Command(goto='summary_paper', update={'task': response['parsed'].task})
+                return Command(goto='summary_paper', update={'task': response.task})
 
     async def information_collect_node(self, state: DesignState, runtime: Runtime[DesignContext]) -> dict[str, Any]:
         """自主规划 Step1 - 获取待分析样本信息."""
