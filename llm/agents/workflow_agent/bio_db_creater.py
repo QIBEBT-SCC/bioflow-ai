@@ -1,11 +1,13 @@
-from typing import TYPE_CHECKING, cast
+import operator
+from typing import TYPE_CHECKING, Annotated, cast
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 
+from llm.context import BaseContext
 from llm.models import get_long_context_model
 from llm.tools.database import create_biodb, search_local_image
 from llm.tools.web_search import web_reader, web_searcher
-from llm.utils.middleware import EndLoopMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import DisableParallelToolCallsMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -78,6 +80,11 @@ AGENT_MODEL = get_long_context_model()
 metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 
+class BioDbCreatorState(AgentState, total=False):
+    new_db: Annotated[list[int], operator.add]
+
+
+# pyrefly: ignore [no-matching-overload]
 bio_db_creator = create_agent(
     AGENT_MODEL,
     [
@@ -88,8 +95,10 @@ bio_db_creator = create_agent(
     ],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
+        DisableParallelToolCallsMiddleware(disabled_tools={'create_biodb'}),
         EndLoopMiddleware(),
         TokenStatisticMiddleware('bio_db_creator', **metadata),
     ],
-    # context_schema=BaseContext,
+    state_schema=BioDbCreatorState,
+    context_schema=BaseContext,
 )

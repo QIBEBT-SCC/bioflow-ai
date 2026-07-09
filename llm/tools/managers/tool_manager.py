@@ -211,6 +211,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
 
             return Command(
                 update={
+                    'new_tools': [response['tool_uid']],
                     'id_mapper': response['id_mapper'],
                     'messages': [ToolMessage(response['messages'][-1].content, tool_call_id=runtime.tool_call_id)],
                 }

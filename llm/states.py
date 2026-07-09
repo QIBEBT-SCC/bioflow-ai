@@ -78,6 +78,7 @@ class CreateToolOutput(BaseModel):
     messages: list[BaseMessage]
 
     id_mapper: Optional[BidirectionalMapper]
+    tool_uid: Optional[str] = None
     json_response: dict[str, Any]
 
 
@@ -133,6 +134,8 @@ class DesignState(AgentState, total=False):
 
     # 生成接节点输出
     workflow_uids: list[uuid.UUID]
+    new_tools: list[uuid.UUID]
+    new_dbs: list[int]
 
 
 # =====================unified planner state==========================
@@ -157,6 +160,8 @@ class PlannerState(AgentState, total=False):
 
     # 透传给下游 workflow_builder
     workflow_uids: list[uuid.UUID]
+    new_tools: list[uuid.UUID]
+    new_dbs: list[int]
 
 
 # =====================build workflow agent state==========================
@@ -201,7 +206,7 @@ class GlobalMarker(BaseModel):
     description: str
 
 
-class BuildSchema(AgentState, total=False):
+class BuildState(AgentState, total=False):
     paper_id: str
 
     previous_summary: str
@@ -214,6 +219,8 @@ class BuildSchema(AgentState, total=False):
     workflow_drafts: dict[str, WorkflowDraft]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
+    new_tools: Annotated[list[uuid.UUID], operator.add]
+    new_dbs: Annotated[list[int], operator.add]
 
 
 # =====================summary agent state==========================

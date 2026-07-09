@@ -10,7 +10,7 @@ from langgraph.types import Command
 
 from llm.context import ProjectContext
 from llm.models import get_agent_model
-from llm.states import BuildSchema
+from llm.states import BuildState
 from llm.tools.human import ask_human
 from llm.tools.managers import (
     other_node_manager,
@@ -223,7 +223,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 StatusBarMiddleware(),
                 TokenStatisticMiddleware('workflow_builder', **metadata),
             ],
-            state_schema=BuildSchema,
+            state_schema=BuildState,
             context_schema=ProjectContext,
             checkpointer=checkpointer,
         )
@@ -258,7 +258,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             StatusBarMiddleware(),
             TokenStatisticMiddleware('reproduction_agent', **metadata),
         ],
-        state_schema=BuildSchema,
+        state_schema=BuildState,
         context_schema=ProjectContext,
     )
 

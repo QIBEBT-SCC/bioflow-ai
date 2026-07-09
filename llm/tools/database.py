@@ -1,4 +1,5 @@
-from typing import cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -14,7 +15,7 @@ import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 from app.core.session import engine
 from app.models.resource import BioDb
-from app.models.tools import ImageConfig, ToolDefine, ToolGroup, ToolHelpDoc, ToolImage
+from app.models.tools import ImageConfig, ToolGroup, ToolHelpDoc, ToolImage
 from app.schemas.tools import ToolNodePublic
 from app.utils.container import run_command
 from llm.utils.formatters import search_nodes_formatter
@@ -159,7 +160,7 @@ def list_docs(runtime: ToolRuntime) -> Command:
     image_uid = runtime.state.get('image_uid')
 
     with Session(engine) as session:
-        docs: list[ToolHelpDoc] = doc_crud.get_by_image(session, str(image_uid))
+        docs = doc_crud.get_by_image(session, str(image_uid))
         new_mapper = BidirectionalMapper(datas=docs)
 
     if docs:
@@ -286,7 +287,7 @@ def search_tool(query: str, runtime: ToolRuntime) -> Command:
         query: Name of the tool to search for
     """
     with Session(engine) as session:
-        exist_tools: list[ToolDefine] = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
+        exist_tools = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
         new_mapper = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
@@ -379,7 +380,7 @@ def view_groups() -> str:
     if groups:
 
         def _build_tree_string(
-            _groups_list: list[ToolGroup],
+            _groups_list: Sequence[ToolGroup],
             _parent_id: int | None = None,
             _indent: int = 0,
         ) -> list[str]:
@@ -474,23 +475,24 @@ def create_biodb(
             name=name, description=description, download_command=download_command, download_image=download_image
         )
         new_db = db_crud.insert(session, new_db)
+        update: dict[str, Any] = {
+            'should_end': True,
+            'messages': [
+                ToolMessage(
+                    content=(
+                        f'Based on your request, a biological database has been added:\n'
+                        f'<db id="{new_db.id}">\n'
+                        f'  <name>{new_db.name}</name>\n'
+                        f'  <description>{new_db.description}</description>\n'
+                        f'  <download_command>{new_db.download_command}</download_command>\n'
+                        f'  <download_image>{new_db.download_image}</download_image>\n'
+                        f'</db>'
+                    ),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+        if new_db.id is not None:
+            update['new_db'] = new_db.id
 
-        return Command(
-            update={
-                'should_end': True,
-                'messages': [
-                    ToolMessage(
-                        content=(
-                            f'Based on your request, a biological database has been added:\n'
-                            f'<db id="{new_db.id}">\n'
-                            f'  <name>{new_db.name}</name>\n'
-                            f'  <description>{new_db.description}</description>\n'
-                            f'  <download_command>{new_db.download_command}</download_command>\n'
-                            f'  <download_image>{new_db.download_image}</download_image>\n'
-                            f'</db>'
-                        ),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
+        return Command(update=update)

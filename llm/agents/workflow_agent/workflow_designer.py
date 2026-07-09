@@ -435,7 +435,12 @@ class WorkflowDesignAgent:
             context=build_context,
         )
 
-        return {'messages': response['messages'], 'workflow_uids': response['workflow_uids']}
+        result = {'messages': response['messages'], 'workflow_uids': response['workflow_uids']}
+        if new_tools := response.get('new_tools'):
+            result['new_tools'] = new_tools
+        if new_dbs := response.get('new_dbs'):
+            result['new_dbs'] = new_dbs
+        return result
 
     def build(self, *, visualize: bool = False) -> CompiledStateGraph:
         """构建工作流规划智能体."""

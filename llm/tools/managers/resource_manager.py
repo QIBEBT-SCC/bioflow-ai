@@ -69,8 +69,7 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
 }
 
 HELP_MESSAGE = (
-    'Specify the action to inspect, for example: '
-    'resource_node_manager(action="help", params={"action": "view"}).'
+    'Specify the action to inspect, for example: resource_node_manager(action="help", params={"action": "view"}).'
 )
 
 
@@ -260,19 +259,23 @@ async def _create_db(name: str, description: str, query: str, runtime: ToolRunti
             }
         )
         content = response['messages'][-1].content
+        new_db = response.get('new_db', None)
     except Exception as exc:
+        new_db = None
         content = f'Failed to create biological database "{name}": {exc}'
 
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(
-                    content=content,
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
+    update: dict[str, Any] = {
+        'messages': [
+            ToolMessage(
+                content=content,
+                tool_call_id=runtime.tool_call_id,
+            )
+        ],
+    }
+    if new_db:
+        update['new_dbs'] = [new_db]
+
+    return Command(update=update)
 
 
 def _add_resource(

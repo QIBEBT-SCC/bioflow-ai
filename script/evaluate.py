@@ -2,6 +2,8 @@ import asyncio
 import shutil
 import sqlite3
 import sys
+import uuid
+from dataclasses import dataclass
 from pathlib import Path as FilePath
 from typing import Any
 
@@ -13,6 +15,13 @@ from loguru import logger
 from app.core.config import get_settings
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
+
+
+@dataclass
+class WorkflowGenerationResult:
+    workflow_uids: list[str]
+    new_tool_uids: list[str]
+    new_db_ids: list[int]
 
 
 def _resolve_thread_id(task_file: str, thread_id: str | None) -> str:
@@ -37,11 +46,44 @@ def _check_db(db_path: str = DB_PATH) -> sqlite3.Connection:
             project_id   INTEGER,
             sample_uid   TEXT,
             workflow_uid TEXT,
-            output_path  TEXT
+            output_path  TEXT,
+            new_tool_uids TEXT,
+            new_db_ids   TEXT
         )
     """)
+    existing_columns = {row['name'] for row in con.execute('PRAGMA table_info(evaluate_results)').fetchall()}
+    for column, column_type in {
+        'new_tool_uids': 'TEXT',
+        'new_db_ids': 'TEXT',
+    }.items():
+        if column not in existing_columns:
+            con.execute(f'ALTER TABLE evaluate_results ADD COLUMN {column} {column_type}')
 
     return con
+
+
+def _serialize_ids(values: list[Any]) -> str:
+    return ';'.join(str(value) for value in values)
+
+
+def _normalize_uuid_values(values: list[Any]) -> list[str]:
+    result = []
+    for value in values:
+        try:
+            result.append(str(uuid.UUID(str(value))))
+        except ValueError:
+            logger.warning(f'Ignoring invalid uuid in workflow builder state: {value}')
+    return result
+
+
+def _normalize_int_values(values: list[Any]) -> list[int]:
+    result = []
+    for value in values:
+        try:
+            result.append(int(value))
+        except (TypeError, ValueError):
+            logger.warning(f'Ignoring invalid integer id in workflow builder state: {value}')
+    return result
 
 
 def _get_project_path(project_id: int) -> FilePath:
@@ -124,7 +166,7 @@ def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id
     con.execute(
         """
         UPDATE evaluate_results
-        SET workflow_uid = NULL, output_path = NULL
+        SET workflow_uid = NULL, output_path = NULL, new_tool_uids = NULL, new_db_ids = NULL
         WHERE thread_id = :thread_id
         """,
         {'thread_id': thread_id},
@@ -347,7 +389,7 @@ async def _generate_workflow(
     checkpoint: Any,
     *,
     reset_checkpoint: bool = False,
-) -> list[str]:
+) -> WorkflowGenerationResult:
     import rich
     from langchain_core.runnables import RunnableConfig
     from rich.console import Console
@@ -386,20 +428,59 @@ async def _generate_workflow(
                     rich.print(interrupt)
                     sys.exit(-1)
 
-    workflow_uids = state.values.get('workflow_uids', [])
+    workflow_uids = _normalize_uuid_values(state.values.get('workflow_uids') or [])
+    new_tool_uids = _normalize_uuid_values(state.values.get('new_tools') or [])
+    new_db_ids = _normalize_int_values(state.values.get('new_dbs') or [])
     logger.success(f'工作流已生成: {workflow_uids}')
-    return workflow_uids
+    if new_tool_uids:
+        logger.success(f'本次构建新增工具: {new_tool_uids}')
+    if new_db_ids:
+        logger.success(f'本次构建新增数据库: {new_db_ids}')
+
+    return WorkflowGenerationResult(
+        workflow_uids=workflow_uids,
+        new_tool_uids=new_tool_uids,
+        new_db_ids=new_db_ids,
+    )
+
+
+def _log_created_records(result: WorkflowGenerationResult) -> None:
+    if not result.new_tool_uids and not result.new_db_ids:
+        logger.info('本次构建未新增工具或数据库。')
+        return
+
+    from sqlmodel import Session
+
+    import app.crud.resource.bio_db as db_crud
+    import app.crud.tools.tool as tool_crud
+    from app.core.session import engine
+
+    with Session(engine) as session:
+        if result.new_tool_uids:
+            tool_labels = []
+            for tool_uid in result.new_tool_uids:
+                tool = tool_crud.get(session, tool_uid)
+                tool_labels.append(f'{tool.name}({tool_uid})' if tool else tool_uid)
+            logger.success(f'新增工具已记录: {", ".join(tool_labels)}')
+
+        if result.new_db_ids:
+            db_labels = []
+            for db_id in result.new_db_ids:
+                try:
+                    db = db_crud.get(session, db_id)
+                    db_labels.append(f'{db.name}({db_id})')
+                except Exception:
+                    db_labels.append(str(db_id))
+            logger.success(f'新增数据库已记录: {", ".join(db_labels)}')
 
 
 def _send_run_task(
     con: sqlite3.Connection,
     thread_id: str,
     project_id: int,
-    workflow_uids: list[str],
+    result: WorkflowGenerationResult,
     output_dir: str,
 ) -> None:
-    import uuid
-
     from sqlmodel import Session
 
     import app.crud.project_workflow as proj_wf_crud
@@ -409,14 +490,24 @@ def _send_run_task(
     con.execute(
         """
         UPDATE evaluate_results
-        SET workflow_uid = :workflow_uid, output_path = :output_path
+        SET workflow_uid = :workflow_uid,
+            output_path = :output_path,
+            new_tool_uids = :new_tool_uids,
+            new_db_ids = :new_db_ids
         WHERE thread_id = :thread_id
         """,
-        {'thread_id': thread_id, 'workflow_uid': ';'.join(workflow_uids), 'output_path': output_dir},
+        {
+            'thread_id': thread_id,
+            'workflow_uid': _serialize_ids(result.workflow_uids),
+            'output_path': output_dir,
+            'new_tool_uids': _serialize_ids(result.new_tool_uids),
+            'new_db_ids': _serialize_ids(result.new_db_ids),
+        },
     )
+    _log_created_records(result)
 
     with Session(engine) as session:
-        for uid in workflow_uids:
+        for uid in result.workflow_uids:
             workflow_uid = uuid.UUID(uid)
             if proj_wf_crud.is_workflow_in_project(session, project_id, workflow_uid):
                 logger.info(f'Workflow {workflow_uid} is already imported into project {project_id}; skipping.')
@@ -487,7 +578,7 @@ async def wf_eval(
                     content='Please complete the task of constructing a work roadmap based on the above information.'
                 ),
             ]
-            workflow_uids = await _generate_workflow(
+            workflow_result = await _generate_workflow(
                 agent_input,
                 thread_id,
                 project_id,
@@ -495,7 +586,7 @@ async def wf_eval(
                 checkpoint,
                 reset_checkpoint=reset_checkpoint,
             )
-        _send_run_task(con, thread_id, project_id, workflow_uids, '')
+        _send_run_task(con, thread_id, project_id, workflow_result, '')
     finally:
         con.close()
 
