@@ -66,9 +66,19 @@ class CreateToolState(AgentState, total=False):
     image_uid: uuid.UUID
     image: ImageConfig
 
+    tool_report: str
     doc_uid: uuid.UUID
+    help_command: str
 
     group_id: int
+
+    name: str
+    description: str
+    file_mounts: list[FileMount]
+    command_template: str
+    dynamic_params: list[ParamDefine]
+    immutable_static_params: str
+    modifiable_static_params: str
 
     tool_uid: str
     json_response: dict[str, Any]
@@ -94,6 +104,7 @@ class TestRunState(AgentState):
 class ToolGeneratorState(AgentState, total=False):
     name: str
     description: str
+    help_command: str
     file_mounts: list[FileMount]
     command_template: str
     dynamic_params: list[ParamDefine]

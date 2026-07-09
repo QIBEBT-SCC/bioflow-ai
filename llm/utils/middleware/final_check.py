@@ -13,7 +13,8 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from llm.states import FolderContext, StructuredResponse, UserContext
+from llm.context import BaseContext
+from llm.states import FolderContext, StructuredResponse
 from llm.utils.token import store_token_usage
 
 if TYPE_CHECKING:
@@ -91,7 +92,7 @@ class CheckReportMiddleware(AgentMiddleware):
         return {'check_failed_count': 0, 'updated': False}
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
+    def after_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
@@ -141,7 +142,7 @@ class CheckReportMiddleware(AgentMiddleware):
         return None
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
+    async def aafter_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
 
         if last_message.tool_calls:
@@ -206,7 +207,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         return {'check_failed_count': 0}
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
+    def after_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
             return None
@@ -235,6 +236,17 @@ class CheckGenerateMiddleware(AgentMiddleware):
                 self.error_time,
             )
 
+        if 'name' not in state or 'description' not in state or 'help_command' not in state:
+            return _handle_check_failed(
+                check_failed_count,
+                [
+                    HumanMessage(
+                        content='You have not completed the tool info yet. Use the `set_tool_info` tool to configure name, description, and help_command.'
+                    )
+                ],
+                self.error_time,
+            )
+
         # complete_command = build_command_template(
         #     command_template=state['command_template'],
         #     dynamic_params=state['dynamic_params'],
@@ -245,7 +257,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         # template_params = {field_name for _, field_name, _, _ in Formatter().parse(complete_command) if field_name}
         # input_files = {mount.name for mount in state['file_mounts'] if mount.file_type == 'INPUT'}
         #
-        # # # 检查1：template_params中的变量名是否只有input_files中值的以及output_dir和sample_name
+        # # # 检查1: template_params中的变量名是否只有input_files中值的以及output_dir和sample_name
         # allowed_params = input_files | {'output_dir', 'sample_name'}
         # invalid_params = template_params - allowed_params
         # if invalid_params:
@@ -259,7 +271,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         #         self.error_time,
         #     )
         #
-        # # 检查2：input_files中的值是否在template_params中均存在
+        # # 检查2: input_files中的值是否在template_params中均存在
         # missing_inputs = input_files - template_params
         # if missing_inputs:
         #     return _handle_check_failed(
@@ -277,7 +289,7 @@ class CheckGenerateMiddleware(AgentMiddleware):
         return None
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
+    async def aafter_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
 
@@ -293,7 +305,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         self.error_time = error_time
 
     @hook_config(can_jump_to=['model'])
-    def after_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
+    def after_model(self, state: CheckState, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
         last_message = cast('AIMessage', state['messages'][-1])
         if last_message.tool_calls:
             return None
@@ -317,7 +329,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         )
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: StateT, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
+    async def aafter_model(self, state: CheckState, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
 
@@ -341,7 +353,7 @@ class CheckStateExistMiddleware(AgentMiddleware):
     def after_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
         last_message = state['messages'][-1]
 
-        if last_message.tool_calls:
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
             return None
 
         # 如果这是一条不带工具调用的信息, 那么说明模型直接退出了

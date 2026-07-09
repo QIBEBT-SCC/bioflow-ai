@@ -20,15 +20,16 @@ from sqlmodel import Session
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
+import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ToolDefine, ToolType
+from app.models.tools import ToolDefine, ToolHelpDoc, ToolType
 from app.schemas.tools import ToolNodePublic
+from app.utils.container import run_command
 from llm.agents.tool_agent.config_generator import config_generate_agent
 from llm.agents.tool_agent.report_generator_v2 import test_run_agent
-from llm.agents.tool_agent.searcher.doc import doc_searcher
 from llm.agents.tool_agent.searcher.image import self_search_image_agent
 from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from llm.context import BaseContext, CreateToolContext, TestRunContext
@@ -77,32 +78,6 @@ If you encounter any unresolvable issues at any point, you can call the `ask_hum
 </ThinkingProcess>
 """
 
-GET_DOC_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
-This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is encapsulate a new node.
-To achieve this, we have already found the corresponding image for the tool in previous work. Your task now is to **obtain the help documentation for the corresponding tool** based on the user's description, as a basis for encapsulation.
-
-<ThinkingProcess>
-To achieve your goal, you can follow these steps:
-1. First, call the `list_docs` tool to view the tool documentation already recorded under the corresponding image.
-2. If there are records in the returned results that you think might be useful, you can call the `view_doc` tool to view the specific content of that record.
-    - If this record is suitable, call the `select_doc` tool to select this document and complete your task.
-    - Otherwise, view other records as appropriate or proceed to the next step.
-3. If the result of step 1 is empty or there are no suitable records, then you need to call the `run_command` tool to try to run commands within the corresponding container to get help documentation (see the detailed explanation in the <RunCommand> section).
-4. `save_doc` will save the output from the last `run_command` execution to the database. After you get the desired help documentation, remember to call this tool to save the document and complete your task.
-
-When you think a document can be selected or saved, **directly** call the tool to execute the operation.
-When `run_command` fails multiple times or other unresolvable errors occur, you can call the `ask_human` tool to seek human intervention.
-</ThinkingProcess>
-
-<RunCommand>
-When there is no corresponding help document in the database, you need to try running commands to get the tool's help document. In this step, you need to pay attention to:
-- The tool is already running in a Docker container. You only need to provide the bare command-line instructions — do **not** include prefixes like `docker run`.
-- If you receive an error like `command not found`, it indicates the tool name is incorrect. Try a new, correct tool name based on your knowledge.
-    - If you can't find the name of the tool in your knowledge, try to remember if you have to add a suffix such as `.py`, `.sh`, etc.
-</RunCommand>
-"""
-
-
 SELECT_GROUP_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
 Now your task is to **assign an appropriate group** to this tool based on the information available about it.
@@ -140,7 +115,8 @@ class CreateToolAgent:
             context_schema=BaseContext,
         )
 
-    async def select_image_node(self, state: CreateToolState) -> dict[str, Any]:
+    @staticmethod
+    async def select_image_node(state: CreateToolState) -> dict[str, Any]:
         """首先搜索得到此工具的对应镜像."""
         if state.get('image_uid'):
             # 我们认为数据库中的镜像信息就是完全的
@@ -161,30 +137,9 @@ class CreateToolAgent:
                 'image': response['image'],
             }
 
-    async def get_doc_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any] | None:
-        """然后尝试获取指令对应的帮助文档."""
-        if state.get('doc_uid'):
-            return None
-        writer = get_stream_writer()
-        writer({'info': "Searching for tool's help document..."})
-
-        # pyrefly: ignore [no-matching-overload]
-        response = await doc_searcher.ainvoke(
-            {
-                'messages': state['messages'],
-                'image_uid': state['image_uid'],
-                'image': state['image'],
-            },
-            context=BaseContext(user_id=runtime.context.user_id),
-        )
-        doc_uid = response['doc_uid']
-
-        return {
-            'doc_uid': doc_uid,
-        }
-
+    @staticmethod
     async def search_exist_tool_node(
-        self, state: CreateToolState, runtime: Runtime[CreateToolContext]
+        state: CreateToolState, runtime: Runtime[CreateToolContext]
     ) -> Command[Literal['get_report', '__end__']]:
         """检查是否已经有此功能的节点."""
         writer = get_stream_writer()
@@ -245,7 +200,8 @@ class CreateToolAgent:
 
         return Command(goto='get_report')
 
-    async def get_report_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
+    @staticmethod
+    async def get_report_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """获取工具的输出结果."""
         writer = get_stream_writer()
         writer({'info': 'Getting more information through test run...'})
@@ -262,7 +218,10 @@ class CreateToolAgent:
         )
         run_report = response['tool_report']
 
-        return {'messages': [HumanMessage(content=run_report)]}
+        return {
+            'messages': [HumanMessage(content=run_report)],
+            'tool_report': run_report,
+        }
 
     async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """最后一步, 为工具选择分组."""
@@ -278,7 +237,8 @@ class CreateToolAgent:
         # 不更新消息
         return {'group_id': response['group_id']}
 
-    async def generate_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
+    @staticmethod
+    async def generate_tool_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """生成工具配置."""
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
@@ -288,6 +248,67 @@ class CreateToolAgent:
             {'messages': state['messages']},
             context=BaseContext(user_id=runtime.context.user_id),
         )
+        return {
+            key: result[key]
+            for key in (
+                'name',
+                'description',
+                'help_command',
+                'command_template',
+                'dynamic_params',
+                'immutable_static_params',
+                'modifiable_static_params',
+                'file_mounts',
+            )
+        }
+
+    async def process_help_doc_node(self, state: CreateToolState) -> dict[str, Any]:
+        """处理帮助文档表, 并在状态中更新 doc_uid."""
+        writer = get_stream_writer()
+        writer({'info': 'Preparing tool help document...'})
+
+        if state.get('doc_uid'):
+            return {'doc_uid': state['doc_uid']}
+
+        help_command = state['help_command'].strip()
+        if not help_command:
+            err_msg = 'Empty help command'
+            raise ValueError(err_msg)
+
+        with Session(engine) as session:
+            tool_doc = doc_crud.get_by_command(session, help_command)
+            if tool_doc is not None:
+                return {'doc_uid': tool_doc.uid}
+
+        _code, content = run_command(state['image'], [], help_command)
+
+        with Session(engine) as session:
+            tool_doc = ToolHelpDoc(
+                help_command=help_command,
+                description=state['description'],
+                content=content,
+                image_uid=state.get('image_uid'),
+            )
+            tool_doc = doc_crud.insert(session, tool_doc)
+            return {'doc_uid': tool_doc.uid}
+
+    async def save_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
+        """保存工具节点, 或在非自动保存模式下返回结构化结果."""
+        writer = get_stream_writer()
+        writer({'info': 'Saving tool config...'})
+
+        tool_config = {
+            key: state[key]
+            for key in (
+                'name',
+                'description',
+                'command_template',
+                'dynamic_params',
+                'immutable_static_params',
+                'modifiable_static_params',
+                'file_mounts',
+            )
+        }
 
         with Session(engine) as session:
             group = group_crud.get(session, state['group_id'])
@@ -303,7 +324,7 @@ class CreateToolAgent:
                 help_doc_uid=state['doc_uid'],
                 group_id=group.id,
                 tags=[group.tag, tag],
-                **result,
+                **tool_config,
             )
             if not runtime.context.auto_save:
                 return {'json_response': tool_data.model_dump()}
@@ -373,18 +394,20 @@ class CreateToolAgent:
         )
 
         graph.add_node('select_image', self.select_image_node)
-        graph.add_node('get_doc', self.get_doc_node)
         graph.add_node('search_exist_tool', self.search_exist_tool_node)
         graph.add_node('get_report', self.get_report_node)
         graph.add_node('choose_group', self.choose_group_node)
         graph.add_node('generate_tool_config', self.generate_tool_node)
+        graph.add_node('process_help_doc', self.process_help_doc_node)
+        graph.add_node('save_tool', self.save_tool_node)
 
         graph.set_entry_point('select_image')
-        graph.add_edge('select_image', 'get_doc')
-        graph.add_conditional_edges('get_doc', self.whether_local_search)
+        graph.add_conditional_edges('select_image', self.whether_local_search)
         graph.add_edge('get_report', 'choose_group')
-        graph.add_edge('choose_group', 'generate_tool_config')
-        graph.add_edge('generate_tool_config', END)
+        graph.add_edge('get_report', 'generate_tool_config')
+        graph.add_edge(['choose_group', 'generate_tool_config'], 'process_help_doc')
+        graph.add_edge('process_help_doc', 'save_tool')
+        graph.add_edge('save_tool', END)
 
         compiled_graph = graph.compile(checkpointer=memory) if memory is not None else graph.compile()
 
