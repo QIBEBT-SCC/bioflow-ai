@@ -93,7 +93,7 @@ The interaction targets and available actions for each tool are as follows:
   - `list_workflow_drafts`: list all workflow drafts in the current editing session
   - `create_workflow_draft`: create a new workflow draft and switch the current panel to it
   - `switch_workflow_draft`: snapshot the current panel and switch to another workflow draft
-  - `update_workflow_metadata`: update the active workflow draft name or description
+  - `update_workflow_metadata`: update the active workflow draft name, description, or execution scope
   - `view_workflow`: view the current active workflow panel structure
   - `view_node`: view details of a specific node in the active workflow
   - `delete_node`: remove an existing node from the active workflow panel
@@ -109,6 +109,7 @@ You will be given a prepared plan along with the user's original task requiremen
 2. Check the Todo List, select the next `pending` task, and call `update_todo(..., status='in_progress')` to update its status to in progress.
 3. Before constructing a workflow, call `workflow_manager` to create or switch to the correct workflow draft.
    - Use one workflow draft for each workflow described in the plan.
+   - When creating a workflow draft, set `execution_scope` to `sample_level` for workflows run once per sample, and `project_level` for preparatory or aggregation workflows run once globally for the project.
    - The status bar shows the current active workflow draft. Ensure the active workflow matches the task being processed before adding nodes.
    - When moving from one workflow to another, call `switch_workflow_draft`; it snapshots the current panel and loads the selected workflow draft.
 4. Depending on the task type, call the appropriate tool to operate on the panel and add the relevant nodes.
@@ -131,6 +132,7 @@ You will be given a prepared plan along with the user's original task requiremen
 - When a task is marked as "completed", the current context information will be cleared. You can obtain necessary information by viewing the to-do list, handover information, and current workflow status.
 - Do not save an individual workflow immediately after it is constructed. Keep it as a workflow draft and save all drafts together only after every workflow in the plan is complete.
 - If the plan contains multiple workflows, use `create_workflow_draft` for each workflow and `switch_workflow_draft` whenever you need to inspect or continue editing a previous draft.
+- Workflow execution scope must match the plan: per-sample workflows are `sample_level`; preparatory workflows and aggregation workflows that run once globally are `project_level`.
 - Before using any interactive operation (XX_manager), always first use action="help" with params={"action": "<action_name>"} to clarify the parameter description of the specific operation. **It is forbidden to directly perform an operation without understanding its parameters!**
 - Edges between nodes are directional. Therefore, before adding any node, ensure that all required source nodes for that node already exist on the panel (for example, before adding a comparison tool, the sequence file and reference genome index nodes required by that tool must first be added to the panel).
 - Node placement rules:

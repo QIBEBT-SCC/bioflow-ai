@@ -1,27 +1,28 @@
-import datetime
 import json
-from typing import Any
+from typing import Any, Literal
 
-from langchain_core.documents import Document
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, Field, ValidationError
-from sqlmodel import Session
 
-import app.crud.workflow as wf_crud
-from app.core.config import get_settings
-from app.core.session import engine
-from app.models.workflow import Workflow, WorkflowType
-from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
 from llm.context import ProjectContext
-from llm.models import qwen3_embedding
-from llm.states import BuildEdge, BuildNode, WorkflowDraft
+from llm.states import BuildEdge, BuildNode
 from llm.utils.edge_validation import check_orphan_edges
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
+from llm.workflow_builder.drafts import (
+    WorkflowScope,
+    build_workflow_draft,
+    next_draft_id,
+    snapshot_active_workflow,
+)
+from llm.workflow_builder.messages import (
+    format_saved_workflows,
+    format_workflow_drafts,
+)
+from llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
 
 
 class HelpSchema(BaseModel):
@@ -60,6 +61,12 @@ class CreateWorkflowDraftSchema(BaseModel):
     description: str = Field(
         description='Description of the workflow, including the primary functions and the principal tools utilized.'
     )
+    execution_scope: Literal['sample_level', 'project_level'] = Field(
+        description=(
+            'Workflow execution scope. Use "sample_level" for workflows run once per sample; '
+            'use "project_level" for preparatory or aggregation workflows run once globally for the project.'
+        )
+    )
 
 
 class SwitchWorkflowDraftSchema(BaseModel):
@@ -73,6 +80,10 @@ class UpdateWorkflowMetadataSchema(BaseModel):
 
     name: str | None = Field(default=None, description='New workflow name')
     description: str | None = Field(default=None, description='New workflow description')
+    execution_scope: Literal['sample_level', 'project_level'] | None = Field(
+        default=None,
+        description='New workflow execution scope: "sample_level" or "project_level"',
+    )
 
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
@@ -123,7 +134,12 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                         ]
                     }
                 )
-            return _create_workflow_draft(validate_param.name, validate_param.description, runtime)
+            return _create_workflow_draft(
+                validate_param.name,
+                validate_param.description,
+                validate_param.execution_scope,
+                runtime,
+            )
 
         case 'switch_workflow_draft':
             try:
@@ -157,7 +173,12 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                         ]
                     }
                 )
-            return _update_workflow_metadata(validate_param.name, validate_param.description, runtime)
+            return _update_workflow_metadata(
+                validate_param.name,
+                validate_param.description,
+                validate_param.execution_scope,
+                runtime,
+            )
 
         case 'view_workflow':
             return _view_workflow(runtime)
@@ -226,59 +247,10 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
             )
 
 
-def _get_workflow_drafts(runtime: ToolRuntime[ProjectContext]) -> dict[str, WorkflowDraft]:
-    drafts = runtime.state.get('workflow_drafts', {})
-    return {
-        draft_id: draft if isinstance(draft, WorkflowDraft) else WorkflowDraft.model_validate(draft)
-        for draft_id, draft in drafts.items()
-    }
-
-
-def _next_draft_id(drafts: dict[str, WorkflowDraft]) -> str:
-    index = len(drafts) + 1
-    while True:
-        draft_id = f'wf_{generate_char_index(index)}'
-        if draft_id not in drafts:
-            return draft_id
-        index += 1
-
-
-def _snapshot_active_workflow(runtime: ToolRuntime[ProjectContext]) -> dict[str, WorkflowDraft]:
-    drafts = _get_workflow_drafts(runtime)
-    active_workflow_id = runtime.state.get('active_workflow_id')
-    if not active_workflow_id:
-        return drafts
-
-    draft = drafts.get(active_workflow_id)
-    if draft is None:
-        draft = WorkflowDraft(draft_id=active_workflow_id, name=active_workflow_id)
-
-    drafts[active_workflow_id] = draft.model_copy(
-        update={
-            'nodes': runtime.state.get('exist_nodes', []),
-            'edges': runtime.state.get('exist_edges', []),
-        },
-        deep=True,
-    )
-    return drafts
-
-
 def _list_workflow_drafts(runtime: ToolRuntime[ProjectContext]) -> Command:
-    drafts = _snapshot_active_workflow(runtime)
+    drafts = snapshot_active_workflow(runtime.state)
     active_workflow_id = runtime.state.get('active_workflow_id')
-
-    if not drafts:
-        content = 'No workflow drafts exist yet. Use create_workflow_draft before building a workflow.'
-    else:
-        lines = ['Workflow drafts:']
-        for draft in drafts.values():
-            active_marker = ' (active)' if draft.draft_id == active_workflow_id else ''
-            description = f' - {draft.description}' if draft.description else ''
-            lines.append(
-                f'- {draft.draft_id}{active_marker}: {draft.name}'
-                f' [{len(draft.nodes)} nodes, {len(draft.edges)} edges]{description}'
-            )
-        content = '\n'.join(lines)
+    content = format_workflow_drafts(list(drafts.values()), active_workflow_id)
 
     return Command(
         update={
@@ -288,22 +260,31 @@ def _list_workflow_drafts(runtime: ToolRuntime[ProjectContext]) -> Command:
     )
 
 
-def _create_workflow_draft(name: str, description: str, runtime: ToolRuntime[ProjectContext]) -> Command:
-    drafts = _snapshot_active_workflow(runtime)
-    draft_id = _next_draft_id(drafts)
+def _create_workflow_draft(
+    name: str,
+    description: str,
+    execution_scope: WorkflowScope,
+    runtime: ToolRuntime[ProjectContext],
+) -> Command:
+    drafts = snapshot_active_workflow(runtime.state)
+    draft_id = next_draft_id(drafts)
     current_nodes = runtime.state.get('exist_nodes', [])
     current_edges = runtime.state.get('exist_edges', [])
 
     if not runtime.state.get('active_workflow_id') and current_nodes:
-        new_draft = WorkflowDraft(
+        new_draft = build_workflow_draft(
             draft_id=draft_id,
             name=name,
             description=description,
+            execution_scope=execution_scope,
             nodes=current_nodes,
             edges=current_edges,
         )
         drafts[draft_id] = new_draft
-        msg = f'Registered the current panel as workflow draft {draft_id} ("{name}"). This draft is now active.'
+        msg = (
+            f'Registered the current panel as workflow draft {draft_id} '
+            f'("{name}", scope={execution_scope}). This draft is now active.'
+        )
         return Command(
             update={
                 'active_workflow_id': draft_id,
@@ -312,9 +293,14 @@ def _create_workflow_draft(name: str, description: str, runtime: ToolRuntime[Pro
             }
         )
 
-    new_draft = WorkflowDraft(draft_id=draft_id, name=name, description=description)
+    new_draft = build_workflow_draft(
+        draft_id=draft_id,
+        name=name,
+        description=description,
+        execution_scope=execution_scope,
+    )
     drafts[draft_id] = new_draft
-    msg = f'Created workflow draft {draft_id} ("{name}") and switched to an empty panel.'
+    msg = f'Created workflow draft {draft_id} ("{name}", scope={execution_scope}) and switched to an empty panel.'
     return Command(
         update={
             'active_workflow_id': draft_id,
@@ -342,7 +328,7 @@ def _switch_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) 
             }
         )
 
-    drafts = _snapshot_active_workflow(runtime)
+    drafts = snapshot_active_workflow(runtime.state)
     target = drafts.get(draft_id)
     if target is None:
         return Command(
@@ -371,6 +357,7 @@ def _switch_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) 
 def _update_workflow_metadata(
     name: str | None,
     description: str | None,
+    execution_scope: WorkflowScope | None,
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     active_workflow_id = runtime.state.get('active_workflow_id')
@@ -386,25 +373,27 @@ def _update_workflow_metadata(
             }
         )
 
-    if name is None and description is None:
+    if name is None and description is None and execution_scope is None:
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content='No metadata changes provided. Pass at least one of name or description.',
+                        content='No metadata changes provided. Pass at least one of name, description, or execution_scope.',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ]
             }
         )
 
-    drafts = _snapshot_active_workflow(runtime)
+    drafts = snapshot_active_workflow(runtime.state)
     draft = drafts[active_workflow_id]
     update_data = {}
     if name is not None:
         update_data['name'] = name
     if description is not None:
         update_data['description'] = description
+    if execution_scope is not None:
+        update_data['execution_scope'] = execution_scope
     drafts[active_workflow_id] = draft.model_copy(update=update_data, deep=True)
 
     return Command(
@@ -534,36 +523,6 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     )
 
 
-def _orphan_edges_report(orphans: list[BuildEdge], exist_nodes: list[BuildNode], tool_call_id: str) -> Command:
-    node_names = {n.id: n.name for n in exist_nodes}
-    remaining_ids = sorted(node_names)
-    affected_sources = sorted({e.source_node for e in orphans})
-
-    lines = [
-        f'Cannot save workflow: {len(orphans)} orphan edge(s) detected (target_node is missing).',
-        '',
-        'Orphan edges:',
-    ]
-    for i, e in enumerate(orphans, 1):
-        src_name = node_names.get(e.source_node, '<unknown>')
-        lines.append(f'  {i}. {e.source_node}({src_name}) [{e.source_handle}] -> <missing> [{e.target_handle}]')
-
-    lines += [
-        '',
-        f'Source nodes referenced by orphans: {affected_sources}',
-        f'Current nodes on the panel: {remaining_ids}',
-        '',
-        'Use action="fix_edge" with params={"edges": [...]} to replace ALL orphan edges in one call. '
-        'Pass the complete list of edges that should replace the orphans; '
-        'every orphan edge is removed atomically and the provided edges are appended. '
-        'After fixing, retry save_all_workflows.',
-        '',
-        'fix_edge parameters:',
-        '  - edges (list): each item has source_node, source_handle, target_node, target_handle (all str)',
-    ]
-    return Command(update={'messages': [ToolMessage(content='\n'.join(lines), tool_call_id=tool_call_id)]})
-
-
 def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     exist_edges: list[BuildEdge] = runtime.state.get('exist_edges', [])
@@ -631,50 +590,8 @@ def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Co
     )
 
 
-def _build_workflow_definition(exist_nodes: list[BuildNode], exist_edges: list[BuildEdge]) -> WorkflowDefinition:
-    nodes = []
-    for n in exist_nodes:
-        if n.type in {'resource_ncbi_genome', 'resource_GRCh38', 'resource_GRCm39'}:
-            required_index = list(dict.fromkeys(e.source_handle for e in exist_edges if e.source_node == n.id))
-            node = Node(
-                id=n.id,
-                type=n.type,
-                data={'required_index': required_index},
-                position=Position(x=n.x * 500, y=n.y * 400),
-                dragHandle='.nodeDragable',
-                zIndex=-10 if n.type == 'note' else 20,
-            )
-        else:
-            node = Node(
-                id=n.id,
-                type=n.type,
-                data=n.data,
-                position=Position(x=n.x * 500, y=n.y * 400),
-                dragHandle='.nodeDragable',
-                zIndex=-10 if n.type == 'note' else 20,
-            )
-        nodes.append(node)
-
-    edges = []
-    for e in exist_edges:
-        source_handle = f'{e.source_node}-out-{e.source_handle}'
-        target_handle = f'{e.target_node}-in-{e.target_handle}'
-        edge = Edge(
-            id=f'xy-edge__{source_handle}-{target_handle}',
-            animated=True,
-            source=e.source_node,
-            # pyrefly: ignore [bad-argument-type]
-            target=e.target_node,
-            sourceHandle=source_handle,
-            targetHandle=target_handle,
-        )
-        edges.append(edge)
-
-    return WorkflowDefinition(nodes=nodes, edges=edges)
-
-
 async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
-    drafts = _snapshot_active_workflow(runtime)
+    drafts = snapshot_active_workflow(runtime.state)
 
     if not drafts:
         return Command(
@@ -725,53 +642,12 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
             }
         )
 
-    now = datetime.datetime.now(datetime.UTC)
-    saved_workflows = []
-    with Session(engine) as session:
-        for draft in drafts.values():
-            workflow_define = _build_workflow_definition(draft.nodes, draft.edges)
-            workflow = Workflow(
-                name=f'{now.strftime("%y%m%d")}_{draft.name}(AI)',
-                description=draft.description,
-                owner_id=runtime.context.user_id,
-                wf_type=WorkflowType.TEMPLATE,
-                workflow=workflow_define,
-                public=True,
-                auto_summary=True,
-            )
-            saved_workflows.append(wf_crud.insert(session, workflow))
-
-        embedding_model = qwen3_embedding()
-        vectorstore = Milvus(
-            collection_name='WorkflowCollection',
-            connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
-            embedding_function=embedding_model,
-            builtin_function=BM25BuiltInFunction(),
-            vector_field=['dense', 'sparse'],
-            index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-            consistency_level='Strong',
-            drop_old=False,
-            auto_id=True,
-        )
-
-        docs = [
-            Document(
-                page_content=workflow.description,
-                metadata={
-                    'wf_uid': str(workflow.uid),
-                    'name': workflow.name,
-                },
-            )
-            for workflow in saved_workflows
-        ]
-        await vectorstore.aadd_documents(docs)
-
-    saved_lines = '\n'.join(f'- {workflow.name}: {workflow.uid}' for workflow in saved_workflows)
+    saved_workflows = await save_workflow_drafts(list(drafts.values()), runtime.context.user_id)
     return Command(
         update={
             'messages': [
                 ToolMessage(
-                    content=f'Saved {len(saved_workflows)} workflow(s) to the database:\n{saved_lines}',
+                    content=format_saved_workflows(saved_workflows),
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -779,7 +655,7 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
             'exist_edges': Overwrite([]),
             'active_workflow_id': None,
             'workflow_drafts': {},
-            'workflow_uids': [workflow.uid for workflow in saved_workflows],
+            'workflow_uids': Overwrite(workflow_uids(saved_workflows)),
             'updated': True,
         }
     )

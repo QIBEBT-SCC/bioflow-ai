@@ -44,7 +44,15 @@ class StatusBarMiddleware(AgentMiddleware):
                 if isinstance(active_draft, dict)
                 else getattr(active_draft, 'name', active_workflow_id)
             )
-            status.append(f'Current Workflow Draft: <workflow id="{active_workflow_id}">{workflow_name}</workflow>')
+            workflow_scope = (
+                active_draft.get('execution_scope', 'sample_level')
+                if isinstance(active_draft, dict)
+                else getattr(active_draft, 'execution_scope', 'sample_level')
+            )
+            status.append(
+                f'Current Workflow Draft: '
+                f'<workflow id="{active_workflow_id}" scope="{workflow_scope}">{workflow_name}</workflow>'
+            )
 
         if status:
             last_message = request.messages[-1]
