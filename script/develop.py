@@ -3,10 +3,10 @@ import os
 import shutil
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import click
+from anyio import Path
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -74,6 +74,7 @@ async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) 
                 config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
                 response = await agent.aget_state(config, subgraphs=True)
                 try:
+                    # pyrefly: ignore [missing-attribute]
                     container_id = cast('str', response.tasks[0].state.values.get('container_id'))
                 except (IndexError, AttributeError, KeyError, TypeError):
                     container_id = None
@@ -95,8 +96,8 @@ async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) 
             logger.info(f'从 test_run 表中删除了 {deleted} 条保存数据')
 
         for thread_id in thread_ids:
-            output_path = Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
-            if output_path.exists():
+            output_path = await Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
+            if await output_path.exists():
                 shutil.rmtree(output_path)
                 logger.info(f'清理了运行目录: {output_path}')
 
@@ -187,7 +188,7 @@ async def init_tools(index: int | None = None) -> None:
 
     console = Console()
 
-    async with _tool_agent_session(setup=True) as (checkpoint, agent):
+    async with _tool_agent_session(setup=True) as (_, agent):
         for row in todo_rows:
             row_index: int = row['index']
             tool_name: str = row['tool_name']
@@ -200,7 +201,7 @@ async def init_tools(index: int | None = None) -> None:
 
                 tool_doc = doc_crud.get_by_command(session, help_command)
                 if tool_doc is None:
-                    code, result = run_command(tool_image.image, [], help_command)
+                    _, result = run_command(tool_image.image, [], help_command)
                     tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
                     tool_doc = doc_crud.insert(session, tool_doc)
 
@@ -224,10 +225,11 @@ async def init_tools(index: int | None = None) -> None:
 
             con.execute('UPDATE tool_functions SET thread = ? WHERE index = ?', [thread_id, row_index])
 
+            # pyrefly: ignore [no-matching-overload]
             async for chunk in agent.astream(
-                agent_input,  # type: ignore
+                agent_input,
                 config,
-                context=context,  # type: ignore
+                context=context,
                 stream_mode=['custom', 'updates'],
                 version='v2',
                 subgraphs=True,
@@ -284,7 +286,7 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
 
             tool_doc = doc_crud.get_by_command(session, help_command)
             if tool_doc is None:
-                code, result = run_command(tool_image.image, [], help_command)
+                _, result = run_command(tool_image.image, [], help_command)
                 tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
                 tool_doc = doc_crud.insert(session, tool_doc)
 
@@ -307,10 +309,11 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
         context = CreateToolContext(user_id=2, auto_save=True, test_run_id=thread_id)
 
         console = Console()
+        # pyrefly: ignore [no-matching-overload]
         async for chunk in agent.astream(
-            agent_input,  # type: ignore
+            agent_input,
             config,
-            context=context,  # type: ignore
+            context=context,
             stream_mode=['custom', 'updates'],
             version='v2',
             subgraphs=True,
@@ -382,10 +385,11 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
             input_message = Command(resume=message)
         else:
             input_message = None
+        # pyrefly: ignore [no-matching-overload]
         async for chunk in agent.astream(
             input_message,
             config,
-            context=context,  # type: ignore
+            context=context,
             stream_mode=['custom', 'updates'],
             version='v2',
             subgraphs=True,
@@ -412,7 +416,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
     import app.crud.tools.tool as tool_crud
     from app.core.session import engine
-    from app.models.user import User
+    from app.models.user import User  # noqa: F401
 
     con = duckdb.connect(DB_PATH)
     thread_ids_to_delete: list[str] = []
@@ -446,7 +450,7 @@ async def check_records(*, clean_interrupted: bool = False, dry_run: bool = Fals
 
     import app.crud.tools.tool as tool_crud
     from app.core.session import engine
-    from app.models.user import User
+    from app.models.user import User  # noqa: F401
 
     con = duckdb.connect(DB_PATH)
     indices_to_reset: list[int] = []
