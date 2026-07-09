@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import UniqueConstraint, func
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -38,11 +38,13 @@ class ProjectTag(SQLModel, table=True):
     projects: list['Project'] = Relationship(back_populates='tags', link_model=ProjectTagLink)
 
     @hybrid_property
-    def project_count(self):
+    def project_count(self) -> int:
+        """Return the number of projects using this tag."""
         return len(self.projects)
 
     @project_count.expression
-    def project_count(self):
+    def project_count(self) -> Any:
+        """Return the SQL expression for counting projects using this tag."""
         return (
             # pyrefly: ignore [bad-argument-type]
             select(func.count(ProjectTagLink.project_id))
@@ -95,7 +97,7 @@ class ProjectWorkflow(SQLModel, table=True):
     __tablename__ = 'project_workflows'
 
     project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
-    workflow_uid: Optional[uuid.UUID] = Field(foreign_key='workflows.uid', ondelete='SET NULL')
+    workflow_uid: uuid.UUID = Field(foreign_key='workflows.uid', primary_key=True, ondelete='CASCADE')
     import_time: datetime = Field(default_factory=utc_now)
     enabled: bool = Field(default=True, description='是否启用该工作流')
 

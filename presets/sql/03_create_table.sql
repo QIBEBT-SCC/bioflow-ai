@@ -311,12 +311,12 @@ CREATE TABLE IF NOT EXISTS workflows
 CREATE TABLE IF NOT EXISTS project_workflows
 (
     project_id   INTEGER                  NOT NULL,
-    workflow_uid uuid,
+    workflow_uid uuid                     NOT NULL,
     import_time  TIMESTAMP WITH TIME ZONE NOT NULL,
     enabled      BOOLEAN                  NOT NULL,
-    PRIMARY KEY (project_id),
+    PRIMARY KEY (project_id, workflow_uid),
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
-    FOREIGN KEY (workflow_uid) REFERENCES workflows (uid) ON DELETE SET NULL
+    FOREIGN KEY (workflow_uid) REFERENCES workflows (uid) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS run_instances
