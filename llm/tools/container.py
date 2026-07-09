@@ -1,65 +1,23 @@
 import re
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Any
 
+from anyio import Path
+from fastapi import HTTPException
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from sqlmodel import Session
 
 from app.core.config import get_settings
-from app.utils.container import (
-    ContainerMount,
-    create_container,
-    remove_container,
-    run_command,
-    run_command_in_container,
-)
-from llm.states import TestRunContext
-
-if TYPE_CHECKING:
-    from app.models.tools import ImageConfig
-
-COMMAND_DESCRIPTION = """在容器环境中运行指定bash命令或生物信息学命令行工具并返回执行结果
-
-## 如何使用此工具
-- **此工具禁止并行调用**,当有多个命令想要执行时,必须依次调用
-- 每次调用都应只执行一个核心任务。严禁使用 `&&` 或 `;` 连接多个独立的命令
-- 当输出超过3000个字符的时候,输出将会被截断,并只返回给你头部和尾部的部分内容
-
-### 运行系统命令
-为了保证系统的安全性,你只允许使用下面列出来的系统命令和对应的参数:
-<AvailableSystemCommands>
-- `ls -lha`: 用于浏览目录结构
-    - 不要在数据库目录内使用此命令。因为数据库可能包含数百个小文件,请改用 `find` 命令
-- `find`: 用于按名称或模式在目录中查找文件
-    - 可以与 `grep` 结合进行过滤 (例如,`find ... | grep ...` )
-    - 禁止使用具有修改或执行效果的参数,例如 `-exec` 和 `-delete`
-- `wc -l`: 用于获取文件行数
-- `sed`: 用于按行范围读取文件内容
-    - 仅允许使用 `sed -n 'start,endp' file` 形式
-    - 禁止使用 `-i` 或任何修改文件的参数
-    - 使用 sed 查看文件时,一次读取的行数不得超过 10 行
-- `grep`: 用于在文件或其他命令的输出中搜索文本内容
-    - 仅用于搜索,绝不能修改源文件
-- `file`: 用于确定文件类型
-- `cmp -s`: 用于快速比较两个文件是否相同; 无输出表示它们相同
-- `whereis`: 用于查找可执行文件的路径
-- `mkdir`: 用于在工作输出目录中创建新目录
-    - 仅允许在 `/data/output` 及其子目录中创建目录
-    - 可以使用 `-p` 参数进行递归创建
-- `cp`: 仅用于将原始数据从 `/data/testdata` 复制到 `/data/output/00_raw`
-    - 文件绝不能从 `/data/output` 复制回 `/data/testdata` 或任何其他敏感目录
-    - 不允许使用删除或移动源文件的变体 (例如,`mv`命令,使用 `--remove-source-files` 等 )
-</AvailableSystemCommands>
-
-### 运行生物信息学命令行工具
-当运行生物信息学命令行工具时,请遵循以下规则:
-- 必须设置 `workdir` 以指明当前工作目录
-- 当你需要运行的工具与Current Image不同时,应该使用 `run_other_tool` 而非此工具
-"""
+from app.core.session import engine
+from app.crud.tools import image as image_crud
+from app.models.tools import ImageConfig
+from app.utils.container import ContainerMount, run_command
+from llm.context import TestRunContext
 
 MAX_CHAR = 3000
+DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')
 
 
 @tool('run_command', parse_docstring=True)
@@ -71,169 +29,87 @@ def run_command_tool(command: str, runtime: ToolRuntime) -> str:
     Args:
         command: the command you need to run
     """
-    image = runtime.state.get('image')
+    image = runtime.state.get('image', DEFAULT_LINUX_IMAGE)
     code, result = run_command(image, [], command)
 
     return f'[Container: {image.get_image()}]\n{result}'
 
 
-@tool('run_command', description=COMMAND_DESCRIPTION)
-def run_command_in_container_tool(command: str, runtime: ToolRuntime, workdir: Optional[str] = None) -> Command:
-    """Run command, and return it`s output result."""
-    if 'container_id' in runtime.state:
-        container_id = runtime.state.get('container_id')
-    else:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='You need to create and activate the container first before you can run commands within it.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
-
-    # 允许使用 cat 命令的文件白名单
-    allowed_cat_files = ['DESCRIPTION.md', 'about.md', 'task_log.txt']
-    if re.search(r'(?:^|[|&;])\s*cat\b', command) and not any(file in command for file in allowed_cat_files):
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='The cat command is only allowed to read the files "DESCRIPTION.md", "about.md" and "task_log.txt". To read other files, use the `sed` or `grep` commands; to write files, use the `echo` command.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
-
+def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:
     if re.search(r'\brm\b', command) and (workdir and '/data/output' not in workdir) and '/data/output' not in command:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='It is forbidden to use `rm` command outside of the /data/output path!',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
+        return _blocked_command('It is forbidden to use `rm` command outside of the /data/output path!', tool_call_id)
 
     if re.search(r'\bcd\b', command):
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='The `cd` command is prohibited. To specify the working directory, please use the `workdir` parameter.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
+        return _blocked_command(
+            'The `cd` command is prohibited. To specify the working directory, please use the `workdir` parameter.',
+            tool_call_id,
         )
 
-    if command.endswith('|| true'):
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='Attaching `|| true` or any tricks that hide the true exit code is strictly prohibited.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
+    return None
+
+
+def _resolve_image_ref(
+    image_ref: str | None,
+    runtime: ToolRuntime[TestRunContext],
+) -> tuple[ImageConfig, dict[str, str], Command | None]:
+    """Resolve a short image reference to an ImageConfig and update cache mappings."""
+    known_images = dict(runtime.state.get('known_images') or {})
+    if not image_ref:
+        return DEFAULT_LINUX_IMAGE, known_images, None
+
+    cached_image = known_images.get(image_ref)
+    if cached_image:
+        return ImageConfig.from_str(cached_image), known_images, None
+
+    try:
+        with Session(engine) as session:
+            tool_image = image_crud.get_by_image_ref(session, image_ref)
+            if tool_image is None:
+                tool_image = image_crud.get_unique_by_name(session, image_ref)
+    except HTTPException as exc:
+        return DEFAULT_LINUX_IMAGE, known_images, _blocked_command(exc.detail, runtime.tool_call_id)
+
+    if tool_image is None:
+        return (
+            DEFAULT_LINUX_IMAGE,
+            known_images,
+            _blocked_command(
+                f'No local image matches `{image_ref}`. Use `search_local_image` first, then pass a unique image reference from the results.',
+                runtime.tool_call_id,
+            ),
         )
 
-    code, out = run_command_in_container(container_id, command, workdir)
-
-    run_status = 'successfully' if code == 0 else 'failed'
-    if out.strip():
-        return_msg = (
-            _truncate_output(command, out)
-            if code == 0
-            else f'Command ran {run_status}.\n\n......\n{_truncate_output(command, out)}'
-        )
-    else:
-        return_msg = f'Command ran {run_status}. No other output.'
-
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(
-                    content=return_msg,
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
+    full_image = tool_image.image.get_image()
+    known_images[image_ref] = full_image
+    known_images[full_image] = full_image
+    return tool_image.image, known_images, None
 
 
-@tool(parse_docstring=True)
-def build_container(mounts: list[ContainerMount], runtime: ToolRuntime[TestRunContext]) -> Command:
-    """Create a new container using tool image.
+def _validate_extra_mounts(
+    mounts: list[ContainerMount] | None,
+    tool_call_id: str | None,
+) -> tuple[list[ContainerMount], Command | None]:
+    if mounts is None:
+        return [], None
 
-    The `/data/testdata` for storing test data and `/data/output` for tool outputs are already mounted by default, so no need to add them manually.
-
-    Args:
-        mounts: Other mounts besides testdata and output folder
-    """
-    output_path = (
-        Path(get_settings().persistent.storage.STORAGE_PATH).expanduser().resolve()
-        / 'testrun'
-        / runtime.context.folder_name
-    )
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    image: ImageConfig = runtime.state.get('image')
-
-    # 基础挂载配置
-
-    test_data_path = Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve()
-    for m in mounts:
-        source_path = Path(m.source).expanduser().resolve()
-        if source_path.is_relative_to(test_data_path):
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=f'你在试图挂载 `{m.source}`,但是测试数据{test_data_path}已经被默认挂载到容器的/data/testdata目录下,无需手动挂载。',
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ],
-                }
+    for mount in mounts:
+        if mount.target in {'/data/testdata', '/data/output'}:
+            return [], _blocked_command(
+                'The default test data directory `/data/testdata` and the output root directory `/data/output` are already mounted by default, so manual configuration is not required. '
+                'If additional data needs to be mounted, use a different path.',
+                tool_call_id,
             )
 
-    testdata_mount = ContainerMount(target='/data/testdata', source=f'{test_data_path}', read_only=True)
-    output_mount = ContainerMount(target='/data/output', source=f'{output_path}', read_only=False)
+    return mounts, None
 
-    container_id = create_container(image, [*mounts, testdata_mount, output_mount])
 
+def _blocked_command(content: str, tool_call_id: str | None) -> Command:
     return Command(
         update={
-            'container_id': container_id,
             'messages': [
                 ToolMessage(
-                    content=f'The container based on image `{image.get_image()}` has been created. Now you can use `run_command` to run command in it.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool('remove_container')
-def stop_and_rm_container(runtime: ToolRuntime) -> Command:
-    """Stop and remove container."""
-    container_id = runtime.state.get('container_id')
-    remove_container(container_id)
-
-    return Command(
-        update={
-            'container_id': None,
-            'messages': [
-                ToolMessage(
-                    content='The container has been removed',
-                    tool_call_id=runtime.tool_call_id,
+                    content=content,
+                    tool_call_id=tool_call_id,
                 )
             ],
         }
@@ -241,6 +117,75 @@ def stop_and_rm_container(runtime: ToolRuntime) -> Command:
 
 
 def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('find', 'grep', 'help', 'DESCRIPTION.md')) or len(output) <= MAX_CHAR:
+    if any(k in command for k in ('about.md', 'DESCRIPTION.md')) or len(output) <= MAX_CHAR:
         return output
-    return f'{output[:1500]}\n...\n{output[-500:]}'
+    return f'{output[:1500]}\n\n...(collapsed)...\n\n{output[-500:]}'
+
+
+@tool('run_command', parse_docstring=True)
+async def advance_run_command_tool(
+    command: str,
+    runtime: ToolRuntime[TestRunContext],
+    image_ref: str | None = None,
+    workdir: str | None = '/data/output',
+    mounts: list[ContainerMount] | None = None,
+) -> Command:
+    """在容器环境中运行指定 bash 命令或生物信息学命令行工具并返回执行结果.
+
+    Args:
+        command: 要运行的Linux命令行指令
+        image_ref: 用于执行命令的docker镜像, 必须包含镜像的repository, registry、namespace和tag可以视情况省略; 若不指定则使用默认的Linux基础镜像
+        workdir: 指定命令运行的工作目录
+        mounts: 除默认测试数据和输出目录外, **额外的**数据挂载
+    """
+    # 指令合法性检查
+    if invalid_command := _validate_command(command, workdir, runtime.tool_call_id):
+        return invalid_command
+
+    # 镜像解析
+    image, known_images, invalid_image = _resolve_image_ref(image_ref, runtime)
+    if invalid_image is not None:
+        return invalid_image
+
+    # 固定挂载
+    base_path = await (await Path(get_settings().persistent.storage.STORAGE_PATH).expanduser()).resolve()
+    output_path = base_path / 'testrun' / runtime.context.test_run_id
+    await output_path.mkdir(parents=True, exist_ok=True)
+
+    testdata_path = await (await Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser()).resolve()
+
+    extra_mounts, invalid_mount = _validate_extra_mounts(mounts, runtime.tool_call_id)
+    if invalid_mount is not None:
+        return invalid_mount
+
+    all_mounts = [
+        ContainerMount(target='/data/testdata', source=str(testdata_path), read_only=True),
+        ContainerMount(target='/data/output', source=str(output_path), read_only=False),
+        *extra_mounts,
+    ]
+
+    code, output = run_command(image, all_mounts, command, workdir)
+    status = 'successfully' if code == 0 else 'failed'
+
+    image_name = image_ref or 'linux_default'
+    if output.strip():
+        return_msg = (
+            f'[Image: {image_name}]\n{_truncate_output(command, output)}'
+            if code == 0
+            else f'[Image: {image_name}]\nCommand ran {status}.\n\n......\n{_truncate_output(command, output)}'
+        )
+    else:
+        return_msg = f'[Image: {image_name}]\nCommand ran {status}. No other output.'
+
+    update: dict[str, Any] = {
+        'messages': [
+            ToolMessage(
+                content=return_msg,
+                tool_call_id=runtime.tool_call_id,
+            )
+        ],
+    }
+    if image_ref:
+        update['known_images'] = known_images
+
+    return Command(update=update)

@@ -27,18 +27,17 @@ from app.core.session import engine
 from app.models.tools import ToolDefine, ToolType
 from app.schemas.tools import ToolNodePublic
 from llm.agents.tool_agent.config_generator import config_generate_agent
-from llm.agents.tool_agent.report_generator_v2 import direct_test_run_agent
+from llm.agents.tool_agent.report_generator_v2 import test_run_agent
 from llm.agents.tool_agent.searcher.doc import doc_searcher
 from llm.agents.tool_agent.searcher.image import self_search_image_agent
 from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
-from llm.context import BaseContext, CreateToolContext
+from llm.context import BaseContext, CreateToolContext, TestRunContext
 from llm.models import get_agent_model, qwen3_embedding
 from llm.states import (
     CreateToolOutput,
     CreateToolState,
     SearchImageState,
     SelectGroupState,
-    TestRunContext,
 )
 from llm.tools.database import (
     select_group,
@@ -252,15 +251,13 @@ class CreateToolAgent:
         writer({'info': 'Getting more information through test run...'})
 
         testrun_input = {'messages': state['messages']}
-        # pyrefly: ignore [no-matching-overload]
-        response = await direct_test_run_agent.ainvoke(
+        response = await test_run_agent.ainvoke(
             testrun_input,
             context=TestRunContext(
                 user_id=runtime.context.user_id,
-                # pyrefly: ignore [bad-argument-type]
-                folder_name=runtime.context.test_run_id,
-                save_message=runtime.context.save_message,
                 test_run_id=runtime.context.test_run_id,
+                save_message=runtime.context.save_message,
+                dataset_file=runtime.context.dataset_file,
             ),
         )
         run_report = response['tool_report']

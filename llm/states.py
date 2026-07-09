@@ -1,7 +1,7 @@
 import operator
 import uuid
 from dataclasses import dataclass
-from typing import Annotated, Any, Generic, NotRequired, Optional, TypedDict, TypeVar
+from typing import Annotated, Any, Generic, Literal, NotRequired, Optional, TypedDict, TypeVar
 
 from langchain.agents import AgentState
 from langchain_core.messages import AIMessage, BaseMessage
@@ -82,18 +82,8 @@ class CreateToolOutput(BaseModel):
 
 
 # =====================test run agent state==========================
-@dataclass
-class TestRunContext(UserContext):
-    folder_name: str
-
-    save_message: bool = False
-    test_run_id: Optional[str] = None
-
-
 class TestRunState(AgentState):
-    image: ImageConfig
-    container_id: NotRequired[str]
-
+    known_images: Annotated[dict[str, str], operator.or_]
     tool_report: NotRequired[str]
     updated: NotRequired[bool]
     checked: NotRequired[bool]
@@ -201,6 +191,7 @@ class WorkflowDraft(BaseModel):
     draft_id: str
     name: str
     description: str = ''
+    execution_scope: Literal['sample_level', 'project_level'] = 'sample_level'
     nodes: list[BuildNode] = Field(default_factory=list)
     edges: list[BuildEdge] = Field(default_factory=list)
 

@@ -8,12 +8,21 @@ class BaseContext:
 
 @dataclass
 class CreateToolContext(BaseContext):
+    test_run_id: str
+
     auto_save: bool = True
     skip_search: bool = False
 
     save_message: bool = False
     dataset_file: str = 'test_run.parquet'
-    test_run_id: str | None = None
+
+
+@dataclass
+class TestRunContext(BaseContext):
+    test_run_id: str
+
+    save_message: bool
+    dataset_file: str
 
 
 @dataclass
