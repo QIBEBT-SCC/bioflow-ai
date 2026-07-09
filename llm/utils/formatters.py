@@ -122,7 +122,8 @@ def tool_config_formatter(state: ToolGeneratorState) -> str:
     return (
         f'## Info\n'
         f'name: {state["name"]}\n'
-        f'description: {state["description"]}\n\n'
+        f'description: {state["description"]}\n'
+        f'help_command: {state["help_command"]}\n\n'
         f'## Command\n'
         f'```bash\n'
         f'{complete_command}\n'
@@ -135,6 +136,7 @@ def tool_config_formatter(state: ToolGeneratorState) -> str:
 
 
 def handle_formatter(handles: list[Handle], space: int = 6) -> str:
+    """Format node handles as XML-like blocks."""
     return '\n'.join(
         [
             f'{" " * space}<handle>\n'
@@ -195,6 +197,7 @@ def search_nodes_formatter(nodes: list[ToolNodePublic], mappers: BidirectionalMa
 
 
 def global_mark_formatter(markers: list[GlobalMarker]) -> str:
+    """Format workflow global markers for prompt context."""
     if not markers:
         return 'No Global Marks In Workflow.'
     return '\n'.join(
