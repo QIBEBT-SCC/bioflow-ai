@@ -8,7 +8,7 @@ from langgraph.types import Command
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
-import app.crud.project as proj_crud
+import app.crud.project_file_mapping as project_file_mapping_crud
 import app.crud.resource.sample as sample_crud
 from app.core.session import engine
 from app.models.resource import Sample, SampleFiles
@@ -196,13 +196,17 @@ async def add_project_file(
         return f'The sample file does not exist. The path constructed by concatenating base_dir and the provided file_path is: {final_path}. Please verify that the path is correct.'
 
     with Session(engine) as session:
-        proj_crud.create_file_mapping(
-            session,
-            runtime.context.project_id,
-            keyword,
-            f'{final_path}',
-            description,
-        )
+        try:
+            project_file_mapping_crud.create(
+                session,
+                runtime.context.project_id,
+                keyword,
+                f'{final_path}',
+                description,
+            )
+        except IntegrityError:
+            session.rollback()
+            return f'Project file keyword "{keyword}" already exists. Choose a different keyword.'
     return f'Added project file "{keyword}"'
 
 
@@ -217,7 +221,7 @@ async def list_project_samples(runtime: ToolRuntime[ProjectContext]) -> str:
     project_id = runtime.context.project_id
     with Session(engine) as session:
         groups = sample_crud.summarize_samples_by_project(session, project_id)
-        proj_files = proj_crud.get_all_file_mappings(session, project_id)
+        proj_files = project_file_mapping_crud.get_all_by_project(session, project_id)
 
     if not groups and not proj_files:
         return 'No samples or project-level files are registered for this project. Proceed with filesystem scan.'
