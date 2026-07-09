@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.models.workflow import ExecutionScope
+
 
 class ProjectWorkflowAdd(BaseModel):
     workflow_uid: uuid.UUID
@@ -11,6 +13,7 @@ class ProjectWorkflowAdd(BaseModel):
 class ProjectWorkflowPublic(BaseModel):
     workflow_uid: uuid.UUID
     workflow_name: str
+    execution_scope: ExecutionScope
     import_time: datetime
     enabled: bool
     auto_summary: bool

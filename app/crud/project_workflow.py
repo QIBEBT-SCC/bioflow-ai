@@ -124,6 +124,7 @@ def get_project_workflows(
             # pyrefly: ignore [bad-argument-type]
             workflow_uid=pw.workflow_uid,
             workflow_name=wf.name,
+            execution_scope=wf.execution_scope,
             import_time=pw.import_time,
             enabled=pw.enabled,
             auto_summary=wf.auto_summary,
