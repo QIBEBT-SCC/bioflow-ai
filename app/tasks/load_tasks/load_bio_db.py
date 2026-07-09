@@ -21,7 +21,7 @@ from app.utils.system import utc_now
 from script.worker import celery_app, monitor_redis_client
 
 BIO_DB_CONTAINER_PATH = '/data/db'
-DEFAULT_DOWNLOAD_IMAGE = ImageConfig.from_str('docker.io/library/ubuntu:24.04')
+DEFAULT_DOWNLOAD_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-download:1.0.0')
 DOWNLOAD_TASK_TTL_SECONDS = 60 * 60 * 24
 
 
