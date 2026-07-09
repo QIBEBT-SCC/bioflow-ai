@@ -1,12 +1,8 @@
-import io
 import shutil
 import uuid
-import zipfile
-from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, cast
 
-from anyio import Path as AsyncPath
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from loguru import logger
@@ -16,6 +12,7 @@ from app.core.config import get_settings
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.crud import project as project_crud
+from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud import project_workflow as project_workflow_crud
 from app.crud import projetc_tag as tag_crud
 from app.crud import run_instance as run_crud
@@ -53,6 +50,7 @@ from app.schemas.resource import (
     SampleUpdate,
 )
 from app.schemas.run_instance import SimpleRunPublic
+from app.services import project_workflow as project_workflow_service
 from app.utils.security import UserDep
 from app.utils.workflow import create_project_level_run, create_runs_from_samples, get_run_stats_from_redis
 
@@ -64,7 +62,6 @@ tag_router = APIRouter()
 workflow_router = APIRouter()
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
-_AGENTS_MD = Path(__file__).parent.parent.parent.parent / 'presets' / 'download_resources' / 'Agent.md'
 
 
 @tag_router.post('')
@@ -460,7 +457,7 @@ async def remove_workflow_from_project(
     Returns:
         Success message.
     """
-    project_workflow_crud.remove_workflow_from_project(session, project_id, workflow_uid)
+    project_workflow_service.remove_workflow_from_project(session, project_id, workflow_uid)
     return {'message': 'Workflow removed successfully'}
 
 
@@ -551,76 +548,7 @@ async def package_workflow_runs(
     Returns:
         StreamingResponse: A zip file containing all run output directories.
     """
-    if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
-
-    workflow = wf_crud.get(session, workflow_uid)  # type: ignore
-    sub_map = {'summary': 'summary', 'downstream': 'raw_data'}
-
-    if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
-        runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
-        if not runs:
-            raise HTTPException(HTTP_404_NOT_FOUND, 'No exist run instance for this workflow!')
-        run_dirs = [Path(runs[0].base_dir)] if runs[0].base_dir and await AsyncPath(runs[0].base_dir).exists() else []
-
-        # PROJECT_LEVEL 运行示例路径格式: base_dir={storage}/proj/{project_id}/runs/{workflow_name} (只有一个)
-
-        def _iter_zip() -> Generator[bytes, None, None]:
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-                if run_dirs:
-                    base_dir = run_dirs[0]
-                    for disk_name, arc_name in sub_map.items():
-                        sub_path = base_dir / disk_name
-                        if sub_path.exists():
-                            for file in sub_path.rglob('*'):
-                                if file.is_file():
-                                    zf.write(file, arcname=Path(arc_name) / file.relative_to(sub_path))
-                    script = base_dir / 'run_downstream.sh'
-                    if script.exists():
-                        zf.write(script, arcname='run_downstream.sh')
-                if _AGENTS_MD.exists():
-                    zf.writestr('AGENTS.md', _AGENTS_MD.read_text(encoding='utf-8'))
-                    zf.writestr('CLAUDE.md', '@AGENTS.md')
-            buf.seek(0)
-            yield from buf
-
-    else:
-        runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
-        run_dirs = [Path(run.base_dir) for run in runs if run.base_dir and await AsyncPath(run.base_dir).exists()]
-
-        # SAMPLE_LEVEL 运行示例路径格式: base_dir={storage}/proj/{project_id}/runs/{workflow_name}/{sample_name} (多个)
-
-        def _iter_zip() -> Generator[bytes, None, None]:
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-                root_script_written = False
-                for sample_dir in run_dirs:
-                    sample_name = sample_dir.name
-                    for disk_name, arc_name in sub_map.items():
-                        sub_path = sample_dir / disk_name
-                        if sub_path.exists():
-                            for file in sub_path.rglob('*'):
-                                if file.is_file():
-                                    zf.write(file, arcname=Path(arc_name) / sample_name / file.relative_to(sub_path))
-                    if not root_script_written:
-                        script = sample_dir / 'run_downstream.sh'
-                        if script.exists():
-                            zf.write(script, arcname='run_downstream.sh')
-                            root_script_written = True
-                if _AGENTS_MD.exists():
-                    zf.writestr('AGENTS.md', _AGENTS_MD.read_text(encoding='utf-8'))
-                    zf.writestr('CLAUDE.md', '@AGENTS.md')
-            buf.seek(0)
-            yield from buf
-
-    filename = f'{workflow.name}_results.zip' if workflow else f'{workflow_uid}_results.zip'
-
-    return StreamingResponse(
-        _iter_zip(),
-        media_type='application/zip',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
-    )
+    return await project_workflow_service.package_workflow_runs(session, project_id, workflow_uid)
 
 
 @router.get('/{project_id}/runs')
@@ -728,7 +656,7 @@ async def create_project_file_mapping(
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
     """Create a new file mapping for the project."""
-    result = project_crud.create_file_mapping(
+    result = project_file_mapping_crud.create(
         session, project_id, mapping.keyword, mapping.file_path, mapping.description
     )
     return ProjectFileMappingPublic.model_validate(result)
@@ -741,7 +669,7 @@ async def get_project_file_mappings(
     _current_user: UserDep,
 ) -> list[ProjectFileMappingPublic]:
     """Get all file mappings of the project."""
-    mappings = project_crud.get_all_file_mappings(session, project_id)
+    mappings = project_file_mapping_crud.get_all_by_project(session, project_id)
     return [ProjectFileMappingPublic.model_validate(m) for m in mappings]
 
 
@@ -753,7 +681,7 @@ async def get_project_file_mapping(
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
     """Get a specific file mapping by keyword."""
-    mapping = project_crud.get_file_mapping(session, project_id, keyword)
+    mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
     if not mapping:
         raise HTTPException(HTTP_404_NOT_FOUND, f'File mapping not found: {keyword}')
     return ProjectFileMappingPublic.model_validate(mapping)
@@ -768,7 +696,7 @@ async def update_project_file_mapping(
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
     """Update file mapping."""
-    result = project_crud.update_file_mapping(session, mapping_id, mapping_update.file_path, mapping_update.description)
+    result = project_file_mapping_crud.update(session, mapping_id, mapping_update.file_path, mapping_update.description)
     return ProjectFileMappingPublic.model_validate(result)
 
 
@@ -780,5 +708,5 @@ async def delete_project_file_mapping(
     _current_user: UserDep,
 ) -> dict:
     """Delete file mapping."""
-    project_crud.delete_file_mapping(session, mapping_id)
+    project_file_mapping_crud.delete(session, mapping_id)
     return {'message': 'File mapping deleted successfully'}

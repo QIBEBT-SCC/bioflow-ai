@@ -69,6 +69,72 @@ def _clean_up_all(con: sqlite3.Connection, thread_id: str) -> None:
     con.execute('DELETE FROM evaluate_results WHERE thread_id = :thread_id', {'thread_id': thread_id})
 
 
+def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
+    import uuid
+
+    if not raw_uids:
+        return []
+
+    workflow_uids = []
+    for raw_uid in raw_uids.split(';'):
+        workflow_uid = raw_uid.strip()
+        if not workflow_uid:
+            continue
+        try:
+            workflow_uids.append(str(uuid.UUID(workflow_uid)))
+        except ValueError:
+            logger.warning(f'Ignoring invalid workflow uid in evaluate record: {workflow_uid}')
+    return workflow_uids
+
+
+def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
+    import uuid
+
+    from sqlmodel import Session, col, select
+
+    import app.crud.workflow as wf_crud
+    import app.services.project_workflow as proj_wf_service
+    from app.core.session import engine
+    from app.models.project import ProjectWorkflow
+    from app.models.workflow import Workflow
+
+    cursor = con.execute(
+        'SELECT workflow_uid FROM evaluate_results WHERE thread_id = :thread_id',
+        {'thread_id': thread_id},
+    )
+    row = cursor.fetchone()
+    generated_workflow_uids = set(_parse_workflow_uids(row['workflow_uid'] if row else None))
+
+    with Session(engine) as session:
+        project_workflow_uids = session.exec(
+            select(ProjectWorkflow.workflow_uid).where(ProjectWorkflow.project_id == project_id)
+        ).all()
+
+        for workflow_uid in project_workflow_uids:
+            if workflow_uid is None:
+                continue
+            proj_wf_service.remove_workflow_from_project(session, project_id, workflow_uid)
+
+        existing_generated_workflow_uids = session.exec(
+            select(Workflow.uid).where(col(Workflow.uid).in_([uuid.UUID(uid) for uid in generated_workflow_uids]))
+        ).all()
+        for workflow_uid in existing_generated_workflow_uids:
+            wf_crud.delete(session, str(workflow_uid))
+
+    con.execute(
+        """
+        UPDATE evaluate_results
+        SET workflow_uid = NULL, output_path = NULL
+        WHERE thread_id = :thread_id
+        """,
+        {'thread_id': thread_id},
+    )
+    logger.info(
+        f'Cleaned {len(project_workflow_uids)} project workflow import(s) and '
+        f'{len(existing_generated_workflow_uids)} generated workflow record(s) for project {project_id}.'
+    )
+
+
 def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
     from sqlmodel import Session
 
@@ -351,7 +417,11 @@ def _send_run_task(
 
     with Session(engine) as session:
         for uid in workflow_uids:
-            proj_wf_crud.add_workflow_to_project(session, project_id, uuid.UUID(uid))
+            workflow_uid = uuid.UUID(uid)
+            if proj_wf_crud.is_workflow_in_project(session, project_id, workflow_uid):
+                logger.info(f'Workflow {workflow_uid} is already imported into project {project_id}; skipping.')
+                continue
+            proj_wf_crud.add_workflow_to_project(session, project_id, workflow_uid)
 
 
 async def wf_eval(
@@ -387,6 +457,8 @@ async def wf_eval(
 
         user_input = await _build_input(con, task_file, paper_file, thread_id)
         project_id, workdir = _init_project(con, thread_id)
+        if reset_checkpoint and not clean_all:
+            _clean_project_workflows(con, thread_id, project_id)
         async with AsyncRedisSaver.from_conn_string(
             get_settings().persistent.cache.LLM_CACHE.unicode_string()
         ) as checkpoint:
@@ -442,7 +514,12 @@ def cli() -> None:
 @click.option('--thread-id', '-t', default=None, help='Checkpoint thread ID.')
 @click.option('--db-index', '-d', default=None, type=click.IntRange(min=1), help='Deprecated; ignored.')
 @click.option('--drop-old', is_flag=True, default=False, help='Deprecated alias for --clean-checkpoint.')
-@click.option('--clean-checkpoint', is_flag=True, default=False, help='Drop only the workflow builder checkpoint.')
+@click.option(
+    '--clean-checkpoint',
+    is_flag=True,
+    default=False,
+    help='Drop the workflow builder checkpoint and remove workflows imported into the evaluate project.',
+)
 @click.option(
     '--clean-all', is_flag=True, default=False, help='Delete the evaluate project record and local project files.'
 )

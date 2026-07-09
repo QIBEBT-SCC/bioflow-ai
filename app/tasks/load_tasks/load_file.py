@@ -5,7 +5,7 @@ from celery import Task
 from sqlmodel import Session
 
 from app.core.session import engine
-from app.crud import project as project_crud
+from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.workflow import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_prefix, resolve_path
@@ -51,7 +51,7 @@ def _update_loaded_path_reference(
     """Persist a renamed file path for project/sample references."""
     if path_or_reference.startswith('proj:') and project_id is not None:
         keyword = path_or_reference.split(':', 1)[1]
-        mapping = project_crud.get_file_mapping(session, project_id, keyword)
+        mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
         if mapping is not None:
             mapping.file_path = str(normalized_path)
             session.add(mapping)

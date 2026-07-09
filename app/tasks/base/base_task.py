@@ -16,7 +16,7 @@ import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
 from app.core.session import engine
-from app.crud import project as project_crud
+from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.tools import ToolDefine
 from app.models.workflow import Status, TaskMonitor
@@ -329,7 +329,7 @@ def _resolve_project_path(reference: str, session: Session, project_id: int | No
         raise ValueError(err_msg)
 
     keyword = reference.split(':', 1)[1]
-    mapping = project_crud.get_file_mapping(session, project_id, keyword)
+    mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
 
     if not mapping:
         err_msg = f'Project file mapping not found: {keyword}'
