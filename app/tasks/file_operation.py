@@ -5,12 +5,18 @@ from pathlib import Path
 
 from celery import Task
 from loguru import logger
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session
 
+from app.core.session import engine
+from app.crud import project_file_mapping as project_file_mapping_crud
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
 from app.utils.input_format import to_safe_path_segment
 from script.worker import celery_app
+
+PROJECT_FILE_KEYWORD_MAX_LENGTH = 50
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -61,6 +67,63 @@ def collect_files_task(
             logger.warning(f'file {origin_file} did not exist!')
 
     return ToolOutput(result={'folder_path': output_folder})
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def global_mark_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput | list[TaskInput]],
+    project_id: int | None,
+    mark_name: str,
+    description: str = '',
+) -> ToolOutput:
+    """Mark an upstream file as a project-level reference."""
+    if project_id is None:
+        err_msg = 'global_mark requires a project_id.'
+        raise ValueError(err_msg)
+
+    keyword = mark_name.removeprefix('proj:').strip()
+    if not keyword:
+        err_msg = 'global_mark requires a non-empty mark_name.'
+        raise ValueError(err_msg)
+    if len(keyword) > PROJECT_FILE_KEYWORD_MAX_LENGTH:
+        err_msg = f'global_mark mark_name must be no longer than {PROJECT_FILE_KEYWORD_MAX_LENGTH} characters.'
+        raise ValueError(err_msg)
+
+    input_file = inputs.get('file')
+    if input_file is None or isinstance(input_file, list):
+        err_msg = 'global_mark requires exactly one file input.'
+        raise ValueError(err_msg)
+
+    file_path, sample_name = get_tool_output(input_file.source_uid, input_file.source_k)
+    marked_path = Path(file_path).absolute()
+    if not marked_path.exists():
+        raise FileNotFoundError(marked_path)
+
+    with Session(engine) as session:
+        mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
+        if mapping is None:
+            try:
+                project_file_mapping_crud.create(session, project_id, keyword, str(marked_path), description)
+            except IntegrityError:
+                session.rollback()
+                mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
+                if mapping is None:
+                    raise
+                project_file_mapping_crud.update(
+                    mapping_id=mapping.id, session=session, file_path=str(marked_path), description=description
+                )
+        else:
+            project_file_mapping_crud.update(
+                session,
+                mapping.id,
+                file_path=str(marked_path),
+                description=description,
+            )
+
+    return ToolOutput(result={'file_path': marked_path}, sample_name=sample_name)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
