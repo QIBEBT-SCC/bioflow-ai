@@ -32,7 +32,7 @@ from llm.agents.tool_agent.config_generator import config_generate_agent
 from llm.agents.tool_agent.report_generator_v2 import test_run_agent
 from llm.agents.tool_agent.searcher.image import self_search_image_agent
 from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
-from llm.context import BaseContext, CreateToolContext, TestRunContext
+from llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
 from llm.models import get_agent_model, qwen3_embedding
 from llm.states import (
     CreateToolOutput,
@@ -247,8 +247,15 @@ class CreateToolAgent:
 
         # pyrefly: ignore [no-matching-overload]
         result = await config_generate_agent.ainvoke(
-            {'messages': state['messages']},
-            context=BaseContext(user_id=runtime.context.user_id),
+            {
+                'messages': state['messages'],
+                'image': state['image'],
+                'test_run_report': state['test_run_report'],
+            },
+            context=ToolGeneratorContext(
+                user_id=runtime.context.user_id,
+                test_run_id=runtime.context.test_run_id,
+            ),
         )
         return {
             key: result[key]

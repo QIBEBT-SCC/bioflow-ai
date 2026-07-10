@@ -11,7 +11,7 @@ from loguru import logger
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
 from app.models.workflow import ToolOutput
-from app.utils.container import ContainerMount, run_command_background
+from app.utils.container import ContainerMount, run_command, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
 
 MOUNTLIST_PREFIX = 'mountlist:'
@@ -45,6 +45,21 @@ class DockerToolExecution:
     command: str
     volume_binds: list[ContainerMount]
     expected_output: ToolOutput
+
+
+@dataclass(frozen=True)
+class DockerToolExecutionResult:
+    """Observable result of a synchronous prepared-tool execution."""
+
+    output: ToolOutput
+    exit_code: int
+    console_output: str
+    missing_outputs: list[Path]
+
+    @property
+    def succeeded(self) -> bool:
+        """Return whether the command exited cleanly and produced every declared output."""
+        return self.exit_code == 0 and not self.missing_outputs
 
 
 def _resolve_mount_path(
@@ -316,3 +331,21 @@ def execute_docker_tool(
         raise RuntimeError(err_msg)
 
     return execution.expected_output
+
+
+def execute_docker_tool_with_result(execution: DockerToolExecution) -> DockerToolExecutionResult:
+    """Execute a prepared tool synchronously and preserve diagnostics for validation."""
+    exit_code, console_output = run_command(
+        execution.image,
+        execution.volume_binds,
+        execution.command,
+        workdir='/data/output',
+        ensure_ascii=False,
+    )
+    missing_outputs = [Path(path) for path in execution.expected_output.all_files().values() if not Path(path).exists()]
+    return DockerToolExecutionResult(
+        output=execution.expected_output,
+        exit_code=exit_code,
+        console_output=console_output,
+        missing_outputs=missing_outputs,
+    )

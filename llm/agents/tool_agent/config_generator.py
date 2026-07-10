@@ -7,11 +7,17 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from app.models.tools import FileMount, ParamDefine
-from llm.context import BaseContext
+from llm.context import BaseContext, ToolGeneratorContext
 from llm.models import get_high_performance_model
 from llm.states import ToolGeneratorState
-from llm.utils.middleware import DisableParallelToolCallsMiddleware, SkillMiddleware, TokenStatisticMiddleware
-from llm.utils.middleware.final_check import CheckGenerateMiddleware
+from llm.tools.tool_validation import validate_tool_config
+from llm.utils.middleware import (
+    CheckStateExistMiddleware,
+    DisableParallelToolCallsMiddleware,
+    EndLoopMiddleware,
+    SkillMiddleware,
+    TokenStatisticMiddleware,
+)
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -30,6 +36,9 @@ To achieve this goal, you can break down the task into the following steps:
     a. Extract the parameters involved in the command into three categories: `dynamic_params`, `immutable_static_params`, and `modifiable_static_params`.
     b. Generate the template string for the complete command.
 4. **Information Generation**: Name the tool and generate a brief description
+5. **Validate**: After all configuration tools have been called, call `validate_tool_config`.
+    - If validation fails, use its error message to correct the relevant configuration and validate again.
+    - The task is complete only when `validate_tool_config` passes. Never finish without successful validation.
 
 All tools must be called sequentially. Calling multiple tools simultaneously is **strictly prohibited**!
 </ThoughtProcess>
@@ -39,6 +48,7 @@ FILE_MOUNT_DESCRIPTION = """Set the file mounts for the tool.
 
 Based on your knowledge and the user-provided information, define a list of the software's input/output files. Each file must include:
 - **name** and **description**: The name field needs to be globally unique because it will serve as the keyword for the node's output interface.
+    - For every INPUT file, `name` MUST exactly reuse the corresponding logical name listed in the test-run report's `Input Files` section. This binding is required for validation.
 - **file_type**: 'INPUT' or 'OUTPUT'.
 - **file_path**: The path of the file on the host, a template string
     - For INPUT type, a variable value same as the **name** field (e.g. if the name is `r1`, then it is `{r1}`)
@@ -206,14 +216,21 @@ metadata = cast('LLMMetadata', GENERATOR_LLM.metadata)
 # pyrefly: ignore [no-matching-overload]
 config_generate_agent = create_agent(
     GENERATOR_LLM,
-    [set_file_mounts, set_command_detail, set_tool_info],
+    [
+        set_file_mounts,
+        set_command_detail,
+        set_tool_info,
+        validate_tool_config,
+    ],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
-        DisableParallelToolCallsMiddleware(disabled_tools={'set_file_mounts', 'set_command_detail', 'set_tool_info'}),
+        DisableParallelToolCallsMiddleware(),
         SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
-        CheckGenerateMiddleware(2),
+        # CheckGenerateMiddleware(2),
+        CheckStateExistMiddleware('validated', 'validate_tool_config'),
+        EndLoopMiddleware(),
         TokenStatisticMiddleware('tool_generator', **metadata),
     ],
     state_schema=ToolGeneratorState,
-    context_schema=BaseContext,
+    context_schema=ToolGeneratorContext,
 )

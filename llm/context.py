@@ -26,6 +26,11 @@ class TestRunContext(BaseContext):
 
 
 @dataclass
+class ToolGeneratorContext(BaseContext):
+    test_run_id: str
+
+
+@dataclass
 class ProjectContext(BaseContext):
     project_id: int
     workdir: str

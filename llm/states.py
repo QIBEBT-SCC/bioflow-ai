@@ -103,6 +103,9 @@ class TestRunState(AgentState):
 
 # =====================tool generator state==========================
 class ToolGeneratorState(AgentState, total=False):
+    image: ImageConfig
+    test_run_report: TestRunReport
+
     name: str
     description: str
     file_mounts: list[FileMount]
@@ -110,6 +113,8 @@ class ToolGeneratorState(AgentState, total=False):
     dynamic_params: list[ParamDefine]
     immutable_static_params: str
     modifiable_static_params: str
+
+    validated: bool
 
 
 # =====================sample manager state==========================
