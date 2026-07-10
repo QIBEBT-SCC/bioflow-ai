@@ -88,9 +88,12 @@ def get_by_image(session: Session, image_uid: str) -> Sequence[ToolHelpDoc]:
     return session.exec(stmt).all()
 
 
-def get_by_command(session: Session, help_command: str) -> ToolHelpDoc | None:
+def get_by_command(session: Session, help_command: str, image_uid: str) -> ToolHelpDoc | None:
     """Return a tool help document by its help command, or None if not found."""
-    stmt = select(ToolHelpDoc).where(ToolHelpDoc.help_command == help_command)
+    stmt = select(ToolHelpDoc).where(
+        ToolHelpDoc.help_command == help_command,
+        ToolHelpDoc.image_uid == image_uid,
+    )
 
     return session.exec(stmt).one_or_none()
 

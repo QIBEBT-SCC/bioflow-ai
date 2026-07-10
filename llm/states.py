@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
 from app.schemas.tools import Handle
+from llm.tools.test_run_report import TestRunReport
 from llm.utils.uid_mapper import BidirectionalMapper
 
 ParsedT = TypeVar('ParsedT', bound=BaseModel | None, default=None)
@@ -66,7 +67,7 @@ class CreateToolState(AgentState, total=False):
     image_uid: uuid.UUID
     image: ImageConfig
 
-    tool_report: str
+    test_run_report: TestRunReport
     doc_uid: uuid.UUID
     help_command: str
 
@@ -95,7 +96,7 @@ class CreateToolOutput(BaseModel):
 # =====================test run agent state==========================
 class TestRunState(AgentState):
     known_images: Annotated[dict[str, str], operator.or_]
-    tool_report: NotRequired[str]
+    test_run_report: NotRequired[TestRunReport]
     updated: NotRequired[bool]
     checked: NotRequired[bool]
 
@@ -104,7 +105,6 @@ class TestRunState(AgentState):
 class ToolGeneratorState(AgentState, total=False):
     name: str
     description: str
-    help_command: str
     file_mounts: list[FileMount]
     command_template: str
     dynamic_params: list[ParamDefine]

@@ -1,27 +1,16 @@
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, cast
+from typing import Any, NotRequired, cast
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langgraph.config import get_config
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from loguru import logger
-from pydantic import BaseModel, Field
 
 from llm.context import BaseContext
 from llm.states import FolderContext
-
-if TYPE_CHECKING:
-    from llm.llm_client import LLMMetadata
-
-
-class CheckResult(BaseModel):
-    checked: bool = Field(description='Did the FinalResponse you see passed the format check')
-    reason: str = Field(description='Reasons for Pass/Fail check')
 
 
 class CheckState(AgentState):
@@ -59,131 +48,6 @@ def _handle_check_failed(
         'check_failed_count': check_failed_count + 1,
         'messages': messages,
     }
-
-
-class CheckReportMiddleware(AgentMiddleware):
-    state_schema = CheckState
-
-    def __init__(
-        self,
-        model: BaseChatModel,
-        check_prompt: str,
-    ) -> None:
-        """对模型输出结果进行检查.
-
-        Args:
-            model: 用于检查任务完成状态的模型
-            check_prompt: 检查提示词
-        """
-        super().__init__()
-
-        self.model_metadata = cast('LLMMetadata', model.metadata)
-        from llm.prebuild.json_output import json_output
-
-        self.check_chain = json_output(
-            model,
-            check_prompt,
-            CheckResult,
-            metadata=self.model_metadata,
-            name='check_report',
-        )
-
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
-        return {'check_failed_count': 0, 'updated': False}
-
-    @hook_config(can_jump_to=['model'])
-    def after_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
-        last_message = cast('AIMessage', state['messages'][-1])
-
-        if last_message.tool_calls:
-            return None
-
-        check_failed_count = state.get('check_failed_count', 0)
-        tool_report = state.get('tool_report')
-        report_updated = state.get('updated')
-
-        if not tool_report:
-            logger.warning('Check failed. Empty report.')
-            return _handle_check_failed(
-                check_failed_count,
-                messages=[
-                    HumanMessage(
-                        content='No tool invocation is detected for this instance, indicating task completion. '
-                        'However, the `write_report` tool must be called beforehand to generate the tool execution report.'
-                    )
-                ],
-            )
-
-        if not report_updated:
-            logger.warning('Check failed. Report not update.')
-            return _handle_check_failed(
-                check_failed_count,
-                messages=[
-                    HumanMessage(content='You should call the `write_report` tool again to update the tool report.')
-                ],
-            )
-
-        check_result = self.check_chain.invoke(
-            HumanMessage(content=f'<ToolReport>\n{tool_report}\n</ToolReport>'),
-            config=get_config(),
-            context=runtime.context,
-        )
-        if not check_result.checked:
-            logger.warning('Check failed')
-            return _handle_check_failed(
-                check_failed_count,
-                messages=[HumanMessage(content=check_result.reason)],
-            )
-
-        logger.success('Check passed')
-        return None
-
-    @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
-        last_message = cast('AIMessage', state['messages'][-1])
-
-        if last_message.tool_calls:
-            return None
-
-        check_failed_count = state.get('check_failed_count', 0)
-        tool_report = state.get('tool_report')
-        report_updated = state.get('updated')
-
-        if not tool_report:
-            logger.warning('Check failed. Empty report.')
-            return _handle_check_failed(
-                check_failed_count,
-                messages=[
-                    HumanMessage(
-                        content='No tool invocation is detected for this instance, indicating task completion. '
-                        'However, the `write_report` tool must be called beforehand to generate the tool execution report.'
-                    )
-                ],
-            )
-
-        if not report_updated:
-            logger.warning('Check failed. Report not update.')
-            return _handle_check_failed(
-                check_failed_count,
-                messages=[
-                    HumanMessage(content='You should call the `write_report` tool again to update the tool report.')
-                ],
-            )
-
-        check_result = await self.check_chain.ainvoke(
-            HumanMessage(content=f'<ToolReport>\n{tool_report}\n</ToolReport>'),
-            config=get_config(),
-            context=runtime.context,
-        )
-        if not check_result.checked:
-            logger.warning('Check failed')
-            return _handle_check_failed(
-                check_failed_count,
-                messages=[HumanMessage(content=check_result.reason)],
-            )
-
-        logger.success('Check passed')
-        return None
 
 
 class CheckGenerateMiddleware(AgentMiddleware):
@@ -230,12 +94,12 @@ class CheckGenerateMiddleware(AgentMiddleware):
                 self.error_time,
             )
 
-        if 'name' not in state or 'description' not in state or 'help_command' not in state:
+        if 'name' not in state or 'description' not in state:
             return _handle_check_failed(
                 check_failed_count,
                 [
                     HumanMessage(
-                        content='You have not completed the tool info yet. Use the `set_tool_info` tool to configure name, description, and help_command.'
+                        content='You have not completed the tool info yet. Use the `set_tool_info` tool to configure name and description.'
                     )
                 ],
                 self.error_time,

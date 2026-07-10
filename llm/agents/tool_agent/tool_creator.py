@@ -44,6 +44,7 @@ from llm.tools.database import (
     select_group,
     view_groups,
 )
+from llm.tools.test_run_report import TestRunReport
 from llm.utils.formatters import handle_formatter, search_nodes_formatter
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
@@ -179,7 +180,7 @@ class CreateToolAgent:
                     f'  </output_handles>\n'
                     f'  <data>\n'
                     f'    <tool_id>{mapper.get_index_by_uid(str(tool_data.uid))}</tool_id>\n'
-                    f'    <args>{tool_node.modifiable_static_params}<args>\n'
+                    f'    <args>{tool_node.modifiable_static_params}</args>\n'
                     f'  </data>\n'
                     f'  <command>{tool_node.complete_command}</command>\n'
                     f'</tool>'
@@ -216,11 +217,12 @@ class CreateToolAgent:
                 dataset_file=runtime.context.dataset_file,
             ),
         )
-        run_report = response['tool_report']
+        structured_report = TestRunReport.model_validate(response['test_run_report'])
 
         return {
-            'messages': [HumanMessage(content=run_report)],
-            'tool_report': run_report,
+            'messages': [HumanMessage(content=structured_report.to_markdown())],
+            'test_run_report': structured_report,
+            'help_command': structured_report.help_command,
         }
 
     async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
@@ -253,7 +255,6 @@ class CreateToolAgent:
             for key in (
                 'name',
                 'description',
-                'help_command',
                 'command_template',
                 'dynamic_params',
                 'immutable_static_params',
@@ -276,7 +277,7 @@ class CreateToolAgent:
             raise ValueError(err_msg)
 
         with Session(engine) as session:
-            tool_doc = doc_crud.get_by_command(session, help_command)
+            tool_doc = doc_crud.get_by_command(session, help_command, f'{state["image_uid"]}')
             if tool_doc is not None:
                 return {'doc_uid': tool_doc.uid}
 
@@ -285,7 +286,7 @@ class CreateToolAgent:
         with Session(engine) as session:
             tool_doc = ToolHelpDoc(
                 help_command=help_command,
-                description=state['description'],
+                description='',
                 content=content,
                 image_uid=state.get('image_uid'),
             )
@@ -405,8 +406,8 @@ class CreateToolAgent:
         graph.add_conditional_edges('select_image', self.whether_local_search)
         graph.add_edge('get_report', 'choose_group')
         graph.add_edge('get_report', 'generate_tool_config')
-        graph.add_edge(['choose_group', 'generate_tool_config'], 'process_help_doc')
-        graph.add_edge('process_help_doc', 'save_tool')
+        graph.add_edge('get_report', 'process_help_doc')
+        graph.add_edge(['choose_group', 'generate_tool_config', 'process_help_doc'], 'save_tool')
         graph.add_edge('save_tool', END)
 
         compiled_graph = graph.compile(checkpointer=memory) if memory is not None else graph.compile()
