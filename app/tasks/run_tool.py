@@ -1,6 +1,4 @@
 import json
-import sys
-from pathlib import Path
 from typing import Any
 
 from celery import Task
@@ -10,211 +8,34 @@ from app.models.tools import FileMount, ImageConfig
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.task_instance import TaskUpdate
+from app.services.tool_execution import (
+    DockerToolExecutionConfig,
+    ResolvedToolInput,
+    execute_docker_tool,
+    prepare_docker_tool_execution,
+)
 from app.tasks.base.base_task import (
     BaseBioTask,
-    get_prefix,
     get_tool_data,
     get_tool_output,
     update_task,
 )
-from app.utils.container import ContainerMount, run_command_background
-from app.utils.input_format import PartialFormatter, build_command_template
 from script.worker import celery_app, monitor_redis_client
 
-MOUNTLIST_PREFIX = 'mountlist:'
 
-
-def _resolve_mount_path(
-    mount_paths: dict[str, Path],
-    param_inputs: dict[str, str],
-    conflicted_paths: set[str],
-    container_mount_path: str,
-    host_mount_path: Path,
-) -> str:
-    """当不同宿主机目录被挂载到同一容器路径时, 自动分配不冲突的容器挂载路径.
-
-    首次冲突时回溯: 把先占据该路径的挂载也挪到子目录, 并更新 param_inputs 中的引用.
-    """
-    abs_host = host_mount_path.absolute()
-    existing = mount_paths.get(container_mount_path)
-
-    # 1. 无冲突: 路径未使用且未曾冲突
-    if existing is None and container_mount_path not in conflicted_paths:
-        return container_mount_path
-
-    # 2. 已映射到同一宿主机目录
-    if existing == abs_host:
-        return container_mount_path
-
-    # 3. 首次冲突: 把先来的也挪到子目录
-    if existing is not None and container_mount_path not in conflicted_paths:
-        conflicted_paths.add(container_mount_path)
-        old_host = mount_paths.pop(container_mount_path)
-        old_sub = f'{container_mount_path}/{old_host.name}'
-        mount_paths[old_sub] = old_host
-        # 回溯更新 param_inputs 中所有引用了旧路径的条目
-        for k, v in param_inputs.items():
-            if v == container_mount_path or v.startswith(container_mount_path + '/'):
-                relative = v[len(container_mount_path) :]
-                param_inputs[k] = old_sub + relative
-
-    # 4. 为当前挂载分配子目录
-    candidate = f'{container_mount_path}/{host_mount_path.name}'
-    counter = 1
-    while candidate in mount_paths and mount_paths[candidate] != abs_host:
-        candidate = f'{container_mount_path}/{host_mount_path.name}_{counter}'
-        counter += 1
-
-    logger.warning(f'挂载冲突: {container_mount_path} 已分裂, 将 {abs_host} 映射到 {candidate}')
-    return candidate
-
-
-def _load_mountlist_manifest(manifest_ref: str) -> dict[str, Any]:
-    """Load a mount-list manifest produced by the collect_mount_dirs processor."""
-    manifest_path = Path(manifest_ref.removeprefix(MOUNTLIST_PREFIX)).absolute()
-    if not manifest_path.exists():
-        raise FileNotFoundError(manifest_path)
-
-    manifest = json.loads(manifest_path.read_text())
-    if manifest.get('type') != 'mount_dir_list':
-        err_msg = f'Invalid mount-list manifest type: {manifest.get("type")}'
-        raise ValueError(err_msg)
-    if not isinstance(manifest.get('entries'), list):
-        err_msg = 'Invalid mount-list manifest: entries must be a list'
-        raise TypeError(err_msg)
-    if not manifest.get('root_dir'):
-        err_msg = 'Invalid mount-list manifest: missing root_dir'
-        raise ValueError(err_msg)
-
-    return manifest
-
-
-def _add_mountlist_mounts(
-    manifest_ref: str,
-    file: FileMount,
-    mount_paths: dict[str, Path],
-    param_inputs: dict[str, str],
-    conflicted_paths: set[str],
-) -> str:
-    """Expand a mount-list manifest into a logical container input directory."""
-    manifest = _load_mountlist_manifest(manifest_ref)
-    host_root = Path(manifest['root_dir']).absolute()
-    host_root.mkdir(parents=True, exist_ok=True)
-
-    container_root = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_root)
-    if container_root not in mount_paths:
-        mount_paths[container_root] = host_root
-
-    seen_mount_names: set[str] = set()
-    for index, entry in enumerate(manifest['entries'], start=1):
-        source_path = Path(entry['source_path']).absolute()
-        if not source_path.exists():
-            raise FileNotFoundError(source_path)
-        if not source_path.is_dir():
-            raise NotADirectoryError(source_path)
-
-        mount_name = str(entry.get('mount_name') or f'dir_{index:03d}')
-        if mount_name in seen_mount_names:
-            mount_name = f'{index:03d}_{mount_name}'
-        seen_mount_names.add(mount_name)
-
-        container_path = f'{container_root}/{mount_name}'
-        if container_path in mount_paths and mount_paths[container_path] != source_path:
-            err_msg = f'Mount-list target conflict: {container_path}'
-            raise ValueError(err_msg)
-
-        mount_paths[container_path] = source_path
-
-    return container_root
-
-
-def build_mounts(
+def _resolve_task_inputs(
     file_mounts: list[FileMount],
-    host_output_dir: str,
-    sample_name: str,
     inputs: dict[str, TaskInput],
-) -> tuple[dict[str, str], dict[str, Path], ToolOutput]:
-    """构建挂载映射."""
-    param_inputs: dict[str, str] = {}  # 用于构建参数的文件路径
-    mount_paths: dict[str, Path] = {}  # 存储挂载的路径映射 (始终目录级)
-    expected_output = ToolOutput()  # 预期输出文件路径
-    conflicted_paths: set[str] = set()  # 已发生过冲突的容器路径
-    source_sample_names: list[str | None] = []
-
-    input_files = [f for f in file_mounts if f.file_type == 'INPUT']
-    output_files = [f for f in file_mounts if f.file_type == 'OUTPUT']
-
-    for file in input_files:
-        if file.file_path.startswith('value:'):
-            kwarg = inputs[file.name]
-            value = get_tool_output(kwarg.source_uid, kwarg.source_k)[0]
-            param_inputs[file.name] = value
-        else:
-            kwarg = inputs[file.name]
-            file_path, source_sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
-            if file_path.startswith(MOUNTLIST_PREFIX):
-                source_sample_names.append(source_sample_name)
-                param_inputs[file.name] = _add_mountlist_mounts(
-                    file_path,
-                    file,
-                    mount_paths,
-                    param_inputs,
-                    conflicted_paths,
-                )
-                continue
-
-            host_file_path = Path(file_path)
-            source_sample_names.append(source_sample_name)
-
-            if host_file_path.is_dir():
-                # 文件夹: 整目录挂载
-                host_mount_path = host_file_path
-                actual = _resolve_mount_path(
-                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
-                )
-                container_file_path = actual
-            else:
-                # 文件或前缀: 挂载父目录, 保留伴生文件
-                host_mount_path = host_file_path.parent
-                actual = _resolve_mount_path(
-                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
-                )
-                container_file_path = f'{actual}/{host_file_path.name}'
-
-            if actual not in mount_paths:
-                mount_paths[actual] = host_mount_path.absolute()
-
-            param_inputs[file.name] = container_file_path
-
-    # 刷新样本名称
-    common_sample_name = get_prefix(source_sample_names)
-    output_sample_name = common_sample_name or sample_name
-    expected_output.sample_name = output_sample_name
-
-    for file in output_files:
-        try:
-            host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=output_sample_name))
-        except KeyError as e:
-            logger.error(file.file_path)
-            logger.exception(e)
-            sys.exit(1)
-
-        host_mount_path = Path(host_output_dir)
-        actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
-        container_file_path = f'{actual}/{host_file_path.name}'
-        if actual not in mount_paths:
-            mount_paths[actual] = host_mount_path.absolute()
-
-        if file.is_log:
-            expected_output.log = host_file_path.absolute()
-        elif file.is_report:
-            expected_output.reports[file.name] = host_file_path.absolute()
-        else:
-            expected_output.result[file.name] = host_file_path.absolute()
-
-        param_inputs[file.name] = container_file_path
-
-    return param_inputs, mount_paths, expected_output
+) -> dict[str, ResolvedToolInput]:
+    """Resolve workflow task references before entering the persistence-free executor."""
+    resolved_inputs: dict[str, ResolvedToolInput] = {}
+    for file in file_mounts:
+        if file.file_type != 'INPUT':
+            continue
+        task_input = inputs[file.name]
+        value, source_sample_name = get_tool_output(task_input.source_uid, task_input.source_k)
+        resolved_inputs[file.name] = ResolvedToolInput(value=value, sample_name=source_sample_name)
+    return resolved_inputs
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -246,59 +67,35 @@ def docker_task(
 
     tool_config = get_tool_data(tool_uid)
     logger.debug(f'task {self.request.id} start: {tool_config.name}')
-
-    # 创建输出目录
-    host_output_dir = Path(output_dir).absolute()
-    host_output_dir.mkdir(parents=True, exist_ok=True)
-
-    # 处理文件挂载
-    param_inputs, mount_paths, expected_output = build_mounts(tool_config.file_mounts, output_dir, sample_name, inputs)
-
-    if expected_output.all_exist():
-        return expected_output
-
-    # 构建完整命令
-    final_template = build_command_template(
+    resolved_inputs = _resolve_task_inputs(tool_config.file_mounts, inputs)
+    config = DockerToolExecutionConfig(
+        image=ImageConfig.model_validate(tool_config.image.image),
         command_template=tool_config.command_template,
         dynamic_params=tool_config.dynamic_params,
         immutable_static_params=tool_config.immutable_static_params,
-        modifiable_static_params=params,
+        modifiable_static_params=tool_config.modifiable_static_params,
         file_mounts=tool_config.file_mounts,
     )
-    formatter = PartialFormatter()
-    tool_command = formatter.format(
-        final_template,
-        output_dir='/data/output',
-        sample_name=expected_output.sample_name,
-        **param_inputs,
+    execution = prepare_docker_tool_execution(
+        config,
+        resolved_inputs,
+        output_dir,
+        sample_name,
+        params,
     )
 
-    # 组合docker命令
-    docker_image = ImageConfig.model_validate(tool_config.image.image)
-    volume_binds = [
-        ContainerMount(source=str(host_path), target=container_path, read_only=False)
-        for container_path, host_path in mount_paths.items()
-    ]
-
-    volume_binds.append(ContainerMount(source='/tmp', target='/tmp', read_only=False))  # noqa: S108
-
     data = TaskUpdate(
-        commands=f'docker run --rm {" ".join([f"-v {bind.source}:{bind.target}:rw" for bind in volume_binds])} {docker_image.get_image()} /bin/bash -c "{tool_command}"'
+        commands=f'docker run --rm '
+        f'{" ".join([f"-v {bind.source}:{bind.target}:rw" for bind in execution.volume_binds])} '
+        f'{execution.image.get_image()} /bin/bash -c "{execution.command}"'
     )
     update_task(self.request.id, data)
 
-    # 运行容器命令并采集监控数据
     redis_key = f'task-monitor-{self.request.id}'
-    for stats in run_command_background(docker_image, tool_command, volume_binds, working_dir='/data/output'):
+
+    def save_monitor(stats: dict[str, Any] | None) -> None:
         monitor_redis_client.rpush(redis_key, json.dumps(stats))
+
+    result = execute_docker_tool(execution, monitor=save_monitor)
     monitor_redis_client.expire(redis_key, 60 * 60 * 24)
-
-    # 验证输出文件是否生成
-    missing_outputs = [str(path) for name, path in expected_output.all_files().items() if not path.exists()]
-    if missing_outputs:
-        err_msg = f'部分输出文件未生成: {missing_outputs}'
-        logger.error(err_msg)
-        raise RuntimeError(err_msg)
-
-    # 返回结果
-    return expected_output
+    return result
