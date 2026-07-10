@@ -18,6 +18,7 @@ async def write_report(content: str, runtime: ToolRuntime) -> Command:
         update={
             'tool_report': content,
             'updated': True,
+            'should_end': True,
             'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
         },
     )

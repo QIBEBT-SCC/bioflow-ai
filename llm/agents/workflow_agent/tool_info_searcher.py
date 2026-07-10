@@ -5,9 +5,10 @@ from langchain.agents import create_agent
 from llm.context import BaseContext
 from llm.models import get_long_context_model
 from llm.states import DesignState
+from llm.tools.human import ask_human
 from llm.tools.web_search import web_reader, web_searcher
 from llm.tools.writter import write_report
-from llm.utils.middleware import AskAndEndMiddleware, CheckStateExistMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -42,15 +43,8 @@ Use `web_reader` to retrieve content from the identified sources, in this priori
 
 If neither a GitHub repository nor an official documentation site can be found, do not fall back to other sources — instead use `ask_human` to request more information from the user.
 
-### 4. Handle Ambiguity — Ask the User When Necessary
-Before writing the report, use `ask_human` if any of the following apply:
 
-- **Tool not found**: You cannot confidently identify the tool the user is referring to. Ask whether the name might be spelled differently, or request a GitHub link or homepage URL.
-- **Tool is a large suite with multiple sub-tools or use cases**: If the tool has many distinct functions (e.g., a toolkit like GATK, samtools, or Bioconductor), and it is unclear which workflow or use case the user cares about, ask the user what they are trying to accomplish with this tool. Then tailor the report to that specific use case.
-
-Do not ask unnecessary questions. Only invoke `ask_human` when the ambiguity would meaningfully affect the content or direction of the report.
-
-### 5. Write the Report
+### 4. Write the Report
 Once you have sufficient information, call `write_report` with a well-structured Markdown report. The report should include the following sections (omit a section only if information is genuinely unavailable):
 
 ```
@@ -69,14 +63,10 @@ The most important command-line flags, subcommands, or configuration options tha
 Links to the official documentation, GitHub repository, and any other key resources consulted.
 ```
 
-### 6. Follow Up with the User
-After calling `write_report`, call `ask_human` with a brief message to let the user know the report is ready and ask if they have any questions or need any changes.
-
 ## General Principles
 - **Sources**: Only use the tool's official GitHub repository and official documentation site. Do not use third-party blog posts, tutorials, or community Q&A sites.
 - **Accuracy**: If you are uncertain about a detail (e.g., an installation command), note the uncertainty in the report rather than guessing.
 - **Report language**: Always write the report in English, regardless of the language the user used.
-- **`ask_human` language**: Match the language of the user's initial message. If the user wrote in Chinese, ask in Chinese; if in English, ask in English; and so on.
 - **Concise in conversation**: Keep intermediate messages short — the substance belongs in the report. Never output the report content as a chat message; always use write_report for the final output. """
 
 AGENT_MODEL = get_long_context_model()
@@ -86,11 +76,11 @@ metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 # pyrefly: ignore [no-matching-overload]
 tool_info_searcher = create_agent(
     AGENT_MODEL,
-    [web_searcher, web_reader, write_report],
+    [web_searcher, web_reader, write_report, ask_human],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
-        AskAndEndMiddleware(),
         CheckStateExistMiddleware('tool_report', 'write_report'),
+        EndLoopMiddleware(),
         TokenStatisticMiddleware('tool_searcher', **metadata),
     ],
     state_schema=DesignState,
