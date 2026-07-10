@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.graph.state import CompiledStateGraph
 
+    from app.models.tools import ToolHelpDoc, ToolImage
+
 DB_PATH = 'presets/build/develop.db'
 
 
@@ -30,6 +32,33 @@ def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dic
     return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
 
 
+def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple['ToolImage', 'ToolHelpDoc'] | None:
+    """获取工具镜像并复用或创建对应的帮助文档."""
+    from sqlmodel import Session
+
+    import app.crud.tools.image as image_crud
+    import app.crud.tools.tool_doc as doc_crud
+    from app.core.session import engine
+    from app.models.tools import ToolHelpDoc
+    from app.utils.container import run_command
+
+    with Session(engine) as session:
+        tool_image = image_crud.get_by_name(session, tool_name)
+        if tool_image is None:
+            logger.error(f'Image not found: {tool_name}')
+            return None
+
+        tool_doc = doc_crud.get_by_command(session, help_command, str(tool_image.uid))
+        if tool_doc is None:
+            _, content = run_command(tool_image.image, [], help_command)
+            tool_doc = doc_crud.insert(
+                session,
+                ToolHelpDoc(help_command=help_command, content=content, image_uid=tool_image.uid),
+            )
+
+    return tool_image, tool_doc
+
+
 @asynccontextmanager
 async def _tool_agent_session(
     *, setup: bool = False
@@ -44,13 +73,15 @@ async def _tool_agent_session(
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
                 ('app.models.tools', 'FileMount'),
                 ('app.models.tools', 'ImageConfig'),
                 ('app.models.tools', 'ParamDefine'),
+                ('llm.states', 'BuildEdge'),
+                ('llm.states', 'BuildNode'),
+                ('llm.states', 'WorkflowDraft'),
+                ('llm.tools.test_run_report', 'TestRunReport'),
+                ('llm.utils.middleware.todo', 'Todo'),
+                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
             ]
         )
         if setup:
@@ -148,18 +179,14 @@ def search_tools(tool_name: str) -> None:
 
 async def init_tools(index: int | None = None) -> None:
     """初始化工具节点."""
+    import sys
+
     import duckdb
     import rich
     from langchain_core.messages import HumanMessage
     from rich.console import Console
-    from sqlmodel import Session
 
-    import app.crud.tools.image as image_crud
-    import app.crud.tools.tool_doc as doc_crud
-    from app.core.session import engine
-    from app.models.tools import ToolHelpDoc
-    from app.utils.container import run_command
-    from llm.states import CreateToolContext
+    from llm.context import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
@@ -195,33 +222,34 @@ async def init_tools(index: int | None = None) -> None:
             function: str = row['function_description']
             help_command: str = row['help_command'].strip()
 
-            with Session(engine) as session:
-                tool_image = image_crud.get_by_name(session, tool_name)
-                assert tool_image is not None  # noqa: S101
+            resources = _prepare_tool_resources(tool_name, help_command)
+            if resources is None:
+                return
+            tool_image, tool_doc = resources
 
-                tool_doc = doc_crud.get_by_command(session, help_command)
-                if tool_doc is None:
-                    _, result = run_command(tool_image.image, [], help_command)
-                    tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
-                    tool_doc = doc_crud.insert(session, tool_doc)
-
-                agent_input = {
-                    'messages': [
-                        HumanMessage(
-                            content=f'<Require>\n'
-                            f'tool_name: {tool_name}\n'
-                            f'function: {function}\nhelp_command: `{help_command}`\n'
-                            f'</Require>'
-                        )
-                    ],
-                    'image_uid': tool_image.uid,
-                    'image': tool_image.image,
-                    'doc_uid': tool_doc.uid,
-                }
+            agent_input = {
+                'messages': [
+                    HumanMessage(
+                        content=f'<Require>\n'
+                        f'tool_name: {tool_name}\n'
+                        f'function: {function}\nhelp_command: `{help_command}`\n'
+                        f'</Require>'
+                    )
+                ],
+                'image_uid': tool_image.uid,
+                'image': tool_image.image,
+                'doc_uid': tool_doc.uid,
+            }
 
             thread_id = f'tool_{row_index}_{tool_name}'
-            config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 2000}
-            context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
+            config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
+            context = CreateToolContext(
+                user_id=2,
+                skip_search=False,
+                auto_save=True,
+                save_message=True,
+                test_run_id=thread_id,
+            )
 
             con.execute('UPDATE tool_functions SET thread = ? WHERE index = ?', [thread_id, row_index])
 
@@ -258,14 +286,8 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
     import rich
     from langchain_core.messages import HumanMessage
     from rich.console import Console
-    from sqlmodel import Session
 
-    import app.crud.tools.image as image_crud
-    import app.crud.tools.tool_doc as doc_crud
-    from app.core.session import engine
-    from app.models.tools import ToolHelpDoc
-    from app.utils.container import run_command
-    from llm.states import CreateToolContext, CreateToolState
+    from llm.context import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
@@ -278,35 +300,28 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
         if drop_old:
             await checkpoint.adelete_thread(thread_id)
 
-        with Session(engine) as session:
-            tool_image = image_crud.get_by_name(session, name)
-            if tool_image is None:
-                logger.error('Image not found.')
-                return
+        resources = _prepare_tool_resources(name, help_command)
+        if resources is None:
+            return
+        tool_image, tool_doc = resources
 
-            tool_doc = doc_crud.get_by_command(session, help_command)
-            if tool_doc is None:
-                _, result = run_command(tool_image.image, [], help_command)
-                tool_doc = ToolHelpDoc(help_command=help_command, content=result, image_uid=tool_image.uid)
-                tool_doc = doc_crud.insert(session, tool_doc)
-
-            agent_input: CreateToolState = {
-                'messages': [
-                    HumanMessage(
-                        content=f'<Require>\n'
-                        f'tool_name: {name}\n'
-                        f'function: {function}\n'
-                        f'help_command: `{help_command}`\n'
-                        f'</Require>'
-                    )
-                ],
-                'image_uid': tool_image.uid,
-                'image': tool_image.image,
-                'doc_uid': tool_doc.uid,
-            }
+        agent_input = {
+            'messages': [
+                HumanMessage(
+                    content=f'<Require>\n'
+                    f'tool_name: {name}\n'
+                    f'function: {function}\n'
+                    f'help_command: `{help_command}`\n'
+                    f'</Require>'
+                )
+            ],
+            'image_uid': tool_image.uid,
+            'image': tool_image.image,
+            'doc_uid': tool_doc.uid,
+        }
 
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
-        context = CreateToolContext(user_id=2, auto_save=True, test_run_id=thread_id)
+        context = CreateToolContext(user_id=2, skip_search=True, auto_save=True, test_run_id=thread_id)
 
         console = Console()
         # pyrefly: ignore [no-matching-overload]
@@ -357,7 +372,7 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     from langgraph.types import Command
     from rich.console import Console
 
-    from llm.states import CreateToolContext
+    from llm.context import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
@@ -377,7 +392,13 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
     async with _tool_agent_session() as (_, agent):
         thread_id = tool_info['thread']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
-        context = CreateToolContext(user_id=2, auto_save=True, save_message=True, test_run_id=thread_id)
+        context = CreateToolContext(
+            user_id=2,
+            skip_search=True,
+            auto_save=True,
+            save_message=True,
+            test_run_id=thread_id,
+        )
 
         if approve:
             input_message = Command(resume=True)
