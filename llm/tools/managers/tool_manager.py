@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, cast
 
 import nanoid
@@ -323,7 +324,33 @@ def _add_tool_node(
     pos_y: int,
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
-    tool_uid = runtime.state['id_mapper'].get_uid_by_index(selected_id)
+    mapper = runtime.state.get('id_mapper')
+    tool_uid = mapper.get_uid_by_index(selected_id) if isinstance(mapper, BidirectionalMapper) else None
+
+    # Search result IDs are transient indexes maintained by ``id_mapper``.  The model can
+    # occasionally reuse an ID from an earlier turn, in which case the mapper returns an
+    # empty string.  Never send that value to PostgreSQL's UUID column: apart from avoiding
+    # an unhandled DataError, the response gives the agent a concrete recovery action.
+    try:
+        tool_uid = str(uuid.UUID(tool_uid)) if tool_uid else None
+    except (AttributeError, TypeError, ValueError):
+        tool_uid = None
+
+    if tool_uid is None:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content=(
+                            f'Tool ID {selected_id} is not available in the current search results. '
+                            'Call `tool_node_manager` with `action="search_by_name"` to search again, then use '
+                            'the ID returned by that latest search result to add the node.'
+                        ),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
 
     with Session(engine) as session:
         db_tool = tool_crud.get(session, tool_uid)
