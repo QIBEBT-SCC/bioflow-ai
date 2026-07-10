@@ -24,6 +24,10 @@ class WorkflowGenerationResult:
     new_db_ids: list[int]
 
 
+class WorkflowStateUnavailableError(RuntimeError):
+    """Raised when the workflow builder checkpoint cannot be read after execution."""
+
+
 def _resolve_thread_id(task_file: str, thread_id: str | None) -> str:
     if thread_id:
         return thread_id
@@ -51,19 +55,38 @@ def _check_db(db_path: str = DB_PATH) -> sqlite3.Connection:
             new_db_ids   TEXT
         )
     """)
-    existing_columns = {row['name'] for row in con.execute('PRAGMA table_info(evaluate_results)').fetchall()}
-    for column, column_type in {
-        'new_tool_uids': 'TEXT',
-        'new_db_ids': 'TEXT',
-    }.items():
-        if column not in existing_columns:
-            con.execute(f'ALTER TABLE evaluate_results ADD COLUMN {column} {column_type}')
 
     return con
 
 
 def _serialize_ids(values: list[Any]) -> str:
     return ';'.join(str(value) for value in values)
+
+
+def _parse_int_ids(raw_ids: str | None) -> list[int]:
+    if not raw_ids:
+        return []
+    return _normalize_int_values([value.strip() for value in raw_ids.split(';') if value.strip()])
+
+
+def _persist_generated_records(
+    con: sqlite3.Connection,
+    thread_id: str,
+    tool_uids: list[str],
+    db_ids: list[int],
+) -> None:
+    """Merge generated tool/database IDs into the existing evaluate result columns."""
+    row = con.execute(
+        'SELECT new_tool_uids, new_db_ids FROM evaluate_results WHERE thread_id = :thread_id',
+        {'thread_id': thread_id},
+    ).fetchone()
+    if row:
+        historical_tools = list(dict.fromkeys([*_parse_workflow_uids(row['new_tool_uids']), *tool_uids]))
+        historical_dbs = list(dict.fromkeys([*_parse_int_ids(row['new_db_ids']), *db_ids]))
+        con.execute(
+            """UPDATE evaluate_results SET new_tool_uids = ?, new_db_ids = ? WHERE thread_id = ?""",
+            (_serialize_ids(historical_tools), _serialize_ids(historical_dbs), thread_id),
+        )
 
 
 def _normalize_uuid_values(values: list[Any]) -> list[str]:
@@ -90,7 +113,7 @@ def _get_project_path(project_id: int) -> FilePath:
     return FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
 
 
-def _clean_up_all(con: sqlite3.Connection, thread_id: str) -> None:
+def _clean_up_all(con: sqlite3.Connection, thread_id: str) -> tuple[list[str], list[int]]:
     from sqlmodel import Session
 
     import app.crud.project as proj_crud
@@ -101,6 +124,14 @@ def _clean_up_all(con: sqlite3.Connection, thread_id: str) -> None:
         {'thread_id': thread_id},
     )
     row = cursor.fetchone()
+    generated_records = (
+        (
+            _parse_workflow_uids(row['new_tool_uids']),
+            _parse_int_ids(row['new_db_ids']),
+        )
+        if row
+        else ([], [])
+    )
 
     if row and row['project_id']:
         project_path = _get_project_path(row['project_id'])
@@ -109,6 +140,7 @@ def _clean_up_all(con: sqlite3.Connection, thread_id: str) -> None:
         shutil.rmtree(project_path, ignore_errors=True)
 
     con.execute('DELETE FROM evaluate_results WHERE thread_id = :thread_id', {'thread_id': thread_id})
+    return generated_records
 
 
 def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
@@ -166,7 +198,7 @@ def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id
     con.execute(
         """
         UPDATE evaluate_results
-        SET workflow_uid = NULL, output_path = NULL, new_tool_uids = NULL, new_db_ids = NULL
+        SET workflow_uid = NULL, output_path = NULL
         WHERE thread_id = :thread_id
         """,
         {'thread_id': thread_id},
@@ -335,7 +367,6 @@ async def _build_input(
         """,
         task_data,
     )
-
     return human_input
 
 
@@ -382,6 +413,7 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
 
 
 async def _generate_workflow(
+    con: sqlite3.Connection,
     human_input: list[Any],
     thread_id: str,
     project_id: int,
@@ -401,25 +433,51 @@ async def _generate_workflow(
 
     console = Console()
 
-    if reset_checkpoint:
-        await delete_checkpoint(checkpoint, thread_id)
+    async def persist_state() -> tuple[Any, WorkflowGenerationResult]:
+        state = await agent.aget_state(config)
+        result = WorkflowGenerationResult(
+            workflow_uids=_normalize_uuid_values(state.values.get('workflow_uids') or []),
+            new_tool_uids=_normalize_uuid_values(state.values.get('new_tools') or []),
+            new_db_ids=_normalize_int_values(state.values.get('new_dbs') or []),
+        )
+        _persist_generated_records(con, thread_id, result.new_tool_uids, result.new_db_ids)
+        return state, result
 
     agent = build_workflow_builder(checkpointer=checkpoint)
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': human_input}
 
-    # pyrefly: ignore [no-matching-overload]
-    async for chunk in agent.astream(
-        agent_input,
-        config,
-        context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
-        stream_mode=['updates', 'custom'],
-        version='v2',
-        subgraphs=True,
-    ):
-        print_stream_chunk(console, chunk)
+    if reset_checkpoint:
+        # The checkpoint may be disposable, but tools/databases created by that run are not.
+        try:
+            await persist_state()
+        except Exception as exc:
+            logger.warning(f'Unable to persist generated records from the old checkpoint: {exc}')
+        await delete_checkpoint(checkpoint, thread_id)
 
-    state = await agent.aget_state(config)
+    state = None
+    result = WorkflowGenerationResult([], [], [])
+    try:
+        # pyrefly: ignore [no-matching-overload]
+        async for chunk in agent.astream(
+            agent_input,
+            config,
+            context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
+            stream_mode=['updates', 'custom'],
+            version='v2',
+            subgraphs=True,
+        ):
+            print_stream_chunk(console, chunk)
+    finally:
+        # This also runs for agent errors, asyncio cancellation, Ctrl-C and LangGraph interrupts.
+        # Checkpoints are written during streaming, so the latest state contains IDs created so far.
+        try:
+            state, result = await persist_state()
+        except Exception as exc:
+            logger.exception(f'Unable to persist generated records from workflow state: {exc}')
+
+    if state is None:
+        raise WorkflowStateUnavailableError
     # 有中断
     if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
         for task in state.tasks:
@@ -428,20 +486,13 @@ async def _generate_workflow(
                     rich.print(interrupt)
                     sys.exit(-1)
 
-    workflow_uids = _normalize_uuid_values(state.values.get('workflow_uids') or [])
-    new_tool_uids = _normalize_uuid_values(state.values.get('new_tools') or [])
-    new_db_ids = _normalize_int_values(state.values.get('new_dbs') or [])
-    logger.success(f'工作流已生成: {workflow_uids}')
-    if new_tool_uids:
-        logger.success(f'本次构建新增工具: {new_tool_uids}')
-    if new_db_ids:
-        logger.success(f'本次构建新增数据库: {new_db_ids}')
+    logger.success(f'工作流已生成: {result.workflow_uids}')
+    if result.new_tool_uids:
+        logger.success(f'本次构建新增工具: {result.new_tool_uids}')
+    if result.new_db_ids:
+        logger.success(f'本次构建新增数据库: {result.new_db_ids}')
 
-    return WorkflowGenerationResult(
-        workflow_uids=workflow_uids,
-        new_tool_uids=new_tool_uids,
-        new_db_ids=new_db_ids,
-    )
+    return result
 
 
 def _log_created_records(result: WorkflowGenerationResult) -> None:
@@ -491,19 +542,16 @@ def _send_run_task(
         """
         UPDATE evaluate_results
         SET workflow_uid = :workflow_uid,
-            output_path = :output_path,
-            new_tool_uids = :new_tool_uids,
-            new_db_ids = :new_db_ids
+            output_path = :output_path
         WHERE thread_id = :thread_id
         """,
         {
             'thread_id': thread_id,
             'workflow_uid': _serialize_ids(result.workflow_uids),
             'output_path': output_dir,
-            'new_tool_uids': _serialize_ids(result.new_tool_uids),
-            'new_db_ids': _serialize_ids(result.new_db_ids),
         },
     )
+    _persist_generated_records(con, thread_id, result.new_tool_uids, result.new_db_ids)
     _log_created_records(result)
 
     with Session(engine) as session:
@@ -543,10 +591,10 @@ async def wf_eval(
         if drop_old:
             logger.warning('--drop-old is deprecated; use --clean-checkpoint instead.')
         reset_checkpoint = drop_old or clean_checkpoint or clean_all
-        if clean_all:
-            _clean_up_all(con, thread_id)
+        retained_generated_records = _clean_up_all(con, thread_id) if clean_all else ([], [])
 
         user_input = await _build_input(con, task_file, paper_file, thread_id)
+        _persist_generated_records(con, thread_id, *retained_generated_records)
         project_id, workdir = _init_project(con, thread_id)
         if reset_checkpoint and not clean_all:
             _clean_project_workflows(con, thread_id, project_id)
@@ -580,6 +628,7 @@ async def wf_eval(
                 ),
             ]
             workflow_result = await _generate_workflow(
+                con,
                 agent_input,
                 thread_id,
                 project_id,
