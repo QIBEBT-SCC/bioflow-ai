@@ -139,7 +139,7 @@ You will be given a prepared plan along with the user's original task requiremen
     - When there are no nodes on the current panel, place the newly added node at the center of the panel (x=0, y=0).
     - When there are already nodes on the current panel, place the newly added node to the right (x+1) according to the order of analysis execution, with the y-coordinate aligned with the associated upstream node.
     - If the current position already has a node, adjust the y-coordinate upward or downward as appropriate (±1) to avoid node overlap.
-- When encountering situations that cannot be handled (such as missing databases, unavailable tools, etc.), call the `ask_human` tool to request human assistance.
+- Prioritize using `update_args` to make the most of existing tool nodes. When no node in the database meets the requirements, or when additional input or output handles are needed and the requirement cannot be satisfied merely by modifying the parameters of an existing node, invoke the `create_db` operation to request the creation of a new node.
 """
 
 

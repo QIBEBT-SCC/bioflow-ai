@@ -62,9 +62,14 @@ class AddToolSchema(BaseModel):
 class UpdateArgsSchema(BaseModel):
     """Update the editable parameters of the specified tool node that has been added to the panel."""
 
-    node_id: str = Field(description='Tool Node ID on the panel to be deleted')
+    node_id: str = Field(description='Tool Node ID on the panel to be updated')
     new_args: str = Field(description='New parameters to update')
-    reason: str = Field(description='The reason you made this parameter modification')
+    reason: str = Field(
+        description=(
+            'The reason for this parameter modification, including the intended parameter semantics and expected '
+            'value type'
+        )
+    )
 
 
 class CreateToolSchema(BaseModel):
@@ -72,7 +77,11 @@ class CreateToolSchema(BaseModel):
 
     name: str = Field(description='The naming of a new node must be distinguishable from existing nodes.')
     request: str = Field(
-        description='Node creation requirements. Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do with this tool, what the input is, and what the main expected output is)"'
+        description=(
+            'Node creation requirements. '
+            'Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do '
+            'with this tool, what new input handle is required or what new output handle is expected)"'
+        )
     )
 
 

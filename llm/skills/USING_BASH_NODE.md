@@ -66,3 +66,4 @@ cut -f1,2 "$FAI" > chrom_sizes.txt
 
 Preceding nodes must be added before the code node. Therefore, you must first determine which parameters are needed, add the `bind_param` nodes accordingly, and then write the code and add the code
 node.
+The bash code node is used only for running Linux system commands, should not be used for running bioinformatics tools. Running bioinformatics command-line tools should use tool nodes or create new tool nodes.
