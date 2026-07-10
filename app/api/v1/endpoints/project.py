@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, cast
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 from app.core.config import get_settings
 from app.core.session import SessionDep
@@ -30,6 +30,7 @@ from app.schemas.project import (
     ProjectFileMappingPublic,
     ProjectFileMappingUpdate,
     ProjectPublic,
+    ProjectUpdate,
     TagProp,
     TagWithCount,
 )
@@ -176,6 +177,24 @@ def get_project(
 ) -> ProjectPublic:
     """Get project detail by ID."""
     return project_crud.get(session, current_user.id, project_id)  # type: ignore
+
+
+@router.put('/{project_id}')
+def update_project(
+    project_id: int,
+    project_update: ProjectUpdate,
+    session: SessionDep,
+    current_user: UserDep,
+) -> ProjectPublic:
+    """Update a project's name, description, or tags."""
+    project = session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
+    if project.owner_id != current_user.id:
+        raise HTTPException(HTTP_403_FORBIDDEN, 'Only the project owner can update this project')
+
+    project_crud.update(session, project_id, project_update)
+    return project_crud.get(session, current_user.id, project_id)
 
 
 @router.delete('/{project_id}')

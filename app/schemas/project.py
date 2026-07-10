@@ -41,10 +41,10 @@ class TagProp(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
+    """Editable project metadata."""
+
     name: str | None = None
     description: str | None = None
-    starred: bool | None = None
-    update_time: datetime | None = None
     tags: list[ProjectTag] | None = None
 
 

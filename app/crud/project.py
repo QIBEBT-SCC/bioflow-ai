@@ -1,9 +1,12 @@
+from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, func, or_, select
+from starlette.status import HTTP_404_NOT_FOUND
 
-from app.models.project import Project, ProjectStar
+from app.models.project import Project, ProjectStar, ProjectTag
 from app.schemas.project import ProjectPublic, ProjectUpdate
 from app.schemas.user import UserPublic
+from app.utils.system import utc_now
 
 
 def _to_project_public(project: Project, *, starred: bool) -> ProjectPublic:
@@ -36,8 +39,25 @@ def delete(session: Session, project_id: int) -> None:
 
 
 def update(session: Session, project_id: int, project: ProjectUpdate) -> Project:
-    """Update a project."""
-    raise NotImplementedError
+    """Update a project's editable fields and replace its tags when supplied."""
+    db_project = session.get(Project, project_id)
+    if db_project is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
+
+    update_data = project.model_dump(exclude_unset=True, exclude={'tags'})
+    for field, value in update_data.items():
+        setattr(db_project, field, value)
+
+    if 'tags' in project.model_fields_set:
+        tag_ids = [tag.id for tag in project.tags or [] if tag.id is not None]
+        tags = session.exec(select(ProjectTag).where(col(ProjectTag.id).in_(tag_ids))).all() if tag_ids else []
+        db_project.tags = list(tags)
+
+    db_project.update_time = utc_now()
+    session.add(db_project)
+    session.commit()
+    session.refresh(db_project)
+    return db_project
 
 
 def get_star_ids(session: Session, user_id: int, project_ids: list[int]) -> set[int]:
