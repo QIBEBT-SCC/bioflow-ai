@@ -123,7 +123,7 @@ services:
     restart: unless-stopped
 
   web-ui:
-    image: ghcr.io/qibebt-scc/bioflow-ai-web:0.2.4
+    image: ghcr.io/qibebt-scc/bioflow-ai-web:0.2.5
     environment:
       BACKEND_API_URL: http://host.docker.internal:8003/api/v1
     extra_hosts:
