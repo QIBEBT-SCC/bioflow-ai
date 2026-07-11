@@ -1,10 +1,9 @@
 from typing import TYPE_CHECKING, cast
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 
 from llm.context import BaseContext
 from llm.models import get_long_context_model
-from llm.states import DesignState
 from llm.tools.human import ask_human
 from llm.tools.storage import view_pdf
 from llm.tools.writter import write_snippet
@@ -13,6 +12,9 @@ from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
+
+AGENT_MODEL = get_long_context_model()
+metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics literature. Your task is to **precisely extract bioinformatics-related methods content from a given paper based on the user's request**, and output it via tools rather than in the conversation.
 
@@ -45,8 +47,11 @@ SYSTEM_PROMPT = """You are an agent specialized in processing bioinformatics lit
 - Only call `ask_human` when content is **genuinely absent**. Do not interrupt the user simply because the relevant section is brief or loosely described.
 - All substantive content must go through `write_snippet`. The conversation message should remain minimal."""
 
-AGENT_MODEL = get_long_context_model()
-metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
+
+class ReadPaperState(AgentState, total=False):
+    paper_id: str
+    paper_context: str
+
 
 # pyrefly: ignore [no-matching-overload]
 paper_reader = create_agent(
@@ -57,6 +62,6 @@ paper_reader = create_agent(
         CheckStateExistMiddleware('paper_context', 'write_snippet'),
         TokenStatisticMiddleware('paper_reader', **metadata),
     ],
-    state_schema=DesignState,
+    state_schema=ReadPaperState,
     context_schema=BaseContext,
 )

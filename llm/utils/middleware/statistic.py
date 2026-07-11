@@ -6,7 +6,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langgraph.config import get_config
 from langgraph.runtime import Runtime
 
-from llm.states import UserContext
+from llm.context import BaseContext
 from llm.utils.token import store_token_usage
 
 
@@ -27,7 +27,7 @@ class TokenStatisticMiddleware(AgentMiddleware):
         self.output_price = output_price
         self.cache_read_price = cache_read_price
 
-    def after_model(self, state: AgentState, runtime: Runtime[UserContext]) -> dict[str, Any] | None:  # noqa: D102
+    def after_model(self, state: AgentState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
         token_usage = getattr(state['messages'][-1], 'usage_metadata', None)
         thread_id = get_config()['configurable'].get('thread_id', None)
         store_token_usage(

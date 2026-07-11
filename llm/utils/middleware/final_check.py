@@ -9,8 +9,7 @@ from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from loguru import logger
 
-from llm.context import BaseContext
-from llm.states import FolderContext
+from llm.context import BaseContext, FolderContext
 
 
 class CheckState(AgentState):

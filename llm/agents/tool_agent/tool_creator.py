@@ -1,8 +1,8 @@
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, cast
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
@@ -30,15 +30,13 @@ from app.schemas.tools import ToolNodePublic
 from app.utils.container import run_command
 from llm.agents.tool_agent.config_generator import config_generate_agent
 from llm.agents.tool_agent.report_generator_v2 import test_run_agent
-from llm.agents.tool_agent.searcher.image import self_search_image_agent
+from llm.agents.tool_agent.searcher import search_image_agent
 from llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
 from llm.models import get_agent_model, qwen3_embedding
 from llm.states import (
     CreateToolOutput,
     CreateToolState,
-    SearchImageState,
-    SelectGroupState,
 )
 from llm.tools.database import (
     select_group,
@@ -100,6 +98,10 @@ class TempIDClass(BaseModel):
     uid: uuid.UUID
 
 
+class SelectGroupState(AgentState):
+    group_id: NotRequired[int]
+
+
 class CreateToolAgent:
     def __init__(self) -> None:
         self.think_llm = get_agent_model()
@@ -129,8 +131,8 @@ class CreateToolAgent:
             writer = get_stream_writer()
             writer({'info': 'Searching for docker image...'})
 
-            search_input: SearchImageState = {'messages': state['messages']}
-            response = await self_search_image_agent.ainvoke(search_input)
+            search_input = {'messages': state['messages']}
+            response = await search_image_agent.ainvoke(search_input)
 
             logger.success(f'Select image {response["image"]}')
             return {

@@ -35,3 +35,8 @@ class ProjectContext(BaseContext):
     project_id: int
     workdir: str
     auto_approve: bool = False
+
+
+@dataclass
+class FolderContext(BaseContext):
+    output_path: str

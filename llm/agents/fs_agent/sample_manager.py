@@ -1,6 +1,7 @@
-from typing import TYPE_CHECKING, cast
+import operator
+from typing import TYPE_CHECKING, Annotated, cast
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -23,6 +24,9 @@ from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
+
+MANAGER_LLM = get_agent_model()
+metadata = cast('LLMMetadata', AGENT_LLM.metadata)
 
 SYSTEM_PROMPT = """You are a bioinformatics project file system initialization agent.
 Your task is to explore raw data paths provided by the user, identify the file structure, and register files into the system's two-level index.
@@ -106,9 +110,6 @@ The following are tag/keyword selections for some common scenarios:
 - When a sample contains multiple files, append a descriptive **prefix**: `tumor_r1` / `normal_r1` / `light_img`, etc.
 - Tags/Keywords must be **unique** within the project and semantically descriptive.
 """
-
-MANAGER_LLM = get_agent_model()
-metadata = cast('LLMMetadata', AGENT_LLM.metadata)
 
 
 def build_create_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:

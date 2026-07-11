@@ -15,6 +15,7 @@ from app.models.resource import Sample, SampleFiles
 from app.models.tools import ImageConfig
 from app.utils.container import ContainerMount, run_command
 from llm.context import ProjectContext
+from llm.states import SampleState
 
 
 def _truncate_output(output: str) -> str:
@@ -46,7 +47,7 @@ async def set_base_dir(base_path: str, runtime: ToolRuntime) -> Command:
 
 
 @tool('run_command', parse_docstring=True)
-async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext]) -> str:
+async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext, SampleState]) -> str:
     """Execute shell commands inside a Docker container.
 
     Available commands: seqkit, awk, grep, find, head, file, etc.
@@ -55,7 +56,7 @@ async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext]) -
     Args:
         command: Shell command to run in the container
     """
-    base_dir: str | None = runtime.state.get('base_path')
+    base_dir = runtime.state.get('base_path')
     if not base_dir:
         return 'Call `set_base_dir` to set the root directory first.'
 
@@ -82,7 +83,7 @@ async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext]) -
 async def add_samples(
     names: list[str],
     meta_data: dict[str, str] | None,
-    runtime: ToolRuntime[ProjectContext],
+    runtime: ToolRuntime[ProjectContext, SampleState],
 ) -> Command | str:
     """Create sample objects.
 
@@ -134,7 +135,7 @@ async def add_sample_file(
     sample_name: str,
     tag: str,
     file_path: str,
-    runtime: ToolRuntime[ProjectContext],
+    runtime: ToolRuntime[ProjectContext, SampleState],
 ) -> str:
     """Register the sample file.
 
@@ -143,7 +144,7 @@ async def add_sample_file(
         file_path: The file_path uses a path relative to **base_dir**.
         tag: Unique file tag within the sample, such as r1, r2, single, spectrum, or image.
     """
-    base_dir: str | None = runtime.state.get('base_path')
+    base_dir = runtime.state.get('base_path')
     if not base_dir:
         return 'Call `set_base_dir` to set the root directory first.'
 
@@ -178,7 +179,7 @@ async def add_project_file(
     keyword: str,
     file_path: str,
     description: str,
-    runtime: ToolRuntime[ProjectContext],
+    runtime: ToolRuntime[ProjectContext, SampleState],
 ) -> str:
     """Register project-level shared files.
 
@@ -187,7 +188,7 @@ async def add_project_file(
         file_path: The file_path uses a path relative to **base_dir**.
         description: Description of this file.
     """
-    base_dir: str | None = runtime.state.get('base_path')
+    base_dir = runtime.state.get('base_path')
     if not base_dir:
         return 'Call `set_base_dir` to set the root directory first.'
 
@@ -211,7 +212,7 @@ async def add_project_file(
 
 
 @tool(parse_docstring=True)
-async def list_project_samples(runtime: ToolRuntime[ProjectContext]) -> str:
+async def list_project_samples(runtime: ToolRuntime[ProjectContext, SampleState]) -> str:
     """List existing samples already registered in the database for the current project.
 
     Returns an aggregated summary grouped by shared metadata and tag set, suitable for projects
@@ -248,7 +249,7 @@ async def list_project_samples(runtime: ToolRuntime[ProjectContext]) -> str:
 
 
 @tool('remove_sample_file', parse_docstring=True)
-async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[ProjectContext]) -> str:
+async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[ProjectContext, SampleState]) -> str:
     """Remove a registered sample file by sample name and tag.
 
     Use this only on the "local files updated" branch to drop stale entries before
@@ -266,7 +267,7 @@ async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[Pr
 
 
 @tool
-async def write_conclusion(content: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+async def write_conclusion(content: str, runtime: ToolRuntime[ProjectContext, SampleState]) -> Command:
     """Write a summary for the file system."""
     sample_summary_file = Path(runtime.context.workdir) / 'SAMPLES.md'
     await sample_summary_file.parent.mkdir(parents=True, exist_ok=True)

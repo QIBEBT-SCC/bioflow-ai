@@ -1,10 +1,9 @@
 from typing import TYPE_CHECKING, cast
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 
 from llm.context import BaseContext
 from llm.models import get_long_context_model
-from llm.states import DesignState
 from llm.tools.human import ask_human
 from llm.tools.web_search import web_reader, web_searcher
 from llm.tools.writter import write_report
@@ -12,6 +11,9 @@ from llm.utils.middleware import CheckStateExistMiddleware, EndLoopMiddleware, T
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
+
+AGENT_MODEL = get_long_context_model()
+metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 SYSTEM_PROMPT = """## Role
 You are a bioinformatics tool research assistant. Your job is to investigate bioinformatics tools that users ask about, gather information from official documentation, GitHub repositories, and other reliable sources, and produce a structured report covering installation and basic usage.
@@ -69,8 +71,9 @@ Links to the official documentation, GitHub repository, and any other key resour
 - **Report language**: Always write the report in English, regardless of the language the user used.
 - **Concise in conversation**: Keep intermediate messages short — the substance belongs in the report. Never output the report content as a chat message; always use write_report for the final output. """
 
-AGENT_MODEL = get_long_context_model()
-metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
+
+class InforSearcherState(AgentState, total=False):
+    tool_report: str
 
 
 # pyrefly: ignore [no-matching-overload]
@@ -83,6 +86,6 @@ tool_info_searcher = create_agent(
         EndLoopMiddleware(),
         TokenStatisticMiddleware('tool_searcher', **metadata),
     ],
-    state_schema=DesignState,
+    state_schema=InforSearcherState,
     context_schema=BaseContext,
 )

@@ -80,7 +80,7 @@ def ui_input_to_human_message(ui_message: UIMessage) -> HumanMessage:
             else:
                 pass
 
-    content = contents if is_multimodel else '\n'.join(contents)
+    content = contents if is_multimodel else '\n'.join(item['text'] for item in contents)
 
     return HumanMessage(content=content)
 

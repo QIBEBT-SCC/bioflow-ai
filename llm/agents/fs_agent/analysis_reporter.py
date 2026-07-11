@@ -1,12 +1,12 @@
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, NotRequired, Optional, cast
 
-from langchain.agents import create_agent
+from langchain.agents import AgentState, create_agent
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 
 from app.utils.container import run_command_in_container
+from llm.context import FolderContext
 from llm.models import get_coding_model
-from llm.states import FolderContext, SummaryState
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
     StatusBarMiddleware,
@@ -18,7 +18,12 @@ from llm.utils.middleware.final_check import CheckTaskReportMiddleware
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
+
+AGENT_LLM = get_coding_model()
+metadata = cast('LLMMetadata', AGENT_LLM.metadata)
+
 MAX_CHAR = 3000
+
 
 SUMMARY_PROMPT = """# Role and Task
 You are a professional bioinformatics upstream analysis reporting agent. You operate within a lightweight Alpine Linux container, pre-installed with tools such as bash, gawk, grep, jq, miller, find, tree, file, coreutils, and pigz.
@@ -151,6 +156,10 @@ Resource reference format:
 """
 
 
+class SummaryState(AgentState):
+    container_id: NotRequired[str]
+
+
 def _truncate_output(command: str, output: str) -> str:
     if any(k in command for k in ('find', 'grep', 'help', 'summary.md')) or len(output) <= MAX_CHAR:
         return output
@@ -178,9 +187,7 @@ async def run_command(command: str, runtime: ToolRuntime, workdir: Optional[str]
     return return_msg
 
 
-AGENT_LLM = get_coding_model()
-metadata = cast('LLMMetadata', AGENT_LLM.metadata)
-
+# pyrefly: ignore [no-matching-overload]
 summary_analysis_agent = create_agent(
     get_coding_model(),
     [run_command],
@@ -193,6 +200,5 @@ summary_analysis_agent = create_agent(
         TokenStatisticMiddleware('write_report', **metadata),
     ],
     state_schema=SummaryState,
-    # pyrefly: ignore [bad-argument-type]
     context_schema=FolderContext,
 )

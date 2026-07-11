@@ -1,10 +1,9 @@
 import operator
 import uuid
-from dataclasses import dataclass
-from typing import Annotated, Any, Generic, Literal, NotRequired, Optional, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, NotRequired, Optional
 
 from langchain.agents import AgentState
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
@@ -12,55 +11,8 @@ from app.schemas.tools import Handle
 from llm.tools.test_run_report import TestRunReport
 from llm.utils.uid_mapper import BidirectionalMapper
 
-ParsedT = TypeVar('ParsedT', bound=BaseModel | None, default=None)
-
-
-class StructuredResponse(TypedDict, Generic[ParsedT]):
-    raw: AIMessage
-    parsed: ParsedT
-    parsing_error: NotRequired[Any]
-
-
-@dataclass
-class UserContext:
-    user_id: int
-
 
 # =====================create tool agent state==========================
-class SearchImageState(AgentState, total=False):
-    id_mapper: BidirectionalMapper
-
-    image_uid: uuid.UUID
-    image: ImageConfig
-
-    name: str
-    description: str
-    homepage: str
-    paper_link: str
-
-
-class GetDocState(AgentState):
-    id_mapper: NotRequired[BidirectionalMapper]
-
-    image_uid: uuid.UUID
-    image: ImageConfig
-
-    doc_uid: NotRequired[uuid.UUID]
-
-
-class SelectGroupState(AgentState):
-    group_id: NotRequired[int]
-
-
-@dataclass
-class CreateToolContext(UserContext):
-    auto_save: bool = True
-
-    save_message: bool = False
-    dataset_file: str = 'test_run.parquet'
-    test_run_id: Optional[str] = None
-
-
 class CreateToolState(AgentState, total=False):
     id_mapper: BidirectionalMapper
 
@@ -118,40 +70,11 @@ class ToolGeneratorState(AgentState, total=False):
 
 
 # =====================sample manager state==========================
-@dataclass
-class SampleContext(UserContext):
-    project_id: int
-
-
 class SampleState(AgentState, total=False):
     base_path: str
     sample_maps: Annotated[dict[str, str], operator.or_]  # {sample_name: sample_id}
 
     summary: str
-
-
-# =====================workflow plan state==========================
-@dataclass
-class DesignContext(UserContext):
-    project_id: int
-    auto_approve: bool = False
-
-
-class DesignState(AgentState, total=False):
-    task: str
-    plan: str
-
-    # 工具探索用
-    tool_report: str
-
-    # 文献复现使用
-    paper_id: str
-    paper_context: str
-
-    # 生成接节点输出
-    workflow_uids: list[uuid.UUID]
-    new_tools: list[uuid.UUID]
-    new_dbs: list[int]
 
 
 # =====================unified planner state==========================
@@ -181,11 +104,6 @@ class PlannerState(AgentState, total=False):
 
 
 # =====================build workflow agent state==========================
-@dataclass
-class BuildContext(UserContext):
-    has_reference: bool
-
-
 class BuildNode(BaseModel):
     id: str
     name: str
@@ -237,13 +155,3 @@ class BuildState(AgentState, total=False):
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
     new_tools: Annotated[list[uuid.UUID], operator.add]
     new_dbs: Annotated[list[int], operator.add]
-
-
-# =====================summary agent state==========================
-@dataclass
-class FolderContext(UserContext):
-    output_path: str
-
-
-class SummaryState(AgentState):
-    container_id: NotRequired[str]

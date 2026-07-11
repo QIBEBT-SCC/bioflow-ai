@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, cast
 from langchain.agents import create_agent
 from langgraph.graph import MessagesState
 
+from llm.context import BaseContext
 from llm.models import get_agent_model
-from llm.states import UserContext
 from llm.tools.database import read_tool_doc, select_tool
 from llm.tools.vector_store import search_tools_by_function
 from llm.utils.middleware import TokenStatisticMiddleware
@@ -13,6 +13,9 @@ from llm.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
+
+SEARCH_LLM = get_agent_model()
+metadata = cast('LLMMetadata', SEARCH_LLM.metadata)
 
 SYSTEM_PROMPT = """You are a professional bioinformatics data administrator. In this database, many common bioinformatics analysis tools are encapsulated.
 Your task is to call tools to search the database based on user requirements and determine whether there is a tool in the current database that meets these requirements.
@@ -46,9 +49,7 @@ class SearchToolNodeState(MessagesState, total=False):
     tool_uid: str
 
 
-SEARCH_LLM = get_agent_model()
-metadata = cast('LLMMetadata', SEARCH_LLM.metadata)
-
+# pyrefly: ignore [no-matching-overload]
 search_exist_tool_agent = create_agent(
     model=get_agent_model(),
     tools=[
@@ -57,9 +58,9 @@ search_exist_tool_agent = create_agent(
         select_tool,
     ],
     system_prompt=SYSTEM_PROMPT,
-    middleware=[  # type: ignore
+    middleware=[
         TokenStatisticMiddleware('search_exist_node', **metadata),
     ],
-    state_schema=SearchToolNodeState,  # type: ignore
-    context_schema=UserContext,  # type: ignore
+    state_schema=SearchToolNodeState,
+    context_schema=BaseContext,
 )
