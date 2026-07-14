@@ -15,6 +15,7 @@ log_rotation = "10 MB"
 [network]
 host = "0.0.0.0"
 port = 8000
+cors_origins = ["http://localhost:3000"]
 proxy_type = "http"
 proxy_host = "localhost"
 proxy_port = 7890

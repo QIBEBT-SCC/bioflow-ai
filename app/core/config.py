@@ -41,6 +41,7 @@ class LogConfig(BaseSectionConfig):
 class NetworkConfig(BaseSectionConfig):
     HOST: str = 'localhost'
     PORT: int = 8000
+    CORS_ORIGINS: list[str] = ['http://localhost:3000']
     PROXY_TYPE: Literal['http', 'socks5'] = 'http'
     PROXY_HOST: str = 'localhost'
     PROXY_PORT: int = 7890

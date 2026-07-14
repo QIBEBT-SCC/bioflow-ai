@@ -72,15 +72,9 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 允许所有源地址
-    origins = [
-        'http://localhost:3000',
-        'http://172.18.19.113:3000',
-    ]
-
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
+        allow_origins=get_settings().network.CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=['*'],
         allow_headers=['*'],
