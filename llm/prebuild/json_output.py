@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import AgentState, create_agent
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
@@ -11,9 +11,12 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel
 
+from llm.context import BaseContext
 from llm.llm_client import LLMMetadata
-from llm.states import UserContext
 from llm.utils.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
+
+if TYPE_CHECKING:
+    from langchain.agents.middleware import AgentMiddleware
 
 FORCE_TOOL_PROMPT = """You must produce the final answer by calling `submit_structured_output` exactly once.
 Do not answer in natural language or perform any other action."""
@@ -102,7 +105,7 @@ def json_output[SchemaT: BaseModel](
 ) -> Runnable[LanguageModelInput, SchemaT]:
     """Create a structured-output runnable backed by a forced tool-call agent."""
     prompt = f'{system_prompt}\n\n{FORCE_TOOL_PROMPT}'
-    middleware = [
+    middleware: list[AgentMiddleware] = [
         CheckStateExistMiddleware('target_structure', 'submit_structured_output'),
         EndLoopMiddleware(),
     ]
@@ -116,7 +119,7 @@ def json_output[SchemaT: BaseModel](
         system_prompt=prompt,
         middleware=middleware,
         state_schema=JsonOutputState,
-        context_schema=UserContext,
+        context_schema=BaseContext,
     )
 
     def invoke(input_: LanguageModelInput, config: RunnableConfig | None = None, **kwargs: Any) -> Any:

@@ -23,7 +23,7 @@ from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
 
 
 @tool(parse_docstring=True)
-def search_local_image(query: str, runtime: ToolRuntime) -> Command:
+def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
     """Search the database for images that have already been pulled locally.
 
     **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
@@ -72,7 +72,7 @@ def search_local_image(query: str, runtime: ToolRuntime) -> Command:
 @tool(parse_docstring=True)
 def select_image(
     image_url: str,
-    runtime: ToolRuntime,
+    runtime: ToolRuntime[Any],
 ) -> Command:
     """Select existing image in the database.
 
@@ -110,226 +110,7 @@ def select_image(
 
 
 @tool(parse_docstring=True)
-async def pull_and_save_image(
-    name: str,
-    image_url: str,
-    version: str,
-    description: str,
-    runtime: ToolRuntime,
-) -> Command:
-    """Pull down the searched images and save relevant information to the database.
-
-    It should be noted that the tag and version of an image are not necessarily the same; some image tags may contain other content after them.
-
-    Args:
-        name: Name of the tool, can contain upper and lower case letters
-        image_url: url of the image, the format is [registry]/[namespace]/[repository]:tag
-        version: version of tool, can be judged by the image tag
-        description: Description of the tool corresponding to this image. This is a description of the tool, not the current requirements.
-    """
-    # 实际上这里并不会拉取镜像, 只不过为了让LLM不要乱想我们谎称会拉取♪
-    with Session(engine) as session:
-        new_image = ToolImage(
-            name=name,
-            image=ImageConfig.from_str(image_url),
-            version=version,
-            description=description,
-            homepage=runtime.state.get('homepage', ''),
-            paper_link=runtime.state.get('paper_link', ''),
-        )
-        new_image = image_crud.insert(session, new_image)
-        image_uid = new_image.uid
-
-    return Command(
-        update={
-            'image_uid': image_uid,
-            'image': new_image.image,
-            'messages': [
-                ToolMessage(
-                    content="The tool's image has been saved locally, you can summarize and finish the work.",
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool
-def list_docs(runtime: ToolRuntime) -> Command:
-    """List existing document records under the corresponding image."""
-    image_uid = runtime.state.get('image_uid')
-
-    with Session(engine) as session:
-        docs = doc_crud.get_by_image(session, str(image_uid))
-        new_mapper = BidirectionalMapper(datas=docs)
-
-    if docs:
-        exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-        merged_mapper = merge_mappers(exist_mapper, new_mapper)
-        doc_blocks = [
-            (
-                f'  <doc>\n'
-                f'    <id>{merged_mapper.get_index_by_uid(str(d.uid))}</id>\n'
-                f'    <desc>{d.description}</desc>\n'
-                f'    <command>{d.help_command}</command>\n'
-                f'  </doc>'
-            )
-            for d in docs
-        ]
-
-        return Command(
-            update={
-                'id_mapper': merged_mapper,
-                'messages': [
-                    ToolMessage(
-                        content=f'Under this image, we found {len(docs)} corresponding help document records:\n\n<docs>\n{"\n".join(doc_blocks)}\n</docs>',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
-
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(
-                    content='No existing help documentation records found under this image.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ]
-        }
-    )
-
-
-@tool(parse_docstring=True)
-def view_doc(doc_id: int, runtime: ToolRuntime) -> str:
-    """View the specific content of the corresponding help document.
-
-    Args:
-        doc_id: ID of the document to view
-    """
-    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-    doc_uid = mapper.get_uid_by_index(doc_id)
-
-    with Session(engine) as session:
-        doc: ToolHelpDoc = doc_crud.get(session, doc_uid)
-
-    return doc.content
-
-
-@tool(parse_docstring=True)
-def select_doc(doc_id: int, runtime: ToolRuntime) -> Command:
-    """Select existing help document in the database.
-
-    Args:
-        doc_id: selected doc id
-    """
-    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-
-    return Command(
-        update={
-            'doc_uid': mapper.get_uid_by_index(doc_id),
-            'messages': [
-                ToolMessage(
-                    content='The corresponding help document has been found, you can summarize the information and end the task.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool(parse_docstring=True)
-def save_doc(
-    help_command: str,
-    description: str,
-    runtime: ToolRuntime,
-) -> Command:
-    """Save the results of help_command to the database as help documentation records.
-
-    Args:
-        help_command: The command corresponding to this help document
-        description: Describe the function or purpose of the subcommand itself, not the action of retrieving its help documentation.
-    """
-    image = cast('ImageConfig', runtime.state.get('image'))
-    _code, result = run_command(image, [], help_command)
-
-    with Session(engine) as session:
-        new_doc = ToolHelpDoc(
-            help_command=help_command,
-            description=description,
-            content=result,
-            image_uid=runtime.state.get('image_uid'),
-        )
-        new_doc = doc_crud.insert(session, new_doc)
-        doc_uid = new_doc.uid
-
-    return Command(
-        update={
-            'doc_uid': doc_uid,
-            'messages': [
-                ToolMessage(
-                    content='The corresponding help document has been found, you can summarize the information and end the task.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool(parse_docstring=True)
-def search_tool(query: str, runtime: ToolRuntime) -> Command:
-    """Search for the corresponding tool node.
-
-    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
-
-    Args:
-        query: Name of the tool to search for
-    """
-    with Session(engine) as session:
-        exist_tools = tool_crud.get_by_name_fuzzy(session, query, 50, 0)
-        new_mapper = BidirectionalMapper(datas=exist_tools)
-
-    if exist_tools:
-        exits_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-        merged_mapper = merge_mappers(exits_mapper, new_mapper)
-        tool_nodes = []
-        for exist_tool in exist_tools:
-            try:
-                tool_nodes.append(ToolNodePublic.model_validate(exist_tool.model_dump()))
-            except TypeError:
-                logger.warning(f'Failed to parse tool "{exist_tool.name}"({exist_tool.uid})')
-
-        return Command(
-            update={
-                'id_mapper': merged_mapper,
-                'messages': [
-                    ToolMessage(
-                        f'Based on the keywords, the following tool nodes are available '
-                        f'(To aid in judgment, each tool node has an additional <command> field, indicating the command actually executed by that node):\n'
-                        f'{search_nodes_formatter(tool_nodes, merged_mapper)}'
-                        f'Note that tool_id accumulates across searches; previously returned IDs remain valid.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
-
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(
-                    'Based on the keywords you provided, no results found. '
-                    'Consider using new search keywords or calling the `create_tool_node` tool to create new tool nodes',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ]
-        }
-    )
-
-
-@tool(parse_docstring=True)
-def read_tool_doc(tool_id: int, runtime: ToolRuntime) -> str:
+def read_tool_doc(tool_id: int, runtime: ToolRuntime[Any]) -> str:
     """Read existing tool's help document.
 
     Args:
@@ -350,7 +131,7 @@ def read_tool_doc(tool_id: int, runtime: ToolRuntime) -> str:
 
 
 @tool(parse_docstring=True)
-def select_tool(tool_id: int, runtime: ToolRuntime) -> Command:
+def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
     """Select existing tool in the database.
 
     Args:
@@ -405,7 +186,7 @@ def view_groups() -> str:
 
 
 @tool(parse_docstring=True)
-def select_group(group_id: int, runtime: ToolRuntime) -> Command:
+def select_group(group_id: int, runtime: ToolRuntime[Any]) -> Command:
     """Select the corresponding group for the tool.
 
     Args:
@@ -460,7 +241,7 @@ def create_biodb(
     description: str,
     download_command: str,
     download_image: str,
-    runtime: ToolRuntime,
+    runtime: ToolRuntime[Any],
 ) -> Command:
     """Add a new downloadable biological database to the system.
 

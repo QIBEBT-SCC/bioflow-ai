@@ -44,7 +44,7 @@ TODO_TOOL_NAMES = {'view_todos'}
 
 
 @tool(parse_docstring=True)
-def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime) -> Command:
+def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime[Any, TodoState]) -> Command:
     """Add new tasks to the todo list or insert tasks at a specific position.
 
     - To append tasks to the end: call with `tasks` parameter only (before=None)
@@ -114,7 +114,7 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime) -> 
 def update_todo_state(
     index: int,
     status: Literal['pending', 'in_progress', 'completed'],
-    runtime: ToolRuntime,
+    runtime: ToolRuntime[Any, TodoState],
 ) -> Command:
     """Update the status of a specific todo item.
 
@@ -209,7 +209,7 @@ def update_todo_state(
 
 
 @tool('update_todo', parse_docstring=True)
-def update_todo_content(index: int, content: str, runtime: ToolRuntime) -> Command:
+def update_todo_content(index: int, content: str, runtime: ToolRuntime[Any, TodoState]) -> Command:
     """Update the content of a specific todo item.
 
     Use this to modify the description or content of an existing task.
@@ -257,7 +257,7 @@ def update_todo_content(index: int, content: str, runtime: ToolRuntime) -> Comma
 
 
 @tool(parse_docstring=True)
-def delete_todo(indexs: list[int], runtime: ToolRuntime) -> Command:
+def delete_todo(indexs: list[int], runtime: ToolRuntime[Any, TodoState]) -> Command:
     """Delete specific todo items.
 
     Use this to remove existing tasks from the todo list.
@@ -320,7 +320,7 @@ def delete_todo(indexs: list[int], runtime: ToolRuntime) -> Command:
 
 
 @tool
-def view_todos(runtime: ToolRuntime) -> Command:
+def view_todos(runtime: ToolRuntime[Any, TodoState]) -> Command:
     """View the current todo list.
 
     Generally, you can see the current to-do list directly from the status bar (if available); call this tool ONLY when you need to review it or require the full task list for other reasons.
@@ -371,7 +371,7 @@ class TodoMiddleware(AgentMiddleware):
 
         self.todo_inited = False
 
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
+    def before_agent(self, state: StateT, runtime: Runtime[Any]) -> dict[str, Any] | None:
         return {'msg_to_keep': len(state['messages'])}
 
     def wrap_model_call(  # noqa: D102

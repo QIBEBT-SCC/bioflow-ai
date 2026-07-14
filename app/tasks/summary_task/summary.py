@@ -93,7 +93,7 @@ def upstream_summary_task(
         ]
         container_id = create_container(image, file_mount)
 
-        extra_message = summary_prompt if summary_prompt else '使用默认总结逻辑'
+        extra_message = summary_prompt or '使用默认总结逻辑'
         agent_input = {
             'messages': [
                 HumanMessage(content='请阅读当前目录下的分析项目, 给出分析报告'),

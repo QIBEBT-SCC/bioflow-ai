@@ -21,7 +21,7 @@ DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0
 
 
 @tool('run_command', parse_docstring=True)
-def run_command_tool(command: str, runtime: ToolRuntime) -> str:
+def run_command_tool(command: str, runtime: ToolRuntime[Any]) -> str:
     """Run command in a container and return the result.
 
     **This tool prohibits parallel calls! You are only allowed to run one command at a time!**

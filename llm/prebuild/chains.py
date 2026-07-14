@@ -1,13 +1,13 @@
 from typing import TYPE_CHECKING, cast
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.config import get_config
 from pydantic import BaseModel
 
+from llm.context import BaseContext
 from llm.models import get_long_context_model
 from llm.prebuild.json_output import json_output
-from llm.states import UserContext
 from llm.utils.token import store_token_usage
 
 if TYPE_CHECKING:
@@ -102,5 +102,5 @@ async def check_update_args(
 
     return await chain.ainvoke(
         input_msg,
-        context=UserContext(user_id=user_id),
+        context=BaseContext(user_id=user_id),
     )

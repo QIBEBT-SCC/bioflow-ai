@@ -1,12 +1,13 @@
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass
-class BaseContext:
+class BaseContext(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     user_id: int
+    verbose: bool = False
 
 
-@dataclass
 class CreateToolContext(BaseContext):
     test_run_id: str
 
@@ -17,7 +18,6 @@ class CreateToolContext(BaseContext):
     dataset_file: str = 'test_run.parquet'
 
 
-@dataclass
 class TestRunContext(BaseContext):
     test_run_id: str
 
@@ -25,18 +25,15 @@ class TestRunContext(BaseContext):
     dataset_file: str
 
 
-@dataclass
 class ToolGeneratorContext(BaseContext):
     test_run_id: str
 
 
-@dataclass
 class ProjectContext(BaseContext):
     project_id: int
     workdir: str
     auto_approve: bool = False
 
 
-@dataclass
 class FolderContext(BaseContext):
     output_path: str
