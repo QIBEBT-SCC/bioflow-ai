@@ -52,6 +52,7 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
                 ('app.models.tools', 'FileMount'),
                 ('app.models.tools', 'ImageConfig'),
                 ('app.models.tools', 'ParamDefine'),
+                ('llm.tools.test_run_report', 'TestRunReport'),
             ]
         )
         main_app.state.checkpointer = checkpointer
