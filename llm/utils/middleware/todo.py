@@ -91,12 +91,15 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime[Any,
         for i, task in enumerate(tasks):
             new_todos.append(Todo(index=before + i, content=task, status='pending'))
 
-        # Insert new todos at the specified position
-        updated_todos = current_todos[:insert_position] + new_todos + current_todos[insert_position:]
+        # Insert new todos and copy existing ones to avoid mutating objects in the current state.
+        updated_todos = [
+            todo.model_copy()
+            for todo in current_todos[:insert_position] + new_todos + current_todos[insert_position:]
+        ]
 
-        # Reindex all todos from the insertion point onwards
-        for i in range(insert_position + len(new_todos), len(updated_todos)):
-            updated_todos[i].index = updated_todos[i - 1].index + 1 if updated_todos[i - 1].index is not None else i
+        # Keep indices aligned with their positions after insertion.
+        for index, todo in enumerate(updated_todos):
+            todo.index = index
 
         message = f'Inserted {len(tasks)} tasks before task {before}.'
 
