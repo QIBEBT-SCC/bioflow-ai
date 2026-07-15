@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, cast
@@ -13,7 +14,8 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.graph.state import CompiledStateGraph
 
-    from app.models.tools import ToolHelpDoc, ToolImage
+    from app.models.tools import ImageConfig
+
 
 DB_PATH = 'presets/build/develop.db'
 
@@ -32,7 +34,7 @@ def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dic
     return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
 
 
-def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple['ToolImage', 'ToolHelpDoc'] | None:
+def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUID, 'ImageConfig', uuid.UUID] | None:
     """获取工具镜像并复用或创建对应的帮助文档."""
     from sqlmodel import Session
 
@@ -56,7 +58,7 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple['ToolIma
                 ToolHelpDoc(help_command=help_command, content=content, image_uid=tool_image.uid),
             )
 
-    return tool_image, tool_doc
+        return tool_image.uid, tool_image.image, tool_doc.uid
 
 
 @asynccontextmanager
@@ -225,7 +227,7 @@ async def init_tools(index: int | None = None) -> None:
             resources = _prepare_tool_resources(tool_name, help_command)
             if resources is None:
                 return
-            tool_image, tool_doc = resources
+            image_uid, image, doc_uid = resources
 
             agent_input = {
                 'messages': [
@@ -236,9 +238,9 @@ async def init_tools(index: int | None = None) -> None:
                         f'</Require>'
                     )
                 ],
-                'image_uid': tool_image.uid,
-                'image': tool_image.image,
-                'doc_uid': tool_doc.uid,
+                'image_uid': image_uid,
+                'image': image,
+                'doc_uid': doc_uid,
             }
 
             thread_id = f'tool_{row_index}_{tool_name}'
@@ -303,7 +305,7 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
         resources = _prepare_tool_resources(name, help_command)
         if resources is None:
             return
-        tool_image, tool_doc = resources
+        image_uid, image, doc_uid = resources
 
         agent_input = {
             'messages': [
@@ -315,9 +317,9 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
                     f'</Require>'
                 )
             ],
-            'image_uid': tool_image.uid,
-            'image': tool_image.image,
-            'doc_uid': tool_doc.uid,
+            'image_uid': image_uid,
+            'image': image,
+            'doc_uid': doc_uid,
         }
 
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
@@ -701,8 +703,50 @@ def search_cmd(name: str) -> None:
 
 @cli.command()
 @click.option('--index', type=int, default=None, help='指定要处理的数据索引 (如果不指定则处理所有未完成的数据)')
-def create_tools_cmd(index: int | None) -> None:
-    """初始化工具."""
+@click.option('--name', '-n', help='工具名称; 提供时切换到手动创建模式')
+@click.option('--help-command', '-c', help='获取工具帮助文档的命令 (手动模式必填)')
+@click.option('--function', '-f', help='需要生成的工具功能描述 (手动模式必填)')
+@click.option('--thread-id', '-t', help='检查点线程 ID (手动模式必填)')
+@click.option('--drop-old', is_flag=True, default=False, help='运行前删除该线程的旧检查点')
+def create_tools_cmd(
+    index: int | None,
+    name: str | None,
+    help_command: str | None,
+    function: str | None,
+    thread_id: str | None,
+    *,
+    drop_old: bool,
+) -> None:
+    """自动创建工具, 或使用 --name 手动创建单个工具."""
+    manual_values = {
+        '--name': name,
+        '--help-command': help_command,
+        '--function': function,
+        '--thread-id': thread_id,
+    }
+    if any(value is not None for value in manual_values.values()):
+        missing = [option for option, value in manual_values.items() if value is None]
+        if missing:
+            message = f'手动创建模式缺少参数: {", ".join(missing)}'
+            raise click.UsageError(message)
+        if index is not None:
+            message = '--index 不能与手动创建参数同时使用'
+            raise click.UsageError(message)
+        # The completeness check above narrows these values at runtime.
+        asyncio.run(
+            create_tool_manually(
+                cast('str', name),
+                cast('str', help_command),
+                cast('str', function),
+                cast('str', thread_id),
+                drop_old=drop_old,
+            )
+        )
+        return
+
+    if drop_old:
+        message = '--drop-old 仅能用于手动创建模式'
+        raise click.UsageError(message)
     asyncio.run(init_tools(index))
 
 
