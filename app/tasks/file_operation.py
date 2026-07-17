@@ -17,6 +17,32 @@ from app.utils.input_format import to_safe_path_segment
 from script.worker import celery_app
 
 PROJECT_FILE_KEYWORD_MAX_LENGTH = 50
+TEXT_FILE_CONTENT_MAX_BYTES = 5 * 1024 * 1024
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def create_text_file_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    file_name: str,
+    content: str,
+    output_dir: str,
+) -> ToolOutput:
+    """Materialize inline text as a file for downstream workflow nodes."""
+    if not file_name or file_name in {'.', '..'} or Path(file_name).name != file_name or '\\' in file_name:
+        msg = 'file_name must be a single, non-empty file name'
+        raise ValueError(msg)
+
+    if len(content.encode('utf-8')) > TEXT_FILE_CONTENT_MAX_BYTES:
+        msg = f'text file content must not exceed {TEXT_FILE_CONTENT_MAX_BYTES} bytes'
+        raise ValueError(msg)
+
+    output_folder = Path(output_dir).absolute()
+    output_folder.mkdir(parents=True, exist_ok=True)
+    output_file = output_folder / file_name
+    output_file.write_text(content, encoding='utf-8')
+    return ToolOutput(result={'file_path': output_file})
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

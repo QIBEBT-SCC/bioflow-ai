@@ -1,12 +1,26 @@
 ---
 name: USING_BASH_NODE
-description: Explains how to manually process files using the bash node
+description: Explains when to use a text-file resource versus a bash node, and how to process files safely with bash when runtime computation is required
 ---
 
 # Skill: Using the bash node
 
-At times, to bridge outputs from two different tools (or to implement system operations not encapsulated within processors), bash commands are used for simple file processing.  
-To implement this functionality in the workflow system, you need to use three types of nodes: a bash-type code node, and the processor nodes `bind_param` and `select_file_in_folder`.
+Use the simplest node that matches the operation. For a small file whose name and text are already known while building the workflow, use a `text_file` resource node. Use a bash code node only when the file content must be computed at runtime, such as transforming an upstream file or combining upstream results.
+
+When bash is required, the usual pattern uses a bash code node together with the `bind_param` and `select_file_in_folder` processor nodes.
+
+## Choosing between Text File and Bash
+
+Use a `text_file` resource for static text such as:
+
+- tool configuration files;
+- sample or accession lists;
+- small TSV, CSV, BED, JSON, or YAML inputs;
+- any other text that can be written verbatim when the workflow is designed.
+
+Set `file_name` to a plain file name such as `samples.txt` and set `content` to the exact file contents. The node writes UTF-8 text and directly outputs `file_path`, so connect that output to the downstream tool input. Do not create a bash node merely to run `echo`, `printf`, or a heredoc for known text.
+
+Use bash when the output depends on upstream files or requires Linux commands at runtime. A bash node outputs its working directory rather than an individual file, so use `select_file_in_folder` to retrieve a named result.
 
 ## Node Descriptions
 
@@ -23,12 +37,23 @@ if the code node requires multiple input parameters, multiple `bind_param` nodes
 
 ### select_file_in_folder Node
 
-The resource node `select_file_in_folder` is used to extract files with specific names from a folder. The output of the code node is always the folder of its working directory; to retrieve files from
+The processor node `select_file_in_folder` is used to extract files with specific names from a folder. The output of the code node is always the folder of its working directory; to retrieve files from
 it, this processor must be used.  
 To use it, set the node's `file_name` parameter to the name of the file you want to select from the folder. The output of this node is the file with that name in the directory. Note that this node can
 extract only one file at a time; to extract multiple files, multiple instances of this node must be used.
 
-## Example
+## Static Text Example
+
+Suppose a downstream tool requires `samples.txt` with the following known content:
+
+```text
+sample_a
+sample_b
+```
+
+Add a `text_file` resource node with `file_name` set to `samples.txt` and `content` set to the text above. Connect its `file_path` output directly to the tool. No bash or `select_file_in_folder` node is needed.
+
+## Runtime Processing Example
 
 Suppose you need to use a bash script to extract specific columns from a `.fai` file.  
 Assume you decide to implement this functionality using a script similar to the following:

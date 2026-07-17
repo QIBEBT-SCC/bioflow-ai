@@ -1,7 +1,8 @@
 from collections.abc import Callable
+from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.schemas.tools import Handle
 
@@ -60,6 +61,30 @@ class SequenceResourceSchema(BaseModel):
 
 class FileInputSchema(BaseModel):
     file_path: str
+
+
+class TextFileResourceSchema(BaseModel):
+    file_name: str
+    content: str
+
+    @field_validator('file_name')
+    @classmethod
+    def validate_file_name(cls, file_name: str) -> str:
+        """Require a plain file name rather than a path."""
+        if not file_name or file_name in {'.', '..'} or Path(file_name).name != file_name or '\\' in file_name:
+            msg = 'file_name must be a single, non-empty file name'
+            raise ValueError(msg)
+        return file_name
+
+    @field_validator('content')
+    @classmethod
+    def validate_content_size(cls, content: str) -> str:
+        """Keep inline text resources small enough for workflow definitions."""
+        max_bytes = 5 * 1024 * 1024
+        if len(content.encode('utf-8')) > max_bytes:
+            msg = f'content must not exceed {max_bytes} UTF-8 bytes'
+            raise ValueError(msg)
+        return content
 
 
 PROCESSORS: dict[str, NodeSchema] = {
@@ -131,6 +156,13 @@ RESOURCES: dict[str, NodeSchema] = {
         'args': FileInputSchema,
         'input_handles': [],
         'output_handles': [Handle(name='file_path', description='file path')],
+    },
+    'text_file': {
+        'name': 'Text File',
+        'description': 'This node creates a UTF-8 text file from inline content. Use `file_name` for the output file name and `content` for its exact text content. It is intended for small configuration files, sample lists, and other text inputs required by downstream tools.',
+        'args': TextFileResourceSchema,
+        'input_handles': [],
+        'output_handles': [Handle(name='file_path', description='Generated text file path')],
     },
     'db': {
         'name': 'Biological Database',
