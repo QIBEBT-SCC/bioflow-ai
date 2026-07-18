@@ -1,7 +1,6 @@
-import operator
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, cast
 
-from langchain.agents import AgentState, create_agent
+from langchain.agents import create_agent
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -46,9 +45,13 @@ Your task is to explore raw data paths provided by the user, identify the file s
    - `base_dir` is mounted as `/app/data` inside the container; use `/app/data` as the working path in all shell commands.
    - Drill into subdirectories as needed to build a complete file inventory.
    - If the path is inaccessible, call `ask_human` — this is the **only** situation to use it.
-3. **Infer** — Determine how each file should be registered.
-   - Files with one copy per sample → sample-level; files shared across all samples → project-level.
-   - Choose a stable sample file `tag` from filename patterns; verify with `seqkit` or `head` when ambiguous.
+3. **Infer** — Determine the workflow execution unit first, then decide how each file should be registered.
+   - A system `Sample` is the complete set of inputs that one sample-level workflow run must be able to access. It is not necessarily the same as one biological library, one filename prefix, or one input subdirectory.
+   - Read the task description and distinguish independent samples from files with complementary roles. If treatment/control, tumor/normal, case/reference, before/after, or other paired libraries must be compared or supplied together to one downstream command, register them in one composite sample.
+   - In a composite sample, give every file a role-prefixed tag, such as `treatment_r1`, `treatment_r2`, `control_r1`, and `control_r2`. Preserve the biological roles and pairing relationship in sample metadata and in the conclusion notes.
+   - Create separate samples only when each resulting sample can execute the intended sample-level workflow independently, or when the task explicitly defines a later grouping mechanism that can load outputs from all required samples.
+   - Files shared by all independent execution samples → project-level. A matched control is not project-level merely because it is called a control; use `proj:<keyword>` only when the task states that the same shared/pooled control is intentionally reused across multiple independent execution samples.
+   - Other files belonging to one execution sample → sample-level. Choose stable tags from filename patterns; verify with `seqkit` or `head` when ambiguous.
    - Infer sequencing metadata (platform, technology) from filename patterns, directory names, or file headers; omit uncertain fields.
 4. **Write to database** — Call `add_samples` → `add_sample_file` → `add_project_file` in order.
    - Group samples sharing the same metadata into a single `add_samples` call.
@@ -65,7 +68,7 @@ Your task is to explore raw data paths provided by the user, identify the file s
 - [Only include confirmed fields, e.g. platform, technology]
 
 ### Sample-level references
-All samples contain the following tags:
+[Describe which samples or composite sample contain these tags:]
 - `sample:xxx` — [description]
 - `sample:xxx` — [description]
 [List custom tags if any]
@@ -92,7 +95,14 @@ Do not list individual file paths. Focus only on what downstream workflows can r
 ### Sample naming
 
 - Derive sample names from actual filenames or subdirectory names — do not invent arbitrary names.
+- For a composite execution sample, derive a concise name from the paired entities (for example, `SPT5_T0_with_INPUT`) and record each entity's role in metadata. Do not hide the pairing by giving it a generic arbitrary name.
 - Sample names must be **unique** within the project; duplicates will cause registration to fail.
+
+### Execution-unit examples
+
+- Independent replicates (`sample_A_R1/R2`, `sample_B_R1/R2`) that each run the full workflow separately → two samples, each with `r1` and `r2`.
+- One matched treatment/control pair used together by peak calling → one composite sample with `treatment_r1`, `treatment_r2`, `control_r1`, and `control_r2`.
+- Several treatments intentionally using the same pooled control → treatment files remain on their independent samples; the pooled control may use project-level keys such as `proj:pooled_control_r1` and `proj:pooled_control_r2` only if the workflow is designed to load them that way.
 
 ### Tag and keyword naming
 
@@ -108,7 +118,7 @@ The following are tag/keyword selections for some common scenarios:
 
 - Format: lowercase letters and underscores only, max 50 characters.
 - When a sample contains multiple files, append a descriptive **prefix**: `tumor_r1` / `normal_r1` / `light_img`, etc.
-- Tags/Keywords must be **unique** within the project and semantically descriptive.
+- Tags must be **unique within a sample**. Project keywords must be **unique within the project**. Both should be semantically descriptive.
 """
 
 

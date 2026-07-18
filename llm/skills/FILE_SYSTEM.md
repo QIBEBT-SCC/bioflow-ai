@@ -38,6 +38,16 @@ Each sample can have multiple paths, each identified by a `tag`. Common tags inc
 
 **Applicable Scenario**: Different files within each sample
 
+### Choose the execution sample before choosing tags
+
+A system sample is the input boundary of one sample-level `RunInstance`: every `sample:<tag>` used by that run resolves only against that one sample. Therefore, model the complete set of files that must be available together during one run, rather than mechanically creating one system sample per biological library, filename prefix, or directory.
+
+- Independent replicates that each run the whole workflow separately should remain separate samples.
+- Complementary libraries that must enter the same comparison or command—such as matched treatment/control, tumor/normal, or case/reference pairs—should be one composite execution sample with role-prefixed tags.
+- Preserve the component roles and pairing relationship in sample metadata and summaries.
+
+Do not put a matched control at project level merely because it is a control. `proj:<keyword>` is appropriate only when the same shared or pooled control is intentionally reused by multiple independent execution samples. If controls are matched one-to-one with treatments, keep each matched pair together in its composite sample.
+
 ## Choosing the Input Node
 
 - Use `resource_sequence` when paired R1/R2 reads should be loaded together.
@@ -59,28 +69,30 @@ Use default tag names to load paired-end sequences from a sample:
 }
 ```
 
-### Use Case Two: Sample Containing Both Positive and Control Sequencing Data
+### Use Case Two: Matched Treatment and Control Required in One Run
 
-Specify custom tags when uploading files:
+Register one composite sample and specify role-prefixed tags when uploading files:
 
-- Positive R1 → tag: `pos_r1`, Positive R2 → tag: `pos_r2`
-- Control R1 → tag: `ctrl_r1`, Control R2 → tag: `ctrl_r2`
+- Treatment R1 → tag: `treatment_r1`, Treatment R2 → tag: `treatment_r2`
+- Control R1 → tag: `control_r1`, Control R2 → tag: `control_r2`
 
 Use two resource_sequence nodes in the workflow:
 
 ```
-// Node 1 (Positive)
+// Node 1 (Treatment)
 {
-  "r1": "sample:pos_r1",
-  "r2": "sample:pos_r2"
+  "r1": "sample:treatment_r1",
+  "r2": "sample:treatment_r2"
 }
 
 // Node 2 (Control)
 {
-  "r1": "sample:ctrl_r1",
-  "r2": "sample:ctrl_r2"
+  "r1": "sample:control_r1",
+  "r2": "sample:control_r2"
 }
 ```
+
+For example, a matched ATAC-seq pair `SPT5_T0`/`SPT5_INPUT` should be one execution sample with those four tags when MACS2 or fingerprint QC must consume both libraries in the same run.
 
 ### Use Case Three: Sharing a BED Annotation File
 
