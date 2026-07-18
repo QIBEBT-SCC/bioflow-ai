@@ -29,6 +29,9 @@ def _get_file_format(file_path: Path) -> str:
 
 def _rename_fastq_file(file_path: Path) -> Path:
     """Rename fastq-containing file names to fq-containing names."""
+    if not file_path.is_file():
+        return file_path
+
     target_path = file_path.with_name(_FASTQ_PATTERN.sub('fq', file_path.name))
     if target_path == file_path:
         return file_path
