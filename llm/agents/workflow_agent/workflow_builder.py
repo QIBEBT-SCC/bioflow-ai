@@ -58,11 +58,14 @@ Different types of nodes have different content, which usually includes the foll
 - `pos*`: the position of the node on the panel
 
 ### File System
-This system supports automatic file loading using `proj:<keyword>` and `sample:<tag>`.
-- `proj:<keyword>`: files shared across the entire project
-- `sample:<tag>`: sample-level files
+Use the dedicated `sequence` resource only when one logical input consists of paired R1/R2 reads.
+Use the general `file` resource for ordinary file or directory inputs. Prefer dedicated database and reference-genome resource nodes when the requested resource is available through them.
 
-These can be used when loading or saving files. For more details, please refer to the **FILE_SYSTEM** skill.
+The `file` resource is the general input node for both files and directories. Its `file_path` argument accepts a plain filesystem path or an automatic reference:
+- `proj:<keyword>`: a project-level path previously registered by `global_mark`
+- `sample:<tag>`: a path registered on the current sample
+
+References are resolved when the workflow runs. For more details, refer to the **FILE_SYSTEM** skill.
 
 ### Interactive Tools
 All interactive tools (XX_manager) adopt a progressive disclosure mode of `action + params`:

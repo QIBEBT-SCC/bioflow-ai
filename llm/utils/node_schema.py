@@ -128,9 +128,9 @@ class TextFileResourceSchema(BaseModel):
 PROCESSORS: dict[str, NodeSchema] = {
     'global_mark': {
         'name': 'Global Mark',
-        'description': 'This node is used to mark a file as a project file. By connecting the input handle of this node to the output handle representing the corresponding file. Need two parameters: `mark_name`, which is a unique identifier for the file that other workflows will use to reference it, and `description`, which provides a brief explanation of the file',
+        'description': 'Registers an upstream file or directory as a project-level path. Other workflows load it through the general `file` resource with `file_path="proj:<mark_name>"`. `mark_name` is the unique project keyword without the `proj:` prefix, and `description` explains the path for later workflow design.',
         'args': GlobalMarkSchema,
-        'input_handles': [Handle(name='file', description='Files to be marked for cross-workflow use')],
+        'input_handles': [Handle(name='file', description='File or directory to register for cross-workflow use')],
         'output_handles': [],
     },
     'bind_param': {
@@ -187,7 +187,7 @@ PROCESSORS: dict[str, NodeSchema] = {
 RESOURCES: dict[str, NodeSchema] = {
     'sequence': {
         'name': 'Pair-end Reads Input',
-        'description': 'This node is used for input of common paired-end biological sequencing files. For non-paired-end data, use file node instead.',
+        'description': 'Loads one paired-end sequencing input as R1 and R2. Each path may be a plain filesystem path, `sample:<tag>`, or `proj:<keyword>`. Use the general `file` resource for single-end reads and other ordinary file or directory inputs.',
         'args': SequenceResourceSchema,
         'input_handles': [],
         'output_handles': [
@@ -196,11 +196,11 @@ RESOURCES: dict[str, NodeSchema] = {
         ],
     },
     'file': {
-        'name': 'File Input',
-        'description': 'This node is used for input of general files. A note node can be added as appropriate to describe what the input file is.',
+        'name': 'File / Directory Input',
+        'description': 'Loads any existing file or directory from a plain filesystem path, a sample-level `sample:<tag>` reference, or a project-level `proj:<keyword>` reference. Use this general path resource for non-paired inputs such as single-end reads, custom annotations, images, result files, and directories. Prefer dedicated database and reference-genome resource nodes when applicable.',
         'args': FileInputSchema,
         'input_handles': [],
-        'output_handles': [Handle(name='file_path', description='file path')],
+        'output_handles': [Handle(name='file_path', description='Resolved file or directory path')],
     },
     'text_file': {
         'name': 'Text File',
