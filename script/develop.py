@@ -4,9 +4,12 @@ import shutil
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from pathlib import Path as FilePath
 from typing import TYPE_CHECKING, Any, cast
 
 import click
+import orjson
 from anyio import Path
 from loguru import logger
 
@@ -18,6 +21,216 @@ if TYPE_CHECKING:
 
 
 DB_PATH = 'presets/build/develop.db'
+TRAJECTORY_DATASET_PATH = 'storage/agent_datasets/trajectories'
+TRAJECTORY_INSERT_BATCH_SIZE = 500
+
+
+def _load_trajectory_event(event_file: FilePath) -> dict[str, Any]:
+    event = orjson.loads(event_file.read_bytes())
+    if not isinstance(event, dict):
+        msg = 'Top-level JSON value must be an object.'
+        raise TypeError(msg)
+    return event
+
+
+def _raise_click_exception(message: str) -> None:
+    raise click.ClickException(message)
+
+
+def _trajectory_event_row(event: dict[str, Any], source_file: FilePath) -> tuple[Any, ...]:
+    """Convert one trajectory event to the stable offline dataset schema."""
+    required_fields = ('schema_version', 'event_id', 'agent', 'run_id', 'event_type', 'recorded_at_ns')
+    missing_fields = [field for field in required_fields if event.get(field) is None]
+    if missing_fields:
+        msg = f'Missing required field(s): {", ".join(missing_fields)}'
+        raise ValueError(msg)
+
+    return (
+        event['schema_version'],
+        event['event_id'],
+        event['agent'],
+        event['run_id'],
+        event.get('thread_id'),
+        event.get('user_id'),
+        event['event_type'],
+        event.get('started_at'),
+        event.get('ended_at'),
+        event.get('recorded_at'),
+        event['recorded_at_ns'],
+        event.get('process_id'),
+        event.get('duration_ms'),
+        orjson.dumps(event.get('payload')).decode(),
+        orjson.dumps(event.get('error')).decode() if event.get('error') is not None else None,
+        str(source_file),
+    )
+
+
+def compact_trajectories(
+    input_dir: str,
+    output_dir: str,
+    agents: tuple[str, ...],
+    *,
+    skip_invalid: bool,
+    overwrite: bool,
+) -> None:
+    """Validate immutable trajectory JSON events and compact them into Parquet datasets."""
+    import duckdb
+
+    source_root = FilePath(input_dir).resolve()
+    destination = FilePath(output_dir).resolve()
+    if not source_root.is_dir():
+        msg = f'轨迹目录不存在: {source_root}'
+        raise click.ClickException(msg)
+    if destination.exists() and not overwrite:
+        msg = f'输出目录已存在: {destination}。如需替换, 请添加 --overwrite。'
+        raise click.ClickException(msg)
+
+    event_files = sorted(source_root.glob('agent=*/run=*/events/*.json'))
+    if not event_files:
+        msg = f'没有找到轨迹事件: {source_root}'
+        raise click.ClickException(msg)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp_output = destination.with_name(f'.{destination.name}.{uuid.uuid4().hex}.tmp')
+    temp_output.mkdir()
+    con = duckdb.connect()
+    invalid_files: list[dict[str, str]] = []
+    selected_count = 0
+
+    try:
+        con.execute("""
+            CREATE TABLE trajectory_events (
+                schema_version INTEGER,
+                event_id VARCHAR PRIMARY KEY,
+                agent VARCHAR NOT NULL,
+                run_id VARCHAR NOT NULL,
+                thread_id VARCHAR,
+                user_id BIGINT,
+                event_type VARCHAR NOT NULL,
+                started_at TIMESTAMPTZ,
+                ended_at TIMESTAMPTZ,
+                recorded_at TIMESTAMPTZ,
+                recorded_at_ns UBIGINT NOT NULL,
+                process_id BIGINT,
+                duration_ms DOUBLE,
+                payload JSON,
+                error JSON,
+                source_file VARCHAR NOT NULL
+            )
+        """)
+        insert_sql = 'INSERT INTO trajectory_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        batch: list[tuple[Any, ...]] = []
+        for event_file in event_files:
+            try:
+                event = _load_trajectory_event(event_file)
+                if agents and event.get('agent') not in agents:
+                    continue
+                batch.append(_trajectory_event_row(event, event_file.relative_to(source_root)))
+                selected_count += 1
+                if len(batch) >= TRAJECTORY_INSERT_BATCH_SIZE:
+                    con.executemany(insert_sql, batch)
+                    batch.clear()
+            except Exception as error:
+                invalid_files.append({'file': str(event_file), 'error': str(error)})
+                if not skip_invalid:
+                    msg = f'无效轨迹文件 {event_file}: {error}'
+                    raise click.ClickException(msg) from error
+        if batch:
+            con.executemany(insert_sql, batch)
+
+        if selected_count == 0:
+            selected_agents = ', '.join(agents) if agents else '(all)'
+            msg = f'没有符合 agent 过滤条件的事件: {selected_agents}'
+            _raise_click_exception(msg)
+
+        events_path = temp_output / 'events.parquet'
+        runs_path = temp_output / 'runs.parquet'
+        con.execute(
+            """
+            COPY (
+                SELECT *
+                FROM trajectory_events
+                ORDER BY agent, run_id, recorded_at_ns, event_id
+            ) TO ? (FORMAT PARQUET, COMPRESSION ZSTD)
+            """,
+            [str(events_path)],
+        )
+        con.execute(
+            """
+            COPY (
+                SELECT
+                    agent,
+                    run_id,
+                    any_value(thread_id) AS thread_id,
+                    any_value(user_id) AS user_id,
+                    min(recorded_at) AS started_at,
+                    max(recorded_at) AS ended_at,
+                    CASE
+                        WHEN arg_max(event_type, recorded_at_ns) = 'agent_end' THEN 'completed'
+                        WHEN count(*) FILTER (WHERE error IS NOT NULL) > 0 THEN 'failed'
+                        ELSE 'incomplete'
+                    END AS status,
+                    count(*) AS event_count,
+                    count(*) FILTER (WHERE event_type = 'agent_start') AS agent_start_count,
+                    count(*) FILTER (WHERE event_type = 'model_call') AS model_call_count,
+                    count(*) FILTER (WHERE event_type = 'tool_call') AS tool_call_count,
+                    count(*) FILTER (WHERE event_type = 'agent_end') AS agent_end_count,
+                    count(*) FILTER (WHERE error IS NOT NULL) AS error_count,
+                    min(schema_version) AS min_schema_version,
+                    max(schema_version) AS max_schema_version
+                FROM trajectory_events
+                GROUP BY agent, run_id
+                ORDER BY agent, run_id
+            ) TO ? (FORMAT PARQUET, COMPRESSION ZSTD)
+            """,
+            [str(runs_path)],
+        )
+
+        run_count_row = con.execute('SELECT count(DISTINCT run_id) FROM trajectory_events').fetchone()
+        run_count = cast('tuple[int]', run_count_row)[0]
+        agent_counts = {
+            row[0]: row[1]
+            for row in con.execute(
+                'SELECT agent, count(DISTINCT run_id) FROM trajectory_events GROUP BY agent ORDER BY agent'
+            ).fetchall()
+        }
+        metadata = {
+            'schema_version': 1,
+            'generated_at': datetime.now(UTC).isoformat(),
+            'source_root': str(source_root),
+            'agent_filter': list(agents),
+            'event_count': selected_count,
+            'run_count': run_count,
+            'run_count_by_agent': agent_counts,
+            'invalid_file_count': len(invalid_files),
+            'invalid_files': invalid_files,
+        }
+        (temp_output / 'metadata.json').write_bytes(
+            orjson.dumps(metadata, option=orjson.OPT_INDENT_2 | orjson.OPT_APPEND_NEWLINE)
+        )
+    except Exception:
+        shutil.rmtree(temp_output, ignore_errors=True)
+        raise
+    finally:
+        con.close()
+
+    backup = destination.with_name(f'.{destination.name}.{uuid.uuid4().hex}.backup')
+    try:
+        if destination.exists():
+            destination.replace(backup)
+        temp_output.replace(destination)
+    except Exception:
+        if backup.exists() and not destination.exists():
+            backup.replace(destination)
+        raise
+    finally:
+        if backup.exists():
+            shutil.rmtree(backup)
+
+    logger.success(
+        f'轨迹整合完成: {selected_count} 个事件, {run_count} 个运行, '
+        f'{len(invalid_files)} 个无效文件; 输出目录: {destination}'
+    )
 
 
 def _row_to_dict(con: Any, query: str, params: list | None = None) -> dict[str, Any] | None:
@@ -807,6 +1020,36 @@ def export(*, upload: bool, db: tuple[str, ...]) -> None:
 def statistic_cmd() -> None:
     """显示节点生成统计数据."""
     statistic()
+
+
+@cli.command(name='compact-trajectories')
+@click.option(
+    '--input-dir',
+    type=click.Path(exists=True, file_okay=False, path_type=str),
+    default='storage/agent_trajectories',
+    show_default=True,
+    help='不可变 JSON 轨迹的根目录',
+)
+@click.option(
+    '--output-dir',
+    type=click.Path(file_okay=False, path_type=str),
+    default=TRAJECTORY_DATASET_PATH,
+    show_default=True,
+    help='Parquet 数据集输出目录',
+)
+@click.option('--agent', 'agents', multiple=True, help='只整合指定 agent; 可重复传入')
+@click.option('--skip-invalid', is_flag=True, help='跳过损坏或字段不完整的 JSON, 并记录到 metadata.json')
+@click.option('--overwrite', is_flag=True, help='原子替换已存在的输出目录')
+def compact_trajectories_cmd(
+    input_dir: str,
+    output_dir: str,
+    agents: tuple[str, ...],
+    *,
+    skip_invalid: bool,
+    overwrite: bool,
+) -> None:
+    """将原始智能体 JSON 事件整合为 events/runs Parquet 数据集."""
+    compact_trajectories(input_dir, output_dir, agents, skip_invalid=skip_invalid, overwrite=overwrite)
 
 
 if __name__ == '__main__':
