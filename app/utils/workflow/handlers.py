@@ -20,6 +20,7 @@ from app.tasks.file_operation import (
     create_text_file_task,
     global_mark_task,
     gzip_file_task,
+    rename_file_task,
     select_file_task,
 )
 from app.tasks.load_tasks.load_bio_db import load_bio_db_task
@@ -347,6 +348,35 @@ class SelectTaskHandler(BaseTaskHandler):
         return select_file_task.s(inputs=task_node.kwarg, file_name=task_node.data.get('file_name')).set(
             task_id=task_node.id
         )
+
+
+@register_handler('rename_file')
+class RenameFileTaskHandler(BaseTaskHandler):
+    """文件重命名任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_rename_file'
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='rename_file',
+            base_dir=output_dir,
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_rename_file'
+        return rename_file_task.s(
+            inputs=task_node.kwarg,
+            new_file_name=task_node.data.get('new_file_name', ''),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """重命名任务使用独立输出目录, 需要递增 task_index."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
 
 
 @register_handler('gzip')

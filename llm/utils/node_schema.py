@@ -40,6 +40,20 @@ class MoveFilesToFolderSchema(BaseModel):
 class RenameFileSchema(BaseModel):
     new_file_name: str
 
+    @field_validator('new_file_name')
+    @classmethod
+    def validate_new_file_name(cls, new_file_name: str) -> str:
+        """Require a plain file name rather than a path."""
+        if (
+            not new_file_name
+            or new_file_name in {'.', '..'}
+            or Path(new_file_name).name != new_file_name
+            or '\\' in new_file_name
+        ):
+            msg = 'new_file_name must be a single, non-empty file name'
+            raise ValueError(msg)
+        return new_file_name
+
 
 class BindParamSchema(BaseModel):
     parameter: str

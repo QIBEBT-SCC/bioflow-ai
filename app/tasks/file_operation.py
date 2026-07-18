@@ -68,6 +68,47 @@ def select_file_task(
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def rename_file_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput],
+    new_file_name: str,
+    output_dir: str,
+) -> ToolOutput:
+    """Expose an upstream file under a new name without modifying it."""
+    input_file = inputs.get('old_file')
+    if input_file is None:
+        msg = 'rename_file requires exactly one old_file input'
+        raise ValueError(msg)
+
+    if (
+        not new_file_name
+        or new_file_name in {'.', '..'}
+        or Path(new_file_name).name != new_file_name
+        or '\\' in new_file_name
+    ):
+        msg = 'new_file_name must be a single, non-empty file name'
+        raise ValueError(msg)
+
+    source_path_str, sample_name = get_tool_output(input_file.source_uid, input_file.source_k)
+    source_path = Path(source_path_str).absolute()
+    if not source_path.exists():
+        raise FileNotFoundError(source_path)
+    if not source_path.is_file():
+        raise IsADirectoryError(source_path)
+
+    output_folder = Path(output_dir).absolute()
+    output_folder.mkdir(parents=True, exist_ok=True)
+    renamed_file = output_folder / new_file_name
+    if renamed_file.exists() or renamed_file.is_symlink():
+        renamed_file.unlink()
+    renamed_file.symlink_to(source_path)
+
+    return ToolOutput(result={'renamed_file': renamed_file}, sample_name=sample_name)
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def collect_files_task(
     self: Task,  # noqa: ARG001
     result_dict: ToolOutput | None = None,  # noqa: ARG001
