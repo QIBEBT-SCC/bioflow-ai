@@ -1,6 +1,4 @@
-import gzip
 import json
-import shutil
 from pathlib import Path
 
 from celery import Task
@@ -252,29 +250,6 @@ def collect_mount_dirs_task(
 
     common_sample_name = get_prefix(sample_names)
     return ToolOutput(result={'mount_dir_list': f'mountlist:{manifest_path}'}, sample_name=common_sample_name)
-
-
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def gzip_file_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
-    *,
-    inputs: dict[str, TaskInput],
-) -> ToolOutput:
-    """对原始文件进行压缩."""
-    input_kwarg = inputs.get('file')
-    if input_kwarg is None:
-        raise ValueError
-    file_path, sample_name = get_tool_output(input_kwarg.source_uid, input_kwarg.source_k)
-    origin_file = Path(file_path)
-    if origin_file.exists():
-        zipped_file = origin_file.with_name(f'{origin_file.name}.gz')
-        with origin_file.open('rb') as f_in, gzip.open(zipped_file, 'wb') as f_out:
-            shutil.copyfileobj(f_in, f_out)
-
-        return ToolOutput(result={'zipped_file': zipped_file}, sample_name=sample_name)
-
-    raise FileNotFoundError(origin_file)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

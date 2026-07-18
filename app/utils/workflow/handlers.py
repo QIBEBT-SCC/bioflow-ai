@@ -12,6 +12,7 @@ from celery import Signature
 import app.crud.tools.tool as tool_crud
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
+from app.tasks.archive_operation import compress_task, decompress_task
 from app.tasks.code import bash_task
 from app.tasks.file_operation import (
     bind_param_task,
@@ -19,7 +20,6 @@ from app.tasks.file_operation import (
     collect_mount_dirs_task,
     create_text_file_task,
     global_mark_task,
-    gzip_file_task,
     rename_file_task,
     select_file_task,
 )
@@ -379,21 +379,58 @@ class RenameFileTaskHandler(BaseTaskHandler):
         return celery_task, context.task_index + 1
 
 
-@register_handler('gzip')
-class GzipTaskHandler(BaseTaskHandler):
-    """gzip压缩任务处理器."""
+@register_handler('compress')
+class CompressTaskHandler(BaseTaskHandler):
+    """通用压缩任务处理器."""
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_compress'
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
             instance_uid=context.run_uid,
             owner_id=context.owner.id,
-            name='gzip',
+            name='compress',
+            base_dir=output_dir,
             status=Status.WAITING,
         )
 
-    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        return gzip_file_task.s(inputs=task_node.kwarg).set(task_id=task_node.id)
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_compress'
+        return compress_task.s(
+            inputs=task_node.kwarg,
+            compressed_file_name=task_node.data.get('compressed_file_name', ''),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """压缩任务使用独立输出目录, 需要递增 task_index."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
+
+
+@register_handler('decompress')
+class DecompressTaskHandler(BaseTaskHandler):
+    """通用解压缩任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_decompress'
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='decompress',
+            base_dir=output_dir,
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_decompress'
+        return decompress_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """解压缩任务使用独立输出目录, 需要递增 task_index."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
 
 
 @register_handler('code_bash')

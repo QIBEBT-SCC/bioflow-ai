@@ -55,6 +55,30 @@ class RenameFileSchema(BaseModel):
         return new_file_name
 
 
+class CompressSchema(BaseModel):
+    compressed_file_name: str
+
+    @field_validator('compressed_file_name')
+    @classmethod
+    def validate_compressed_file_name(cls, compressed_file_name: str) -> str:
+        """Validate the output name and use its suffix to select the compression format."""
+        if (
+            not compressed_file_name
+            or compressed_file_name in {'.', '..'}
+            or Path(compressed_file_name).name != compressed_file_name
+            or '\\' in compressed_file_name
+        ):
+            msg = 'compressed_file_name must be a single, non-empty file name'
+            raise ValueError(msg)
+
+        supported_suffixes = {'.gz', '.bz2', '.xz', '.zip', '.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz'}
+        if not any(compressed_file_name.endswith(suffix) for suffix in supported_suffixes):
+            supported = ', '.join(sorted(supported_suffixes))
+            msg = f'unsupported compression suffix; supported suffixes: {supported}'
+            raise ValueError(msg)
+        return compressed_file_name
+
+
 class BindParamSchema(BaseModel):
     parameter: str
 
@@ -137,12 +161,19 @@ PROCESSORS: dict[str, NodeSchema] = {
         'input_handles': [Handle(name='dirs', description='Tool working directories')],
         'output_handles': [Handle(name='mount_dir_list', description='Mount-list manifest for downstream tool input')],
     },
-    'gzip': {
-        'name': 'Gzip',
-        'description': 'This node is used to compress the input file using Gzip.',
+    'compress': {
+        'name': 'Compress',
+        'description': 'Compresses one upstream file or directory. Set `compressed_file_name` to the desired output name; its suffix selects gzip, bzip2, xz, ZIP, or a TAR variant. Stream formats such as `.gz` support files only, while archive formats also support directories.',
+        'args': CompressSchema,
+        'input_handles': [Handle(name='input_path', description='File or directory to compress')],
+        'output_handles': [Handle(name='compressed_path', description='Generated compressed file')],
+    },
+    'decompress': {
+        'name': 'Decompress',
+        'description': 'Automatically detects and decompresses gzip, bzip2, xz, ZIP, TAR, and compressed TAR inputs. The output path is a file for stream compression and a directory for archives.',
         'args': SimpleSchema,
-        'input_handles': [Handle(name='file', description='Origin file')],
-        'output_handles': [Handle(name='zipped_file', description='Gzipped file')],
+        'input_handles': [Handle(name='compressed_path', description='Compressed file or archive')],
+        'output_handles': [Handle(name='output_path', description='Decompressed file or extracted directory')],
     },
     'rename_file': {
         'name': 'Rename File',
