@@ -42,7 +42,7 @@ This editor includes the following types of nodes:
 - Resource nodes: include loading raw data, databases, reference genomes, input variables, and so on
 - Tool nodes: bioinformatics analysis tools or algorithms
 - Processor nodes: system operations unrelated to bioinformatics analysis, such as file copying, renaming, text extraction, and others
-- Code nodes: execute custom bash scripts
+- Code nodes: execute custom Bash scripts or simple single-file Python 3.13 transformations
 - Note nodes: do not participate in computation and are used to annotate certain nodes
 
 Special note: all resource nodes that provide reference genomes in this system also come with indexes for BWA, STAR, HISAT2, Bowtie2, and minimap2. When using these five tools, there is generally no need to build additional indexes, as the indexes provided by the resource nodes can be used directly.
@@ -91,6 +91,7 @@ The interaction targets and available actions for each tool are as follows:
   - `add_processor`: add a processor node to the workflow panel
 - `other_node_manager` — code nodes, note nodes, and downstream summary nodes
   - `add_code`: add a custom bash code node to the workflow panel
+  - `add_python_code`: add a simple single-file Python code node to the workflow panel
   - `add_note`: add a note node to annotate the workflow panel
   - `add_downstream_summary`: add a downstream summary node for later downstream analysis
 - `workflow_manager` — workflow draft and panel operations
@@ -171,7 +172,7 @@ WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
     'tool_node_manager': {'add', 'update_args', 'create', 'search_by_name'},
     'resource_node_manager': {'create_db', 'add'},
     'processor_node_manager': {'add_processor'},
-    'other_node_manager': {'add_code', 'add_note', 'add_downstream_summary'},
+    'other_node_manager': {'add_code', 'add_python_code', 'add_note', 'add_downstream_summary'},
     'workflow_manager': {
         'create_workflow_draft',
         'switch_workflow_draft',
@@ -215,6 +216,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                     [
                         'FILE_SYSTEM',
                         'USING_BASH_NODE',
+                        'USING_PYTHON_NODE',
                         'MULTI_DIRECTORY_INPUT',
                         'WRITE_DOWNSTREAM_SUMMARY',
                     ]
@@ -250,6 +252,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             SkillMiddleware(
                 [
                     'USING_BASH_NODE',
+                    'USING_PYTHON_NODE',
                     'FILE_SYSTEM',
                     'MULTI_DIRECTORY_INPUT',
                     'WRITE_DOWNSTREAM_SUMMARY',

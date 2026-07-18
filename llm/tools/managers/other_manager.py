@@ -24,7 +24,35 @@ class AddCodeSchema(BaseModel):
     code: str = Field(description='Specific code content, all variables must be passed as parameters using getopts.')
     input_edges: list[BuildEdge] = Field(
         default_factory=list,
-        description='Code node only has one edge `files`; connect files required by the code to this handle.',
+        description='Code nodes have one `input_files` handle; connect files required by the code to this handle.',
+    )
+    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
+    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
+
+
+class AddPythonCodeSchema(BaseModel):
+    """Add a simple single-file Python code node to the workflow."""
+
+    code: str = Field(
+        description=(
+            'Complete Python 3.13 script. Use Click for all CLI options; every connected input must have a matching '
+            'option. Write outputs with deterministic names in the current working directory.'
+        )
+    )
+    dependencies: list[str] = Field(
+        default_factory=list,
+        max_length=32,
+        description=(
+            'Additional Python distribution requirements, for example ["pandas>=2.2,<3", "PyYAML>=6"]. '
+            'Click is provided by the runtime and must not be listed.'
+        ),
+    )
+    input_edges: list[BuildEdge] = Field(
+        default_factory=list,
+        description=(
+            'Python code nodes have one `input_files` handle. Connect each required file through a separate '
+            '`bind_param` processor node.'
+        ),
     )
     pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
     pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
@@ -44,7 +72,7 @@ class AddSummarySchema(BaseModel):
     prompt: str = Field(description='Guidance for downstream analysis requirements.')
     input_edges: list[BuildEdge] = Field(
         default_factory=list,
-        description='Code node only has one edge `files`; connect files required by the code to this handle.',
+        description='The node has one `input_files` handle; connect every file required for downstream analysis.',
     )
     pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
     pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
@@ -53,6 +81,7 @@ class AddSummarySchema(BaseModel):
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'add_note': AddNoteSchema,
     'add_code': AddCodeSchema,
+    'add_python_code': AddPythonCodeSchema,
     'add_downstream_summary': AddSummarySchema,
 }
 
@@ -91,6 +120,29 @@ async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolR
                 )
             return _add_code(
                 validate_param.code,
+                validate_param.pos_x,
+                validate_param.pos_y,
+                validate_param.input_edges,
+                runtime,
+            )
+
+        case 'add_python_code':
+            try:
+                validate_param = AddPythonCodeSchema.model_validate(params)
+            except ValidationError as e:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=format_validation_error('add_python_code', e, AddPythonCodeSchema),
+                                tool_call_id=runtime.tool_call_id,
+                            )
+                        ]
+                    }
+                )
+            return _add_python_code(
+                validate_param.code,
+                validate_param.dependencies,
                 validate_param.pos_x,
                 validate_param.pos_y,
                 validate_param.input_edges,
@@ -186,6 +238,52 @@ def _add_code(
             'messages': [
                 ToolMessage(
                     content=f'add new code node:\n{node_formatter(new_node)}',
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+def _add_python_code(
+    code: str,
+    dependencies: list[str],
+    pos_x: int,
+    pos_y: int,
+    input_edges: list[BuildEdge],
+    runtime: ToolRuntime[ProjectContext],
+) -> Command:
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    code_input_handles = [Handle(name='input_files', description='The files required by this Python code')]
+
+    if error := check_code_node_edges(input_edges, exist_nodes):
+        return Command(update={'messages': [ToolMessage(content=error, tool_call_id=runtime.tool_call_id)]})
+
+    if error := check_edge_handles(input_edges, code_input_handles, exist_nodes):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
+
+    node_id = generate_char_index(len(exist_nodes) + 1)
+    new_node = BuildNode(
+        id=node_id,
+        name='Python Code',
+        type='code_python',
+        input_handles=code_input_handles,
+        output_handles=[Handle(name='output_folder', description='The files generated by this Python code')],
+        data={'code': code, 'dependencies': dependencies},
+        x=pos_x,
+        y=pos_y,
+    )
+
+    for edge in input_edges:
+        edge.target_node = node_id
+
+    return Command(
+        update={
+            'exist_nodes': [new_node],
+            'exist_edges': input_edges,
+            'messages': [
+                ToolMessage(
+                    content=f'add new Python code node:\n{node_formatter(new_node)}',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

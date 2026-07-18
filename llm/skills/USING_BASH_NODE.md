@@ -26,7 +26,7 @@ Do not use a Bash node for:
 
 - running bioinformatics command-line software; use an existing tool node or create a tool node so that the software version and container are explicit;
 - a systematic downstream statistical analysis, data-mining procedure, or visualization workflow in Python or R; use `downstream_summary` to describe that analysis;
-- invoking Python or R as an escape hatch. The Bash runtime guarantees the Linux environment described below, not Python/R packages or an analysis environment.
+- invoking Python or R inside Bash. If a deterministic workflow adapter genuinely requires Python and its output feeds another node, use a Python code node; use `downstream_summary` for systematic analysis.
 
 ## Execution Environment
 

@@ -62,9 +62,9 @@ def check_code_node_edges(input_edges: list[BuildEdge], exist_nodes: list[BuildN
     if invalid_edges:
         invalid_node_ids = [e.source_node for e in invalid_edges]
         return (
-            f'Error: The input of a bash code node must come from `bind_param` processor nodes. '
+            f'Error: The input of a Bash or Python code node must come from `bind_param` processor nodes. '
             f'The following source nodes are not `bind_param`: {invalid_node_ids}. '
-            f'Please refer to the USING_BASH_NODE skill for the correct usage pattern.'
+            f'Please refer to the USING_BASH_NODE or USING_PYTHON_NODE skill for the correct usage pattern.'
         )
 
     return None

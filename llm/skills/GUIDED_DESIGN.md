@@ -33,6 +33,7 @@ These constraints override fidelity to the original paper/plan:
 
 ## Additional Writing Requirements for Section 5
 
+- Keep a simple deterministic Python file transformation in Section 3 when its output must feed a later pipeline node and Bash is not a clear solution. Identify it as a `Python Code Node`; this is workflow glue, not downstream analysis.
 - Write this section if the paper/plan describes any downstream analysis that requires custom R or Python scripting (e.g., differential expression, clustering, visualization, statistical testing,
   figure
   reproduction).

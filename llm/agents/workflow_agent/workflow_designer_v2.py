@@ -90,9 +90,11 @@ Describe only a linear process; do not design conditional branches or fallback l
 
 ### Writing Requirements for the Pipeline Analysis Plan (Section 3)
 
-- The Pipeline Workflow includes only steps using existing command-line tools (CLI). The criteria are as follows:
+- The Pipeline Workflow includes existing command-line tools and small deterministic adapter steps that must run inside the workflow DAG. The criteria are as follows:
     - If an operation has a corresponding standalone CLI tool that can be performed via the command line, it belongs to the Pipeline category.
-    - If it requires users to write R or Python scripts to implement, it falls under the Scripted Analysis category, must be placed in Section 5, and must not be included in the Pipeline Workflow.
+    - A simple single-file Python transformation belongs to the Pipeline only when its output is required by a later workflow node, Bash and the platform's structured-text commands are insufficient, and the operation is deterministic rather than exploratory or interpretive. Name it explicitly as a `Python Code Node` step.
+    - Statistical analysis, clustering, visualization, data mining, biological interpretation, and other systematic R/Python analyses belong in Section 5 and must not be placed in the Pipeline Workflow, even if they could technically be written as one script.
+    - R scripts always belong in Section 5; there is currently no executable R code node in the Pipeline.
 - A Workflow is the minimal unit "written as a single script and run in one go." The basis for splitting is the execution granularity (how many times to run, on what), not functional steps. Most analysis tasks require only one per-sample workflow. Additional workflows are created only when genuinely distinct execution stages exist:
     - Preparatory workflow (run once globally, as needed): Created only when the process includes preparatory work that must be executed once globally (e.g., building indexes, generate chrom size).
       Note: If ready-made reference genomes such as NCBI RefSeq or HG38 are used, the indices for alignment tools BWA, STAR, HISAT2, Bowtie2, and minimap2 will be provided automatically by the system. If a user-prepared reference genome is used, the alignment index must be built manually.
@@ -110,7 +112,7 @@ Describe only a linear process; do not design conditional branches or fallback l
 
 #### Writing Requirements for Scripted Analysis Suggestions (Section 5)
 
-- Write this section only if the user's request involves operations that require code writing (commonly referred to as *downstream analysis* in bioinformatics).
+- Write this section only if the user's request involves scientific scripted analysis after the pipeline, rather than a small deterministic Python adapter required by the workflow DAG.
 - Clearly respond in this section by explaining how to accomplish the operation based on the files output by the Pipeline, and recommend specific R/Python packages and analysis approaches.
 
 ## Notes
