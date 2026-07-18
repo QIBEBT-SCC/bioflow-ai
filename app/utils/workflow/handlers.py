@@ -13,7 +13,7 @@ import app.crud.tools.tool as tool_crud
 from app.models.workflow import Status, TaskInstance
 from app.schemas.react_flow import TaskNode
 from app.tasks.archive_operation import compress_task, decompress_task
-from app.tasks.code import bash_task
+from app.tasks.code import bash_task, python_task
 from app.tasks.file_operation import (
     bind_param_task,
     collect_files_task,
@@ -460,7 +460,37 @@ class BashCodeTaskHandler(BaseTaskHandler):
         return celery_task, context.task_index + 1
 
 
-@register_handler('code_python', 'code_R')
+@register_handler('code_python')
+class PythonCodeTaskHandler(BaseTaskHandler):
+    """Python 单文件脚本执行任务处理器."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_python'
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='code_python',
+            base_dir=output_dir,
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_python'
+        return python_task.s(
+            inputs=task_node.kwarg,
+            code=task_node.data.get('code', ''),
+            dependencies=task_node.data.get('dependencies', []),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """Python 任务产生独立输出目录, 需要递增 task_index."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
+
+
+@register_handler('code_R')
 class SimpleCodeTaskHandler(BaseTaskHandler):
     """处理下游分析代码节点.
 
