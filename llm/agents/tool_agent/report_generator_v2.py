@@ -168,9 +168,9 @@ test_run_agent = create_agent(
     middleware=[
         DisableParallelToolCallsMiddleware(disabled_tools={'add_todos', 'update_todo'}),
         StatusBarMiddleware(),
-        SaveMessagesMiddleware('test_run'),
         CheckStateExistMiddleware('test_run_report', 'write_tool_report'),
         TodoMiddleware(),
+        SaveMessagesMiddleware('test_run'),
         TokenStatisticMiddleware('test_run', **metadata),
     ],
     state_schema=TestRunState,

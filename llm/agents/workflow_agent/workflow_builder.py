@@ -21,6 +21,7 @@ from llm.tools.managers import (
 )
 from llm.utils.middleware import (
     DisableParallelToolCallsMiddleware,
+    SaveMessagesMiddleware,
     SkillMiddleware,
     StatusBarMiddleware,
     TodoMiddleware,
@@ -76,7 +77,7 @@ The interaction targets and available actions for each tool are as follows:
   - `update_args`: update editable parameters of an existing tool node on the panel
   - `create`: create a new tool node when no existing node meets the requirement
 - `resource_node_manager` — resource nodes, including files, databases, genomes, and variables
-  - Valid `resource_type` values are `db`, `genome`, `sequence`, `file`, and `value_string`
+  - Valid `resource_type` values are `db`, `genome`, `sequence`, `file`, `text_file`, and `value_string`
   - `view`: view details of a specific resource node type, including inputs, outputs, and parameter format
   - `search_db`: search for a biological database before adding a database resource node
   - `create_db`: create a missing biological database record with an automatic download command
@@ -221,6 +222,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                     disabled_tool_actions=WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS,
                 ),
                 StatusBarMiddleware(),
+                SaveMessagesMiddleware('workflow_builder'),
                 TokenStatisticMiddleware('workflow_builder', **metadata),
             ],
             state_schema=BuildState,
@@ -256,6 +258,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 disabled_tool_actions=WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS,
             ),
             StatusBarMiddleware(),
+            SaveMessagesMiddleware('workflow_builder'),
             TokenStatisticMiddleware('reproduction_agent', **metadata),
         ],
         state_schema=BuildState,

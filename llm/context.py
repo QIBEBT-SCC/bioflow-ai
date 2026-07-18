@@ -14,15 +14,13 @@ class CreateToolContext(BaseContext):
     auto_save: bool = True
     skip_search: bool = False
 
-    save_message: bool = False
-    dataset_file: str = 'test_run.parquet'
+    save_message: bool = True
 
 
 class TestRunContext(BaseContext):
     test_run_id: str
 
-    save_message: bool
-    dataset_file: str
+    save_message: bool = True
 
 
 class ToolGeneratorContext(BaseContext):
@@ -33,6 +31,7 @@ class ProjectContext(BaseContext):
     project_id: int
     workdir: str
     auto_approve: bool = False
+    save_message: bool = True
 
 
 class FolderContext(BaseContext):

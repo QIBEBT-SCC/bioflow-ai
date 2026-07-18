@@ -216,7 +216,6 @@ class CreateToolAgent:
                 user_id=runtime.context.user_id,
                 test_run_id=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
-                dataset_file=runtime.context.dataset_file,
             ),
         )
         structured_report = TestRunReport.model_validate(response['test_run_report'])
