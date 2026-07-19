@@ -75,6 +75,12 @@ class SwitchWorkflowDraftSchema(BaseModel):
     draft_id: str = Field(description='Workflow draft ID shown by list_workflow_drafts')
 
 
+class DeleteWorkflowDraftSchema(BaseModel):
+    """Permanently delete an unsaved workflow draft from the current editing session."""
+
+    draft_id: str = Field(description='Workflow draft ID shown by list_workflow_drafts')
+
+
 class UpdateWorkflowMetadataSchema(BaseModel):
     """Update the active workflow draft name and/or description."""
 
@@ -90,6 +96,7 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'list_workflow_drafts': None,
     'create_workflow_draft': CreateWorkflowDraftSchema,
     'switch_workflow_draft': SwitchWorkflowDraftSchema,
+    'delete_workflow_draft': DeleteWorkflowDraftSchema,
     'update_workflow_metadata': UpdateWorkflowMetadataSchema,
     'view_workflow': None,
     'view_node': ViewNodeSchema,
@@ -156,6 +163,24 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                     }
                 )
             return _switch_workflow_draft(validate_param.draft_id, runtime)
+
+        case 'delete_workflow_draft':
+            try:
+                validate_param = DeleteWorkflowDraftSchema.model_validate(params)
+            except ValidationError as e:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=format_validation_error(
+                                    'delete_workflow_draft', e, DeleteWorkflowDraftSchema
+                                ),
+                                tool_call_id=runtime.tool_call_id,
+                            )
+                        ]
+                    }
+                )
+            return _delete_workflow_draft(validate_param.draft_id, runtime)
 
         case 'update_workflow_metadata':
             try:
@@ -267,6 +292,28 @@ def _create_workflow_draft(
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     drafts = snapshot_active_workflow(runtime.state)
+    normalized_name = _normalize_workflow_name(name)
+    duplicate = next(
+        (draft for draft in drafts.values() if _normalize_workflow_name(draft.name) == normalized_name),
+        None,
+    )
+    if duplicate is not None:
+        return Command(
+            update={
+                'workflow_drafts': drafts,
+                'messages': [
+                    ToolMessage(
+                        content=(
+                            f'Cannot create workflow draft "{name}": the same workflow already exists as '
+                            f'{duplicate.draft_id} ("{duplicate.name}"). Use switch_workflow_draft to continue '
+                            'editing it, or delete_workflow_draft first if it was created by mistake.'
+                        ),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
+
     draft_id = next_draft_id(drafts)
     current_nodes = runtime.state.get('exist_nodes', [])
     current_edges = runtime.state.get('exist_edges', [])
@@ -300,7 +347,10 @@ def _create_workflow_draft(
         execution_scope=execution_scope,
     )
     drafts[draft_id] = new_draft
-    msg = f'Created workflow draft {draft_id} ("{name}", scope={execution_scope}) and switched to an empty panel.'
+    msg = (
+        f'Created workflow draft {draft_id} ("{name}", scope={execution_scope}) and switched to an empty panel. '
+        'Reuse this draft with switch_workflow_draft; do not create another draft for the same planned workflow.'
+    )
     return Command(
         update={
             'active_workflow_id': draft_id,
@@ -310,6 +360,11 @@ def _create_workflow_draft(
             'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
         }
     )
+
+
+def _normalize_workflow_name(name: str) -> str:
+    """Normalize a workflow name for duplicate-draft checks."""
+    return ' '.join(name.split()).casefold()
 
 
 def _switch_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
@@ -354,6 +409,47 @@ def _switch_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) 
     )
 
 
+def _delete_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+    drafts = snapshot_active_workflow(runtime.state)
+    target = drafts.get(draft_id)
+    if target is None:
+        return Command(
+            update={
+                'workflow_drafts': drafts,
+                'messages': [
+                    ToolMessage(
+                        content=(
+                            f'Workflow draft "{draft_id}" not found. Use list_workflow_drafts to inspect the '
+                            'current drafts before deleting one.'
+                        ),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
+
+    del drafts[draft_id]
+    remaining = ', '.join(drafts) if drafts else 'none'
+    update: dict[str, Any] = {
+        'workflow_drafts': drafts,
+        'messages': [
+            ToolMessage(
+                content=f'Deleted workflow draft {draft_id} ("{target.name}"). Remaining drafts: {remaining}.',
+                tool_call_id=runtime.tool_call_id,
+            )
+        ],
+    }
+    if runtime.state.get('active_workflow_id') == draft_id:
+        update.update(
+            {
+                'active_workflow_id': None,
+                'exist_nodes': Overwrite([]),
+                'exist_edges': Overwrite([]),
+            }
+        )
+    return Command(update=update)
+
+
 def _update_workflow_metadata(
     name: str | None,
     description: str | None,
@@ -387,6 +483,33 @@ def _update_workflow_metadata(
 
     drafts = snapshot_active_workflow(runtime.state)
     draft = drafts[active_workflow_id]
+    if name is not None:
+        normalized_name = _normalize_workflow_name(name)
+        duplicate = next(
+            (
+                candidate
+                for candidate in drafts.values()
+                if candidate.draft_id != active_workflow_id
+                and _normalize_workflow_name(candidate.name) == normalized_name
+            ),
+            None,
+        )
+        if duplicate is not None:
+            return Command(
+                update={
+                    'workflow_drafts': drafts,
+                    'messages': [
+                        ToolMessage(
+                            content=(
+                                f'Cannot rename {active_workflow_id} to "{name}": that workflow name is already '
+                                f'used by {duplicate.draft_id}. Switch to the existing draft or choose a unique name.'
+                            ),
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ],
+                }
+            )
+
     update_data = {}
     if name is not None:
         update_data['name'] = name
@@ -612,7 +735,32 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
                 'workflow_drafts': drafts,
                 'messages': [
                     ToolMessage(
-                        content=f'Cannot save: these workflow drafts are empty: {empty_drafts}.',
+                        content=(
+                            f'Cannot save: these workflow drafts are empty: {empty_drafts}. Switch to an intended '
+                            'draft and complete it, or use delete_workflow_draft to remove a mistaken/duplicate draft. '
+                            'Do not add placeholder nodes merely to make an unintended draft non-empty.'
+                        ),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
+
+    drafts_by_name: dict[str, list[str]] = {}
+    for draft in drafts.values():
+        drafts_by_name.setdefault(_normalize_workflow_name(draft.name), []).append(draft.draft_id)
+    duplicate_names = [draft_ids for draft_ids in drafts_by_name.values() if len(draft_ids) > 1]
+    if duplicate_names:
+        duplicate_summary = '; '.join(', '.join(draft_ids) for draft_ids in duplicate_names)
+        return Command(
+            update={
+                'workflow_drafts': drafts,
+                'messages': [
+                    ToolMessage(
+                        content=(
+                            f'Cannot save because duplicate workflow drafts exist: {duplicate_summary}. Keep the '
+                            'intended draft and remove the duplicate with delete_workflow_draft, then retry.'
+                        ),
                         tool_call_id=runtime.tool_call_id,
                     )
                 ],
