@@ -161,7 +161,7 @@ def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
     return workflow_uids
 
 
-def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
+async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
     import uuid
 
     from sqlmodel import Session, col, select
@@ -171,6 +171,7 @@ def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id
     from app.core.session import engine
     from app.models.project import ProjectWorkflow
     from app.models.workflow import Workflow
+    from llm.vectorstores import MilvusVectorStore
 
     cursor = con.execute(
         'SELECT workflow_uid FROM evaluate_results WHERE thread_id = :thread_id',
@@ -194,6 +195,18 @@ def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id
         ).all()
         for workflow_uid in existing_generated_workflow_uids:
             wf_crud.delete(session, str(workflow_uid))
+
+    vectorstore = MilvusVectorStore(
+        collection_name='WorkflowCollection',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    async with vectorstore:
+        for workflow_uid in existing_generated_workflow_uids:
+            await vectorstore.adelete(
+                filter_expression='wf_uid == {uid}',
+                filter_params={'uid': str(workflow_uid)},
+            )
 
     con.execute(
         """
@@ -597,7 +610,7 @@ async def wf_eval(
         _persist_generated_records(con, thread_id, *retained_generated_records)
         project_id, workdir = _init_project(con, thread_id)
         if reset_checkpoint and not clean_all:
-            _clean_project_workflows(con, thread_id, project_id)
+            await _clean_project_workflows(con, thread_id, project_id)
         async with AsyncRedisSaver.from_conn_string(
             get_settings().persistent.cache.LLM_CACHE.unicode_string()
         ) as checkpoint:

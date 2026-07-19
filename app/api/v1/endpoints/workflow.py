@@ -157,6 +157,15 @@ async def delete_workflow(
 ) -> None:
     """Delete a workflow by its UID."""
     wf_crud.delete(session, uid)
+    vectorstore = MilvusVectorStore(
+        collection_name='WorkflowCollection',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    await vectorstore.adelete(
+        filter_expression='wf_uid == {uid}',
+        filter_params={'uid': uid},
+    )
 
 
 @router.patch('/{uid}')

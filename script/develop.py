@@ -651,28 +651,40 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
+    from app.core.config import get_settings
     from app.core.session import engine
     from app.models.user import User  # noqa: F401
+    from llm.vectorstores import MilvusVectorStore
 
     con = duckdb.connect(DB_PATH)
     thread_ids_to_delete: list[str] = []
     valid_indices: list[int] = []
+    vectorstore = MilvusVectorStore(
+        collection_name='ToolCollection',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
 
-    for index in indices:
-        tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
-        if tool_info is None:
-            logger.warning(f'未找到索引为 {index} 的数据, 跳过')
-            continue
-        logger.info(f'要删除的数据 (index={index}): {tool_info}')
-        valid_indices.append(index)
+    async with vectorstore:
+        for index in indices:
+            tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+            if tool_info is None:
+                logger.warning(f'未找到索引为 {index} 的数据, 跳过')
+                continue
+            logger.info(f'要删除的数据 (index={index}): {tool_info}')
+            valid_indices.append(index)
 
-        if tool_info['tool_node']:
-            with Session(engine) as session:
-                tool_crud.delete(session, tool_info['tool_node'])
-                logger.info(f'删除了一条数据库信息 (index={index})')
+            if tool_info['tool_node']:
+                with Session(engine) as session:
+                    tool_crud.delete(session, tool_info['tool_node'])
+                    logger.info(f'删除了一条数据库信息 (index={index})')
+                await vectorstore.adelete(
+                    filter_expression='tool_uid == {uid}',
+                    filter_params={'uid': tool_info['tool_node']},
+                )
 
-        if tool_info['thread']:
-            thread_ids_to_delete.append(tool_info['thread'])
+            if tool_info['thread']:
+                thread_ids_to_delete.append(tool_info['thread'])
 
     await _cleanup_threads(con, thread_ids_to_delete, valid_indices)
     con.close()

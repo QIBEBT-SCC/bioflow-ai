@@ -60,7 +60,7 @@ class MilvusVectorStore(VectorStore):
     def __init__(
         self,
         *,
-        embedding_function: Embeddings,
+        embedding_function: Embeddings | None = None,
         collection_name: str,
         uri: str,
         db_name: str = '',
@@ -217,6 +217,7 @@ class MilvusVectorStore(VectorStore):
 
     async def aadd_documents(self, documents: list[Document], **kwargs: Any) -> list[str]:
         """Embed and insert documents without blocking the event loop."""
+        embedding_function = self._require_embedding_function()
         ids: list[str] | None = kwargs.pop('ids', None)
         if kwargs:
             msg = f'Unsupported insert options: {", ".join(kwargs)}'
@@ -228,7 +229,7 @@ class MilvusVectorStore(VectorStore):
             raise ValueError(msg)
 
         texts = [document.page_content for document in documents]
-        embeddings = await self.embedding_function.aembed_documents(texts)
+        embeddings = await embedding_function.aembed_documents(texts)
         if len(embeddings) != len(documents) or not embeddings[0]:
             msg = 'Embedding provider returned an invalid number of vectors'
             raise ValueError(msg)
@@ -297,7 +298,8 @@ class MilvusVectorStore(VectorStore):
         if kwargs:
             msg = f'Unsupported search options: {", ".join(kwargs)}'
             raise TypeError(msg)
-        query_embedding = await self.embedding_function.aembed_query(query)
+        embedding_function = self._require_embedding_function()
+        query_embedding = await embedding_function.aembed_query(query)
         output_fields = ['*']
         async with self._client_scope() as client:
             if not await self._prepare_collection(client):
@@ -372,7 +374,8 @@ class MilvusVectorStore(VectorStore):
         if kwargs:
             msg = f'Unsupported MMR options: {", ".join(kwargs)}'
             raise TypeError(msg)
-        query_embedding = await self.embedding_function.aembed_query(query)
+        embedding_function = self._require_embedding_function()
+        query_embedding = await embedding_function.aembed_query(query)
         async with self._client_scope() as client:
             if not await self._prepare_collection(client):
                 return []
@@ -395,6 +398,37 @@ class MilvusVectorStore(VectorStore):
             k=k,
         )
         return [documents[index] for index in ordering]
+
+    def delete(self, ids: list[str] | None = None, **kwargs: Any) -> bool:
+        """Delete vector records from synchronous code."""
+        import asyncio
+
+        return asyncio.run(self.adelete(ids, **kwargs))
+
+    async def adelete(self, ids: list[str] | None = None, **kwargs: Any) -> bool:
+        """Delete vector records by primary key or a parameterized filter."""
+        filter_expression: str | None = kwargs.pop('filter_expression', kwargs.pop('expr', None))
+        filter_params: dict[str, Any] | None = kwargs.pop('filter_params', None)
+        if kwargs:
+            msg = f'Unsupported delete options: {", ".join(kwargs)}'
+            raise TypeError(msg)
+        if ids is None and not filter_expression:
+            msg = 'Either ids or filter_expression is required; deleting an entire collection is not implicit'
+            raise ValueError(msg)
+        if ids is not None and filter_expression:
+            msg = 'ids and filter_expression cannot be used together'
+            raise ValueError(msg)
+
+        async with self._client_scope() as client:
+            if not await client.has_collection(self.collection_name):
+                return True
+            await client.delete(
+                collection_name=self.collection_name,
+                ids=ids,
+                filter=filter_expression,
+                filter_params=filter_params or {},
+            )
+        return True
 
     async def status(self) -> MilvusCollectionStatus:
         """Return collection state suitable for a future management API."""
@@ -427,6 +461,12 @@ class MilvusVectorStore(VectorStore):
         if not results:
             return []
         return [(self._document_from_hit(hit), float(hit['distance'])) for hit in results[0]]
+
+    def _require_embedding_function(self) -> Embeddings:
+        if self.embedding_function is None:
+            msg = 'An embedding_function is required for insert and search operations'
+            raise ValueError(msg)
+        return self.embedding_function
 
     def _document_from_hit(self, hit: dict[str, Any]) -> Document:
         entity = dict(hit.get('entity', {}))

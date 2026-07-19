@@ -138,6 +138,21 @@ async def update_image(uid: str, image_update: ImageUpdate, session: SessionDep,
     return updated_image
 
 
+@image_router.delete('/{uid}')
+async def delete_image(uid: str, session: SessionDep, _current_user: AdminDep) -> dict[str, str]:
+    """Delete an image and its vector index entry."""
+    image_crud.delete(session, uid)
+    vectorstore = MilvusVectorStore(
+        collection_name='ImageCollection',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+    )
+    await vectorstore.adelete(
+        filter_expression='image_uid == {uid}',
+        filter_params={'uid': uid},
+    )
+    return {'message': 'Image deleted successfully', 'uid': uid}
+
+
 @image_router.post('/{uid}/run')
 async def run_in_image(uid: str, request: RunRequest, session: SessionDep, _current_user: MemberDep) -> dict:
     """Run a command inside a Docker image."""
@@ -283,6 +298,15 @@ async def update_tool(
 async def delete_tool(tool_uid: str, session: SessionDep, redis: RedisDep, _current_user: AdminDep) -> dict:
     """删除指定工具."""
     tool_crud.delete(session, tool_uid)
+    vectorstore = MilvusVectorStore(
+        collection_name='ToolCollection',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    await vectorstore.adelete(
+        filter_expression='tool_uid == {uid}',
+        filter_params={'uid': tool_uid},
+    )
     await redis.delete(f'tool-args:{tool_uid}', f'tool-task-info:{tool_uid}')
     return {'message': 'Tool deleted successfully', 'uid': tool_uid}
 

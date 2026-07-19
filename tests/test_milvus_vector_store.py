@@ -69,7 +69,25 @@ async def _run_milvus_integration_test() -> None:
         documents = await store.asimilarity_search('alpha alignment', k=2, weights=(0.85, 0.15))
         retrieved_documents = await retriever.ainvoke('alpha alignment')
         diverse_documents = await store.amax_marginal_relevance_search('alpha alignment', k=1)
-        status = await store.status()
+        status_before_delete = await store.status()
+        delete_store = MilvusVectorStore(
+            collection_name=collection_name,
+            uri=uri,
+            db_name=database_name,
+            hybrid=True,
+            timeout=5,
+        )
+        deleted = await delete_store.adelete(
+            filter_expression='kind == {kind}',
+            filter_params={'kind': 'alignment'},
+        )
+        status_after_delete = await store.status()
+        missing_collection_deleted = await MilvusVectorStore(
+            collection_name='MissingCollection',
+            uri=uri,
+            db_name=database_name,
+            timeout=5,
+        ).adelete(filter_expression='kind == {kind}', filter_params={'kind': 'alignment'})
 
         assert len(ids) == len(('alpha', 'beta'))
         assert documents
@@ -77,8 +95,11 @@ async def _run_milvus_integration_test() -> None:
         assert documents[0].metadata['kind'] == 'alignment'
         assert retrieved_documents[0].page_content == 'alpha sequence alignment'
         assert diverse_documents[0].page_content == 'alpha sequence alignment'
-        assert status.exists
-        assert status.row_count == len(ids)
+        assert status_before_delete.exists
+        assert status_before_delete.row_count == len(ids)
+        assert deleted
+        assert status_after_delete.row_count == 1
+        assert missing_collection_deleted
     finally:
         async with AsyncMilvusClient(uri=uri, db_name=database_name, timeout=5) as database:
             if await database.has_collection(collection_name):
