@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -16,6 +15,7 @@ from llm.models import qwen3_embedding
 from llm.utils.formatters import search_nodes_formatter
 from llm.utils.retrievers import retrieve_documents
 from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
+from llm.vectorstores import MilvusVectorStore
 
 if TYPE_CHECKING:
     from app.models.tools import ToolDefine
@@ -40,35 +40,23 @@ class SearchToolArgsSchema(BaseModel):
 async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
     """Search existing tools from the vector database based on functionality."""
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=['dense', 'sparse'],
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
     )
 
     task = 'Provide a search query to search for tools with relevant functions'
     query = f'Instruct: {task}\nQuery:{query}'
     image_uid = runtime.state.get('image_uid', None)
 
-    if image_uid:
+    async with vectorstore:
         results = await vectorstore.asimilarity_search(
             query,
             k=10,
-            param=[{'M': 64, 'efConstruction': 100}, {}],
-            expr=f'image_uid == "{image_uid!s}"',
-            ranker_type='weighted',
-            ranker_params={'weights': [0.85, 0.15]},
-        )
-    else:
-        results = await vectorstore.asimilarity_search(
-            query,
-            k=10,
-            param=[{'M': 64, 'efConstruction': 100}, {}],
-            ranker_type='weighted',
-            ranker_params={'weights': [0.85, 0.15]},
+            filter_expression=f'image_uid == "{image_uid!s}"' if image_uid else '',
+            weights=(0.85, 0.15),
         )
 
     if not results:
@@ -134,18 +122,17 @@ async def search_processors(query: str) -> str:
         query: Briefly describe the processor or function to be searched for
     """
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ProcessorCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        search_params={'M': 64, 'efConstruction': 100},
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
     )
 
     task = 'Provide a search query to search for data processors with relevant functions'
     query = f'Instruct: {task}\nQuery:{query}'
 
-    results = await vectorstore.amax_marginal_relevance_search(query, k=10)
+    async with vectorstore:
+        results = await vectorstore.amax_marginal_relevance_search(query, k=10)
 
     if not results:
         return 'Based on your search query, no corresponding results found'

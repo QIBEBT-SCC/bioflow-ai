@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from langchain_core.documents import Document
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from sqlmodel import Session, col, select
 
@@ -13,22 +12,19 @@ from app.models.document import ParentDocument
 from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
 from llm.utils.uid_mapper import BidirectionalMapper
+from llm.vectorstores import MilvusVectorStore
 
 if TYPE_CHECKING:
     from app.models.tools import ToolDefine
 
 
-def insert_documents(document_content: str, doc_id: str) -> None:
+async def insert_documents(document_content: str, doc_id: str) -> None:
     """插入文档: 父文档存数据库, 子文档存 Milvus."""
     embedding_model = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='PaperCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding_model,
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-        consistency_level='Strong',
-        drop_old=False,
-        auto_id=True,
+        uri=get_settings().knowledge_base.MILVUS_URL,
     )
 
     # 1. 分割父文档 (按 Markdown 标题)
@@ -70,28 +66,29 @@ def insert_documents(document_content: str, doc_id: str) -> None:
             batch_size = get_settings().pdf_parser.BATCH_SIZE
             for i in range(0, len(child_docs), batch_size):
                 batch = child_docs[i : i + batch_size]
-                vectorstore.add_documents(batch)
+                async with vectorstore:
+                    await vectorstore.aadd_documents(batch)
 
 
 async def retrieve_documents(query: str, doc_id: str | None = None, k: int = 8) -> list[Document]:
     """从 Milvus 查子文档, 根据 parent_uid 从数据库取父文档."""
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
-        collection_name='Papers',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
+    vectorstore = MilvusVectorStore(
+        collection_name='PaperCollection',
         embedding_function=embedding,
-        search_params={'M': 64, 'efConstruction': 100},
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
     )
 
     task = 'Provide a search query to search for relevant paper snippets'
     query = f'Instruct: {task}\nQuery:{query}'
 
     # 1. 从 Milvus 查询子文档
-    if doc_id:
-        results = await vectorstore.amax_marginal_relevance_search(query, k=k, expr=f'doc_id == "{doc_id}"')
-    else:
-        results = await vectorstore.amax_marginal_relevance_search(query, k=k)
+    async with vectorstore:
+        results = await vectorstore.amax_marginal_relevance_search(
+            query,
+            k=k,
+            filter_expression=f'doc_id == "{doc_id}"' if doc_id else '',
+        )
 
     if not results:
         return []
@@ -124,34 +121,22 @@ async def retrieve_tools(
 ) -> tuple[list[ToolNodePublic], BidirectionalMapper | None]:
     """Search existing tools from the vector database based on functionality."""
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=['dense', 'sparse'],
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
     )
 
     task = 'Provide a search query to search for tools with relevant functions'
     query = f'Instruct: {task}\nQuery:{query}'
 
-    if image_uid:
+    async with vectorstore:
         results = await vectorstore.asimilarity_search(
             query,
             k=10,
-            param=[{'M': 64, 'efConstruction': 100}, {}],
-            expr=f'image_uid == "{image_uid!s}"',
-            ranker_type='weighted',
-            ranker_params={'weights': [0.85, 0.15]},
-        )
-    else:
-        results = await vectorstore.asimilarity_search(
-            query,
-            k=10,
-            param=[{'M': 64, 'efConstruction': 100}, {}],
-            ranker_type='weighted',
-            ranker_params={'weights': [0.85, 0.15]},
+            filter_expression=f'image_uid == "{image_uid!s}"' if image_uid else '',
+            weights=(0.85, 0.15),
         )
 
     if not results:
@@ -169,15 +154,14 @@ async def retrieve_tools(
 async def retrieve_processor(query: str) -> list[Document]:
     """Search for the processor node corresponding to the function."""
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ProcessorCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        search_params={'M': 64, 'efConstruction': 100},
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
     )
 
     task = 'Provide a search query to search for data processors with relevant functions'
     query = f'Instruct: {task}\nQuery:{query}'
 
-    return await vectorstore.amax_marginal_relevance_search(query, k=10)
+    async with vectorstore:
+        return await vectorstore.amax_marginal_relevance_search(query, k=10)

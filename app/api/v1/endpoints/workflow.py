@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Annotated, cast
 from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
 from langchain_core.documents import Document
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from starlette import status
 from uuid_extensions import uuid7
 
@@ -19,6 +18,7 @@ from app.utils.input_format import to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
 from llm.models import qwen3_embedding
+from llm.vectorstores import MilvusVectorStore
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -128,16 +128,11 @@ async def save_workflow(
 
     wf_crud.insert(session, workflow)
     embedding_model = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='WorkflowCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding_model,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=['dense', 'sparse'],
-        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-        consistency_level='Strong',
-        drop_old=False,
-        auto_id=True,
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
     )
 
     docs = [
@@ -149,7 +144,8 @@ async def save_workflow(
             },
         ),
     ]
-    await vectorstore.aadd_documents(docs)
+    async with vectorstore:
+        await vectorstore.aadd_documents(docs)
     return uid  # type: ignore
 
 

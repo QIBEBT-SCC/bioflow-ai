@@ -4,7 +4,6 @@ import datetime
 import uuid
 
 from langchain_core.documents import Document
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from sqlmodel import Session
 
 import app.crud.workflow as wf_crud
@@ -13,6 +12,7 @@ from app.core.session import engine
 from app.models.workflow import Workflow, WorkflowType
 from llm.models import qwen3_embedding
 from llm.states import WorkflowDraft
+from llm.vectorstores import MilvusVectorStore
 from llm.workflow_builder.serialization import build_workflow_definition, to_execution_scope
 
 
@@ -36,16 +36,11 @@ async def save_workflow_drafts(drafts: list[WorkflowDraft], user_id: int) -> lis
             saved_workflows.append(wf_crud.insert(session, workflow))
 
         embedding_model = qwen3_embedding()
-        vectorstore = Milvus(
+        vectorstore = MilvusVectorStore(
             collection_name='WorkflowCollection',
-            connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
             embedding_function=embedding_model,
-            builtin_function=BM25BuiltInFunction(),
-            vector_field=['dense', 'sparse'],
-            index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-            consistency_level='Strong',
-            drop_old=False,
-            auto_id=True,
+            uri=get_settings().knowledge_base.MILVUS_URL,
+            hybrid=True,
         )
 
         docs = [
@@ -58,7 +53,8 @@ async def save_workflow_drafts(drafts: list[WorkflowDraft], user_id: int) -> lis
             )
             for workflow in saved_workflows
         ]
-        await vectorstore.aadd_documents(docs)
+        async with vectorstore:
+            await vectorstore.aadd_documents(docs)
 
     return saved_workflows
 

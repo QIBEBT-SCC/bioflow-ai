@@ -44,7 +44,6 @@ def _log_import_result(result: PresetImportResult) -> None:
 async def rebuild_image_index() -> None:
     """重建镜像向量索引."""
     from langchain_core.documents import Document
-    from langchain_milvus import Milvus
     from sqlmodel import Session, select
     from tqdm import tqdm
 
@@ -52,17 +51,14 @@ async def rebuild_image_index() -> None:
     from app.core.session import engine
     from app.models.tools import ToolImage
     from llm.models import qwen3_embedding
+    from llm.vectorstores import MilvusVectorStore
 
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         embedding_function=embedding,
         collection_name='ImageCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-        search_params={'M': 64, 'efConstruction': 100},
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
         drop_old=True,
-        auto_id=True,
     )
 
     with Session(engine) as session:
@@ -90,13 +86,15 @@ async def rebuild_image_index() -> None:
             )
 
             if len(images_to_add) >= batch_size:
-                await vectorstore.aadd_documents(images_to_add)
+                async with vectorstore:
+                    await vectorstore.aadd_documents(images_to_add)
                 images_to_add = []
         else:
             empty_images.append(str(image_data.uid))  # type: ignore[attr-defined]
 
     if images_to_add:
-        await vectorstore.aadd_documents(images_to_add)
+        async with vectorstore:
+            await vectorstore.aadd_documents(images_to_add)
 
     if empty_images:
         empty_file = Path('empty_images.txt')
@@ -106,7 +104,6 @@ async def rebuild_image_index() -> None:
 async def rebuild_tool_index() -> None:
     """重建工具库向量索引."""
     from langchain_core.documents import Document
-    from langchain_milvus import BM25BuiltInFunction, Milvus
     from sqlmodel import Session, select
     from tqdm import tqdm
 
@@ -114,18 +111,15 @@ async def rebuild_tool_index() -> None:
     from app.core.session import engine
     from app.models.tools import ToolDefine
     from llm.models import qwen3_embedding
+    from llm.vectorstores import MilvusVectorStore
 
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=['dense', 'sparse'],
-        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
         drop_old=True,
-        auto_id=True,
     )
 
     with Session(engine) as session:
@@ -150,13 +144,15 @@ async def rebuild_tool_index() -> None:
             )
 
             if len(docs_to_add) >= batch_size:
-                await vectorstore.aadd_documents(docs_to_add)
+                async with vectorstore:
+                    await vectorstore.aadd_documents(docs_to_add)
                 docs_to_add = []
         else:
             empty_tools.append(str(tool_data.uid))  # type: ignore[attr-defined]
 
     if docs_to_add:
-        await vectorstore.aadd_documents(docs_to_add)
+        async with vectorstore:
+            await vectorstore.aadd_documents(docs_to_add)
 
     if empty_tools:
         empty_file = Path('empty_tools.txt')

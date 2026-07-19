@@ -6,7 +6,6 @@ from langchain.agents import AgentState, create_agent
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
 from langgraph.constants import END
@@ -46,6 +45,7 @@ from llm.tools.test_run_report import TestRunReport
 from llm.utils.formatters import handle_formatter, search_nodes_formatter
 from llm.utils.middleware import TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
+from llm.vectorstores import MilvusVectorStore
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
@@ -342,16 +342,11 @@ class CreateToolAgent:
 
             # 添加描述的向量索引
             embedding_model = qwen3_embedding()
-            vectorstore = Milvus(
+            vectorstore = MilvusVectorStore(
                 collection_name='ToolCollection',
-                connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
                 embedding_function=embedding_model,
-                builtin_function=BM25BuiltInFunction(),
-                vector_field=['dense', 'sparse'],
-                index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-                consistency_level='Strong',
-                drop_old=False,
-                auto_id=True,
+                uri=get_settings().knowledge_base.MILVUS_URL,
+                hybrid=True,
             )
 
             docs = [
@@ -364,7 +359,8 @@ class CreateToolAgent:
                     },
                 ),
             ]
-            await vectorstore.aadd_documents(docs)
+            async with vectorstore:
+                await vectorstore.aadd_documents(docs)
 
             mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
 

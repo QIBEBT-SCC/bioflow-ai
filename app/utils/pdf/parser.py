@@ -70,7 +70,7 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
         storage.upload_file(md_path, pdf_hash, prefix='documents')
 
         # 将文件存入向量数据库（父文档存数据库，子文档存 Milvus）
-        insert_documents(md_text, pdf_key)
+        await insert_documents(md_text, pdf_key)
 
         # 保存到数据库
         with Session(engine) as session:

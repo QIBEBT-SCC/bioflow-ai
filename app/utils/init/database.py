@@ -15,6 +15,7 @@ class AdminInitResult:
 
     created: bool
 
+
 @dataclass(frozen=True)
 class PresetFileResult:
     """Preset parquet file resolution result."""
@@ -105,7 +106,6 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
     import orjson
     import polars as pl
     from langchain_core.documents import Document
-    from langchain_milvus import Milvus
     from pydantic import ValidationError
     from sqlmodel import Session
     from tqdm import tqdm
@@ -115,6 +115,7 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
     from app.core.session import engine
     from app.models.tools import ToolImage
     from llm.models import qwen3_embedding
+    from llm.vectorstores import MilvusVectorStore
 
     preset_file = await _ensure_preset_file('images.parquet')
     images_df = pl.read_parquet(preset_file.path)
@@ -130,14 +131,11 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
             validation_error_count += 1
 
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         embedding_function=embedding,
         collection_name='ImageCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
         drop_old=drop_old,
-        auto_id=True,
     )
 
     delete_count = None
@@ -155,7 +153,8 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
             for img in batch_images
         ]
 
-        await vectorstore.aadd_documents(docs)
+        async with vectorstore:
+            await vectorstore.aadd_documents(docs)
 
     return PresetImportResult(
         name='images',
@@ -210,7 +209,6 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     import orjson
     import polars as pl
     from langchain_core.documents import Document
-    from langchain_milvus import BM25BuiltInFunction, Milvus
     from pydantic import ValidationError
     from sqlmodel import Session
     from tqdm import tqdm
@@ -221,6 +219,7 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     from app.core.session import engine
     from app.models.tools import ToolDefine
     from llm.models import qwen3_embedding
+    from llm.vectorstores import MilvusVectorStore
 
     preset_file = await _ensure_preset_file('tools.parquet')
     tools_df = pl.read_parquet(preset_file.path)
@@ -246,16 +245,12 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
             validation_error_count += 1
 
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=['dense', 'sparse'],
-        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
         drop_old=drop_old,
-        auto_id=True,
     )
 
     delete_count = None
@@ -289,7 +284,8 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
                 for tool in batch_tools
             ]
 
-            await vectorstore.aadd_documents(docs)
+            async with vectorstore:
+                await vectorstore.aadd_documents(docs)
 
     return PresetImportResult(
         name='tools',
@@ -305,22 +301,19 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
 async def rebuild_processor_index(*, show_progress: bool = True) -> None:
     """重建处理器索引."""
     from langchain_core.documents import Document
-    from langchain_milvus import Milvus
     from tqdm import tqdm
 
     from app.core.config import get_settings
     from llm.models import qwen3_embedding
     from llm.utils.node_schema import PROCESSORS
+    from llm.vectorstores import MilvusVectorStore
 
     embedding = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ProcessorCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding,
-        index_params={'index_type': 'HNSW', 'metric_type': 'L2'},
-        consistency_level='Strong',
+        uri=get_settings().knowledge_base.MILVUS_URL,
         drop_old=True,
-        auto_id=True,
     )
 
     for process_name in tqdm(PROCESSORS, total=len(PROCESSORS), disable=not show_progress):
@@ -333,7 +326,8 @@ async def rebuild_processor_index(*, show_progress: bool = True) -> None:
                 },
             ),
         ]
-        await vectorstore.aadd_documents(docs)
+        async with vectorstore:
+            await vectorstore.aadd_documents(docs)
 
 
 async def initialize_preset_database(confirm: Callable[..., bool]) -> bool | None:

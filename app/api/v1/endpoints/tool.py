@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 from langchain_core.documents import Document
-from langchain_milvus import BM25BuiltInFunction, Milvus
 from pydantic import ValidationError
 from starlette.status import HTTP_404_NOT_FOUND
 
@@ -33,6 +32,7 @@ from app.schemas.tools import (
 from app.utils.container import run_command
 from app.utils.security import AdminDep, MemberDep
 from llm.models import qwen3_embedding
+from llm.vectorstores import MilvusVectorStore
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -195,16 +195,11 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _curren
 
     # 添加向量索引
     embedding_model = qwen3_embedding()
-    vectorstore = Milvus(
+    vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
-        connection_args={'uri': get_settings().knowledge_base.MILVUS_URL},
         embedding_function=embedding_model,
-        builtin_function=BM25BuiltInFunction(),
-        vector_field=['dense', 'sparse'],
-        index_params=[{'index_type': 'HNSW', 'metric_type': 'L2'}, {}],
-        consistency_level='Strong',
-        drop_old=False,
-        auto_id=True,
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
     )
 
     docs = [
@@ -217,7 +212,8 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _curren
             },
         ),
     ]
-    await vectorstore.aadd_documents(docs)
+    async with vectorstore:
+        await vectorstore.aadd_documents(docs)
 
     # pyrefly: ignore [bad-return]
     return new_tool
