@@ -5,6 +5,7 @@ from app.utils.init import tui
 from app.utils.init.config import create_settings
 from app.utils.init.containers import initialize_project_containers
 from app.utils.init.database import initialize_preset_database
+from app.utils.init.providers import initialize_llm_providers
 from app.utils.init.test_data import initialize_test_data
 
 
@@ -42,7 +43,11 @@ def run_auto_init() -> None:
     if container_ready is not False:
         database_ready = asyncio.run(initialize_preset_database(_confirm))
 
-    if test_data_ready is False or container_ready is False or database_ready is False:
+    provider_ready = None
+    if container_ready is not False and database_ready is not False:
+        provider_ready = initialize_llm_providers()
+
+    if any(result is False for result in (test_data_ready, container_ready, database_ready, provider_ready)):
         tui.render_notice('系统初始化流程已结束, 但存在未完成的初始化步骤。', style='#f59e0b')
     else:
         tui.render_system_success()

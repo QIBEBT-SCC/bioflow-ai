@@ -42,9 +42,9 @@ def prompt_text(message: str, *, default: str = '', validate: Any = None) -> str
     return finish(questionary.text(message, default=default, validate=validate, style=PROMPT_STYLE))
 
 
-def prompt_password(message: str) -> str:
+def prompt_password(message: str, *, validate: Any = None) -> str:
     """Prompt for password input with the shared style."""
-    return finish(questionary.password(message, style=PROMPT_STYLE))
+    return finish(questionary.password(message, validate=validate, style=PROMPT_STYLE))
 
 
 def prompt_confirm(message: str, *, default: bool = False) -> bool:
@@ -55,6 +55,11 @@ def prompt_confirm(message: str, *, default: bool = False) -> bool:
 def prompt_select(message: str, *, choices: list[str], default: str) -> str:
     """Prompt for a single selection with the shared style."""
     return finish(questionary.select(message, choices=choices, default=default, style=PROMPT_STYLE))
+
+
+def prompt_checkbox(message: str, *, choices: list[Any], validate: Any = None) -> list[Any]:
+    """Prompt for multiple selections with the shared style."""
+    return finish(questionary.checkbox(message, choices=choices, validate=validate, style=PROMPT_STYLE))
 
 
 def prompt_path(message: str, *, default: str) -> str:
