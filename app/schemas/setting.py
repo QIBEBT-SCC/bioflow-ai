@@ -2,9 +2,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.setting import LLMModel, ModelRole, ProviderType
+from app.utils.model_pricing import find_model_price
 
 
 # ==================== LLMProvider Schemas ====================
@@ -41,11 +42,34 @@ class LLMProviderPublic(BaseModel):
 class LLMModelCreate(BaseModel):
     provider_id: int
     name: str
-    input_price: float
-    output_price: float
-    cache_read_price: float
-    extra_body: dict[str, Any] = {}
+    input_price: float | None = None
+    output_price: float | None = None
+    cache_read_price: float | None = None
+    extra_body: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
+
+    @model_validator(mode='after')
+    def populate_default_prices(self) -> 'LLMModelCreate':
+        """Fill omitted prices from the model catalog while preserving user overrides."""
+        default_price = find_model_price(self.name)
+        missing_fields = [
+            field_name
+            for field_name in ('input_price', 'output_price', 'cache_read_price')
+            if getattr(self, field_name) is None
+        ]
+        if default_price is None and missing_fields:
+            fields = ', '.join(missing_fields)
+            message = f'No default price found for model {self.name!r}; provide: {fields}'
+            raise ValueError(message)
+
+        if default_price is not None:
+            if self.input_price is None:
+                self.input_price = float(default_price.input)
+            if self.output_price is None:
+                self.output_price = float(default_price.output)
+            if self.cache_read_price is None:
+                self.cache_read_price = float(default_price.cache_read)
+        return self
 
 
 class LLMModelUpdate(BaseModel):
