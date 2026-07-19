@@ -418,10 +418,8 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
     ):
         print_stream_chunk(console, chunk)
 
-    state = await agent.aget_state(config)
-
-    plan = state.values.get('plan', '')
-    logger.info(f'Plan generated for project {project_id} ({len(plan)} chars).')
+    plan = await plan_file.read_text(encoding='utf-8')
+    logger.info(f'Plan generated at {plan_file} ({len(plan)} chars).')
     return plan
 
 
