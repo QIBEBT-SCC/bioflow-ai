@@ -16,7 +16,8 @@ class ChatSessions(SQLModel, table=True):
     uid: uuid.UUID = Field(primary_key=True)
     owner_id: int = Field(foreign_key='users.id')
     description: str = Field(default='')
-    checkpoint_uid: Optional[uuid.UUID] = None
+    checkpoint_uid: Optional[uuid.UUID] = Field(default=None)
+    route: Optional[str] = Field(default=None)
     interrupted: bool = False
     create_time: datetime = Field(default_factory=utc_now)
     update_time: datetime = Field(default_factory=utc_now)

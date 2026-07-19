@@ -1,20 +1,19 @@
 import asyncio
-import json
 import sys
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.redis import AsyncRedisSaver
-from langgraph.stream.transformers import CustomTransformer
 from langgraph.types import Command
-from loguru import logger
 from sqlmodel import Session
-from uuid_extensions import uuid7
+from starlette.status import HTTP_404_NOT_FOUND
+from uuid_extensions import uuid7str
 
 import app.crud.chat as chat_crud
 from app.core.config import get_settings
@@ -22,7 +21,7 @@ from app.core.session import SessionDep
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatResponse, ChatSessionPage, ChatSessionPublic, ChatSessionUpdate
 from app.utils.security import UserDep
-from llm.agents.workflow_agent import DesignContext, WorkflowDesignAgent
+from llm.context import CreateToolContext, ProjectContext
 from llm.utils.ai_sdk.stream_protocol import (
     data_part,
     done_marker,
@@ -38,10 +37,8 @@ from llm.utils.ai_sdk.stream_protocol import (
     text_end,
     text_start,
 )
-from llm.utils.ai_sdk.stream_translator import AISDKStreamTranslator
 from llm.utils.ai_sdk.ui_message import UIMessage
 from llm.utils.lc.memory import PostgresMessageHistory
-from llm.utils.lc.messages import InterruptMessage
 from llm.utils.multimodal import (
     filter_multimedia_message,
     langchain_messages_to_ui_messages,
@@ -50,12 +47,15 @@ from llm.utils.multimodal import (
 )
 
 router = APIRouter()
+SUPPORTED_CHAT_ROUTES = frozenset({'workflow-builder', 'sample-manager', 'tool-generator'})
+PROJECT_CHAT_ROUTES = frozenset({'workflow-builder', 'sample-manager'})
 
 
 @router.post('', description='Create new chat session')
 async def new_chat_session(session: SessionDep, current_user: UserDep) -> ChatSessionPublic:
     """Create new chat session."""
-    chat = ChatSessions(owner_id=current_user.id)
+    session_uid = uuid7str()
+    chat = ChatSessions(uid=uuid.UUID(session_uid), owner_id=current_user.id)
     # pyrefly: ignore [bad-return]
     return chat_crud.insert(session, chat)
 
@@ -89,7 +89,8 @@ async def get_chats_sessions(
 
 
 @router.delete('/{session_id}', description='删除对话')
-async def delete_chat_session(session: SessionDep, session_id: str, _current_user: UserDep):
+async def delete_chat_session(session: SessionDep, session_id: str, _current_user: UserDep) -> dict[str, str]:
+    """Delete chat session."""
     chat = chat_crud.get(session, session_id)
     if not chat:
         raise HTTPException(status_code=404, detail='对话不存在')
@@ -102,22 +103,36 @@ async def delete_chat_session(session: SessionDep, session_id: str, _current_use
 
 
 @router.put('/{session_id}', description='更新对话信息')
-async def update_chat_history(session: SessionDep, session_id: str, description: str, current_user: UserDep):
-    chat = ChatSessionUpdate(uid=uuid.UUID(session_id), description=description, update_time=datetime.now(UTC))
-    chat = chat_crud.update(session, chat)
-    return chat
+async def update_chat_history(
+    session: SessionDep,
+    session_id: str,
+    description: str,
+    _current_user: UserDep,
+) -> ChatSessionPublic:
+    """Update chat description."""
+    chat = ChatSessionUpdate(uid=session_id, description=description, update_time=datetime.now(UTC))
+    # pyrefly: ignore [bad-return]
+    return chat_crud.update(session, chat)
 
 
-@router.get('/{session_id}', response_model=ChatSessionPublic)
-async def get_chat_session(session: SessionDep, session_id: str, current_user: UserDep):
-    chat = chat_crud.get(session, session_id)
-    if not chat:
-        raise HTTPException(status_code=404, detail='对话不存在')
-    return chat
+@router.get('/{session_id}')
+async def get_chat_session(
+    session: SessionDep,
+    session_id: str,
+    _current_user: UserDep,
+) -> ChatSessionPublic:
+    """Get chat session."""
+    # pyrefly: ignore [bad-return]
+    return chat_crud.get(session, session_id)
 
 
-@router.get('/{session_id}/history', response_model=list[UIMessage], description='获取对话历史消息')
-async def get_history(session: SessionDep, session_id: str, current_user: UserDep):
+@router.get('/{session_id}/history', description='获取对话历史消息')
+async def get_history(
+    session: SessionDep,
+    session_id: str,
+    _current_user: UserDep,
+) -> list[UIMessage]:
+    """Get history messages for chat session."""
     history = PostgresMessageHistory(session, session_id)
     messages = await history.aget_messages()
     messages = rebuild_multimodal_messages(messages)
@@ -126,104 +141,210 @@ async def get_history(session: SessionDep, session_id: str, current_user: UserDe
 
 @router.post('/{session_id}/completions', description='流式生成对话')
 async def chat_completions(
+    request: Request,
     session_id: str,
     response: ChatResponse,
     session: SessionDep,
     current_user: UserDep,
-):
+) -> StreamingResponse:
+    """Generate chat stream."""
     # 验证session_id
     if not session_id:
         raise HTTPException(status_code=400, detail='会话ID不能为空')
-
-    assert current_user.id is not None
-    if response.rebuild:
-        # 针对构建工作流任务
-        streaming_response = StreamingResponse(
-            generate_reproduction_stream(response, session_id, session, current_user.id),
-        )
+    route = None
+    if response.resume:
+        chat_session = chat_crud.get(session, session_id)
+        route = chat_session.route
     else:
-        # 针对普通对话
-        streaming_response = StreamingResponse(
+        route, _ = _parse_slash_command(_latest_text(response.messages[-1]))
+
+    if route not in SUPPORTED_CHAT_ROUTES:
+        return StreamingResponse(
             generate_test_stream(),
+            media_type='text/event-stream',
+            headers={'x-vercel-ai-data-stream': 'v1'},
         )
+    if route in PROJECT_CHAT_ROUTES and response.project_id is None:
+        raise HTTPException(status_code=400, detail=f'{route} requires a project_id')
+
+    streaming_response = StreamingResponse(
+        _generate_chat_stream(request, response, session_id, session, current_user.id, response.project_id),
+        media_type='text/event-stream',
+    )
 
     # 设置 AI SDK 所需的响应头
     streaming_response.headers['x-vercel-ai-data-stream'] = 'v1'
     return streaming_response
 
 
-async def generate_reproduction_stream(
-    response: ChatResponse, session_id: str, session: Session, user_id: int
+def _latest_text(message: UIMessage) -> str:
+    """Concatenate the text parts of the latest user message for slash-command parsing."""
+    parts = getattr(message, 'parts', None) or []
+    texts = [getattr(p, 'text', '') for p in parts if getattr(p, 'type', None) == 'text']
+    return ''.join(texts).strip()
+
+
+def _parse_slash_command(text: str) -> tuple[str | None, str]:
+    """Return a supported leading slash command and the remaining user text."""
+    stripped = text.lstrip()
+    if not stripped.startswith('/'):
+        return None, text
+
+    parts = stripped[1:].split(maxsplit=1)
+    route = parts[0].lower()
+    if route not in SUPPORTED_CHAT_ROUTES:
+        return None, text
+    return route, parts[1] if len(parts) > 1 else ''
+
+
+def _replace_human_text(message: HumanMessage, text: str) -> HumanMessage:
+    """Replace command-bearing user text while preserving uploaded-file placeholders."""
+    if isinstance(message.content, str):
+        return message.model_copy(update={'content': text})
+
+    content = list(message.content)
+    for index, part in enumerate(content):
+        if isinstance(part, dict) and part.get('type') == 'text' and not str(part.get('text', '')).startswith('<'):
+            content[index] = {**part, 'text': text}
+            break
+    return message.model_copy(update={'content': content})
+
+
+def _custom_event_data(payload: object) -> dict[str, object]:
+    """Normalize LangGraph custom stream payloads for an AI SDK data part."""
+    if isinstance(payload, dict):
+        return payload
+    return {'message': str(payload)}
+
+
+async def _generate_chat_stream(
+    request: Request,
+    response: ChatResponse,
+    session_id: str,
+    session: Session,
+    user_id: int,
+    project_id: int | None,
 ) -> AsyncGenerator[str, None]:
+    """Dispatch a chat turn to the cached top-level agent and stream its output.
+
+    Threading model (see project notes): the durable conversation lives in
+    ``PostgresMessageHistory`` (only the initial user input and final agent output are
+    persisted). A fresh turn mints a new ``thread_id``; the Redis checkpointer bound to the
+    cached agent is per-thread scratch used only for the interrupt -> resume cycle within a
+    single turn.
+    """
     history = PostgresMessageHistory(session, session_id)
-    chat = chat_crud.get(session, session_id)
+    chat_session = chat_crud.get(session, session_id)
 
-    prelude: list[str] = []
-    if response.resume and response.approved:
-        agent_input = Command(resume=True)
-    else:
-        prelude.append(data_part('info', {'message': 'Parsing user file...'}))
-        human_input = ui_input_to_human_message(response.messages[-1])
-        human_input = await filter_multimedia_message(human_input)
-
-        if response.resume:
-            agent_input = Command(resume=human_input.content)
-        else:
-            history_messages = await history.aget_messages()
-            await history.aadd_messages([human_input])
-            agent_input = {'messages': [*history_messages, human_input]}
-
+    # ------------------------------------------------------------------ resolve route + input
     if response.resume:
-        thread_id = chat.checkpoint_uid
-    else:
-        thread_id = uuid7()
-        chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, checkpoint_uid=thread_id))
+        # A resume continues the SAME thread, so it must dispatch to the SAME agent that
+        # started it — read the route persisted when the thread was created.
+        thread_id = chat_session.checkpoint_uid
+        if thread_id is None:
+            raise HTTPException(HTTP_404_NOT_FOUND, 'Checkpoint does not exist.')
+        if chat_session.route is None:
+            raise HTTPException(HTTP_404_NOT_FOUND, 'Session route is missing; cannot resume.')
+        route = chat_session.route
 
-    async with AsyncRedisSaver.from_conn_string(
-        get_settings().persistent.cache.LLM_CACHE.unicode_string()
-    ) as checkpoint:
-        agent = WorkflowDesignAgent(memory=checkpoint).build()
-        config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
-        translator = AISDKStreamTranslator(
-            text_nodes={'generate_workflow'},
-            exclude_nodes={'intent_recognition'},
-        )
-        try:
-            run_stream = await agent.astream_events(
-                agent_input,
-                config,
-                version='v3',
-                context=DesignContext(user_id=user_id),
-                transformers=[CustomTransformer],
-            )
-            async for line in translator.run(run_stream, prelude=prelude):
-                yield line
-        except Exception as e:
-            logger.exception(f'生成聊天响应时发生错误: {e!s}')
-            yield start_message()
-            yield error_part(f'生成响应时发生错误: {e!s}')
-            yield finish_message()
-            yield done_marker()
-            return
-
-        # 恢复运行时，先把上一条中断消息标记为已处理并清除中断标志
-        if response.resume:
-            history.update_last_interrupt('approved' if response.approved else 'rejected')
-            chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, interrupted=False))
-
-        if translator.is_interrupt:
-            await history.aadd_messages(
-                [InterruptMessage(content=json.dumps(translator.interrupt_value, ensure_ascii=False))]
-            )
-            chat_crud.update(session, ChatSessionUpdate(uid=chat.uid, interrupted=True))
+        if response.approved:
+            agent_input: Command | dict = Command(resume=True)
         else:
-            state = await agent.aget_state(config)
-            final_response = state.values['messages'][-1]
+            # A rejected interrupt resumes the graph with the user's replacement input.
+            human_input = await filter_multimedia_message(ui_input_to_human_message(response.messages[-1]))
+            agent_input = Command(resume=human_input.content)
+    else:
+        human_input = await filter_multimedia_message(ui_input_to_human_message(response.messages[-1]))
+        history_messages = await history.aget_messages()
+
+        route, query = _parse_slash_command(_latest_text(response.messages[-1]))
+        if route is None:
+            return
+        history_input = _replace_human_text(human_input, query)
+        await history.aadd_messages([history_input])
+
+        agent_text = f'<Require>\n{query}\n</Require>' if route == 'tool-generator' else query
+        human_input = _replace_human_text(human_input, agent_text)
+
+        messages = [human_input] if route == 'tool-generator' else [*history_messages, human_input]
+        agent_input = {'messages': messages}
+        thread_id = uuid7str()
+        # Persist the route so a later resume turn reuses the same agent.
+        chat_crud.update(
+            session,
+            ChatSessionUpdate(uid=str(chat_session.uid), checkpoint_uid=uuid.UUID(thread_id), route=route),
+        )
+
+    # ------------------------------------------------------------------ select cached agent
+    agents = request.app.state.chat_agents
+    agent = agents[route]
+    if route == 'tool-generator':
+        context = CreateToolContext(
+            user_id=user_id,
+            skip_search=True,
+            auto_save=True,
+            test_run_id=str(thread_id),
+        )
+    else:
+        if project_id is None:
+            return
+        project_path = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / str(project_id)
+        context = ProjectContext(
+            user_id=user_id,
+            project_id=project_id,
+            workdir=str(project_path.resolve().expanduser()),
+        )
+    config = RunnableConfig(configurable={'thread_id': str(thread_id)}, recursion_limit=sys.maxsize)
+
+    # ------------------------------------------------------------------ stream
+    yield start_message()
+    try:
+        async for chunk in agent.astream(
+            agent_input,
+            config,
+            context=context,  # type: ignore[arg-type]
+            stream_mode=['updates', 'custom'],
+            version='v2',
+            subgraphs=True,
+        ):
+            if chunk['type'] == 'custom':
+                yield data_part('info', _custom_event_data(chunk['data']))
+    except Exception as exc:  # surface any agent failure to the client stream
+        yield error_part(str(exc))
+        yield finish_message()
+        yield done_marker()
+        return
+
+    # Record whether the turn paused on an interrupt so the next request knows to resume.
+    state = await agent.aget_state(config)
+    interrupted = bool(state.interrupts)
+    chat_crud.update(
+        session,
+        ChatSessionUpdate(uid=str(chat_session.uid), interrupted=interrupted),
+    )
+
+    if interrupted:
+        for interrupt in state.interrupts:
+            yield data_part('interrupt', {'value': interrupt.value})
+    else:
+        messages = state.values.get('messages', [])
+        if route == 'tool-generator' and messages:
+            final_response = AIMessage(content=messages[-1].content)
+        else:
+            final_response = next((message for message in reversed(messages) if isinstance(message, AIMessage)), None)
+        if final_response is not None and final_response.content:
+            text_id = f'msg_{final_response.id or uuid.uuid4().hex}'
+            yield text_start(text_id)
+            yield text_delta(text_id, str(final_response.content))
+            yield text_end(text_id)
             await history.aadd_messages([final_response])
-            await checkpoint.adelete_thread(thread_id)
+
+    yield finish_message()
+    yield done_marker()
 
 
 async def generate_test_stream() -> AsyncGenerator[str, None]:
+    """Emit a canned AI SDK stream for frontend protocol testing."""
     yield start_message()
     await asyncio.sleep(1)
     yield start_step()

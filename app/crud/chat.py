@@ -26,10 +26,9 @@ def delete(session: Session, chat: ChatSessions) -> None:
 
 def update(session: Session, chat_update: ChatSessionUpdate) -> ChatSessions:
     """Update an existing chat session with new data."""
-    db_chat = get(session, str(chat_update.uid))
-    if not db_chat:
-        msg = f'Chat with uid {chat_update.uid} not found'
-        raise ValueError(msg)
+    db_chat = get(session, chat_update.uid)
+    if db_chat is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Chat session not found')
 
     update_data = chat_update.model_dump(exclude_unset=True)
     db_chat.sqlmodel_update(update_data)
