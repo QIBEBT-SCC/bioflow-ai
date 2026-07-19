@@ -139,6 +139,7 @@ ban-relative-imports = "all"
 "__init__.py" = ["E402"]
 "script/**.py" = ["T201"]
 "test/**.py" = ["T201"]
+"tests/**.py" = ["D100", "D101", "D102", "D103", "D104", "S101"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -159,6 +160,7 @@ dev = [
     "duckdb>=1.5.0",
     "matplotlib>=3.10.8",
     "pyrefly>=1.0.0",
+    "pytest>=9.1.1",
     "ruff>=0.15.0",
     "seaborn>=0.13.2",
     "types-docker>=7.1.0",
