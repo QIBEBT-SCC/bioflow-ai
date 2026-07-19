@@ -138,7 +138,7 @@ async def delete_llm_model(model_id: int, session: SessionDep, _current_user: Ad
 async def get_llm_settings(session: SessionDep, _current_user: AdminDep) -> LLMSettingPublic:
     """Get all LLM settings.
 
-    Returns all settings, each containing model_id, model_name and provider_name.
+    Returns all settings, each containing the model ID, display name, API name, and provider name.
     """
     # pyrefly: ignore [bad-return]
     return setting_crud.get_all_with_details(session)
@@ -192,7 +192,7 @@ async def get_llm_statistics_details(
 ) -> LLMStatisticDetailsResponse:
     """Get detailed LLM usage records.
 
-    Returns a list of detail records, including model name (joined from model_id).
+    Returns a list of detail records, including the model display name and API name joined from model_id.
 
     - **start_date**: optional start time; no lower bound if not provided
     - **end_date**: optional end time; no upper bound if not provided
@@ -232,8 +232,7 @@ async def download_statistic_details(
             partition_num=10,
             engine='connectorx',
         )
-        .join(model_df.select(['id', 'name']), left_on='model_id', right_on='id', how='left')
-        .rename({'name': 'llm_name'})
+        .join(model_df.select(['id', 'display_name', 'name']), left_on='model_id', right_on='id', how='left')
         .sort('id')
     )
 

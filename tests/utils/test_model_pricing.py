@@ -17,25 +17,37 @@ def test_find_model_price_matches_model_name_independently_of_prefix() -> None:
 
 
 def test_model_create_populates_known_model_prices() -> None:
-    model = LLMModelCreate(provider_id=1, name='gpt-5.4-nano')
+    model = LLMModelCreate(provider_id=1, display_name='GPT-5.4 Nano', name='gpt-5.4-nano')
 
+    assert model.display_name == 'GPT-5.4 Nano'
     assert (model.input_price, model.output_price, model.cache_read_price) == (0.2, 1.25, 0.02)
 
 
+def test_model_create_requires_display_name() -> None:
+    with pytest.raises(ValidationError, match='display_name'):
+        LLMModelCreate(provider_id=1, name='gpt-5.4-nano')
+
+
 def test_model_create_preserves_explicit_price_override() -> None:
-    model = LLMModelCreate(provider_id=1, name='google/gemini-3-flash-preview', input_price=9)
+    model = LLMModelCreate(
+        provider_id=1,
+        display_name='Gemini 3 Flash Preview',
+        name='google/gemini-3-flash-preview',
+        input_price=9,
+    )
 
     assert (model.input_price, model.output_price, model.cache_read_price) == (9, 3, 0.05)
 
 
 def test_unknown_model_requires_all_prices() -> None:
     with pytest.raises(ValidationError, match='No default price found'):
-        LLMModelCreate(provider_id=1, name='custom-model')
+        LLMModelCreate(provider_id=1, display_name='Custom Model', name='custom-model')
 
 
 def test_unknown_model_accepts_user_defined_prices() -> None:
     model = LLMModelCreate(
         provider_id=1,
+        display_name='Custom Model',
         name='custom-model',
         input_price=1,
         output_price=2,

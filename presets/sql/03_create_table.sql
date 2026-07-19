@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS llm_models
 (
     id               SERIAL,
     provider_id      INTEGER,
+    display_name     VARCHAR NOT NULL,
     name             VARCHAR NOT NULL,
     input_price      NUMERIC NOT NULL,
     output_price     NUMERIC NOT NULL,

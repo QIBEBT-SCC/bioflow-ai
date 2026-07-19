@@ -23,7 +23,8 @@ def get_all_with_details(session: Session) -> dict:
             stmt = (
                 select(
                     col(LLMModel.id),
-                    col(LLMModel.name).label('model_name'),
+                    col(LLMModel.display_name),
+                    col(LLMModel.name),
                     col(LLMProvider.name).label('provider_name'),
                 )
                 .join(LLMProvider, col(LLMModel.provider_id) == LLMProvider.id)
@@ -34,13 +35,24 @@ def get_all_with_details(session: Session) -> dict:
             if row:
                 result[role.value] = {
                     'model_id': model_id,
-                    'model_name': row.model_name,
+                    'display_name': row.display_name,
+                    'name': row.name,
                     'provider_name': row.provider_name,
                 }
             else:
-                result[role.value] = {'model_id': None, 'model_name': 'Unknown', 'provider_name': 'Unknown'}
+                result[role.value] = {
+                    'model_id': None,
+                    'display_name': 'Unknown',
+                    'name': 'Unknown',
+                    'provider_name': 'Unknown',
+                }
         else:
-            result[role.value] = {'model_id': None, 'model_name': 'Not configured', 'provider_name': 'Not configured'}
+            result[role.value] = {
+                'model_id': None,
+                'display_name': 'Not configured',
+                'name': 'Not configured',
+                'provider_name': 'Not configured',
+            }
 
     return result
 

@@ -41,6 +41,7 @@ class LLMProviderPublic(BaseModel):
 # ==================== LLMModel Schemas ====================
 class LLMModelCreate(BaseModel):
     provider_id: int
+    display_name: str = Field(min_length=1)
     name: str
     input_price: float | None = None
     output_price: float | None = None
@@ -73,6 +74,7 @@ class LLMModelCreate(BaseModel):
 
 
 class LLMModelUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1)
     name: str | None = None
     input_price: float | None = None
     output_price: float | None = None
@@ -83,6 +85,7 @@ class LLMModelUpdate(BaseModel):
 
 class LLMModelPublic(BaseModel):
     id: int
+    display_name: str
     name: str
     input_price: float
     output_price: float
@@ -96,7 +99,8 @@ class LLMModelPublic(BaseModel):
 # ==================== LLMSetting Schemas ====================
 class LLMSettingItem(BaseModel):
     model_id: int
-    model_name: str
+    display_name: str
+    name: str
     provider_name: str
 
 
@@ -130,7 +134,8 @@ class LLMStatisticByAgent(LLMStatisticSummary):
 
 class LLMStatisticByModel(LLMStatisticSummary):
     count: int
-    model_name: str
+    display_name: str
+    name: str
 
 
 class LLMStatisticByType(LLMStatisticSummary):
@@ -154,7 +159,8 @@ class LLMStatisticOverview(BaseModel):
 class LLMStatisticDetail(BaseModel):
     id: int
     agent_name: str
-    model_name: str | None = None
+    display_name: str | None = None
+    name: str | None = None
     setting_key: str | None = None
     input_tokens: int
     output_tokens: int

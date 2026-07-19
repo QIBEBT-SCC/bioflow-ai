@@ -63,10 +63,11 @@ def get_summary(
     by_agent_statement = apply_date_filter(by_agent_statement)
     by_agent_results = session.exec(by_agent_statement).all()
 
-    # 按 model 分组统计 (JOIN 获取 model name)
+    # 按 model 分组统计 (JOIN 获取模型显示名称和 API 名称)
     by_model_statement = (
         sa_select(
-            col(LLMModel.name).label('model_name'),
+            col(LLMModel.display_name),
+            col(LLMModel.name),
             func.count(col(LLMStatistic.id)).label('count'),
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
@@ -74,7 +75,7 @@ def get_summary(
             func.sum(LLMStatistic.price).label('total_price'),
         )
         .join(LLMModel, col(LLMStatistic.model_id) == LLMModel.id, isouter=True)
-        .group_by(LLMModel.name)
+        .group_by(LLMModel.id, LLMModel.display_name, LLMModel.name)
     )
     # pyrefly: ignore [bad-argument-type]
     by_model_statement = apply_date_filter(by_model_statement)
@@ -134,7 +135,8 @@ def get_summary(
         ],
         'by_model': [
             {
-                'model_name': row.model_name or 'Unknown',
+                'display_name': row.display_name or 'Unknown',
+                'name': row.name or 'Unknown',
                 'count': row.count,
                 'total_input_tokens': int(row.total_input_tokens or 0),
                 'total_output_tokens': int(row.total_output_tokens or 0),
@@ -187,11 +189,12 @@ def get_details(
     Returns:
         详细记录列表和总数
     """
-    # 构建查询, JOIN 获取 model name 和 user name
+    # 构建查询, JOIN 获取模型显示名称和 API 名称
     statement = sa_select(
         col(LLMStatistic.id),
         col(LLMStatistic.agent_name),
-        col(LLMModel.name).label('model_name'),
+        col(LLMModel.display_name),
+        col(LLMModel.name),
         col(LLMStatistic.setting_key),
         col(LLMStatistic.input_tokens),
         col(LLMStatistic.output_tokens),
@@ -226,7 +229,8 @@ def get_details(
             {
                 'id': row.id,
                 'agent_name': row.agent_name,
-                'model_name': row.model_name,
+                'display_name': row.display_name,
+                'name': row.name,
                 'setting_key': row.setting_key,
                 'input_tokens': row.input_tokens,
                 'output_tokens': row.output_tokens,

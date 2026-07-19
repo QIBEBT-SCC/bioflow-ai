@@ -46,6 +46,7 @@ class LLMModel(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     provider_id: Optional[int] = Field(default=None, foreign_key='llm_providers.id')
+    display_name: str
     name: str
 
     input_price: Decimal
