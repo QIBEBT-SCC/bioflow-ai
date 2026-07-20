@@ -2,8 +2,10 @@ from typing import Optional
 
 from crawl4ai import AsyncWebCrawler, BM25ContentFilter, BrowserConfig, CrawlerRunConfig, DefaultMarkdownGenerator
 from ddgs import DDGS
+from ddgs.exceptions import DDGSException
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.tools import tool
+from loguru import logger
 
 from app.core.config import get_settings
 from llm.models import get_long_context_model
@@ -56,6 +58,8 @@ You must strictly organize your compressed output using the following Markdown h
 ```
 """
 
+_SEARCH_REGION = 'us-en'
+
 
 @tool(parse_docstring=True)
 async def web_searcher(query: str) -> str:
@@ -65,8 +69,19 @@ async def web_searcher(query: str) -> str:
         query: Search query
     """
     proxy = get_settings().network.get_proxy_url() if get_settings().network.USE_PROXY else None
+    search_result = None
     with DDGS(proxy=proxy) as ddgs:
-        search_result = ddgs.text(query, region='en', max_results=10)
+        try:
+            search_result = ddgs.text(query, region=_SEARCH_REGION, max_results=10)
+        except DDGSException as exc:
+            logger.warning(f'Web search backend failed: {exc}')
+
+    if search_result is None:
+        logger.error('Web search failed for query {!r}', query)
+        return (
+            '<search_error>Web search is temporarily unavailable. '
+            'Try again later or use a more specific query.</search_error>'
+        )
 
     response_block = [
         (
@@ -103,15 +118,39 @@ async def web_reader(url: str, query: Optional[str] = None) -> str:
             )
             md_generator = DefaultMarkdownGenerator(content_filter=bm25_filter)
             run_config = CrawlerRunConfig(verbose=False, markdown_generator=md_generator)
+        else:
+            run_config = CrawlerRunConfig(verbose=False, exclude_all_images=True)
+
+        try:
             result = await crawler.arun(url=url, config=run_config)
-            return f'<PageContent>\n{result.markdown.fit_markdown}\n</PageContent>\n\n'
+        except Exception as exc:
+            logger.exception('Web page crawl raised an exception for {}: {}', url, exc)
+            return '<read_error>Unable to read this page. Try another URL or retry later.</read_error>'
 
-        run_config = CrawlerRunConfig(verbose=False, exclude_all_images=True)
-        result = await crawler.arun(url=url, config=run_config)
+        if not result.success:
+            logger.warning(
+                'Web page crawl failed for {} (status={}): {}', url, result.status_code, result.error_message
+            )
+            status = f' (HTTP {result.status_code})' if result.status_code else ''
+            return f'<read_error>Unable to read this page{status}. Try another URL or retry later.</read_error>'
 
-        if result.markdown and len(result.markdown) > 8000:  # noqa: PLR2004
-            return f'<PageContent>\n{result.markdown[:8000]}...\n</PageContent>\n\n'
-        return f'<PageContent>\n{result.markdown}\n</PageContent>\n\n'
+        markdown = result.markdown
+        if markdown is None:
+            logger.warning('Web page crawl returned no Markdown for {}', url)
+            return '<read_error>The page was fetched but no readable content was produced. Try another URL.</read_error>'
+
+        if query:
+            if not markdown.fit_markdown:
+                return (
+                    '<PageContent>No content matching the query was found on this page. '
+                    'Retry without a query to read the full page.</PageContent>\n\n'
+                )
+            return f'<PageContent>\n{markdown.fit_markdown}\n</PageContent>\n\n'
+
+        page_content = markdown.raw_markdown
+        if len(page_content) > 8000:  # noqa: PLR2004
+            page_content = f'{page_content[:8000]}...'
+        return f'<PageContent>\n{page_content}\n</PageContent>\n\n'
 
 
 web_summary_middleware = SummarizationMiddleware(
