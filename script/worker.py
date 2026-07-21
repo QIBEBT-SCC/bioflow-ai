@@ -43,6 +43,7 @@ celery_app.autodiscover_tasks(
         'app.tasks.load_tasks.load_genome',
         'app.tasks.load_tasks.static_value',
         'app.tasks.summary_task.summary',
+        'app.tasks.archive_operation',
         'app.tasks.code',
         'app.tasks.file_operation',
         'app.tasks.run_tool',
