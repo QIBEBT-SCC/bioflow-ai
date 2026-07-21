@@ -44,7 +44,13 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig) -> None:
 
 
 def run_podman(
-    image_cfg: ImageConfig, command: str, mounts: list[dict], workdir: Optional[str] = None, **kwargs: int
+    image_cfg: ImageConfig,
+    command: str,
+    mounts: list[dict],
+    workdir: Optional[str] = None,
+    *,
+    user: str | None = None,
+    **kwargs: Any,
 ) -> tuple[int, str]:
     """在podman容器中运行命令并返回执行结果.
 
@@ -56,6 +62,7 @@ def run_podman(
         command: 容器内执行的命令
         mounts: 文件挂载列表
         workdir: 命令运行的工作目录
+        user: 传递给 Podman 的用户身份, 通常为 ``UID:GID``
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -83,6 +90,8 @@ def run_podman(
             else:
                 # 指定具体设备, 如 '0,1' -> ['nvidia.com/gpu=0', 'nvidia.com/gpu=1']
                 device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
+        if user is not None:
+            kwargs['user'] = user
 
         try:
             container = client.containers.run(

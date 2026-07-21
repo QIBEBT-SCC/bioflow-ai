@@ -1,6 +1,10 @@
 """Bio database download service."""
 
+from typing import TYPE_CHECKING, cast
+
+from celery import states
 from fastapi import HTTPException
+from loguru import logger
 from sqlmodel import Session
 from starlette.status import HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_CONTENT
 
@@ -10,8 +14,18 @@ from app.schemas.resource import BioDbDownloadResponse, BioDbDownloadStatus, Bio
 from app.tasks.load_tasks.load_bio_db import download_bio_db_task
 from app.utils.redis import decode_redis_value, get_bio_db_download_task_key
 from app.utils.system import random_uid
+from script.worker import celery_app
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
 
 BIO_DB_DOWNLOAD_TASK_TTL_SECONDS = 60 * 60 * 24
+_DELETE_DOWNLOAD_TASK_LOCK_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
 
 
 async def build_download_status(db_id: int, session: Session) -> BioDbDownloadStatusResponse:
@@ -34,9 +48,30 @@ async def build_download_status(db_id: int, session: Session) -> BioDbDownloadSt
 
 
 async def build_download_status_from_redis(db_id: int) -> BioDbDownloadStatusResponse | None:
-    """Return downloading status when an active download lock exists."""
-    task_id = decode_redis_value(await monitor_redis_client.get(get_bio_db_download_task_key(db_id)))
+    """Return downloading status while the locked Celery task is non-terminal."""
+    task_key = get_bio_db_download_task_key(db_id)
+    task_id = decode_redis_value(await monitor_redis_client.get(task_key))
     if task_id:
+        try:
+            state = celery_app.AsyncResult(task_id).state
+        except Exception as error:
+            logger.warning(f'Failed to query Celery state for BioDb {db_id} download task {task_id}: {error}')
+        else:
+            if state in states.READY_STATES:
+                try:
+                    await cast(
+                        'Awaitable[str]',
+                        monitor_redis_client.eval(
+                            _DELETE_DOWNLOAD_TASK_LOCK_SCRIPT,
+                            1,
+                            task_key,
+                            task_id,
+                        ),
+                    )
+                except Exception as error:
+                    logger.warning(f'Failed to clear completed BioDb {db_id} download task lock {task_id}: {error}')
+                return None
+
         return BioDbDownloadStatusResponse(
             status=BioDbDownloadStatus.downloading,
             message='database download task is running',

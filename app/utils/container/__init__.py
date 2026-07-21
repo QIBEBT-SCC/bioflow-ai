@@ -43,6 +43,7 @@ def run_command(
     workdir: str | None = None,
     *,
     ensure_ascii: bool = True,
+    user: str | None = None,
 ) -> tuple[int, str]:
     """Execute shell commands within a specified container environment.
 
@@ -52,6 +53,7 @@ def run_command(
         command: The full command string to be executed inside the container.
         workdir: The working directory of command execution.
         ensure_ascii: Whether to ensure the output is ASCII-encoded. Defaults to True.
+        user: User identity passed to the container runtime, typically ``UID:GID``.
 
     Returns:
         A tuple containing two elements:
@@ -61,12 +63,17 @@ def run_command(
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman
 
-        status, output = run_podman(image_cfg, command, _convert_to_podman_mount(mounts), workdir)
+        status, output = run_podman(image_cfg, command, _convert_to_podman_mount(mounts), workdir, user=user)
     else:
         from app.utils.container.docker import run_docker
 
         status, output = run_docker(
-            image_cfg, command, _convert_to_docker_mount(mounts), workdir, ensure_ascii=ensure_ascii
+            image_cfg,
+            command,
+            _convert_to_docker_mount(mounts),
+            workdir,
+            ensure_ascii=ensure_ascii,
+            user=user,
         )
 
     return status, output

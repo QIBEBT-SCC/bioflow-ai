@@ -17,7 +17,7 @@ from app.tasks.base.base_task import BaseBioTask, update_task
 from app.utils.container import ContainerMount, run_command
 from app.utils.input_format import to_safe_path_segment
 from app.utils.redis import decode_redis_value, get_bio_db_download_task_key
-from app.utils.system import utc_now
+from app.utils.system import get_current_user_identity, utc_now
 from script.worker import celery_app, monitor_redis_client
 
 BIO_DB_CONTAINER_PATH = '/data/db'
@@ -109,6 +109,7 @@ def _run_bio_db_download(
             command,
             workdir=BIO_DB_CONTAINER_PATH,
             ensure_ascii=False,
+            user=get_current_user_identity(),
         )
         if status != 0:
             logger.error(output)

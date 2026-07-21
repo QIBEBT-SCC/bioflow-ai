@@ -44,6 +44,7 @@ def run_docker(
     workdir: Optional[str] = None,
     *,
     ensure_ascii: bool = True,
+    user: str | None = None,
     **kwargs,
 ) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果.
@@ -57,6 +58,7 @@ def run_docker(
         mounts (list[Mount]): 文件挂载列表
         workdir: 命令运行的工作目录
         ensure_ascii: 是否过滤命令行富文本格式
+        user: 传递给 Docker 的用户身份, 通常为 ``UID:GID``
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -77,6 +79,8 @@ def run_docker(
         device_requests = [DeviceRequest(count=gpu_count, capabilities=[['gpu']])]
         if settings.GPU_DEVICES != 'all':
             device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
+    if user is not None:
+        kwargs['user'] = user
 
     # pyrefly: ignore [no-matching-overload]
     container = client.containers.run(
@@ -85,12 +89,11 @@ def run_docker(
         stderr=True,
         entrypoint=['/bin/sh', '-c'],
         working_dir=workdir,
-        # user=get_current_user_identity(),
         auto_remove=False,
         detach=True,
         mounts=mounts,
         device_requests=device_requests,
-        *kwargs,  # noqa: B026
+        **kwargs,
     )
 
     try:
