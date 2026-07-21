@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column, Integer
+from sqlalchemy import Column
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.decorator.special_field import PydanticJson
+from app.models.decorator.special_field import IntEnumType, PydanticJson
 from app.models.user import User  # noqa: TC001
 from app.schemas.react_flow import WorkflowDefinition
 from app.utils.system import random_uid, utc_now
@@ -42,8 +42,10 @@ class Workflow(SQLModel, table=True):
     name: str
     owner_id: int = Field(foreign_key='users.id')
     description: str
-    wf_type: WorkflowType = Field(sa_type=Integer)
-    execution_scope: ExecutionScope = Field(default=ExecutionScope.SAMPLE_LEVEL, sa_type=Integer)
+    wf_type: WorkflowType = Field(sa_column=Column(IntEnumType(WorkflowType), nullable=False))
+    execution_scope: ExecutionScope = Field(
+        default=ExecutionScope.SAMPLE_LEVEL, sa_column=Column(IntEnumType(ExecutionScope), nullable=False)
+    )
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
     public: bool = False
     auto_summary: bool = Field(default=False)
@@ -67,7 +69,7 @@ class RunInstance(SQLModel, table=True):
     base_dir: Optional[str] = Field(default=None)
     workflow: WorkflowDefinition = Field(sa_column=Column(PydanticJson(WorkflowDefinition)))
 
-    status: Status = Field(sa_type=Integer)
+    status: Status = Field(sa_column=Column(IntEnumType(Status), nullable=False))
     create_time: Optional[datetime] = Field(default_factory=utc_now)
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
@@ -118,7 +120,7 @@ class TaskInstance(SQLModel, table=True):
     system: Optional[str] = Field(default=None)
     hostname: Optional[str] = Field(default=None)
 
-    status: Status = Field(sa_type=Integer)
+    status: Status = Field(sa_column=Column(IntEnumType(Status), nullable=False))
     create_time: Optional[datetime] = Field(default_factory=utc_now)
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)

@@ -27,13 +27,14 @@ def refresh_task_status(task: TaskInstance) -> TaskInstance:
     return task
 
 
-def get_task_status(task_uid: str, db_status: Status = Status.WAITING) -> Status:
+def get_task_status(task_uid: str, db_status: Status | int = Status.WAITING) -> Status:
     """Return the effective runtime status for a task without touching the database."""
-    if db_status in TERMINAL_STATUSES:
-        return db_status
+    normalized_db_status = _normalize_status(db_status)
+    if normalized_db_status in TERMINAL_STATUSES:
+        return normalized_db_status
 
     celery_status = _get_task_status_from_celery(task_uid)
-    return celery_status if celery_status is not None else db_status
+    return celery_status if celery_status is not None else normalized_db_status
 
 
 def refresh_task_statuses(tasks: Iterable[TaskInstance]) -> dict[str, Status]:
@@ -42,7 +43,7 @@ def refresh_task_statuses(tasks: Iterable[TaskInstance]) -> dict[str, Status]:
 
     for task in tasks:
         effective_status = get_task_status(str(task.uid), task.status)
-        if task.status != effective_status:
+        if not isinstance(task.status, Status) or task.status != effective_status:
             task.status = effective_status
 
         effective_statuses[str(task.uid)] = effective_status
@@ -55,7 +56,11 @@ def refresh_run_status(run: RunInstance) -> Statistics:
     refresh_task_statuses(run.tasks)
     stats = build_task_statistics(run.tasks)
 
-    if run.status not in TERMINAL_STATUSES:
+    normalized_run_status = _normalize_status(run.status)
+    if not isinstance(run.status, Status):
+        run.status = normalized_run_status
+
+    if normalized_run_status not in TERMINAL_STATUSES:
         effective_run_status = _get_run_status_from_stats(stats)
         run.status = effective_run_status
 
@@ -66,9 +71,9 @@ def apply_effective_nonterminal_run_stats(stats: Statistics, runs: Iterable[RunI
     """Adjust aggregate run statistics using effective Celery state for non-terminal runs."""
     result = stats.model_copy()
     for run in runs:
-        original_status = run.status
+        original_status = _normalize_status(run.status)
         refresh_run_status(run)
-        effective_status = run.status
+        effective_status = _normalize_status(run.status)
 
         if original_status == effective_status:
             continue
@@ -106,11 +111,16 @@ def _get_run_status_from_stats(stats: Statistics) -> Status:
     return Status.WAITING
 
 
-def _decrement_status(stats: Statistics, status: Status) -> None:
-    field_name = status.name.lower()
+def _normalize_status(status: Status | int) -> Status:
+    """Convert integer values loaded from SQL integer columns to ``Status``."""
+    return status if isinstance(status, Status) else Status(status)
+
+
+def _decrement_status(stats: Statistics, status: Status | int) -> None:
+    field_name = _normalize_status(status).name.lower()
     setattr(stats, field_name, max(getattr(stats, field_name) - 1, 0))
 
 
-def _increment_status(stats: Statistics, status: Status) -> None:
-    field_name = status.name.lower()
+def _increment_status(stats: Statistics, status: Status | int) -> None:
+    field_name = _normalize_status(status).name.lower()
     setattr(stats, field_name, getattr(stats, field_name) + 1)

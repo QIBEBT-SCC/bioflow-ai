@@ -1,8 +1,10 @@
 from enum import IntEnum
 from typing import Optional
 
-from sqlalchemy import Integer
+from sqlalchemy import Column
 from sqlmodel import Field, SQLModel
+
+from app.models.decorator.special_field import IntEnumType
 
 
 class UserRole(IntEnum):
@@ -17,6 +19,6 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(default='')
     email: str = Field(unique=True)
-    role: UserRole = Field(default=UserRole.VISITOR, sa_type=Integer)
+    role: UserRole = Field(default=UserRole.VISITOR, sa_column=Column(IntEnumType(UserRole), nullable=False))
     hashed_password: str
     is_active: bool = Field(default=True)

@@ -2,14 +2,13 @@ import uuid
 from enum import IntEnum
 from typing import Literal, Optional, Self
 
-import uuid_extensions
 from pydantic import BaseModel, ValidationError
 from pydantic import Field as PField
-from sqlalchemy import Column, Integer
+from sqlalchemy import Column
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.decorator.special_field import PydanticJson
+from app.models.decorator.special_field import IntEnumType, PydanticJson
 from app.utils.system import random_uid
 
 
@@ -135,7 +134,7 @@ class ToolDefine(SQLModel, table=True):
     name: str
     image_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='images.uid')
     description: str
-    tool_type: ToolType = Field(sa_type=Integer)
+    tool_type: ToolType = Field(sa_column=Column(IntEnumType(ToolType), nullable=False))
     group_id: Optional[int] = Field(default=None, foreign_key='tool_groups.id')
     tags: list['ToolTag'] = Relationship(back_populates='tools', link_model=ToolTagLink)
 
