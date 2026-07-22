@@ -186,3 +186,4 @@ db_info.md
 # Local deployment helper
 script/maintenance/
 rsync_git_changes.sh
+update_from_github.sh
