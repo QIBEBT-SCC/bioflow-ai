@@ -12,6 +12,15 @@ from app.schemas.tools import DockerToolUpdate
 _FUZZY_SIMILARITY_THRESHOLD = 0.1
 
 
+def _get_update_data(tool_update: DockerToolUpdate) -> dict[str, object]:
+    """Return explicitly set update values without serializing nested models."""
+    return {
+        field_name: getattr(tool_update, field_name)
+        for field_name in tool_update.model_fields_set
+        if field_name != 'tags'
+    }
+
+
 def insert(session: Session, tool: ToolDefine) -> ToolDefine:
     """Insert a new tool into the database."""
     session.add(tool)
@@ -73,8 +82,8 @@ def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdat
     if db_tool is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
 
-    # 准备更新数据
-    update_data = tool_update.model_dump(exclude_unset=True)
+    # Keep nested ParamDefine/FileMount objects intact for PydanticJson columns.
+    update_data = _get_update_data(tool_update)
     db_tool.sqlmodel_update(update_data)
 
     # 处理标签更新

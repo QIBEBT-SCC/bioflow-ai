@@ -19,7 +19,7 @@ from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.tools import ToolDefine
-from app.models.workflow import Status, TaskMonitor
+from app.models.workflow import Status, TaskMonitor, ToolOutput
 from app.schemas.run_instance import RunUpdate
 from app.schemas.task_instance import TaskUpdate
 from app.schemas.tools import ToolTaskInfo
@@ -49,9 +49,11 @@ class BaseBioTask(celery.Task):
         """任务成功后的钩子 - 落盘任务终态并 flush 监控日志."""
         try:
             with Session(engine) as session:
+                tool_output = retval if isinstance(retval, ToolOutput) else ToolOutput.model_validate(retval)
+
                 task = task_crud.get(session, task_id)
                 task.status = Status.SUCCESS
-                task.tool_output = retval
+                task.tool_output = tool_output
                 task.end_time = datetime.now(UTC)
                 session.add(task)
                 session.commit()
