@@ -30,6 +30,7 @@ from app.schemas.project import (
     ProjectFileMappingPublic,
     ProjectFileMappingUpdate,
     ProjectPublic,
+    ProjectSort,
     ProjectUpdate,
     TagProp,
     TagWithCount,
@@ -135,6 +136,7 @@ def get_project_list(
     session: SessionDep,
     current_user: UserDep,
     filter_type: Annotated[str | None, Query(description='Filter: starred, my, all', alias='filter')] = 'all',
+    sort: Annotated[ProjectSort, Query(description='Sort: recent, nameAsc, nameDesc')] = 'recent',
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[ProjectPublic]:
@@ -146,11 +148,11 @@ def get_project_list(
     """
     match filter_type:
         case 'starred':
-            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id)  # type: ignore
+            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id, sort)  # type: ignore
         case 'my':
-            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id)  # type: ignore
+            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id, sort)  # type: ignore
         case 'all':
-            projects, total = project_crud.get_page(session, limit, offset, current_user.id)  # type: ignore
+            projects, total = project_crud.get_page(session, limit, offset, current_user.id, sort)  # type: ignore
         case _:
             projects, total = [], 0
 

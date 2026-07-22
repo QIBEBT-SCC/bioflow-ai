@@ -1,10 +1,13 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import SQLModel
 
 from app.models.project import ProjectTag
 from app.schemas.user import UserPublic
+
+ProjectSort = Literal['recent', 'nameAsc', 'nameDesc']
 
 
 class ProjectPublic(BaseModel):
