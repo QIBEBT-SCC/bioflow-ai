@@ -169,7 +169,7 @@ class CreateToolAgent:
                     raise LookupError(err_msg)
 
                 mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
-                tool_node = ToolNodePublic.model_validate(tool_data.model_dump())
+                tool_node = ToolNodePublic.model_validate(tool_data)
                 tool_info = (
                     f'<tool>\n'
                     f'  <name>{tool_node.name}</name>\n'
@@ -364,7 +364,7 @@ class CreateToolAgent:
 
             mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
 
-            tool_node = ToolNodePublic.model_validate(tool_data.model_dump())
+            tool_node = ToolNodePublic.model_validate(tool_data)
             tool_info = search_nodes_formatter([tool_node], mapper)
 
         return {

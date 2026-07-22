@@ -355,7 +355,7 @@ def _add_tool_node(
     with Session(engine) as session:
         db_tool = tool_crud.get(session, tool_uid)
         if db_tool:
-            db_node = ToolNodePublic.model_validate(db_tool.model_dump())
+            db_node = ToolNodePublic.model_validate(db_tool)
         else:
             return Command(
                 update={

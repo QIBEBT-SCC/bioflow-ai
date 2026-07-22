@@ -1,4 +1,3 @@
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from langchain_core.documents import Document
@@ -13,9 +12,6 @@ from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
 from llm.utils.uid_mapper import BidirectionalMapper
 from llm.vectorstores import MilvusVectorStore
-
-if TYPE_CHECKING:
-    from app.models.tools import ToolDefine
 
 
 async def insert_documents(document_content: str, doc_id: str) -> None:
@@ -143,10 +139,10 @@ async def retrieve_tools(
         return [], None
 
     with Session(engine) as session:
-        exist_tools: list[ToolDefine] = tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results])
+        exist_tools = list(tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results]))
         mappers = BidirectionalMapper(datas=exist_tools)
 
-    tool_nodes = [ToolNodePublic.model_validate(exist_tool.model_dump()) for exist_tool in exist_tools]
+    tool_nodes = [ToolNodePublic.model_validate(exist_tool) for exist_tool in exist_tools]
 
     return tool_nodes, mappers
 

@@ -136,7 +136,11 @@ def get_all_by_image(session: Session, image_uid: str) -> Sequence[ToolDefine]:
 
 def get_all_by_uid(session: Session, uids: list[str]) -> Sequence[ToolDefine]:
     """Return all tools whose UIDs are in the given list."""
-    stmt = select(ToolDefine).where(col(ToolDefine.uid).in_(uids))
+    stmt = (
+        select(ToolDefine)
+        .where(col(ToolDefine.uid).in_(uids))
+        .options(selectinload(ToolDefine.tags))  # type: ignore
+    )
     return session.exec(stmt).all()
 
 
@@ -166,5 +170,9 @@ def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int)
 
 def get(session: Session, tool_uid: str) -> ToolDefine | None:
     """Return a tool by its UID."""
-    stmt = select(ToolDefine).where(ToolDefine.uid == tool_uid)
+    stmt = (
+        select(ToolDefine)
+        .where(ToolDefine.uid == tool_uid)
+        .options(selectinload(ToolDefine.tags))  # type: ignore
+    )
     return session.exec(stmt).one_or_none()
