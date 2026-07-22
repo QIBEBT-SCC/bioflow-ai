@@ -153,6 +153,7 @@ class ToolNodePublic(BaseModel):
     uid: uuid.UUID
     name: str
     description: str
+    tags: list[ToolTag]
 
     command_template: str = Field(exclude=True)
     dynamic_params: list[ParamDefine] = Field(exclude=True)
