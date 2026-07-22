@@ -11,6 +11,7 @@ from loguru import logger
 
 from app.models.tools import FileMount, ImageConfig, ParamDefine
 from app.models.workflow import ToolOutput
+from app.services.output_validation import all_output_paths_exist, missing_output_paths
 from app.utils.container import ContainerMount, run_command, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
 
@@ -312,7 +313,7 @@ def execute_docker_tool(
     monitor: Callable[[dict[str, Any] | None], None] | None = None,
 ) -> ToolOutput:
     """Execute a prepared Docker tool and verify all declared outputs."""
-    if execution.expected_output.all_exist():
+    if all_output_paths_exist(execution.expected_output):
         return execution.expected_output
 
     for stats in run_command_background(
@@ -324,7 +325,7 @@ def execute_docker_tool(
         if monitor is not None:
             monitor(stats)
 
-    missing_outputs = [str(path) for path in execution.expected_output.all_files().values() if not Path(path).exists()]
+    missing_outputs = [str(path) for path in missing_output_paths(execution.expected_output)]
     if missing_outputs:
         err_msg = f'部分输出文件未生成: {missing_outputs}'
         logger.error(err_msg)
@@ -342,7 +343,7 @@ def execute_docker_tool_with_result(execution: DockerToolExecution) -> DockerToo
         workdir='/data/output',
         ensure_ascii=False,
     )
-    missing_outputs = [Path(path) for path in execution.expected_output.all_files().values() if not Path(path).exists()]
+    missing_outputs = missing_output_paths(execution.expected_output)
     return DockerToolExecutionResult(
         output=execution.expected_output,
         exit_code=exit_code,

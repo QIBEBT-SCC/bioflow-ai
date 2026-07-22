@@ -8,6 +8,7 @@ from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.workflow import ToolOutput
+from app.services.output_validation import output_path_exists
 from app.tasks.base.base_task import BaseBioTask, get_prefix, resolve_path
 from script.worker import celery_app
 
@@ -81,7 +82,7 @@ def _resolve_and_normalize_path(
 ) -> tuple[Path, str | None]:
     """Resolve a load path and normalize fastq file names to fq."""
     file_path, file_tag = resolve_path(path_or_reference, session, project_id, sample_uid)
-    if not file_path.exists():
+    if not output_path_exists(file_path):
         err_msg = f'File "{file_path}" not found.'
         raise FileNotFoundError(err_msg)
 

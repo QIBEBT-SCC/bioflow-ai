@@ -10,6 +10,7 @@ from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
+from app.services.output_validation import output_path_exists
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
 from app.utils.input_format import to_safe_path_segment
 from script.worker import celery_app
@@ -164,7 +165,7 @@ def global_mark_task(
 
     file_path, sample_name = get_tool_output(input_file.source_uid, input_file.source_k)
     marked_path = Path(file_path).absolute()
-    if not marked_path.exists():
+    if not output_path_exists(marked_path):
         raise FileNotFoundError(marked_path)
 
     with Session(engine) as session:

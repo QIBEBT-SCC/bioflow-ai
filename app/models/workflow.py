@@ -97,10 +97,6 @@ class ToolOutput(BaseModel):
             files['log'] = self.log
         return files
 
-    def all_exist(self) -> bool:
-        """Return whether all declared outputs exist on disk."""
-        return all(Path(file).exists() for file in self.all_files().values())
-
 
 class TaskInstance(SQLModel, table=True):
     __tablename__ = 'task_instances'
