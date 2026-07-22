@@ -21,6 +21,8 @@ from app.crud import workflow as wf_crud
 from app.models.user import User
 from app.models.workflow import ExecutionScope, RunInstance, Status
 from app.schemas.project_workflow import WorkflowRunResult
+from app.services import runtime_status
+from app.services.run_configuration import resolve_auto_summary
 from app.utils.input_format import to_safe_path_segment
 from app.utils.workflow.scheduler import build_task_list, send_task, update_node_id
 
@@ -43,7 +45,7 @@ def create_runs_from_samples(
     current_user: User,
     run_name_prefix: Optional[str] = None,
     *,
-    auto_summary: bool = False,
+    auto_summary: bool | None = None,
     summary_prompt: Optional[str] = None,
 ) -> WorkflowRunResult:
     """Batch create run instances from a list of samples.
@@ -85,11 +87,18 @@ def create_runs_from_samples(
     for sample in samples:
         # Check if a run instance already exists for this sample+workflow combination
         existing_run = run_crud.get_latest_run_by_sample_and_workflow(session, sample.uid, workflow_uid)
+        effective_auto_summary = resolve_auto_summary(
+            requested=auto_summary,
+            previous_tasks=existing_run.tasks if existing_run else None,
+            workflow_default=workflow.auto_summary,
+        )
         # Update workflow node IDs
         workflow_definition = update_node_id(workflow.workflow.model_copy(deep=True))
         base_dir = _get_project_run_base_dir(project_id, workflow.name, sample.sample_name)
 
         if existing_run:
+            runtime_status.refresh_run_status(existing_run)
+
             # If running, reject rerun
             if existing_run.status == Status.RUNNING:
                 raise HTTPException(
@@ -145,7 +154,7 @@ def create_runs_from_samples(
             current_user,
             run.base_dir,
             run.uid,
-            auto_summary=auto_summary,
+            auto_summary=effective_auto_summary,
             summary_prompt=summary_prompt,
         )
 
@@ -161,7 +170,7 @@ def create_project_level_run(
     current_user: User,
     run_name_prefix: Optional[str] = None,
     *,
-    auto_summary: bool = False,
+    auto_summary: bool | None = None,
     summary_prompt: Optional[str] = None,
 ) -> WorkflowRunResult:
     """Create a project-level workflow run instance.
@@ -201,8 +210,15 @@ def create_project_level_run(
 
     # Check if a run instance already exists for this project+workflow combination
     existing_run = run_crud.get_latest_run_by_project_and_workflow(session, project_id, workflow_uid)
+    effective_auto_summary = resolve_auto_summary(
+        requested=auto_summary,
+        previous_tasks=existing_run.tasks if existing_run else None,
+        workflow_default=workflow.auto_summary,
+    )
 
     if existing_run:
+        runtime_status.refresh_run_status(existing_run)
+
         # If running, reject rerun
         if existing_run.status == Status.RUNNING:
             raise HTTPException(
@@ -255,7 +271,7 @@ def create_project_level_run(
         current_user,
         run.base_dir,
         run.uid,
-        auto_summary=auto_summary,
+        auto_summary=effective_auto_summary,
         summary_prompt=summary_prompt,
     )
 

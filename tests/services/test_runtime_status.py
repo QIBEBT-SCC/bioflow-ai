@@ -49,3 +49,16 @@ def test_refresh_run_status_preserves_integer_terminal_status(monkeypatch: pytes
     runtime_status.refresh_run_status(run)
 
     assert run.status is Status.SUCCESS
+
+
+def test_refresh_run_status_uses_celery_failure_for_running_database_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_celery_state(monkeypatch, states.FAILURE)
+    task = SimpleNamespace(uid=uuid4(), status=Status.WAITING)
+    run = SimpleNamespace(status=Status.RUNNING, tasks=[task])
+
+    runtime_status.refresh_run_status(run)
+
+    assert task.status is Status.ERROR
+    assert run.status is Status.ERROR

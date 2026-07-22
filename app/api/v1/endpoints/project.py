@@ -510,9 +510,6 @@ async def run_workflow_on_samples(
     if not workflow:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
 
-    # Resolve effective auto_summary: runtime override takes precedence over workflow default
-    effective_auto_summary = run_request.auto_summary if run_request.auto_summary is not None else workflow.auto_summary
-
     # Dispatch based on execution scope
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
         # Project-level execution
@@ -528,7 +525,7 @@ async def run_workflow_on_samples(
             workflow_uid,
             cast('User', current_user),
             run_request.run_name_prefix,
-            auto_summary=effective_auto_summary,
+            auto_summary=run_request.auto_summary,
             summary_prompt=workflow.summary_prompt,
         )
     # Sample-level execution
@@ -546,7 +543,7 @@ async def run_workflow_on_samples(
         run_request.sample_uids,
         cast('User', current_user),
         run_request.run_name_prefix,
-        auto_summary=effective_auto_summary,
+        auto_summary=run_request.auto_summary,
         summary_prompt=workflow.summary_prompt,
     )
 
