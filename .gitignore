@@ -184,4 +184,5 @@ config.toml
 db_info.md
 
 # Local deployment helper
-/rsync_git_changes.sh
+script/maintenance/
+rsync_git_changes.sh
