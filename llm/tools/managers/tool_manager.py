@@ -82,6 +82,7 @@ class CreateToolSchema(BaseModel):
             'Node creation requirements. '
             'Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do '
             'with this tool, what new input handle is required or what new output handle is expected)"'
+            'Do not guess specific parameters or subcommands to avoid misleading.'
         )
     )
 

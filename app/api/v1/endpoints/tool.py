@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from langchain_core.documents import Document
 from pydantic import ValidationError
-from starlette.status import HTTP_404_NOT_FOUND
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
@@ -289,6 +289,31 @@ async def update_tool(
 ) -> SimpleToolPublic:
     """更新工具配置."""
     tool = tool_crud.update_partial(session, tool_uid, tool_update)
+    await redis.delete(f'tool-args:{tool_uid}', f'tool-task-info:{tool_uid}')
+    # pyrefly: ignore [bad-return]
+    return tool
+
+
+@router.patch('/{tool_uid}/ai-checked')
+async def mark_tool_ai_checked(
+    tool_uid: str,
+    session: SessionDep,
+    redis: RedisDep,
+    _current_user: AdminDep,
+) -> SimpleToolPublic:
+    """Mark a tool as AI Checked while preserving its unrelated tags."""
+    tool = tool_crud.get(session, tool_uid)
+    if tool is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
+
+    checked_tag = tag_crud.get_by_name(session, 'AI Checked')
+    if checked_tag is None:
+        raise HTTPException(status_code=HTTP_409_CONFLICT, detail='AI Checked tag is not configured')
+
+    tool.tags = [tag for tag in tool.tags if tag.name not in {'AI Checked', 'AI Unchecked'}]
+    tool.tags.append(checked_tag)
+    tool = tool_crud.update(session, tool)
+
     await redis.delete(f'tool-args:{tool_uid}', f'tool-task-info:{tool_uid}')
     # pyrefly: ignore [bad-return]
     return tool
