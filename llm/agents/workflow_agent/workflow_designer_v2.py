@@ -119,6 +119,7 @@ Describe only a linear process; do not design conditional branches or fallback l
 
 - Assume that the required databases, reference genomes, and other resources have already been downloaded.
 - Before calling `ask_human` and obtaining user confirmation, the task is not considered complete.
+- The original input data may not necessarily meet the requirements of subsequent tools, so necessary preprocessing steps (such as decompression and cleaning) need to be considered.
 """
 
 PLANNER_LLM = get_high_performance_model()
