@@ -1,10 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.setting import LLMModel, ModelRole, ProviderType
+from app.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort
 from app.utils.model_pricing import find_model_price
 
 
@@ -46,7 +45,7 @@ class LLMModelCreate(BaseModel):
     input_price: float | None = None
     output_price: float | None = None
     cache_read_price: float | None = None
-    extra_body: dict[str, Any] = Field(default_factory=dict)
+    reasoning_effort: ReasoningEffort | None = None
     is_active: bool = True
 
     @model_validator(mode='after')
@@ -79,7 +78,7 @@ class LLMModelUpdate(BaseModel):
     input_price: float | None = None
     output_price: float | None = None
     cache_read_price: float | None = None
-    extra_body: dict[str, Any] | None = None
+    reasoning_effort: ReasoningEffort | None = None
     is_active: bool | None = None
 
 
@@ -90,7 +89,7 @@ class LLMModelPublic(BaseModel):
     input_price: float
     output_price: float
     cache_read_price: float
-    extra_body: dict[str, Any]
+    reasoning_effort: ReasoningEffort | None
     is_active: bool
 
     provider_name: str | None = None

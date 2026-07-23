@@ -1,10 +1,8 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, StrEnum
-from typing import Any, Optional
+from typing import Optional
 
-from sqlalchemy import Column
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.user import User  # noqa: TC001
@@ -15,6 +13,48 @@ class ProviderType(Enum):
     OPENAI = 'openai'
     ANTHROPIC = 'anthropic'
     GOOGLE = 'google'
+
+
+class ReasoningEffort(StrEnum):
+    NONE = 'none'
+    MINIMAL = 'minimal'
+    LOW = 'low'
+    MEDIUM = 'medium'
+    HIGH = 'high'
+    XHIGH = 'xhigh'
+    MAX = 'max'
+
+
+SUPPORTED_REASONING_EFFORTS: dict[ProviderType, frozenset[ReasoningEffort]] = {
+    ProviderType.OPENAI: frozenset(ReasoningEffort),
+    ProviderType.ANTHROPIC: frozenset(
+        {
+            ReasoningEffort.LOW,
+            ReasoningEffort.MEDIUM,
+            ReasoningEffort.HIGH,
+            ReasoningEffort.XHIGH,
+            ReasoningEffort.MAX,
+        }
+    ),
+    ProviderType.GOOGLE: frozenset(
+        {
+            ReasoningEffort.MINIMAL,
+            ReasoningEffort.LOW,
+            ReasoningEffort.MEDIUM,
+            ReasoningEffort.HIGH,
+        }
+    ),
+}
+DEEPSEEK_REASONING_EFFORTS = frozenset(
+    {
+        ReasoningEffort.NONE,
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    }
+)
 
 
 class ModelRole(StrEnum):
@@ -41,6 +81,15 @@ class LLMProvider(SQLModel, table=True):
     models: list['LLMModel'] = Relationship(back_populates='provider')
 
 
+def is_deepseek_provider(provider: LLMProvider) -> bool:
+    """Return whether an OpenAI-compatible provider is a direct DeepSeek endpoint."""
+    provider_name = provider.name.casefold()
+    base_url = (provider.base_url or '').casefold()
+    return provider.provider_type is ProviderType.OPENAI and (
+        'deepseek' in provider_name or 'api.deepseek.com' in base_url
+    )
+
+
 class LLMModel(SQLModel, table=True):
     __tablename__ = 'llm_models'
 
@@ -53,7 +102,7 @@ class LLMModel(SQLModel, table=True):
     output_price: Decimal
     cache_read_price: Decimal
 
-    extra_body: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    reasoning_effort: Optional[str] = Field(default=None)
     is_active: bool = Field(default=True)
 
     provider: 'LLMProvider' = Relationship(back_populates='models')

@@ -12,7 +12,14 @@ import app.crud.setting.llm_setting as setting_crud
 import app.crud.setting.llm_statistic as statistic_crud
 from app.core.config import get_settings
 from app.core.session import SessionDep
-from app.models.setting import LLMModel, LLMProvider
+from app.models.setting import (
+    DEEPSEEK_REASONING_EFFORTS,
+    SUPPORTED_REASONING_EFFORTS,
+    LLMModel,
+    LLMProvider,
+    ReasoningEffort,
+    is_deepseek_provider,
+)
 from app.schemas.setting import (
     LLMModelCreate,
     LLMModelPublic,
@@ -31,6 +38,22 @@ from llm.models import invalidate_model_cache
 router = APIRouter()
 
 DB_DSN = get_settings().persistent.database.DB_URL
+
+
+def _validate_reasoning_effort(provider: LLMProvider, reasoning_effort: ReasoningEffort | None) -> None:
+    supported_efforts = (
+        DEEPSEEK_REASONING_EFFORTS
+        if is_deepseek_provider(provider)
+        else SUPPORTED_REASONING_EFFORTS[provider.provider_type]
+    )
+    if reasoning_effort is None or reasoning_effort in supported_efforts:
+        return
+
+    supported = ', '.join(sorted(effort.value for effort in supported_efforts))
+    raise HTTPException(
+        status_code=422,
+        detail=f'Reasoning effort {reasoning_effort.value!r} is not supported by {provider.name}; use: {supported}',
+    )
 
 
 # ==================== LLM Provider Endpoints ====================
@@ -86,6 +109,8 @@ async def delete_llm_provider(provider_id: int, session: SessionDep, _current_us
 @router.post('/models')
 async def create_llm_model(model_data: LLMModelCreate, session: SessionDep, _current_user: AdminDep) -> LLMModelPublic:
     """Create a new LLM model under an existing provider."""
+    provider = provider_crud.get(session, model_data.provider_id)
+    _validate_reasoning_effort(provider, model_data.reasoning_effort)
     model = LLMModel(**model_data.model_dump())
     # pyrefly: ignore [bad-return]
     return model_crud.insert(session, model)
@@ -120,8 +145,12 @@ async def update_llm_model(
     _current_user: AdminDep,
 ) -> LLMModelPublic:
     """Update an existing LLM model."""
+    model = model_crud.get(session, model_id)
+    _validate_reasoning_effort(model.provider, model_data.reasoning_effort)
+    updated_model = model_crud.update(session, model_id, model_data)
+    invalidate_model_cache()
     # pyrefly: ignore [bad-return]
-    return model_crud.update(session, model_id, model_data)
+    return updated_model
 
 
 @router.delete('/models/{model_id}')

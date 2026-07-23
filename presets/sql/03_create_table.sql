@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS llm_models
     input_price      NUMERIC NOT NULL,
     output_price     NUMERIC NOT NULL,
     cache_read_price NUMERIC NOT NULL,
-    extra_body       jsonb,
+    reasoning_effort VARCHAR,
     is_active        BOOLEAN NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (provider_id) REFERENCES llm_providers

@@ -1,5 +1,6 @@
+from typing import Literal, cast
+
 from langchain_anthropic import ChatAnthropic
-from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -10,11 +11,18 @@ import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_setting as setting_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.setting import LLMModel, ModelRole, ProviderType
+from app.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort, is_deepseek_provider
 from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
-from llm.utils.cache import cache_model
 
 _model_cache: dict[ModelRole, BaseChatModel] = {}
+AnthropicEffort = Literal['low', 'medium', 'high', 'xhigh', 'max']
+GoogleThinkingLevel = Literal['minimal', 'low', 'medium', 'high']
+GEMINI_25_REASONING_BUDGETS = {
+    ReasoningEffort.MINIMAL: 1024,
+    ReasoningEffort.LOW: 1024,
+    ReasoningEffort.MEDIUM: 8192,
+    ReasoningEffort.HIGH: 24576,
+}
 
 
 class NoApikeyError(ValueError):
@@ -24,11 +32,18 @@ class NoApikeyError(ValueError):
 def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, LLMModel]:
     model_config = model_crud.get(session, model_id)
 
-    api_key = model_config.provider.api_key if model_config.provider.api_key else ''
+    api_key = model_config.provider.api_key or ''
     proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
+    reasoning_effort = (
+        ReasoningEffort(model_config.reasoning_effort) if model_config.reasoning_effort is not None else None
+    )
 
     match model_config.provider.provider_type:
         case ProviderType.ANTHROPIC:
+            anthropic_effort = cast(
+                'AnthropicEffort | None',
+                reasoning_effort.value if reasoning_effort is not None else None,
+            )
             model = ChatAnthropic(
                 model_name=model_config.name,
                 api_key=SecretStr(api_key),
@@ -36,14 +51,24 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                 if model_config.provider.base_url is None
                 else model_config.provider.base_url,
                 anthropic_proxy=proxy,
+                effort=anthropic_effort,
             )
         case ProviderType.GOOGLE:
             client_args = {'proxy': proxy} if proxy else None
+            thinking_budget = None
+            thinking_level = None
+            if reasoning_effort is not None:
+                if model_config.name.lower().startswith('gemini-2.5'):
+                    thinking_budget = GEMINI_25_REASONING_BUDGETS[reasoning_effort]
+                else:
+                    thinking_level = cast('GoogleThinkingLevel', reasoning_effort.value)
             if model_config.provider.base_url is None:
                 model = ChatGoogleGenerativeAI(
                     model=model_config.name,
                     api_key=SecretStr(api_key),
                     client_args=client_args,
+                    thinking_budget=thinking_budget,
+                    thinking_level=thinking_level,
                 )
             else:
                 model = ChatGoogleGenerativeAI(
@@ -51,20 +76,38 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                     api_key=SecretStr(api_key),
                     base_url=model_config.provider.base_url,
                     client_args=client_args,
+                    thinking_budget=thinking_budget,
+                    thinking_level=thinking_level,
                 )
         case ProviderType.OPENAI:
+            effective_extra_body = None
+            if is_deepseek_provider(model_config.provider):
+                if reasoning_effort is ReasoningEffort.NONE:
+                    openai_reasoning_effort = None
+                    effective_extra_body = {'thinking': {'type': 'disabled'}}
+                else:
+                    openai_reasoning_effort = reasoning_effort.value if reasoning_effort is not None else None
+                    if reasoning_effort is not None:
+                        effective_extra_body = {'thinking': {'type': 'enabled'}}
+            else:
+                openai_reasoning_effort = reasoning_effort.value if reasoning_effort is not None else None
+
             if model_config.provider.base_url is None:
                 model = ChatOpenAI(
                     model=model_config.name,
                     api_key=SecretStr(api_key),
                     openai_proxy=proxy,
+                    reasoning_effort=openai_reasoning_effort,
+                    extra_body=effective_extra_body,
                 )
-            elif 'deepseek' in model_config.name.lower():
+            elif is_deepseek_provider(model_config.provider):
                 model = ChatDeepseekReasoning(
                     model=model_config.name,
                     base_url=model_config.provider.base_url,
                     api_key=SecretStr(api_key),
                     openai_proxy=proxy,
+                    reasoning_effort=openai_reasoning_effort,
+                    extra_body=effective_extra_body,
                 )
             else:
                 model = ChatOpenAIReasoning(
@@ -72,6 +115,8 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                     base_url=model_config.provider.base_url,
                     api_key=SecretStr(api_key),
                     openai_proxy=proxy,
+                    reasoning_effort=openai_reasoning_effort,
+                    extra_body=effective_extra_body,
                 )
         case _:
             raise TypeError
@@ -79,9 +124,12 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
     return model, model_config
 
 
-def invalidate_model_cache(role: ModelRole) -> None:
-    """清楚模型配置缓存."""
-    _model_cache.pop(role, None)
+def invalidate_model_cache(role: ModelRole | None = None) -> None:
+    """清除单个角色或全部模型配置缓存."""
+    if role is None:
+        _model_cache.clear()
+    else:
+        _model_cache.pop(role, None)
 
 
 def get_model(role: ModelRole) -> BaseChatModel:
