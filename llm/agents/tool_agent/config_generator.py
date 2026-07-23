@@ -225,7 +225,7 @@ config_generate_agent = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[
         DisableParallelToolCallsMiddleware(),
-        SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
+        SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'PREFIX_OUTPUT_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
         # CheckGenerateMiddleware(2),
         CheckStateExistMiddleware('validated', 'validate_tool_config'),
         EndLoopMiddleware(),
