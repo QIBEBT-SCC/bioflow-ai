@@ -113,36 +113,6 @@ def _get_project_path(project_id: int) -> FilePath:
     return FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
 
 
-def _clean_up_all(con: sqlite3.Connection, thread_id: str) -> tuple[list[str], list[int]]:
-    from sqlmodel import Session
-
-    import app.crud.project as proj_crud
-    from app.core.session import engine
-
-    cursor = con.execute(
-        'SELECT * FROM evaluate_results WHERE thread_id = :thread_id',
-        {'thread_id': thread_id},
-    )
-    row = cursor.fetchone()
-    generated_records = (
-        (
-            _parse_workflow_uids(row['new_tool_uids']),
-            _parse_int_ids(row['new_db_ids']),
-        )
-        if row
-        else ([], [])
-    )
-
-    if row and row['project_id']:
-        project_path = _get_project_path(row['project_id'])
-        with Session(engine) as session:
-            proj_crud.delete(session, row['project_id'])
-        shutil.rmtree(project_path, ignore_errors=True)
-
-    con.execute('DELETE FROM evaluate_results WHERE thread_id = :thread_id', {'thread_id': thread_id})
-    return generated_records
-
-
 def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
     import uuid
 
@@ -219,6 +189,53 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
     logger.info(
         f'Cleaned {len(project_workflow_uids)} project workflow import(s) and '
         f'{len(existing_generated_workflow_uids)} generated workflow record(s) for project {project_id}.'
+    )
+
+
+async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
+    """Remove evaluate-generated project contents while retaining the project itself."""
+    from sqlalchemy import delete
+    from sqlmodel import Session, col, select
+
+    from app.core.session import engine
+    from app.models.project import ProjectFileMapping
+    from app.models.resource import Sample, SampleFiles
+    from app.models.workflow import RunInstance, TaskInstance, TaskMonitor
+
+    await _clean_project_workflows(con, thread_id, project_id)
+
+    with Session(engine) as session:
+        run_instance_uids = session.exec(select(RunInstance.uid).where(col(RunInstance.project_id) == project_id)).all()
+        if run_instance_uids:
+            task_instance_uids = session.exec(
+                select(TaskInstance.uid).where(col(TaskInstance.instance_uid).in_(run_instance_uids))
+            ).all()
+            if task_instance_uids:
+                session.exec(delete(TaskMonitor).where(col(TaskMonitor.task_uid).in_(task_instance_uids)))
+            session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid).in_(run_instance_uids)))
+            session.exec(delete(RunInstance).where(col(RunInstance.uid).in_(run_instance_uids)))
+
+        sample_uids = session.exec(select(Sample.uid).where(Sample.project_id == project_id)).all()
+        if sample_uids:
+            session.exec(delete(SampleFiles).where(col(SampleFiles.sample_uid).in_(sample_uids)))
+        session.exec(delete(Sample).where(Sample.project_id == project_id))
+        session.exec(delete(ProjectFileMapping).where(ProjectFileMapping.project_id == project_id))
+        session.commit()
+
+    project_path = _get_project_path(project_id)
+    shutil.rmtree(project_path, ignore_errors=True)
+    project_path.mkdir(parents=True, exist_ok=True)
+
+    con.execute(
+        """
+        UPDATE evaluate_results
+        SET sample_uid = NULL, workflow_uid = NULL, output_path = NULL
+        WHERE thread_id = :thread_id
+        """,
+        {'thread_id': thread_id},
+    )
+    logger.info(
+        f'Cleaned project-scoped evaluate data and files for project {project_id}; retained the project record.'
     )
 
 
@@ -602,12 +619,12 @@ async def wf_eval(
         if drop_old:
             logger.warning('--drop-old is deprecated; use --clean-checkpoint instead.')
         reset_checkpoint = drop_old or clean_checkpoint or clean_all
-        retained_generated_records = _clean_up_all(con, thread_id) if clean_all else ([], [])
 
         user_input = await _build_input(con, task_file, paper_file, thread_id)
-        _persist_generated_records(con, thread_id, *retained_generated_records)
         project_id, workdir = _init_project(con, thread_id)
-        if reset_checkpoint and not clean_all:
+        if clean_all:
+            await _clean_project_contents(con, thread_id, project_id)
+        elif reset_checkpoint:
             await _clean_project_workflows(con, thread_id, project_id)
         async with AsyncRedisSaver.from_conn_string(
             get_settings().persistent.cache.LLM_CACHE.unicode_string()
@@ -673,7 +690,10 @@ def cli() -> None:
     help='Drop the workflow builder checkpoint and remove workflows imported into the evaluate project.',
 )
 @click.option(
-    '--clean-all', is_flag=True, default=False, help='Delete the evaluate project record and local project files.'
+    '--clean-all',
+    is_flag=True,
+    default=False,
+    help='Clear plans, samples, workflows, runs, and project files while retaining the existing project ID.',
 )
 def wf_cmd(
     task_file: str,
