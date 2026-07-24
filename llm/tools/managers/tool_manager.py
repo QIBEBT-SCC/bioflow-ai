@@ -283,7 +283,7 @@ def _add_tool_node(
                     ToolMessage(
                         content=(
                             f'Tool ID {selected_id} is not available in the current search results. '
-                            'Call `tool_node_manager` with `action="search_by_name"` to search again, then use '
+                            'Call `tool_node_manager` with `action="search"` to search again, then use '
                             'the ID returned by that latest search result to add the node.'
                         ),
                         tool_call_id=runtime.tool_call_id,

@@ -174,7 +174,7 @@ metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
 
 WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work', 'ask_human'}
 WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
-    'tool_node_manager': {'add', 'update_args', 'create', 'search_by_name'},
+    'tool_node_manager': {'add', 'update_args', 'create', 'search'},
     'resource_node_manager': {'create_db', 'add'},
     'processor_node_manager': {'add_processor'},
     'other_node_manager': {'add_code', 'add_python_code', 'add_note', 'add_downstream_summary'},
