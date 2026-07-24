@@ -28,12 +28,6 @@ from llm.utils.formatters import (
 )
 from llm.utils.uid_mapper import BidirectionalMapper, generate_char_index, merge_mappers
 
-# ---- Schemas ----
-
-
-class HelpSchema(BaseModel):
-    action: str = Field(description='The action name to get detailed schema for')
-
 
 class SearchToolSchema(BaseModel):
     """Search for tool nodes by name."""
@@ -102,7 +96,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     """
     match action:
         case 'help':
-            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)  # type: ignore
+            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)  # type: ignore
         case 'search':
             try:
                 validate_param = SearchToolSchema.model_validate(params)

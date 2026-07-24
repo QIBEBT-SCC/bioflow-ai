@@ -18,10 +18,6 @@ from llm.utils.node_schema import RESOURCES
 from llm.utils.uid_mapper import generate_char_index
 
 
-class HelpSchema(BaseModel):
-    action: str = Field(description='The action name to get detailed schema for')
-
-
 class ViewResourceSchema(BaseModel):
     """View details of a specific resource node type."""
 
@@ -86,7 +82,7 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
     match action:
         case 'help':
             # pyrefly: ignore [bad-argument-type]
-            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
+            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view':
             try:

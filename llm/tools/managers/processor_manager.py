@@ -18,10 +18,6 @@ from llm.utils.uid_mapper import generate_char_index
 # ---- Schemas ----
 
 
-class HelpSchema(BaseModel):
-    action: str = Field(description='The action name to get detailed schema for')
-
-
 class ViewProcessorSchema(BaseModel):
     """View details of a specific processor node type."""
 
@@ -67,7 +63,7 @@ async def processor_node_manager(action: str, params: dict[str, Any], runtime: T
     match action:
         case 'help':
             # pyrefly: ignore [bad-argument-type]
-            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
+            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view_processor':
             try:

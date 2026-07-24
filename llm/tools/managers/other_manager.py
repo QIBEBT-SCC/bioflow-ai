@@ -20,10 +20,6 @@ from llm.utils.formatters import format_validation_error, manager_help_command, 
 from llm.utils.uid_mapper import generate_char_index
 
 
-class HelpSchema(BaseModel):
-    action: str = Field(description='The action name to get detailed schema for')
-
-
 class AddCodeSchema(BaseModel):
     """Add a bash code node to the workflow."""
 
@@ -107,7 +103,7 @@ async def other_node_manager(action: str, params: dict[str, Any], runtime: ToolR
     match action:
         case 'help':
             # pyrefly: ignore [bad-argument-type]
-            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
+            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'add_code':
             try:

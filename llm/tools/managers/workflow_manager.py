@@ -25,10 +25,6 @@ from llm.workflow_builder.messages import (
 from llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
 
 
-class HelpSchema(BaseModel):
-    action: str = Field(description='The action name to get detailed schema for')
-
-
 class ViewNodeSchema(BaseModel):
     """View details of a specific node."""
 
@@ -122,7 +118,7 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
     match action:
         case 'help':
             # pyrefly: ignore [bad-argument-type]
-            return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
+            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'list_workflow_drafts':
             return _list_workflow_drafts(runtime)

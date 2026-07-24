@@ -5,7 +5,7 @@ from typing import Any, get_args
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from loguru import logger
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.schemas.tools import Handle, ToolNodePublic
 from app.utils.input_format import build_command_template
@@ -59,9 +59,12 @@ def format_validation_error(action: str, e: ValidationError, schema_cls: type[Ba
     return f'Invalid params for "{action}":\n{errors_str}\n\n{schema_to_description(schema_cls)}'
 
 
+class HelpSchema(BaseModel):
+    action: str = Field(description='The action name to get detailed schema for')
+
+
 def manager_help_command(
     params: dict[str, Any],
-    help_cls: type[BaseModel],
     valid_operates: dict[str, type[BaseModel] | None],
     help_msg: str,
     tool_call_id: str,
@@ -69,13 +72,13 @@ def manager_help_command(
     """Automatically generate help information from Pydantic data classes."""
     if params:
         try:
-            validate_param = help_cls.model_validate(params)
+            validate_param = HelpSchema.model_validate(params)
         except ValidationError as e:
             return Command(
                 update={
                     'messages': [
                         ToolMessage(
-                            content=format_validation_error('help', e, help_cls),
+                            content=format_validation_error('help', e, HelpSchema),
                             tool_call_id=tool_call_id,
                         )
                     ]
