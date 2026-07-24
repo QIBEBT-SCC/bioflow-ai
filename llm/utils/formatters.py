@@ -1,6 +1,7 @@
 import inspect
 import json
-from typing import Any, get_args
+import types
+from typing import Any, Literal, Union, get_args, get_origin
 
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
@@ -26,8 +27,54 @@ def _extract_nested_model(annotation: Any) -> type[BaseModel] | None:
     return None
 
 
+def _format_annotation(annotation: Any) -> str:
+    """Format a Python annotation as a concise, LLM-friendly type."""
+    if annotation is Any:
+        return 'any'
+    if annotation is None or annotation is type(None):
+        return 'null'
+    if inspect.isclass(annotation):
+        if issubclass(annotation, BaseModel):
+            return 'object'
+        return annotation.__name__
+
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is Literal:
+        return ' | '.join(json.dumps(arg, ensure_ascii=False) for arg in args)
+    if origin in {Union, types.UnionType}:
+        return ' | '.join(_format_annotation(arg) for arg in args)
+    if origin is list:
+        item_type = _format_annotation(args[0]) if args else 'any'
+        return f'list[{item_type}]'
+    if origin is dict:
+        key_type = args[0] if args else Any
+        value_type = args[1] if len(args) > 1 else Any
+        return f'dict[{_format_annotation(key_type)}, {_format_annotation(value_type)}]'
+    if origin is tuple:
+        item_types = ', '.join('...' if arg is Ellipsis else _format_annotation(arg) for arg in args)
+        return f'tuple[{item_types}]'
+    if origin is set:
+        item_type = _format_annotation(args[0]) if args else 'any'
+        return f'set[{item_type}]'
+
+    return str(annotation).removeprefix('typing.')
+
+
+def _format_default(field_info: Any) -> str:
+    """Format a field default without exposing Pydantic implementation details."""
+    default_factory = field_info.default_factory
+    if default_factory is not None:
+        if default_factory is dict:
+            return '{}'
+        if default_factory in {list, set, tuple}:
+            return '[]'
+        return '<generated>'
+    return json.dumps(field_info.default, ensure_ascii=False, default=str)
+
+
 def schema_to_description(schema_cls: type[BaseModel], indent: int = 0, _visited: set | None = None) -> str:
-    """Generate a human-readable description of a Pydantic model's fields, recursively expanding nested models."""
+    """Generate concise, LLM-friendly usage documentation from a Pydantic model."""
     if _visited is None:
         _visited = set()
     if schema_cls in _visited:
@@ -35,15 +82,27 @@ def schema_to_description(schema_cls: type[BaseModel], indent: int = 0, _visited
     _visited.add(schema_cls)
 
     pad = '  ' * indent
-    lines = [f'{pad}Schema fields ({schema_cls.__name__}):']
+    lines = []
+    model_description = inspect.cleandoc(schema_cls.__doc__) if schema_cls.__doc__ else ''
+    if model_description:
+        lines.extend(f'{pad}{line}' for line in model_description.splitlines())
+        if indent == 0:
+            lines.append('')
+    lines.append(f'{pad}{"Parameters" if indent == 0 else "Fields"}:')
+
     for field_name, field_info in schema_cls.model_fields.items():
         annotation = field_info.annotation
         desc = field_info.description or ''
-        default = '' if field_info.is_required() else f' (optional, default: {field_info.default})'
-        lines.append(f'{pad}  - {field_name} ({annotation}){default}: {desc}')
+        type_name = _format_annotation(annotation)
+        requirement = 'required' if field_info.is_required() else f'optional, default={_format_default(field_info)}'
+        lines.append(f'{pad}  - {field_name} ({type_name}, {requirement}): {desc}')
+
         nested = _extract_nested_model(annotation)
         if nested is not None:
-            lines.append(schema_to_description(nested, indent + 2, _visited))
+            nested_description = schema_to_description(nested, indent + 2, _visited)
+            if nested_description:
+                lines.append(nested_description)
+
     return '\n'.join(lines)
 
 
@@ -56,7 +115,13 @@ def format_validation_error(action: str, e: ValidationError, schema_cls: type[Ba
         actual = err.get('input', '<missing>')
         error_lines.append(f'  - {field}: {msg} (got: {actual!r})')
     errors_str = '\n'.join(error_lines)
-    return f'Invalid params for "{action}":\n{errors_str}\n\n{schema_to_description(schema_cls)}'
+    return (
+        f'## Validation errors\n'
+        f'Invalid params for "{action}":\n'
+        f'{errors_str}\n\n'
+        f'## Correct usage\n'
+        f'{schema_to_description(schema_cls)}'
+    )
 
 
 class HelpSchema(BaseModel):
