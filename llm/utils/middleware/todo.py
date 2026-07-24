@@ -14,6 +14,8 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from llm.utils.uid_mapper import BidirectionalMapper
+
 SYSTEM_PROMPT = """## Todo List
 Use the todo tools for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.
 
@@ -208,7 +210,11 @@ def update_todo_state(
             )
         ]
 
-    return Command(update={'todos': updated_todos, 'messages': update_messages})
+    update: dict[str, Any] = {'todos': updated_todos, 'messages': update_messages}
+    if status == 'completed' and 'id_mapper' in runtime.state:
+        update['id_mapper'] = BidirectionalMapper()
+
+    return Command(update=update)
 
 
 @tool('update_todo', parse_docstring=True)
@@ -374,7 +380,7 @@ class TodoMiddleware(AgentMiddleware):
 
         self.todo_inited = False
 
-    def before_agent(self, state: StateT, runtime: Runtime[Any]) -> dict[str, Any] | None:
+    def before_agent(self, state: StateT, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: D102
         return {'msg_to_keep': len(state['messages'])}
 
     def wrap_model_call(  # noqa: D102

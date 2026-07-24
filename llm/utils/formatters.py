@@ -226,7 +226,6 @@ def node_formatter(node: BuildNode) -> str:
     if node.type == 'tool':
         data_obj['data'] = {
             'command': node.command,
-            'tool_uid': node.data.get('tool_uid'),
             'args_editable': node.data.get('modifiable_params'),
         }
     else:

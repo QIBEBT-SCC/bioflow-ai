@@ -169,34 +169,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            writer = get_stream_writer()
-            writer({'info': f'Creating new tool: {validate_param.request}'})
-
-            sub_agent = CreateToolAgent().build()
-            agent_input: CreateToolState = {
-                'messages': [
-                    HumanMessage(
-                        content=f'Create a new tool node named `{validate_param.name}`\n'
-                        f'<Require>\n{validate_param.request}\n</Require>'
-                    )
-                ]
-            }
-            run_id = nanoid.generate(size=8)
-            context = CreateToolContext(
-                user_id=runtime.context.user_id,
-                auto_save=True,
-                skip_search=True,
-                test_run_id=run_id,
-            )
-            response = await sub_agent.ainvoke(agent_input, context=context)  # type: ignore
-
-            return Command(
-                update={
-                    'new_tools': [response['tool_uid']],
-                    'id_mapper': response['id_mapper'],
-                    'messages': [ToolMessage(response['messages'][-1].content, tool_call_id=runtime.tool_call_id)],
-                }
-            )
+            return await _create_tool(validate_param.name, validate_param.request, runtime)
 
         case _:
             return Command(
@@ -209,6 +182,53 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                     ]
                 }
             )
+
+
+async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+    writer = get_stream_writer()
+    writer({'info': f'Creating new tool: {request}'})
+
+    sub_agent = CreateToolAgent().build()
+    agent_input: CreateToolState = {
+        'messages': [HumanMessage(content=f'Create a new tool node named `{name}`\n<Require>\n{request}\n</Require>')]
+    }
+    run_id = nanoid.generate(size=8)
+    context = CreateToolContext(
+        user_id=runtime.context.user_id,
+        auto_save=True,
+        skip_search=True,
+        test_run_id=run_id,
+    )
+    # pyrefly: ignore [no-matching-overload]
+    response = await sub_agent.ainvoke(agent_input, context=context)
+
+    new_mapper = response['id_mapper']
+    exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+    merged_mapper = merge_mappers(exist_mapper, new_mapper)
+    tool_uid = response['tool_uid']
+
+    with Session(engine) as session:
+        db_tool = tool_crud.get(session, tool_uid)
+        if db_tool is None:
+            err_msg = f'Newly created tool with UID {tool_uid} could not be loaded from the database'
+            raise LookupError(err_msg)
+        tool_node = ToolNodePublic.model_validate(db_tool)
+
+    return Command(
+        update={
+            'new_tools': [tool_uid],
+            'id_mapper': merged_mapper,
+            'messages': [
+                ToolMessage(
+                    content=(
+                        'New tool node has been saved to the database for addition to the workflow:\n'
+                        f'{search_nodes_formatter([tool_node], merged_mapper)}'
+                    ),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
