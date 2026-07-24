@@ -26,7 +26,6 @@ from llm.utils.formatters import (
     node_formatter,
     search_nodes_formatter,
 )
-from llm.utils.retrievers import retrieve_tools
 from llm.utils.uid_mapper import BidirectionalMapper, generate_char_index, merge_mappers
 
 # ---- Schemas ----
@@ -36,16 +35,10 @@ class HelpSchema(BaseModel):
     action: str = Field(description='The action name to get detailed schema for')
 
 
-class NameSearchSchema(BaseModel):
+class SearchToolSchema(BaseModel):
     """Search for tool nodes by name."""
 
-    query: str = Field(description='Name of the tool to search for, e.g. `samtools`')
-
-
-class FunctionSearchSchema(BaseModel):
-    """Search for tool nodes by function."""
-
-    query: str = Field(description='Tool functionality to be queried described in natural language')
+    name: str = Field(description='Name of the tool to search for, e.g. `samtools`')
 
 
 class AddToolSchema(BaseModel):
@@ -88,15 +81,14 @@ class CreateToolSchema(BaseModel):
 
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
-    'search_by_name': NameSearchSchema,
-    # 'search_by_function': FunctionSearchSchema,
+    'search': SearchToolSchema,
     'add': AddToolSchema,
     'update_args': UpdateArgsSchema,
     'create': CreateToolSchema,
 }
 
 HELP_MESSAGE = (
-    'Specify the action to inspect, for example: tool_node_manager(action="help", params={"action": "search_by_name"}).'
+    'Specify the action to inspect, for example: tool_node_manager(action="help", params={"action": "search"}).'
 )
 
 
@@ -111,37 +103,21 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     match action:
         case 'help':
             return manager_help_command(params, HelpSchema, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)  # type: ignore
-        case 'search_by_name':
+        case 'search':
             try:
-                validate_param = NameSearchSchema.model_validate(params)
+                validate_param = SearchToolSchema.model_validate(params)
             except ValidationError as e:
                 return Command(
                     update={
                         'messages': [
                             ToolMessage(
-                                content=format_validation_error('search_by_name', e, NameSearchSchema),
+                                content=format_validation_error('search_tool', e, SearchToolSchema),
                                 tool_call_id=runtime.tool_call_id,
                             )
                         ]
                     }
                 )
-            return _search_tool_by_name(validate_param.query, runtime)
-
-        case 'search_by_function':
-            try:
-                validate_param = FunctionSearchSchema.model_validate(params)
-            except ValidationError as e:
-                return Command(
-                    update={
-                        'messages': [
-                            ToolMessage(
-                                content=format_validation_error('search_by_function', e, FunctionSearchSchema),
-                                tool_call_id=runtime.tool_call_id,
-                            )
-                        ]
-                    }
-                )
-            return await _search_tools_by_function(validate_param.query, runtime)
+            return _search_tool(validate_param.name, runtime)
 
         case 'add':
             try:
@@ -241,9 +217,9 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
             )
 
 
-def _search_tool_by_name(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     with Session(engine) as session:
-        exist_tools = tool_crud.get_by_name_fuzzy(session, query, 15, 0)
+        exist_tools = tool_crud.get_by_name_fuzzy(session, name, 15, 0)
         new_mapper = BidirectionalMapper(datas=exist_tools)
 
     if exist_tools:
@@ -277,43 +253,12 @@ def _search_tool_by_name(query: str, runtime: ToolRuntime[ProjectContext]) -> Co
                 ToolMessage(
                     content=(
                         'Based on the keywords you provided, no results found. '
-                        'Consider using new search keywords or use action="create" to create a new tool node.'
+                        'Consider first searching with relatively concise keywords (e.g., STAR), then gradually adding restrictions. '
+                        'If you confirm that the desired tool cannot be found, use action="create" to create a new tool node.'
                     ),
                     tool_call_id=runtime.tool_call_id,
                 )
             ]
-        }
-    )
-
-
-async def _search_tools_by_function(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
-    tool_nodes, new_mapper = await retrieve_tools(query)
-
-    if not tool_nodes:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='Based on your search query, no corresponding results found',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
-
-    exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
-    # pyrefly: ignore [bad-argument-type]
-    merged_mapper = merge_mappers(exist_mapper, new_mapper)
-
-    return Command(
-        update={
-            'id_mapper': merged_mapper,
-            'messages': [
-                ToolMessage(
-                    content=search_nodes_formatter(tool_nodes, merged_mapper),
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
         }
     )
 

@@ -1,6 +1,6 @@
 ---
 name: USING_PYTHON_NODE
-description: Explains when and how to use the executable Python Code Node for a small deterministic file transformation inside the workflow DAG, including its Python 3.13 and Click environment, dependency declarations, named input parameters, and output handling. Consult this skill whenever a workflow step appears to require custom Python, so it is not confused with Bash, a bioinformatics tool node, or downstream scientific analysis.
+description: Workflow-builder guidance for choosing a Python code node, preparing its bindings and request, and connecting its generated outputs
 ---
 
 # Skill: Using the Python Code Node
@@ -16,51 +16,19 @@ The fact that an operation can be implemented in Python is not enough reason to 
 
 The strongest signal for a Python code node is that a later workflow node cannot run until this small transformation produces a file, while implementing it in Bash would be fragile or obscure.
 
-## Runtime Contract
+## Inputs and Request
 
-The node runs a single script with Python 3.13 through uv. The runtime automatically provides Click for CLI parsing. Do not add Click to `dependencies`, write `pyproject.toml`, add PEP 723 metadata, create a virtual environment, or run `pip`, `uv add`, or `uv install`; the backend constructs and resolves the script environment.
+Every upstream file or directory must pass through its own `bind_param` processor node before connecting to the Python
+node's `input_files` handle. Give each binding a descriptive long option such as `--input-json` or
+`--metadata-table`; the coding model implements the matching Click options.
 
-Declare only additional third-party Python distribution requirements in the node's `dependencies` list, for example:
-
-```json
-["pandas>=2.2,<3", "PyYAML>=6,<7"]
-```
-
-Use distribution names rather than import names (`PyYAML`, not `yaml`; `scikit-learn`, not `sklearn`). Prefer the standard library when it keeps the script simple. Do not use URL, Git, local-path, or runtime-installed dependencies.
-
-## Inputs and CLI
-
-Every upstream file or directory must pass through its own `bind_param` processor node before connecting to the Python node's `input_files` handle. Give each binding a descriptive long option such as `--input-json` or `--metadata-table`, and implement the matching option with Click.
-
-Use this structure:
-
-```python
-from pathlib import Path
-
-import click
-
-
-@click.command()
-@click.option(
-    '--input-json',
-    type=click.Path(exists=True, path_type=Path),
-    required=True,
-)
-def main(input_json: Path) -> None:
-    """Transform one upstream result into the required intermediate file."""
-    # Read input_json and perform the bounded transformation.
-    Path('normalized.tsv').write_text('...', encoding='utf-8')
-
-
-if __name__ == '__main__':
-    main()
-```
-
-Keep option names identical across `bind_param.parameter`, the Click decorator, and the script variable. Validate paths with `click.Path`, use `pathlib.Path` for filesystem operations, and provide explicit types for other Click options when needed.
+The workflow-building agent does not write Python. In the node manager's `request`, describe the exact transformation,
+the meaning and expected type of every bound input, every deterministic output file name, and any libraries or format
+rules that are genuinely required. The manager passes the actual binding options to a dedicated coding model.
 
 ## Outputs
 
-The current working directory is the node's writable output directory. Write every result there with a deterministic relative name such as `normalized.tsv`. Do not modify upstream inputs or write beside them.
+The request must require every result to be written under a deterministic plain file name such as `normalized.tsv`.
 
 The Python node outputs `output_folder`, not individual files. Add one `select_file_in_folder` processor for every result that another node must consume, with `file_name` exactly matching the name written by the script.
 
@@ -69,8 +37,10 @@ The Python node outputs `output_folder`, not individual files. Add one `select_f
 1. Decide whether the operation is truly a small Python adapter rather than Bash, a tool node, or downstream analysis.
 2. Determine all inputs and their descriptive Click option names.
 3. Add one `bind_param` node per input.
-4. Write the complete Click-based Python 3.13 script and list only its additional dependencies.
-5. Add the Python code node with all `bind_param` outputs connected to `input_files`.
+4. Describe the exact transformation, deterministic output file names, and any required third-party libraries in the
+   Python code node request. Do not write the script yourself; a dedicated coding model generates it.
+5. Add the Python code node with all `bind_param` outputs connected to `input_files`, then inspect the returned code,
+   including its dependencies and output file names.
 6. Add `select_file_in_folder` nodes for files consumed later in the workflow.
 
 Avoid using this node for a terminal report or plot merely because the code is short. If the output represents the scientific conclusion rather than an intermediate artifact needed by the DAG, use `downstream_summary`.

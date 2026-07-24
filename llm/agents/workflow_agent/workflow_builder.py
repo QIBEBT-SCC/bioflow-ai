@@ -75,7 +75,7 @@ Available actions are already listed below. Do not call `action="help"` with emp
 The interaction targets and available actions for each tool are as follows:
 
 - `tool_node_manager` — tool nodes
-  - `search_by_name`: search for an existing tool node by tool name
+  - `search`: search for an existing tool node by tool name
   - `add`: add a selected tool node to the workflow panel
   - `update_args`: update editable parameters of an existing tool node on the panel
   - `create`: create a new tool node when no existing node meets the requirement
@@ -90,8 +90,8 @@ The interaction targets and available actions for each tool are as follows:
   - `view_processor`: view details of a specific processor node, including inputs, outputs, and parameter format
   - `add_processor`: add a processor node to the workflow panel
 - `other_node_manager` — code nodes, note nodes, and downstream summary nodes
-  - `add_code`: add a custom bash code node to the workflow panel
-  - `add_python_code`: add a simple single-file Python code node to the workflow panel
+  - `add_code`: describe and add a custom Bash code node; a dedicated coding model writes the script
+  - `add_python_code`: describe and add a simple single-file Python code node; a dedicated coding model writes the script
   - `add_note`: add a note node to annotate the workflow panel
   - `add_downstream_summary`: add a downstream summary node for later downstream analysis
 - `workflow_manager` — workflow draft and panel operations
@@ -144,6 +144,7 @@ You will be given a prepared plan along with the user's original task requiremen
 - Workflow execution scope must match the plan: per-sample workflows are `sample_level`; preparatory workflows and aggregation workflows that run once globally are `project_level`.
 - Before using any interactive operation (XX_manager), always first use action="help" with params={"action": "<action_name>"} to clarify the parameter description of the specific operation. **It is forbidden to directly perform an operation without understanding its parameters!**
 - Edges between nodes are directional. Therefore, before adding any node, ensure that all required source nodes for that node already exist on the panel (for example, before adding a comparison tool, the sequence file and reference genome index nodes required by that tool must first be added to the panel).
+- For Bash and Python code nodes, determine the input bindings and deterministic output file names, then describe the required behavior in the action's `request`. Do not write code yourself. After the manager returns the generated node, inspect its code before adding downstream selectors or tools.
 - Node placement rules:
     - When there are no nodes on the current panel, place the newly added node at the center of the panel (x=0, y=0).
     - When there are already nodes on the current panel, place the newly added node to the right (x+1) according to the order of analysis execution, with the y-coordinate aligned with the associated upstream node.

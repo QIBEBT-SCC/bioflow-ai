@@ -1,25 +1,22 @@
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from loguru import logger
 from sqlmodel import Session
 
 import app.crud.resource.bio_db as db_crud
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud
-import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 from app.core.session import engine
 from app.models.resource import BioDb
-from app.models.tools import ImageConfig, ToolGroup, ToolHelpDoc, ToolImage
-from app.schemas.tools import ToolNodePublic
-from app.utils.container import run_command
-from llm.utils.formatters import search_nodes_formatter
-from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
+from app.models.tools import ToolGroup
+
+if TYPE_CHECKING:
+    from llm.utils.uid_mapper import BidirectionalMapper
 
 
 @tool(parse_docstring=True)
@@ -61,7 +58,8 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
         update={
             'messages': [
                 ToolMessage(
-                    content='Based on the keywords you provided, no results found',
+                    content='Based on the keywords you provided, no results found. '
+                    'Consider first searching with relatively concise keywords (e.g., STAR), then gradually adding restrictions.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ]

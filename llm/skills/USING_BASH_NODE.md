@@ -1,6 +1,6 @@
 ---
 name: USING_BASH_NODE
-description: Explains when to use a text-file resource versus a Bash code node, the Linux execution environment and preinstalled commands available to Bash code, and how to safely transform upstream files into explicit workflow outputs
+description: Workflow-builder guidance for choosing a Bash node, preparing its bindings and request, and connecting its generated outputs
 ---
 
 # Skill: Using the Bash node
@@ -28,40 +28,36 @@ Do not use a Bash node for:
 - a systematic downstream statistical analysis, data-mining procedure, or visualization workflow in Python or R; use `downstream_summary` to describe that analysis;
 - invoking Python or R inside Bash. If a deterministic workflow adapter genuinely requires Python and its output feeds another node, use a Python code node; use `downstream_summary` for systematic analysis.
 
-## Execution Environment
+## Available Operations
 
-The node runs its `code` with `/usr/bin/bash` in a Linux environment. Its current working directory is a newly created, writable output directory dedicated to that node invocation. Relative output paths therefore land in the node's output folder. Upstream inputs are not positional: each connected input must first pass through a `bind_param` node, and the runtime appends the bound option and resolved path when invoking the script.
-
-In addition to standard Linux system commands, the environment provides these commands:
+Use Bash only when standard Linux commands or these additional commands express the transformation clearly:
 
 | Command | Best use in a Bash node |
 |---|---|
-| `fd` | Fast recursive file discovery by name, extension, or type. Prefer it over a complicated `find` expression when either is suitable. |
-| `rg` | Fast literal or regular-expression search across one or many text files. Prefer it over recursive `grep`. |
+| `fd` | Fast recursive file discovery by name, extension, or type. |
+| `rg` | Fast literal or regular-expression search across one or many text files. |
 | `jq` | Query, filter, reshape, and format JSON data. |
 | `yq` | Query, filter, modify, and convert YAML data. |
 | `mlr` | Process structured TSV, CSV, and other record-oriented text: select fields, filter rows, sort, join, aggregate, and convert formats. |
 
-Combine them with ordinary shell tools when useful.
+If the operation needs other software, choose a tool node or Python code node as appropriate.
 
-Do not assume that unlisted language runtimes, third-party packages, bioinformatics programs, network access, or package installation are available. If a task depends on one of those capabilities, choose the corresponding workflow node rather than trying to install software inside the Bash script.
+## Designing the Code Node
 
-## Node Descriptions
+To execute native Linux commands, use a Bash code node. The workflow-building agent does not write the script. It
+describes the required transformation in the node manager's `request`, and a dedicated coding model generates the
+complete script.
 
-### Code Node
+The request must state:
 
-To execute native Linux commands, use a Bash code node and put the complete script in its `code` parameter.
+- the exact deterministic transformation to perform;
+- the meaning and expected file or directory type of each bound input;
+- every deterministic output file name that a later workflow node will consume;
+- any important validation, filtering, sorting, formatting, or preservation rules.
 
-Write scripts defensively:
-
-- start with `set -euo pipefail` so command failures, unset variables, and failed pipelines stop the task;
-- parse every bound input with `getopts`; never rely on input order;
-- use a distinct short option for every input and keep it consistent with the corresponding `bind_param.parameter` value, including the leading `-`;
-- quote every path variable, because resolved input paths may contain spaces or shell metacharacters;
-- validate required options and expected file/directory types before processing;
-- write results to the current working directory using deterministic names; do not write beside or modify upstream inputs;
-- send diagnostic messages to stderr and exit non-zero on invalid input;
-- avoid dumping large files to stdout. Filter them directly and redirect the desired result to a named output file.
+Before adding the code node, create one `bind_param` node per input and use a distinct short option for each one. The
+manager reads these bindings and gives their exact option names to the coding model. After the node is returned, inspect
+the generated code before connecting downstream nodes.
 
 ### bind_param Node
 
@@ -89,32 +85,11 @@ Add a `text_file` resource node with `file_name` set to `samples.txt` and `conte
 
 ## Runtime Processing Example
 
-Suppose you need to extract chromosome names and lengths from an upstream `.fai` file. Use this script in the Bash code node:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-fai=''
-
-while getopts ':f:' opt; do
-  case "$opt" in
-    f) fai="$OPTARG" ;;
-    :) echo "Option -$OPTARG requires a value" >&2; exit 2 ;;
-    \?) echo "Unknown option: -$OPTARG" >&2; exit 2 ;;
-  esac
-done
-
-if [[ -z "$fai" || ! -f "$fai" ]]; then
-  echo 'A readable FAI file must be provided with -f' >&2
-  exit 2
-fi
-
-cut -f1,2 "$fai" > chrom_sizes.txt
-```
+Suppose you need to extract chromosome names and lengths from an upstream `.fai` file.
 
 1. In the workflow, add a `bind_param` node and set its `parameter` field to `-f`.
-2. In the workflow, add a bash `code` node and fill in the specific `code` field.
+2. In the workflow, request a Bash code node that extracts the first two tab-separated columns and writes
+   `chrom_sizes.txt`.
 3. In the workflow, add a `select_file_in_folder` node and set its `file_name` field to `chrom_sizes.txt`.
 
 Preceding nodes must be added before the code node. Therefore, first determine the required inputs and their short options, add the corresponding `bind_param` nodes, and then add the Bash code node. Add the `select_file_in_folder` node after it for each result that another node must consume.
