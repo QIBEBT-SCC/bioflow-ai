@@ -135,7 +135,7 @@ PROCESSORS: dict[str, NodeSchema] = {
     },
     'bind_param': {
         'name': 'Bind Parameter',
-        'description': '这个节点的作用是将一个来自其他节点的文件绑定上指定的参数名称供 CODE 节点使用。输出只能够作为code节点的输入。',
+        'description': 'This node binds a file from another node to a specified parameter name for use by the CODE node. Its output can only be used as input for a CODE node.',
         'args': BindParamSchema,
         'input_handles': [Handle(name='file', description='File corresponding to the parameter')],
         'output_handles': [Handle(name='file_with_param', description='Available for code node input')],
