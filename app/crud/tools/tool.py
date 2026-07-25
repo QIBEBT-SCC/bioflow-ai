@@ -1,8 +1,10 @@
 from collections.abc import Sequence
+from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, text
+from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 from starlette.status import HTTP_404_NOT_FOUND
 
@@ -10,6 +12,42 @@ from app.models.tools import ToolDefine
 from app.schemas.tools import DockerToolUpdate
 
 _FUZZY_SIMILARITY_THRESHOLD = 0.1
+_PRIMARY_TERM_SIMILARITY_THRESHOLD = 0.3
+
+
+def _name_search_expressions(
+    name: str,
+) -> tuple[ColumnElement[bool], tuple[Any, ...]]:
+    """Build relevance filtering and ordering for a tool-name query.
+
+    The first whitespace-delimited term is treated as the likely tool name. This
+    keeps qualifiers useful for tie-breaking without allowing them to overwhelm
+    a slightly misspelled tool name (for example, ``RTAR RNA-seq``).
+    """
+    normalized_name = ' '.join(name.split())
+    primary_term = normalized_name.split(maxsplit=1)[0] if normalized_name else ''
+    lower_name = func.lower(ToolDefine.name)
+    full_similarity = func.similarity(ToolDefine.name, normalized_name)
+    primary_similarity = func.word_similarity(primary_term, ToolDefine.name)
+
+    match_priority = case(
+        (lower_name == normalized_name.casefold(), 4),
+        (lower_name.startswith(normalized_name.casefold(), autoescape=True), 3),
+        (lower_name == primary_term.casefold(), 2),
+        (lower_name.startswith(primary_term.casefold(), autoescape=True), 1),
+        else_=0,
+    )
+    predicate = or_(
+        full_similarity > _FUZZY_SIMILARITY_THRESHOLD,
+        primary_similarity > _PRIMARY_TERM_SIMILARITY_THRESHOLD,
+    )
+    ordering = (
+        match_priority.desc(),
+        primary_similarity.desc(),
+        full_similarity.desc(),
+        col(ToolDefine.name),
+    )
+    return predicate, ordering
 
 
 def _get_update_data(tool_update: DockerToolUpdate) -> dict[str, object]:
@@ -135,21 +173,24 @@ def get_all_by_image(session: Session, image_uid: str) -> Sequence[ToolDefine]:
 
 
 def get_all_by_uid(session: Session, uids: list[str]) -> Sequence[ToolDefine]:
-    """Return all tools whose UIDs are in the given list."""
+    """Return tools in the same relevance order as the requested UIDs."""
+    if not uids:
+        return []
+
     stmt = (
-        select(ToolDefine)
-        .where(col(ToolDefine.uid).in_(uids))
-        .options(selectinload(ToolDefine.tags))  # type: ignore
+        select(ToolDefine).where(col(ToolDefine.uid).in_(uids)).options(selectinload(ToolDefine.tags))  # type: ignore
     )
-    return session.exec(stmt).all()
+    tools_by_uid = {str(tool.uid): tool for tool in session.exec(stmt).all()}
+    return [tools_by_uid[uid] for uid in dict.fromkeys(uids) if uid in tools_by_uid]
 
 
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> Sequence[ToolDefine]:
-    """Return tools whose names are similar to the given string, ordered by similarity."""
+    """Return tools ordered by exact, prefix, primary-term, and full-query relevance."""
+    predicate, ordering = _name_search_expressions(name)
     stmt = (
         select(ToolDefine)
-        .where(func.similarity(ToolDefine.name, name) > _FUZZY_SIMILARITY_THRESHOLD)
-        .order_by(func.similarity(ToolDefine.name, name).desc())
+        .where(predicate)
+        .order_by(*ordering)
         .options(selectinload(ToolDefine.tags))  # type: ignore
         .offset(offset)
         .limit(limit)
@@ -160,19 +201,14 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> S
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolDefine], int]:
     """Return a page of fuzzy-matched tools together with the total match count."""
-    count_stmt = (
-        select(func.count())
-        .select_from(ToolDefine)
-        .where(func.similarity(ToolDefine.name, name) > _FUZZY_SIMILARITY_THRESHOLD)
-    )
+    predicate, _ordering = _name_search_expressions(name)
+    count_stmt = select(func.count()).select_from(ToolDefine).where(predicate)
     return get_by_name_fuzzy(session, name, limit, offset), session.exec(count_stmt).one()
 
 
 def get(session: Session, tool_uid: str) -> ToolDefine | None:
     """Return a tool by its UID."""
     stmt = (
-        select(ToolDefine)
-        .where(ToolDefine.uid == tool_uid)
-        .options(selectinload(ToolDefine.tags))  # type: ignore
+        select(ToolDefine).where(ToolDefine.uid == tool_uid).options(selectinload(ToolDefine.tags))  # type: ignore
     )
     return session.exec(stmt).one_or_none()
