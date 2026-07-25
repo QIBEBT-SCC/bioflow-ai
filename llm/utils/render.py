@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 from langgraph.types import CustomStreamPart, MessagesStreamPart, UpdatesStreamPart
 from rich.console import Console
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.pretty import Pretty
 from rich.text import Text
@@ -12,20 +13,25 @@ if TYPE_CHECKING:
 
 TOOL_CONTENT_PREVIEW = 200
 REASONING_CONTENT_PREVIEW = 200
+SUBGRAPH_INDENT = 4
 
 
 def print_stream_chunk(
     console: Console,
     chunk: UpdatesStreamPart | MessagesStreamPart | CustomStreamPart,
 ) -> None:
-    """Rend LangGraph stream chunk as rich Panel."""
+    """Render a LangGraph stream chunk as a Rich panel."""
+    namespace = chunk.get('ns', ())
+
     if chunk['type'] == 'custom':
-        console.print(
+        _print_panel(
+            console,
             Panel(
                 Pretty(chunk['data']),
                 # title='[bold yellow]🔔 Custom Event[/bold yellow]',
                 border_style='yellow',
-            )
+            ),
+            namespace,
         )
         return
 
@@ -58,30 +64,40 @@ def print_stream_chunk(
                     body.append_text(_format_tool_calls(last_msg.tool_calls))
 
                 if body:
-                    console.print(
+                    _print_panel(
+                        console,
                         Panel(
                             body,
                             title=f'[bold {color}]LLM: {model_name}[/bold {color}]',
                             border_style=color,
-                        )
+                        ),
+                        namespace,
                     )
 
         if tools_updates:
-            _render_tools_update(console, tools_updates)
+            _render_tools_update(console, tools_updates, namespace)
 
         if middleware_data:
             for key, value in middleware_data.items():
                 if '.' in key:
-                    console.print(
+                    _print_panel(
+                        console,
                         Panel(
                             Pretty(value),
                             title=f'Middleware: {key}',
                             border_style='grey50',
-                        )
+                        ),
+                        namespace,
                     )
 
 
-def _render_tools_update(console: Console, tools_state: dict[str, Any]) -> None:
+def _print_panel(console: Console, panel: Panel, namespace: tuple[str, ...]) -> None:
+    """Print a panel indented according to its subgraph depth."""
+    indent = len(namespace) * SUBGRAPH_INDENT
+    console.print(Padding(panel, (0, 0, 0, indent)) if indent else panel)
+
+
+def _render_tools_update(console: Console, tools_state: dict[str, Any], namespace: tuple[str, ...]) -> None:
     """Render tool output."""
     tool_msg: ToolMessage = tools_state['messages'][0]
     other_keys = [k for k in tools_state if k != 'messages']
@@ -97,12 +113,14 @@ def _render_tools_update(console: Console, tools_state: dict[str, Any]) -> None:
         style='dim' if not other_keys else '',
     )
 
-    console.print(
+    _print_panel(
+        console,
         Panel(
             body,
             title=f'[bold green]Tool: {tool_name}[/bold green]',
             border_style='green',
-        )
+        ),
+        namespace,
     )
 
 
