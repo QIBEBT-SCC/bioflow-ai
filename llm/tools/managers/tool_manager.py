@@ -7,7 +7,6 @@ from langchain_core.tools import tool
 from langgraph.config import get_stream_writer
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
-from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 
@@ -84,6 +83,10 @@ VALID_OPERATES: dict[str, type[BaseModel] | None] = {
 HELP_MESSAGE = (
     'Specify the action to inspect, for example: tool_node_manager(action="help", params={"action": "search"}).'
 )
+
+
+class InvalidToolDefinitionError(RuntimeError):
+    """Raised when a stored tool cannot be converted into a workflow node."""
 
 
 @tool(parse_docstring=True)
@@ -243,8 +246,9 @@ def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
         for exist_tool in exist_tools:
             try:
                 tool_nodes.append(ToolNodePublic.model_validate(exist_tool))
-            except TypeError:
-                logger.warning(f'Failed to parse tool "{exist_tool.name}"({exist_tool.uid})')
+            except Exception as error:
+                msg = f'Invalid tool definition "{exist_tool.name}" ({exist_tool.uid}): {error}'
+                raise InvalidToolDefinitionError(msg) from error
 
         return Command(
             update={
