@@ -13,12 +13,12 @@ from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
-from llm.utils.edge_validation import check_edge_handles
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import PROCESSORS
 from llm.utils.retrievers import retrieve_processor
 from llm.utils.uid_mapper import generate_char_index
-from llm.workflow_builder.validation import validate_node_addition
+from llm.workflow_builder.validation import validate_node_addition, check_edge_handles
+
 
 # ---- Schemas ----
 

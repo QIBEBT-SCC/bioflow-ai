@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
-from llm.utils.edge_validation import check_orphan_edges
+from llm.workflow_builder.validation import check_orphan_edges
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
 from llm.workflow_builder.drafts import (

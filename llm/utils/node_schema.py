@@ -322,7 +322,7 @@ RESOURCES: dict[str, NodeSchema] = {
 }
 
 # Import edge check functions at the end to avoid circular imports
-from llm.utils.edge_validation import check_ncbi_genome_edges, check_processor_edges  # noqa: E402
+from llm.workflow_builder.validation import check_processor_edges, check_ncbi_genome_edges  # noqa: I001, E402
 
 # Add edge_check to all processor nodes
 for processor_name in PROCESSORS:  # noqa: PLC0206

@@ -15,7 +15,7 @@ from llm.prebuild.code_node import (
     generate_python_code,
 )
 from llm.states import BuildEdge, BuildNode
-from llm.utils.edge_validation import check_code_node_edges, check_edge_handles
+from llm.workflow_builder.validation import check_edge_handles, check_code_node_edges
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
 

@@ -18,7 +18,7 @@ from llm.agents.tool_agent import CreateToolAgent
 from llm.context import CreateToolContext, ProjectContext
 from llm.prebuild.chains import check_update_args
 from llm.states import BuildEdge, BuildNode, CreateToolState
-from llm.utils.edge_validation import check_edge_handles, check_tool_node_edges
+from llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 from llm.utils.formatters import (
     format_validation_error,
     manager_help_command,
