@@ -134,13 +134,13 @@ def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
 async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
     import uuid
 
-    from sqlmodel import Session, col, select
+    from sqlalchemy import select
+    from sqlmodel import Session
 
     import app.crud.workflow as wf_crud
     import app.services.project_workflow as proj_wf_service
     from app.core.session import engine
-    from app.models.project import ProjectWorkflow
-    from app.models.workflow import Workflow
+    from app.models.workflow import ProjectWorkflow, Workflow
     from llm.vectorstores import MilvusVectorStore
 
     cursor = con.execute(
@@ -151,7 +151,7 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
     generated_workflow_uids = set(_parse_workflow_uids(row['workflow_uid'] if row else None))
 
     with Session(engine) as session:
-        project_workflow_uids = session.exec(
+        project_workflow_uids = session.scalars(
             select(ProjectWorkflow.workflow_uid).where(ProjectWorkflow.project_id == project_id)
         ).all()
 
@@ -160,11 +160,12 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
                 continue
             proj_wf_service.remove_workflow_from_project(session, project_id, workflow_uid)
 
-        existing_generated_workflow_uids = session.exec(
-            select(Workflow.uid).where(col(Workflow.uid).in_([uuid.UUID(uid) for uid in generated_workflow_uids]))
+        existing_generated_workflow_uids = session.scalars(
+            select(Workflow.uid).where(Workflow.uid.in_([uuid.UUID(uid) for uid in generated_workflow_uids]))
         ).all()
         for workflow_uid in existing_generated_workflow_uids:
             wf_crud.delete(session, str(workflow_uid))
+        session.commit()
 
     vectorstore = MilvusVectorStore(
         collection_name='WorkflowCollection',
@@ -194,8 +195,9 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
 
 async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
     """Remove evaluate-generated project contents while retaining the project itself."""
-    from sqlalchemy import delete
-    from sqlmodel import Session, col, select
+    from sqlalchemy import delete, select
+    from sqlmodel import Session, col
+    from sqlmodel import select as sm_select
 
     from app.core.session import engine
     from app.models.project import ProjectFileMapping
@@ -205,21 +207,21 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
     await _clean_project_workflows(con, thread_id, project_id)
 
     with Session(engine) as session:
-        run_instance_uids = session.exec(select(RunInstance.uid).where(col(RunInstance.project_id) == project_id)).all()
+        run_instance_uids = session.scalars(select(RunInstance.uid).where(RunInstance.project_id == project_id)).all()
         if run_instance_uids:
-            task_instance_uids = session.exec(
-                select(TaskInstance.uid).where(col(TaskInstance.instance_uid).in_(run_instance_uids))
+            task_instance_uids = session.scalars(
+                select(TaskInstance.uid).where(TaskInstance.instance_uid.in_(run_instance_uids))
             ).all()
             if task_instance_uids:
-                session.exec(delete(TaskMonitor).where(col(TaskMonitor.task_uid).in_(task_instance_uids)))
-            session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid).in_(run_instance_uids)))
-            session.exec(delete(RunInstance).where(col(RunInstance.uid).in_(run_instance_uids)))
+                session.execute(delete(TaskMonitor).where(TaskMonitor.task_uid.in_(task_instance_uids)))
+            session.execute(delete(TaskInstance).where(TaskInstance.instance_uid.in_(run_instance_uids)))
+            session.execute(delete(RunInstance).where(RunInstance.uid.in_(run_instance_uids)))
 
-        sample_uids = session.exec(select(Sample.uid).where(Sample.project_id == project_id)).all()
+        sample_uids = session.exec(sm_select(Sample.uid).where(Sample.project_id == project_id)).all()
         if sample_uids:
             session.exec(delete(SampleFiles).where(col(SampleFiles.sample_uid).in_(sample_uids)))
-        session.exec(delete(Sample).where(Sample.project_id == project_id))
-        session.exec(delete(ProjectFileMapping).where(ProjectFileMapping.project_id == project_id))
+        session.exec(delete(Sample).where(col(Sample.project_id) == project_id))
+        session.exec(delete(ProjectFileMapping).where(col(ProjectFileMapping.project_id) == project_id))
         session.commit()
 
     project_path = _get_project_path(project_id)
@@ -563,6 +565,7 @@ def _send_run_task(
     from sqlmodel import Session
 
     import app.crud.project_workflow as proj_wf_crud
+    import app.services.project_workflow as proj_wf_service
     from app.core.session import engine
     from app.models.user import User  # noqa: F401
 
@@ -585,10 +588,10 @@ def _send_run_task(
     with Session(engine) as session:
         for uid in result.workflow_uids:
             workflow_uid = uuid.UUID(uid)
-            if proj_wf_crud.is_workflow_in_project(session, project_id, workflow_uid):
+            if proj_wf_crud.exists(session, project_id, workflow_uid):
                 logger.info(f'Workflow {workflow_uid} is already imported into project {project_id}; skipping.')
                 continue
-            proj_wf_crud.add_workflow_to_project(session, project_id, workflow_uid)
+            proj_wf_service.add_workflow_to_project(session, project_id, workflow_uid)
 
 
 async def wf_eval(

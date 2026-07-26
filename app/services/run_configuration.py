@@ -1,21 +1,18 @@
 """Resolve execution options for new and repeated workflow runs."""
 
 from collections.abc import Iterable
-from typing import Protocol
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.workflow import TaskInstance
 
 AUTO_SUMMARY_TASK_NAME = 'upstream_summary'
-
-
-class TaskWithName(Protocol):
-    """Minimal task shape needed to recover a previous run option."""
-
-    name: str
 
 
 def resolve_auto_summary(
     *,
     requested: bool | None,
-    previous_tasks: Iterable[TaskWithName] | None,
+    previous_tasks: Iterable['TaskInstance'] | None,
     workflow_default: bool,
 ) -> bool:
     """Resolve auto-summary without losing the previous run's explicit choice.

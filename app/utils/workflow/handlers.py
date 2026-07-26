@@ -10,8 +10,9 @@ import nanoid
 from celery import Signature
 
 import app.crud.tools.tool as tool_crud
-from app.models.workflow import Status, TaskInstance
+from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode
+from app.schemas.workflow_config import Status
 from app.tasks.archive_operation import compress_task, decompress_task
 from app.tasks.code import bash_task, python_task
 from app.tasks.file_operation import (

@@ -2,7 +2,7 @@ from typing import Literal
 
 from celery import Task
 
-from app.models.workflow import ToolOutput
+from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask
 from script.worker import celery_app
 

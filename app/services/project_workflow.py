@@ -4,67 +4,151 @@ import io
 import uuid
 import zipfile
 from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 from anyio import Path as AsyncPath
-from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete
-from sqlmodel import Session, col, select
-from starlette.status import HTTP_404_NOT_FOUND
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 from app.crud import project_workflow as project_workflow_crud
 from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
-from app.models.workflow import ExecutionScope, RunInstance, TaskInstance, TaskMonitor
+from app.models.workflow import ProjectWorkflow, RunInstance, TaskInstance, TaskMonitor
+from app.schemas.project_workflow import ProjectWorkflowPublic
+from app.schemas.workflow_config import ExecutionScope
 
 _AGENTS_MD = Path(__file__).parents[2] / 'presets' / 'download_resources' / 'Agent.md'
 _PACKAGE_SUBDIR_MAP = {'summary': 'summary', 'downstream': 'raw_data'}
+_WORKFLOW_NOT_FOUND = 'Workflow not found'
+_WORKFLOW_CONFLICT = 'Workflow already exists in this project'
+_PROJECT_WORKFLOW_NOT_FOUND = 'Workflow not found in this project'
+_RUN_NOT_FOUND = 'No run instance exists for this workflow'
+
+
+class ProjectWorkflowError(Exception):
+    """Base exception for project-workflow application services."""
+
+
+class ProjectWorkflowNotFoundError(ProjectWorkflowError):
+    """A requested workflow or project association does not exist."""
+
+
+class ProjectWorkflowConflictError(ProjectWorkflowError):
+    """A workflow is already associated with the project."""
+
+
+@contextmanager
+def _committing(session: Session) -> Generator[None, None, None]:
+    """Commit a service transaction or roll it back on failure."""
+    try:
+        yield
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+
+def add_workflow_to_project(
+    session: Session,
+    project_id: int,
+    workflow_uid: uuid.UUID,
+) -> ProjectWorkflowPublic:
+    """Associate an existing workflow template with a project."""
+    workflow = wf_crud.get(session, workflow_uid)
+    if workflow is None:
+        raise ProjectWorkflowNotFoundError(_WORKFLOW_NOT_FOUND)
+    if project_workflow_crud.exists(session, project_id, workflow_uid):
+        raise ProjectWorkflowConflictError(_WORKFLOW_CONFLICT)
+
+    with _committing(session):
+        association = project_workflow_crud.insert(
+            session,
+            ProjectWorkflow(project_id=project_id, workflow_uid=workflow_uid),
+        )
+
+    return ProjectWorkflowPublic(
+        workflow_uid=workflow.uid,
+        workflow_name=workflow.name,
+        execution_scope=workflow.execution_scope,
+        import_time=association.import_time,
+        enabled=association.enabled,
+        auto_summary=workflow.auto_summary,
+    )
+
+
+def list_project_workflows(
+    session: Session,
+    project_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[ProjectWorkflowPublic]:
+    """Return workflow templates imported into a project."""
+    return [
+        ProjectWorkflowPublic(
+            workflow_uid=association.workflow_uid,
+            workflow_name=workflow.name,
+            execution_scope=workflow.execution_scope,
+            import_time=association.import_time,
+            enabled=association.enabled,
+            auto_summary=workflow.auto_summary,
+        )
+        for association, workflow in project_workflow_crud.list_with_workflows(
+            session,
+            project_id,
+            limit,
+            offset,
+        )
+    ]
 
 
 def remove_workflow_from_project(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
     """Remove a workflow from a project and clean up its run data."""
-    if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
+    if not project_workflow_crud.exists(session, project_id, workflow_uid):
+        raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
 
-    _delete_workflow_runs(session, project_id, workflow_uid)
-    project_workflow_crud.remove_workflow_from_project(session, project_id, workflow_uid)
+    with _committing(session):
+        _delete_workflow_runs(session, project_id, workflow_uid)
+        project_workflow_crud.delete(session, project_id, workflow_uid)
 
 
 def _delete_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
     """Delete run instances and dependent task data for a project workflow."""
-    run_instance_uids = session.exec(
+    run_instance_uids = session.scalars(
         select(RunInstance.uid).where(
-            col(RunInstance.project_id) == project_id,
-            col(RunInstance.workflow_uid) == workflow_uid,
+            RunInstance.project_id == project_id,
+            RunInstance.workflow_uid == workflow_uid,
         )
     ).all()
 
     if not run_instance_uids:
         return
 
-    task_instance_uids = session.exec(
-        select(TaskInstance.uid).where(col(TaskInstance.instance_uid).in_(run_instance_uids))
+    task_instance_uids = session.scalars(
+        select(TaskInstance.uid).where(TaskInstance.instance_uid.in_(run_instance_uids))
     ).all()
 
     if task_instance_uids:
-        session.exec(delete(TaskMonitor).where(col(TaskMonitor.task_uid).in_(task_instance_uids)))
+        session.execute(delete(TaskMonitor).where(TaskMonitor.task_uid.in_(task_instance_uids)))
 
-    session.exec(delete(TaskInstance).where(col(TaskInstance.instance_uid).in_(run_instance_uids)))
-    session.exec(delete(RunInstance).where(col(RunInstance.uid).in_(run_instance_uids)))
+    session.execute(delete(TaskInstance).where(TaskInstance.instance_uid.in_(run_instance_uids)))
+    session.execute(delete(RunInstance).where(RunInstance.uid.in_(run_instance_uids)))
 
 
 async def package_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.UUID) -> StreamingResponse:
     """Build a zip response for all run outputs of a project workflow."""
-    if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
+    if not project_workflow_crud.exists(session, project_id, workflow_uid):
+        raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
 
-    workflow = wf_crud.get(session, workflow_uid)  # type: ignore
+    workflow = wf_crud.get(session, workflow_uid)
+    if workflow is None:
+        raise ProjectWorkflowNotFoundError(_WORKFLOW_NOT_FOUND)
     runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
 
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
         if not runs:
-            raise HTTPException(HTTP_404_NOT_FOUND, 'No exist run instance for this workflow!')
+            raise ProjectWorkflowNotFoundError(_RUN_NOT_FOUND)
         run_dirs = [Path(runs[0].base_dir)] if runs[0].base_dir and await AsyncPath(runs[0].base_dir).exists() else []
         zip_iter = _iter_project_level_zip(run_dirs)
     else:

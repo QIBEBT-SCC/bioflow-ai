@@ -1,7 +1,7 @@
 """Serialization helpers for workflow-builder state."""
 
-from app.models.workflow import ExecutionScope
 from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
+from app.schemas.workflow_config import ExecutionScope
 from llm.states import BuildEdge, BuildNode
 from llm.workflow_builder.drafts import WorkflowScope
 

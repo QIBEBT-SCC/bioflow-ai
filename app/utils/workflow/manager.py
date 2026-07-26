@@ -6,7 +6,7 @@ Responsible for batch creating and managing workflow run instances.
 import shutil
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import HTTPException
 from loguru import logger
@@ -20,8 +20,9 @@ from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
 from app.models.user import User
-from app.models.workflow import ExecutionScope, RunInstance, Status
+from app.models.workflow import RunInstance
 from app.schemas.project_workflow import WorkflowRunResult
+from app.schemas.workflow_config import ExecutionScope, Status
 from app.services import runtime_status
 from app.services.run_configuration import resolve_auto_summary
 from app.utils.input_format import to_safe_path_segment
@@ -68,7 +69,7 @@ def create_runs_from_samples(
         HTTPException: Project, workflow, or sample not found
     """
     # Get project
-    project = proj_crud.get(session, current_user.id, project_id)
+    project = proj_crud.get(session, cast('int', current_user.id), project_id)
     if not project:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
 
@@ -84,9 +85,7 @@ def create_runs_from_samples(
 
     existing_runs: dict[uuid.UUID, RunInstance | None] = {}
     for sample in samples:
-        existing_run = run_crud.get_latest_run_by_sample_and_workflow(
-            session, sample.uid, workflow_uid
-        )
+        existing_run = run_crud.get_latest_run_by_sample_and_workflow(session, sample.uid, workflow_uid)
         if existing_run is not None:
             runtime_status.refresh_run_status(existing_run)
             if existing_run.status == Status.RUNNING:
@@ -167,7 +166,7 @@ def create_runs_from_samples(
             sample.uid,
             sample.sample_name,
             current_user,
-            run.base_dir,
+            str(base_dir),
             run.uid,
             auto_summary=effective_auto_summary,
             summary_prompt=summary_prompt,
@@ -206,7 +205,7 @@ def create_project_level_run(
         HTTPException: Project or workflow not found, or workflow is not project-level
     """
     # Get project
-    project = proj_crud.get(session, current_user.id, project_id)
+    project = proj_crud.get(session, cast('int', current_user.id), project_id)
     if not project:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
 
@@ -294,7 +293,7 @@ def create_project_level_run(
         None,
         None,
         current_user,
-        run.base_dir,
+        str(base_dir),
         run.uid,
         auto_summary=effective_auto_summary,
         summary_prompt=summary_prompt,

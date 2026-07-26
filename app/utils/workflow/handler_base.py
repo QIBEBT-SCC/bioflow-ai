@@ -12,10 +12,10 @@ from celery import Signature
 from loguru import logger
 from sqlmodel import Session
 
-import app.crud.task_instance as task_crud
 from app.models.user import User
 from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode
+from app.services import workflow_runtime
 
 
 @dataclass
@@ -143,7 +143,7 @@ class BaseTaskHandler(ABC):
         """
         # 创建数据库记录
         task_instance = self.create_task_instance(task_node, context)
-        task_crud.insert(context.session, task_instance)
+        workflow_runtime.create_task(context.session, task_instance)
 
         # 创建 Celery 任务
         celery_task = self.create_celery_task(task_node, context)

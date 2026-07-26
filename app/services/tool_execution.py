@@ -9,8 +9,8 @@ from typing import Any
 
 from loguru import logger
 
-from app.models.workflow import ToolOutput
 from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine
+from app.schemas.workflow_config import ToolOutput
 from app.services.output_validation import all_output_paths_exist, missing_output_paths
 from app.utils.container import ContainerMount, run_command, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template

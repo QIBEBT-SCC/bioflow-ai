@@ -3,22 +3,28 @@ from datetime import datetime
 
 from pydantic import UUID7, BaseModel, ConfigDict
 
-from app.models.workflow import Status, ToolOutput
 from app.schemas.user import UserPublic
+from app.schemas.workflow_config import Status, ToolOutput
 
 
 class RunInfo4Task(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: UUID7
     name: str
 
 
 class ToolInfo4Task(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
     description: str
 
 
 class SimpleTaskPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: UUID7
     name: str
     owner: UserPublic
@@ -32,6 +38,8 @@ class SimpleTaskPublic(BaseModel):
 
 
 class TaskPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     uid: UUID7
     name: str
     owner: UserPublic

@@ -8,6 +8,9 @@ from sqlmodel import Session, SQLModel
 
 from app.core.config import get_settings
 from app.models import Base
+from app.models.project import Project
+from app.models.resource import Sample
+from app.models.user import User
 
 settings = get_settings().persistent
 
@@ -25,6 +28,14 @@ engine = create_engine(
 @logger.catch
 def create_db_and_tables() -> None:
     """初始化数据库."""
+    # Native workflow tables reference these legacy SQLModel tables. Create only
+    # the prerequisite parents first, then all native tables, then the remaining
+    # SQLModel registry.
+    SQLModel.metadata.create_all(
+        engine,
+        # pyrefly: ignore [missing-attribute]
+        tables=[User.__table__, Project.__table__, Sample.__table__],
+    )
     Base.metadata.create_all(engine)
     SQLModel.metadata.create_all(engine)
 

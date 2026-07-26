@@ -9,10 +9,10 @@ import app.crud.resource.reference_genome as genome_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.resource import ReferenceGenomes
-from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.resource import GenomeUpdate
 from app.schemas.tool_config import ImageConfig
+from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.api.ncbi_datasets import (
     NCBIAssemblyDataReport,

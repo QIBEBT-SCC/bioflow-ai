@@ -10,9 +10,9 @@ import tomli_w
 from celery import Task
 from loguru import logger
 
-from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.tool_config import ImageConfig
+from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
 from app.utils.container import ContainerMount, run_command
 from script.worker import celery_app

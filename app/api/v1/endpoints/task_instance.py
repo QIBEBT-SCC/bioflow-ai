@@ -15,8 +15,8 @@ import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
-from app.models.workflow import Status, ToolOutput
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic
+from app.schemas.workflow_config import Status, ToolOutput
 from app.services import runtime_status
 from app.utils.security import UserDep
 
@@ -36,7 +36,7 @@ def get_all_tasks(
     # pyrefly: ignore [bad-argument-type, bad-return]
     tasks = task_crud.get_all(session, limit, offset, current_user.id)
     runtime_status.refresh_task_statuses(tasks)
-    return tasks
+    return [SimpleTaskPublic.model_validate(task) for task in tasks]
 
 
 @router.get('/count')
@@ -52,21 +52,24 @@ def get_by_time(hour: int, session: SessionDep, current_user: UserDep) -> list[S
     # pyrefly: ignore [bad-argument-type, bad-return]
     tasks = task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
     runtime_status.refresh_task_statuses(tasks)
-    return tasks
+    return [SimpleTaskPublic.model_validate(task) for task in tasks]
 
 
 @router.get('/{uid}')
 def get_task_instance(uid: str, session: SessionDep) -> TaskPublic:
     """Get a task instance by its UID."""
-    # pyrefly: ignore [bad-return]
     task = task_crud.get(session, uid)
-    return runtime_status.refresh_task_status(task)
+    if task is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task not found')
+    return TaskPublic.model_validate(runtime_status.refresh_task_status(task))
 
 
 @router.get('/{uid}/result')
 def get_task_result(uid: str, session: SessionDep) -> ToolOutput:
     """Get the tool output result of a task instance."""
     task = task_crud.get(session, uid)
+    if task is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task not found')
     if task.tool_output is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task has no output')
     return task.tool_output
@@ -99,6 +102,8 @@ async def get_monitor_log(
 def get_task_log(uid: str, session: SessionDep) -> dict:
     """Get the text log file content for a task instance."""
     task = task_crud.get(session, uid)
+    if task is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task not found')
     if task.tool_output is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task has no output')
 
@@ -135,6 +140,8 @@ async def _stream_task_log(uid: str, session: Session, request: Request) -> Asyn
         if log_path is None:
             session.expire_all()
             task = task_crud.get(session, uid)
+            if task is None:
+                break
             db_status = task.status
             if task.tool_output and hasattr(task.tool_output, 'log') and task.tool_output.log:
                 log_path = Path(task.tool_output.log)
@@ -176,6 +183,8 @@ async def stream_task_log(
     _current_user: UserDep,
 ) -> StreamingResponse:
     """Stream task log content as SSE, sending only new lines on each tick."""
+    if task_crud.get(session, uid) is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Task not found')
     return StreamingResponse(
         _stream_task_log(uid, session, request),
         media_type='text/event-stream',

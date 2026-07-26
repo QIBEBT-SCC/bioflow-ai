@@ -4,10 +4,10 @@ from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.workflow import Status
 from app.schemas.common import Statistics
 from app.schemas.react_flow import Edge, WorkflowDefinition
 from app.schemas.user import UserPublic
+from app.schemas.workflow_config import Status
 
 
 class RunData(BaseModel):
@@ -136,6 +136,25 @@ class RunUpdate(BaseModel):
 
     start_time: datetime | None = None
     end_time: datetime | None = None
+
+
+class RunRecord(BaseModel):
+    """Column-level projection used by the editor run-creation endpoint."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+    name: str
+    owner_id: int
+    project_id: int | None
+    workflow_uid: uuid.UUID | None
+    sample_uid: uuid.UUID | None
+    base_dir: str | None
+    workflow: WorkflowDefinition
+    status: Status
+    create_time: datetime | None
+    start_time: datetime | None
+    end_time: datetime | None
 
 
 class OutputFileItem(BaseModel):

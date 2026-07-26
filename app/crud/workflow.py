@@ -1,46 +1,49 @@
-from sqlalchemy import func
-from sqlmodel import Session, or_, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 from app.models.workflow import Workflow
 from app.schemas.workflow import WorkflowUpdate
+from app.utils.identifiers import UUIDLike, as_uuid
 
 
 def insert(session: Session, workflow: Workflow) -> Workflow:
     """Insert a new workflow into the database."""
     session.add(workflow)
-    session.commit()
+    session.flush()
     session.refresh(workflow)
-
     return workflow
 
 
-def update(session: Session, uid: str, data: WorkflowUpdate) -> Workflow:
+def update(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Workflow | None:
     """Update an existing workflow with new data."""
     db_flow = get(session, uid)
+    if db_flow is None:
+        return None
 
     if data.name is not None:
         db_flow.name = data.name
     if data.workflow is not None:
         db_flow.workflow = data.workflow
     session.add(db_flow)
-    session.commit()
+    session.flush()
     session.refresh(db_flow)
-
     return db_flow
 
 
-def delete(session: Session, uid: str) -> None:
+def delete(session: Session, uid: UUIDLike) -> bool:
     """Delete a workflow by its uid."""
     db_flow = get(session, uid)
+    if db_flow is None:
+        return False
     session.delete(db_flow)
-    session.commit()
+    session.flush()
+    return True
 
 
 def workflow_name_exists(session: Session, name: str) -> bool:
     """Return True if a workflow with the given name already exists."""
     statement = select(Workflow).where(Workflow.name == name)
-    result = session.exec(statement).first()
-    return result is not None
+    return session.scalar(statement) is not None
 
 
 def get_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[list[dict], int]:
@@ -54,15 +57,15 @@ def get_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[l
     )
     count_stmt = select(func.count()).select_from(Workflow).where(condition)
 
-    result = session.exec(page_stmt).all()
+    result = session.execute(page_stmt).all()
     data = [
         {'uid': uid, 'name': name, 'description': description, 'execution_scope': execution_scope}
         for uid, name, description, execution_scope in result
     ]
-    return data, session.exec(count_stmt).one()
+    return data, session.scalar(count_stmt) or 0
 
 
-def get(session: Session, wf_uid: str) -> Workflow:
+def get(session: Session, wf_uid: UUIDLike) -> Workflow | None:
     """Return a workflow by its uid."""
-    statement = select(Workflow).where(Workflow.uid == wf_uid)
-    return session.exec(statement).one()
+    statement = select(Workflow).where(Workflow.uid == as_uuid(wf_uid))
+    return session.scalar(statement)

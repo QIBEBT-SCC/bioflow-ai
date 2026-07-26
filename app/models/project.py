@@ -71,9 +71,6 @@ class Project(SQLModel, table=True):
     file_mappings: list['ProjectFileMapping'] = Relationship(
         back_populates='project', cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True}
     )
-    workflows: list['ProjectWorkflow'] = Relationship(
-        back_populates='project', cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True}
-    )
 
 
 class ProjectFileMapping(SQLModel, table=True):
@@ -92,16 +89,3 @@ class ProjectFileMapping(SQLModel, table=True):
     update_time: datetime = Field(default_factory=utc_now)
 
     project: Optional['Project'] = Relationship(back_populates='file_mappings')
-
-
-class ProjectWorkflow(SQLModel, table=True):
-    """项目和工作流模板的关联表."""
-
-    __tablename__ = 'project_workflows'
-
-    project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
-    workflow_uid: uuid.UUID = Field(foreign_key='workflows.uid', primary_key=True, ondelete='CASCADE')
-    import_time: datetime = Field(default_factory=utc_now)
-    enabled: bool = Field(default=True, description='是否启用该工作流')
-
-    project: Optional['Project'] = Relationship(back_populates='workflows')

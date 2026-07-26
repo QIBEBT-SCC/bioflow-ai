@@ -10,9 +10,9 @@ import app.crud.resource.bio_db as db_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.resource import BioDb
-from app.models.workflow import ToolOutput
 from app.schemas.task_instance import TaskUpdate
 from app.schemas.tool_config import ImageConfig
+from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, update_task
 from app.utils.container import ContainerMount, run_command
 from app.utils.input_format import to_safe_path_segment

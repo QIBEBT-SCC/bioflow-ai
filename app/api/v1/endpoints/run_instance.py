@@ -12,16 +12,17 @@ from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 import app.crud.run_instance as run_crud
 from app.core.session import SessionDep
-from app.models.workflow import RunInstance, Status
 from app.schemas.common import Paginated, Statistics
 from app.schemas.run_instance import (
     FileContentRequest,
     OutputFileNode,
     RunDetailPublic,
     RunPublic,
+    RunRecord,
     RunUpdate,
 )
-from app.services import runtime_status
+from app.schemas.workflow_config import Status
+from app.services import runtime_status, workflow_runtime
 from app.utils.file_browser import build_file_tree, serve_file
 from app.utils.security import UserDep
 
@@ -66,15 +67,20 @@ def get_run_stats(session: SessionDep, current_user: UserDep) -> Statistics:
 
 
 @router.patch('/{uid}')
-def update_workflow(uid: str, run_update: RunUpdate, session: SessionDep) -> RunInstance:
+def update_workflow(uid: str, run_update: RunUpdate, session: SessionDep) -> RunRecord:
     """Update a run instance's status or metadata."""
-    return run_crud.update(session, uid, run_update)
+    try:
+        return RunRecord.model_validate(workflow_runtime.update_run(session, uid, run_update))
+    except workflow_runtime.WorkflowRuntimeNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
 
 
 @router.get('/{uid}')
 async def get_run(uid: str, session: SessionDep, _current_user: UserDep) -> RunDetailPublic:
     """获取单个运行实例, 返回 workflow 图结构并注入运行状态."""
     run = run_crud.get(session, uid)
+    if run is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found')
     stats = runtime_status.refresh_run_status(run)
     run_detail = RunDetailPublic.model_validate(run)
     run_detail.task_statistics = stats
@@ -97,6 +103,8 @@ async def _stream_run_updates(
         session.expire_all()  # Force fresh DB read each iteration
 
         run = run_crud.get(session, uid)
+        if run is None:
+            break
         stats = runtime_status.refresh_run_status(run)
         run_data = RunDetailPublic.model_validate(run)
         run_data.task_statistics = stats
@@ -117,6 +125,8 @@ async def stream_run(
     _current_user: UserDep,
 ) -> StreamingResponse:
     """Stream run status updates via SSE until the run reaches a terminal state."""
+    if run_crud.get(session, uid) is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found')
     return StreamingResponse(
         _stream_run_updates(uid, session, request),
         media_type='text/event-stream',

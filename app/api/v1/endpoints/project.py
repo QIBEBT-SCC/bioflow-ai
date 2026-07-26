@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, cast
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
+from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 from app.core.config import get_settings
 from app.core.session import SessionDep
@@ -22,7 +22,6 @@ from app.models.project import (
     ProjectTag,
 )
 from app.models.resource import Sample, SampleFiles
-from app.models.workflow import ExecutionScope
 from app.schemas.common import Paginated, Statistics
 from app.schemas.project import (
     ProjectCreateProp,
@@ -51,6 +50,7 @@ from app.schemas.resource import (
     SampleUpdate,
 )
 from app.schemas.run_instance import SimpleRunPublic
+from app.schemas.workflow_config import ExecutionScope
 from app.services import project_workflow as project_workflow_service
 from app.services import runtime_status
 from app.utils.security import UserDep
@@ -430,15 +430,16 @@ async def add_workflow_to_project(
     Returns:
         ProjectWorkflowPublic: The added workflow information.
     """
-    project_workflow_crud.add_workflow_to_project(session, project_id, workflow_add.workflow_uid)
-
-    # Return workflow information
-    workflows = project_workflow_crud.get_project_workflows(session, project_id, limit=1000)
-    for wf in workflows:
-        if wf.workflow_uid == workflow_add.workflow_uid:
-            return wf
-
-    raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
+    try:
+        return project_workflow_service.add_workflow_to_project(
+            session,
+            project_id,
+            workflow_add.workflow_uid,
+        )
+    except project_workflow_service.ProjectWorkflowNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
+    except project_workflow_service.ProjectWorkflowConflictError as error:
+        raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
 
 
 @router.get('/{project_id}/workflows')
@@ -459,7 +460,7 @@ async def get_project_workflows(
     Returns:
         list[ProjectWorkflowPublic]: List of workflows.
     """
-    return project_workflow_crud.get_project_workflows(session, project_id, limit, offset)
+    return project_workflow_service.list_project_workflows(session, project_id, limit, offset)
 
 
 @router.delete('/{project_id}/workflows/{workflow_uid}')
@@ -478,7 +479,10 @@ async def remove_workflow_from_project(
     Returns:
         Success message.
     """
-    project_workflow_service.remove_workflow_from_project(session, project_id, workflow_uid)
+    try:
+        project_workflow_service.remove_workflow_from_project(session, project_id, workflow_uid)
+    except project_workflow_service.ProjectWorkflowNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
     return {'message': 'Workflow removed successfully'}
 
 
@@ -504,7 +508,7 @@ async def run_workflow_on_samples(
         WorkflowRunResult: Contains the list of created run instance UIDs.
     """
     # Check if workflow is in the project
-    if not project_workflow_crud.is_workflow_in_project(session, project_id, workflow_uid):
+    if not project_workflow_crud.exists(session, project_id, workflow_uid):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
 
     # Get workflow to determine execution scope
@@ -566,7 +570,10 @@ async def package_workflow_runs(
     Returns:
         StreamingResponse: A zip file containing all run output directories.
     """
-    return await project_workflow_service.package_workflow_runs(session, project_id, workflow_uid)
+    try:
+        return await project_workflow_service.package_workflow_runs(session, project_id, workflow_uid)
+    except project_workflow_service.ProjectWorkflowNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
 
 
 @router.get('/{project_id}/runs')

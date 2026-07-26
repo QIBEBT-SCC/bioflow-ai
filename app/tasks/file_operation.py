@@ -11,8 +11,9 @@ from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample
-from app.models.workflow import RunInstance, ToolOutput
+from app.models.workflow import RunInstance
 from app.schemas.react_flow import TaskInput
+from app.schemas.workflow_config import ToolOutput
 from app.services.output_validation import output_path_exists
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
 from app.utils.input_format import to_safe_path_segment
@@ -281,9 +282,7 @@ def collect_sample_marks_task(
     with Session(engine) as session:
         sample_files = sample_crud.get_dynamic_files_by_tags(session, project_id, normalized_names)
         samples = list(
-            session.exec(
-                select(Sample).where(Sample.project_id == project_id).order_by(col(Sample.sample_name))
-            ).all()
+            session.exec(select(Sample).where(Sample.project_id == project_id).order_by(col(Sample.sample_name))).all()
         )
 
     found = {(str(sample_file.sample_uid), sample_file.tag) for sample_file, _ in sample_files}
@@ -329,9 +328,7 @@ def collect_sample_marks_task(
                 'mark_name': sample_file.tag,
                 'description': sample_file.description,
                 'workflow_uid': (
-                    str(sample_file.producer_workflow_uid)
-                    if sample_file.producer_workflow_uid is not None
-                    else None
+                    str(sample_file.producer_workflow_uid) if sample_file.producer_workflow_uid is not None else None
                 ),
                 'run_uid': str(sample_file.producer_run_uid) if sample_file.producer_run_uid is not None else None,
                 'kind': 'directory' if source_path.is_dir() else 'file',
