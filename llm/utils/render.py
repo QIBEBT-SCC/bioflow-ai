@@ -79,7 +79,7 @@ def print_stream_chunk(
 
         if middleware_data:
             for key, value in middleware_data.items():
-                if '.' in key:
+                if '.' in key and 'before_agent' not in key:
                     _print_panel(
                         console,
                         Panel(
