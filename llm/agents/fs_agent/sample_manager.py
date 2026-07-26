@@ -86,7 +86,12 @@ Do not list individual file paths. Focus only on what downstream workflows can r
 ## Principles
 ### Directory exploration
 - `base_dir` is mounted as `/app/data` inside the container. Always use `/app/data` as the root path in shell commands — never use the host-side `base_dir` path directly.
-- Do not inspect every file individually. Samples in the same batch typically share the same metadata; spot-check a few representative files to confirm, then apply uniformly.
+- Do not inspect every file independently when a batch contains many files with the same role and expected structure.
+  Spot-check representative files across that batch, then apply the confirmed shared characteristics uniformly.
+- This batch-level sampling rule does not mean sampling only the first few records of one execution-critical
+  structured reference or metadata file. When a bounded one-pass command can summarize the complete file cheaply,
+  prefer a streaming whole-file profile so that rare malformed or incompatible records are not hidden by a head-only
+  inspection.
 
 ### Sample naming
 - Derive sample names from actual filenames or subdirectory names — do not invent arbitrary names.
@@ -96,6 +101,21 @@ Do not list individual file paths. Focus only on what downstream workflows can r
 ### Sample description
 - File descriptions must state not only the file's biological or analytical role, but also any verified physical or structural characteristics that may affect whether downstream tools can consume it directly.
 - Explicitly note execution-relevant details such as compression or archive/container format, the actual data format when it differs from or is more specific than the filename extension, and material tabular properties such as header presence, delimiter, column count/schema, or deviations from a common format.
+- Characterize files according to their content role and how downstream tools will consume them, rather than relying
+  only on the filename extension.
+- For structured, semi-structured, tabular, record-oriented, list, manifest, or configuration-like text inputs,
+  select only the checks relevant to that file's role. Such inputs include, but are not limited to, GTF, GFF, BED,
+  VCF, CSV, TSV, TXT, mapping files, sample sheets, count tables, reference lists, and configuration files.
+- Relevant objective characteristics may include compression and encoding; delimiter, comment, header, and blank-line
+  conventions; consistency of record shape or field counts; malformed, truncated, empty, or exceptional records;
+  identifier, category, coordinate, or sequence-name domains; duplicate or missing identifiers when uniqueness
+  matters; references to other files or resources; and compatibility facts between related inputs when downstream
+  tools require shared identifiers, sequence names, sample names, coordinate systems, or other keys.
+- These are possible observations, not a universal checklist. Do not assume that every text file is tabular, do not
+  impose format-specific rules solely from its suffix, and do not run checks that are unrelated to the file's
+  downstream role.
+- For large files, report compact aggregate facts and exceptional cases from streaming commands; do not reproduce the
+  full content in descriptions or conclusions.
 - Describe these characteristics objectively without deciding whether preprocessing or special handling is required. For example, state that a GTF is gzip-compressed or that an annotation has 9 or 11 columns; leave compatibility assessment and preprocessing decisions to downstream workflow-building agents.
 - Apply this rule to the `description` passed to `add_project_file` and to file descriptions in the conclusion. Include only details confirmed from filenames, metadata, or representative inspection that could affect downstream tool selection or processing decisions; do not speculate or produce an exhaustive file profile.
 
