@@ -9,7 +9,7 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from llm.context import ProjectContext
-from llm.models import get_agent_model
+from llm.models import get_long_context_model
 from llm.states import BuildState
 from llm.tools.human import ask_human
 from llm.tools.managers import (
@@ -169,7 +169,7 @@ async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
     )
 
 
-BUILDER_LLM = get_agent_model()
+BUILDER_LLM = get_long_context_model()
 metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
 
 WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work', 'ask_human'}
@@ -205,7 +205,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
     if checkpointer:
         # pyrefly: ignore [no-matching-overload]
         return create_agent(
-            get_agent_model(),
+            BUILDER_LLM,
             [
                 tool_node_manager,
                 resource_node_manager,
@@ -242,7 +242,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         )
     # pyrefly: ignore [no-matching-overload]
     return create_agent(
-        get_agent_model(),
+        BUILDER_LLM,
         [
             tool_node_manager,
             resource_node_manager,
