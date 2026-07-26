@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Column, UniqueConstraint
+from sqlalchemy import BigInteger, Column, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.user import User  # noqa: TC001
+from app.models.user import User
 from app.utils.system import random_uid, utc_now
 
 
@@ -15,13 +16,13 @@ class Sample(SQLModel, table=True):
     __table_args__ = (UniqueConstraint('project_id', 'sample_name', name='uq_sample_project_name'),)
 
     uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
-    owner_id: int = Field(foreign_key='users.id')
+    owner_id: int = Field(sa_column=Column(ForeignKey(User.__table__.c.id), nullable=False))
     project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
     sample_name: str
     meta_data: dict[str, str] = Field(sa_column=Column(JSONB), default_factory=dict)
     create_time: datetime = Field(default_factory=utc_now)
 
-    owner: Optional['User'] = Relationship()
+    owner: Optional['User'] = Relationship(sa_relationship=relationship(User))
     sample_files: list['SampleFiles'] = Relationship(back_populates='sample', cascade_delete=True)
 
 

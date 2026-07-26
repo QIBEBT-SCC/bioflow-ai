@@ -2,11 +2,12 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import UniqueConstraint, func
+from sqlalchemy import Column, ForeignKey, UniqueConstraint, func
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel, select
 
-from app.models.user import User  # noqa: TC001
+from app.models.user import User
 from app.utils.system import utc_now
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ class ProjectStar(SQLModel, table=True):
     __tablename__ = 'project_star'
 
     project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
-    user_id: int = Field(foreign_key='users.id')
+    user_id: int = Field(sa_column=Column(ForeignKey(User.__table__.c.id), nullable=False))
 
 
 class ProjectTag(SQLModel, table=True):
@@ -58,7 +59,7 @@ class Project(SQLModel, table=True):
     __tablename__ = 'projects'
 
     id: int = Field(default=None, primary_key=True)
-    owner_id: int = Field(foreign_key='users.id')
+    owner_id: int = Field(sa_column=Column(ForeignKey(User.__table__.c.id), nullable=False))
     name: str
     description: str = Field(default='')
     public: bool = Field(default=True)
@@ -66,7 +67,7 @@ class Project(SQLModel, table=True):
     update_time: datetime = Field(default_factory=utc_now)
 
     tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
-    owner: Optional['User'] = Relationship()
+    owner: Optional['User'] = Relationship(sa_relationship=relationship(User))
     samples: list['Sample'] = Relationship(cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True})
     file_mappings: list['ProjectFileMapping'] = Relationship(
         back_populates='project', cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True}

@@ -1,9 +1,9 @@
 from collections.abc import Generator
-from typing import Annotated, TypeAlias
+from typing import Annotated, TypeAlias, cast
 
 from fastapi import Depends
 from loguru import logger
-from sqlalchemy import MetaData, create_engine
+from sqlalchemy import MetaData, Table, create_engine
 from sqlmodel import Session, SQLModel
 
 from app.core.config import get_settings
@@ -28,13 +28,18 @@ engine = create_engine(
 @logger.catch
 def create_db_and_tables() -> None:
     """初始化数据库."""
-    # Native workflow tables reference these legacy SQLModel tables. Create only
-    # the prerequisite parents first, then all native tables, then the remaining
-    # SQLModel registry.
+    # Create the native user table first because legacy SQLModel tables reference
+    # it. Native workflow tables in turn reference legacy projects and samples.
+    user_table = cast('Table', User.__table__)
+    user_table.create(engine, checkfirst=True)
     SQLModel.metadata.create_all(
         engine,
-        # pyrefly: ignore [missing-attribute]
-        tables=[User.__table__, Project.__table__, Sample.__table__],
+        tables=[
+            # pyrefly: ignore [missing-attribute]
+            Project.__table__,
+            # pyrefly: ignore [missing-attribute]
+            Sample.__table__,
+        ],
     )
     Base.metadata.create_all(engine)
     SQLModel.metadata.create_all(engine)

@@ -75,6 +75,7 @@ def get_summary(
             func.sum(LLMStatistic.price).label('total_price'),
         )
         .join(LLMModel, col(LLMStatistic.model_id) == LLMModel.id, isouter=True)
+        # pyrefly: ignore [bad-argument-type]
         .group_by(LLMModel.id, LLMModel.display_name, LLMModel.name)
     )
     # pyrefly: ignore [bad-argument-type]
@@ -101,7 +102,7 @@ def get_summary(
     # 按 user 分组统计
     by_user_statement = (
         sa_select(
-            col(User.username).label('user_name'),
+            User.username.label('user_name'),
             func.count(col(LLMStatistic.id)).label('count'),
             func.sum(col(LLMStatistic.input_tokens)).label('total_input_tokens'),
             func.sum(col(LLMStatistic.output_tokens)).label('total_output_tokens'),

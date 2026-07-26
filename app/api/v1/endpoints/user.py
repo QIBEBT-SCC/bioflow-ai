@@ -1,10 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
+from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.crud import user as user_crud
-from app.models.user import User, UserRole
 from app.schemas.user import RoleUpdate, UserCreate, UserDetail, UserPublic, UserUpdate
-from app.utils.security import AdminDep, get_password_hash
+from app.services import user as user_service
+from app.utils.security import AdminDep
 
 router = APIRouter()
 
@@ -12,17 +13,11 @@ router = APIRouter()
 @router.post('')
 def new_user(user_create: UserCreate, session: SessionDep) -> UserPublic:
     """Create a new user account."""
-    user = User(
-        email=user_create.email,
-        username=user_create.username,
-        hashed_password=get_password_hash(user_create.password.get_secret_value()),
-        is_active=True,
-        role=UserRole.VISITOR,
-    )
-
-    user_crud.insert(session, user)
-    # pyrefly: ignore [bad-return]
-    return user
+    try:
+        user = user_service.create_user(session, user_create)
+    except user_service.UserAlreadyExistsError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='User already exists') from error
+    return UserPublic.model_validate(user)
 
 
 @router.get('')
@@ -32,8 +27,17 @@ def list_users(session: SessionDep, _admin: AdminDep) -> list[UserDetail]:
 
 
 @router.patch('/{user_id}/role')
-def update_user_role(user_id: int, body: RoleUpdate, session: SessionDep, _admin: AdminDep) -> UserPublic:
+async def update_user_role(
+    user_id: int,
+    body: RoleUpdate,
+    session: SessionDep,
+    redis: RedisDep,
+    _admin: AdminDep,
+) -> UserPublic:
     """Change the role of any user. Requires admin permission."""
-    update_data = UserUpdate(role=body.role)
-    # pyrefly: ignore [bad-return]
-    return user_crud.update(session, user_id, update_data)
+    try:
+        user = user_service.update_user(session, user_id, UserUpdate(role=body.role))
+    except user_service.UserNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found') from error
+    await user_service.invalidate_user_cache(redis, user.email)
+    return UserPublic.model_validate(user)

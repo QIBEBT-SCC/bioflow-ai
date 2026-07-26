@@ -1,7 +1,7 @@
 import shutil
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -55,9 +55,6 @@ from app.services import project_workflow as project_workflow_service
 from app.services import runtime_status
 from app.utils.security import UserDep
 from app.utils.workflow import create_project_level_run, create_runs_from_samples
-
-if TYPE_CHECKING:
-    from app.models.user import User
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -529,7 +526,7 @@ async def run_workflow_on_samples(
             session,
             project_id,
             workflow_uid,
-            cast('User', current_user),
+            current_user,
             run_request.run_name_prefix,
             auto_summary=run_request.auto_summary,
             summary_prompt=workflow.summary_prompt,
@@ -547,7 +544,7 @@ async def run_workflow_on_samples(
         project_id,
         workflow_uid,
         run_request.sample_uids,
-        cast('User', current_user),
+        current_user,
         run_request.run_name_prefix,
         auto_summary=run_request.auto_summary,
         summary_prompt=workflow.summary_prompt,

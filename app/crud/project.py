@@ -17,7 +17,7 @@ def _to_project_public(project: Project, *, starred: bool) -> ProjectPublic:
     project_dict['starred'] = starred
     project_dict['tags'] = project.tags
     if project.owner:
-        project_dict['owner'] = UserPublic.model_validate(project.owner.model_dump())
+        project_dict['owner'] = UserPublic.model_validate(project.owner)
     return ProjectPublic.model_validate(project_dict)
 
 
@@ -124,6 +124,7 @@ def get_all_star(
     """Return a paginated list of projects starred by the user."""
     statement = (
         select(Project)
+        # pyrefly: ignore [bad-argument-type]
         .join(ProjectStar, ProjectStar.project_id == Project.id)
         .where(ProjectStar.user_id == user_id)
         .options(selectinload(Project.tags), selectinload(Project.owner))  # type: ignore

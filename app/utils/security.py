@@ -1,8 +1,7 @@
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, TypeAlias, cast
+from typing import Annotated, Any, TypeAlias
 
-import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -15,10 +14,10 @@ from app.core.config import get_settings
 from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.crud import user as user_crud
-from app.models.user import User, UserRole
 from app.schemas.user import CurrentUser
+from app.schemas.user_config import UserRole
+from app.services.user import USER_CACHE_TTL_SECONDS
 
-_USER_CACHE_TTL = 300
 config = get_settings().security
 
 
@@ -33,21 +32,6 @@ async def get_token_from_header_or_cookie(
     if header_token:
         return header_token
     return request.cookies.get('access_token')
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password by comparing plain text with bcrypt hashed password."""
-    password_byte = plain_password.encode('utf-8')
-    hashed_password_byte = hashed_password.encode('utf-8')
-    return bcrypt.checkpw(password=password_byte, hashed_password=hashed_password_byte)
-
-
-def get_password_hash(password: str) -> str:
-    """Generate bcrypt hash for the given password."""
-    pwd_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hash_bytes = bcrypt.hashpw(password=pwd_bytes, salt=salt)
-    return hash_bytes.decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -105,21 +89,11 @@ async def validate_and_rotate_refresh_token(redis: Redis, token: str) -> tuple[s
     return sub, jti
 
 
-def authenticate_user(session: SessionDep, email: str, password: str) -> User | None:
-    """Authenticate user by email and password. Returns User if valid, None otherwise."""
-    user = user_crud.get(session, email)
-    if not user:
-        return None
-    if not verify_password(password, user.hashed_password):
-        return None
-    return user
-
-
 async def get_current_user(
     token: Annotated[str | None, Depends(get_token_from_header_or_cookie)],
     session: SessionDep,
     redis: RedisDep,
-) -> User:
+) -> CurrentUser:
     """Validate JWT token and return corresponding user from database. Caches user in Redis."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -130,10 +104,11 @@ async def get_current_user(
         raise credentials_exception
     try:
         payload = jwt.decode(token, config.SECRET_KEY.get_secret_value(), algorithms=[config.ALGORITHM])
-        email: str = payload.get('sub')
+        email_claim = payload.get('sub')
         jti: str | None = payload.get('jti')
-        if email is None:
+        if not isinstance(email_claim, str):
             raise credentials_exception
+        email = email_claim
     except InvalidTokenError as e:
         raise credentials_exception from e
 
@@ -147,20 +122,21 @@ async def get_current_user(
     cache_key = f'user-cache:{email}'
     cached = await redis.get(cache_key)
     if cached:
-        return User.model_validate_json(cached)
+        return CurrentUser.model_validate_json(cached)
 
     user = user_crud.get(session, email)
     if user is None:
         raise credentials_exception
-    await redis.set(cache_key, user.model_dump_json(), ex=_USER_CACHE_TTL)
-    return user
+    projection = CurrentUser.model_validate(user)
+    await redis.set(cache_key, projection.model_dump_json(), ex=USER_CACHE_TTL_SECONDS)
+    return projection
 
 
-async def get_current_active_user(current_user: Annotated[User, Depends(get_current_user)]) -> CurrentUser:
+async def get_current_active_user(current_user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
     """Ensure current user is active, raise 400 if inactive."""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail='Inactive user')
-    return cast('CurrentUser', current_user)
+    return current_user
 
 
 def require_role(required_role: UserRole) -> Callable[..., Coroutine[Any, Any, CurrentUser]]:

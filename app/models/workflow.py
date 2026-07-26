@@ -21,8 +21,7 @@ class Workflow(Base):
 
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     name: Mapped[str]
-    # pyrefly: ignore [missing-attribute]
-    owner_id: Mapped[int] = mapped_column(ForeignKey(User.__table__.c.id))
+    owner_id: Mapped[int] = mapped_column(ForeignKey(User.id))
     description: Mapped[str]
     wf_type: Mapped[WorkflowType] = mapped_column(IntEnumType(WorkflowType), nullable=False)
     execution_scope: Mapped[ExecutionScope] = mapped_column(
@@ -65,8 +64,7 @@ class RunInstance(Base):
 
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     name: Mapped[str]
-    # pyrefly: ignore [missing-attribute]
-    owner_id: Mapped[int] = mapped_column(ForeignKey(User.__table__.c.id))
+    owner_id: Mapped[int] = mapped_column(ForeignKey(User.id))
 
     # 项目关联 (可选, 调试模式下为 None)
     # pyrefly: ignore [missing-attribute]
@@ -106,8 +104,7 @@ class TaskInstance(Base):
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     name: Mapped[str]
     instance_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(RunInstance.uid, ondelete='CASCADE'))
-    # pyrefly: ignore [missing-attribute]
-    owner_id: Mapped[int] = mapped_column(ForeignKey(User.__table__.c.id))
+    owner_id: Mapped[int] = mapped_column(ForeignKey(User.id))
 
     # 工具任务才有
     tool_uid: Mapped[Optional[uuid.UUID]] = mapped_column(

@@ -1,24 +1,20 @@
-from enum import IntEnum
-from typing import Optional
+from sqlalchemy.orm import Mapped, mapped_column
 
-from sqlalchemy import Column
-from sqlmodel import Field, SQLModel
-
+from app.models.base import Base
 from app.models.decorator.special_field import IntEnumType
+from app.schemas.user_config import UserRole as _UserRole
 
 
-class UserRole(IntEnum):
-    VISITOR = 0
-    MEMBER = 1
-    ADMIN = 2
-
-
-class User(SQLModel, table=True):
+class User(Base):
     __tablename__ = 'users'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    username: str = Field(default='')
-    email: str = Field(unique=True)
-    role: UserRole = Field(default=UserRole.VISITOR, sa_column=Column(IntEnumType(UserRole), nullable=False))
-    hashed_password: str
-    is_active: bool = Field(default=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(default='')
+    email: Mapped[str] = mapped_column(unique=True)
+    role: Mapped[_UserRole] = mapped_column(
+        IntEnumType(_UserRole),
+        default=_UserRole.VISITOR,
+        nullable=False,
+    )
+    hashed_password: Mapped[str]
+    is_active: Mapped[bool] = mapped_column(default=True)

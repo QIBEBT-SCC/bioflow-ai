@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import Annotated
 
 from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
@@ -18,9 +18,6 @@ from app.services import workflow_catalog, workflow_runtime
 from app.utils.input_format import to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
-
-if TYPE_CHECKING:
-    from app.models.user import User
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
@@ -84,7 +81,7 @@ async def run_workflow(
         None,
         None,
         None,
-        cast('User', current_user),
+        current_user,
         f'{base_dir}',
         run.uid,
     )

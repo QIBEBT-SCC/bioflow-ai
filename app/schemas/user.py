@@ -1,9 +1,8 @@
 from decimal import Decimal
-from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, SecretStr
 
-from app.models.user import UserRole
+from app.schemas.user_config import UserRole
 
 
 class UserCreate(BaseModel):
@@ -12,7 +11,11 @@ class UserCreate(BaseModel):
     password: SecretStr
 
 
-class CurrentUser(Protocol):
+class CurrentUser(BaseModel):
+    """Serializable authenticated-user projection stored in the Redis cache."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     email: str
@@ -45,6 +48,8 @@ class PasswordUpdate(BaseModel):
 
 
 class UserDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     email: str

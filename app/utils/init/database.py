@@ -63,26 +63,30 @@ async def init_preset_database_records(
 
 async def init_admin() -> AdminInitResult:
     """当 User 表为空时, 创建默认管理员账户."""
-    from sqlmodel import Session, select
+    from pydantic import SecretStr
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
 
-    import app.crud.user as user_crud
     from app.core.session import engine
-    from app.models.user import User, UserRole
-    from app.utils.security import get_password_hash
+    from app.models.user import User
+    from app.schemas.user import UserCreate
+    from app.schemas.user_config import UserRole
+    from app.services import user as user_service
 
     with Session(engine) as session:
-        existing = session.exec(select(User)).first()
+        existing = session.scalar(select(User))
         if existing is not None:
             return AdminInitResult(created=False)
 
-        admin = User(
-            username='admin',
-            email='admin@email.com',
+        user_service.create_user(
+            session,
+            UserCreate(
+                username='admin',
+                email='admin@email.com',
+                password=SecretStr('admin'),
+            ),
             role=UserRole.ADMIN,
-            hashed_password=get_password_hash('admin'),
-            is_active=True,
         )
-        user_crud.insert(session, admin)
         return AdminInitResult(created=True)
 
 

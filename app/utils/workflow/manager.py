@@ -6,7 +6,7 @@ Responsible for batch creating and managing workflow run instances.
 import shutil
 import uuid
 from pathlib import Path
-from typing import Optional, cast
+from typing import Optional
 
 from fastapi import HTTPException
 from loguru import logger
@@ -19,9 +19,9 @@ from app.crud import project as proj_crud
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
-from app.models.user import User
 from app.models.workflow import RunInstance
 from app.schemas.project_workflow import WorkflowRunResult
+from app.schemas.user import CurrentUser
 from app.schemas.workflow_config import ExecutionScope, Status
 from app.services import runtime_status
 from app.services.run_configuration import resolve_auto_summary
@@ -44,7 +44,7 @@ def create_runs_from_samples(
     project_id: int,
     workflow_uid: uuid.UUID,
     sample_uids: list[uuid.UUID],
-    current_user: User,
+    current_user: CurrentUser,
     run_name_prefix: Optional[str] = None,
     *,
     auto_summary: bool | None = None,
@@ -69,7 +69,7 @@ def create_runs_from_samples(
         HTTPException: Project, workflow, or sample not found
     """
     # Get project
-    project = proj_crud.get(session, cast('int', current_user.id), project_id)
+    project = proj_crud.get(session, current_user.id, project_id)
     if not project:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
 
@@ -181,7 +181,7 @@ def create_project_level_run(
     session: Session,
     project_id: int,
     workflow_uid: uuid.UUID,
-    current_user: User,
+    current_user: CurrentUser,
     run_name_prefix: Optional[str] = None,
     *,
     auto_summary: bool | None = None,
@@ -205,7 +205,7 @@ def create_project_level_run(
         HTTPException: Project or workflow not found, or workflow is not project-level
     """
     # Get project
-    project = proj_crud.get(session, cast('int', current_user.id), project_id)
+    project = proj_crud.get(session, current_user.id, project_id)
     if not project:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
 

@@ -1,6 +1,7 @@
 from app.models.base import Base
 from app.models.document import ParentDocument
 from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag, ToolTagLink
+from app.models.user import User
 from app.models.workflow import ProjectWorkflow, RunInstance, TaskInstance, TaskMonitor, Workflow
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     'ToolImage',
     'ToolTag',
     'ToolTagLink',
+    'User',
     'Workflow',
 ]

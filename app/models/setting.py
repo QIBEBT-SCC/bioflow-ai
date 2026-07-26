@@ -3,9 +3,11 @@ from decimal import Decimal
 from enum import Enum, StrEnum
 from typing import Optional
 
+from sqlalchemy import Column, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.user import User  # noqa: TC001
+from app.models.user import User
 from app.utils.system import utc_now
 
 
@@ -129,7 +131,10 @@ class LLMStatistic(SQLModel, table=True):
     agent_name: str
     model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
     setting_key: Optional[str] = Field(default=None)
-    user_id: Optional[int] = Field(default=None, foreign_key='users.id')
+    user_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(ForeignKey(User.__table__.c.id), nullable=True),
+    )
     thread: Optional[str] = Field(default=None)
 
     input_tokens: int
@@ -140,4 +145,4 @@ class LLMStatistic(SQLModel, table=True):
     time: Optional[datetime] = Field(default_factory=utc_now)
 
     model: Optional['LLMModel'] = Relationship()
-    user: Optional['User'] = Relationship()
+    user: Optional['User'] = Relationship(sa_relationship=relationship(User))

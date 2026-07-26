@@ -12,9 +12,9 @@ from celery import Signature
 from loguru import logger
 from sqlmodel import Session
 
-from app.models.user import User
 from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode
+from app.schemas.user import CurrentUser
 from app.services import workflow_runtime
 
 
@@ -23,10 +23,10 @@ class TaskContext:
     """任务处理上下文, 封装处理器需要的所有共享数据."""
 
     session: Session
-    project_id: int
+    project_id: int | None
     sample_uid: uuid.UUID | None
     sample_name: str | None
-    owner: User
+    owner: CurrentUser
 
     output_base: str
     run_uid: uuid.UUID
