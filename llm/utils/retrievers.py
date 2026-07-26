@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import UUID
 
 from langchain_core.documents import Document
@@ -10,7 +11,7 @@ from app.core.session import engine
 from app.models.document import ParentDocument
 from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
-from llm.utils.uid_mapper import BidirectionalMapper
+from llm.utils.uid_mapper import BidirectionalMapper, HasUid
 from llm.vectorstores import MilvusVectorStore
 
 
@@ -146,7 +147,7 @@ async def retrieve_tools(
 
     with Session(engine) as session:
         exist_tools = list(tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results]))
-        mappers = BidirectionalMapper(datas=exist_tools)
+        mappers = BidirectionalMapper(datas=cast('list[HasUid]', exist_tools))
 
     tool_nodes = [ToolNodePublic.model_validate(exist_tool) for exist_tool in exist_tools]
 

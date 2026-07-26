@@ -6,8 +6,8 @@ from itertools import takewhile
 from pathlib import Path
 from typing import Optional
 
-from app.models.tools import FileMount, ParamDefine
 from app.schemas.react_flow import TaskNode
+from app.schemas.tool_config import FileMount, ParamDefine
 
 
 class PartialFormatter(string.Formatter):
@@ -30,17 +30,17 @@ def build_command_template(
     position_params: list[ParamDefine] = sorted(
         [param for param in dynamic_params if param.is_position], key=lambda x: x.index
     )
-    dynamic_params = [param.command for param in dynamic_params if not param.is_position]
+    dynamic_commands = [param.command for param in dynamic_params if not param.is_position]
 
-    immutable_static_params = immutable_static_params if immutable_static_params else ''
-    modifiable_static_params = modifiable_static_params if modifiable_static_params else ''
+    immutable_static_params = immutable_static_params or ''
+    modifiable_static_params = modifiable_static_params or ''
     static_params = f'{immutable_static_params} {modifiable_static_params}'.strip()
 
     formatter = PartialFormatter()
     command_template = formatter.format(
         command_template,
         position_params=' '.join([param.command for param in position_params]),
-        dynamic_params=' '.join(dynamic_params),
+        dynamic_params=' '.join(dynamic_commands),
         static_params=static_params,
     )
     final_template = formatter.format(
@@ -99,7 +99,7 @@ def to_safe_path_segment(text: str, fallback: str = 'untitled', max_bytes: int =
     if text is None:
         text = ''
 
-    s = unicodedata.normalize('NFKC', str(text))  # 量把全角/兼容字符收敛
+    s = unicodedata.normalize('NFKC', text)  # 量把全角/兼容字符收敛
     s = s.lower()  # 转小写
     s = re.sub(r'\s+', '-', s)  # 空白折叠为 -
     s = re.sub(r'[^a-z0-9\u4e00-\u9fff._-]', '-', s)  # 只保留 a-z 0-9 . _ - 中文(CJK Unified Ideographs)

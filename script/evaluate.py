@@ -631,9 +631,9 @@ async def wf_eval(
         ) as checkpoint:
             checkpoint.serde = JsonPlusRedisSerializer(
                 allowed_msgpack_modules=[
-                    ('app.models.tools', 'FileMount'),
-                    ('app.models.tools', 'ImageConfig'),
-                    ('app.models.tools', 'ParamDefine'),
+                    ('app.schemas.tool_config', 'FileMount'),
+                    ('app.schemas.tool_config', 'ImageConfig'),
+                    ('app.schemas.tool_config', 'ParamDefine'),
                     ('llm.states', 'BuildEdge'),
                     ('llm.states', 'BuildNode'),
                     ('llm.states', 'WorkflowDraft'),

@@ -2,7 +2,6 @@ import re
 from typing import Any
 
 from anyio import Path
-from fastapi import HTTPException
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
@@ -11,8 +10,8 @@ from sqlmodel import Session
 
 from app.core.config import get_settings
 from app.core.session import engine
-from app.crud.tools import image as image_crud
-from app.models.tools import ImageConfig
+from app.schemas.tool_config import ImageConfig
+from app.services import tool_catalog
 from app.utils.container import ContainerMount, run_command
 from llm.context import TestRunContext
 
@@ -30,7 +29,7 @@ def run_command_tool(command: str, runtime: ToolRuntime[Any]) -> str:
         command: the command you need to run
     """
     image = runtime.state.get('image', DEFAULT_LINUX_IMAGE)
-    code, result = run_command(image, [], command)
+    _code, result = run_command(image, [], command)
 
     return f'[Container: {image.get_image()}]\n{result}'
 
@@ -63,11 +62,9 @@ def _resolve_image_ref(
 
     try:
         with Session(engine) as session:
-            tool_image = image_crud.get_by_image_ref(session, image_ref)
-            if tool_image is None:
-                tool_image = image_crud.get_unique_by_name(session, image_ref)
-    except HTTPException as exc:
-        return DEFAULT_LINUX_IMAGE, known_images, _blocked_command(exc.detail, runtime.tool_call_id)
+            tool_image = tool_catalog.resolve_image_reference(session, image_ref)
+    except tool_catalog.AmbiguousToolImageError as error:
+        return DEFAULT_LINUX_IMAGE, known_images, _blocked_command(str(error), runtime.tool_call_id)
 
     if tool_image is None:
         return (

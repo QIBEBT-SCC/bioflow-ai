@@ -14,6 +14,7 @@ import app.crud.tools.tool_group as group_crud
 from app.core.session import engine
 from app.models.resource import BioDb
 from app.models.tools import ToolGroup
+from app.services import tool_catalog
 
 if TYPE_CHECKING:
     from llm.utils.uid_mapper import BidirectionalMapper
@@ -78,7 +79,19 @@ def select_image(
         image_url: selected image URL. Use the exact URL from `search_local_image` result.
     """
     with Session(engine) as session:
-        tool_image = image_crud.get_by_image_url(session, image_url)
+        try:
+            tool_image = tool_catalog.resolve_image_url(session, image_url)
+        except tool_catalog.AmbiguousToolImageError as error:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=str(error),
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
 
     if tool_image is None:
         return Command(

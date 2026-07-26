@@ -1,15 +1,12 @@
 from collections.abc import Sequence
 from typing import Any
 
-from fastapi import HTTPException
-from sqlalchemy import case, func, or_, text
-from sqlalchemy.orm import selectinload
+from sqlalchemy import case, func, or_, select, text
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import Session, col, select
-from starlette.status import HTTP_404_NOT_FOUND
 
 from app.models.tools import ToolDefine
-from app.schemas.tools import DockerToolUpdate
+from app.utils.identifiers import UUIDLike, as_uuid
 
 _FUZZY_SIMILARITY_THRESHOLD = 0.1
 _PRIMARY_TERM_SIMILARITY_THRESHOLD = 0.3
@@ -45,24 +42,15 @@ def _name_search_expressions(
         match_priority.desc(),
         primary_similarity.desc(),
         full_similarity.desc(),
-        col(ToolDefine.name),
+        ToolDefine.name,
     )
     return predicate, ordering
-
-
-def _get_update_data(tool_update: DockerToolUpdate) -> dict[str, object]:
-    """Return explicitly set update values without serializing nested models."""
-    return {
-        field_name: getattr(tool_update, field_name)
-        for field_name in tool_update.model_fields_set
-        if field_name != 'tags'
-    }
 
 
 def insert(session: Session, tool: ToolDefine) -> ToolDefine:
     """Insert a new tool into the database."""
     session.add(tool)
-    session.commit()
+    session.flush()
     session.refresh(tool)
 
     return tool
@@ -71,7 +59,7 @@ def insert(session: Session, tool: ToolDefine) -> ToolDefine:
 def insert_all(session: Session, tools: list[ToolDefine]) -> list[ToolDefine]:
     """Insert multiple tools into the database."""
     session.add_all(tools)
-    session.commit()
+    session.flush()
 
     for tool in tools:
         session.refresh(tool)
@@ -79,26 +67,26 @@ def insert_all(session: Session, tools: list[ToolDefine]) -> list[ToolDefine]:
     return tools
 
 
-def delete(session: Session, tool_uid: str) -> None:
-    """Delete a tool by its UID."""
+def delete(session: Session, tool_uid: UUIDLike) -> bool:
+    """Delete a tool by its UID and report whether it existed."""
     tool = get(session, tool_uid)
-    if tool:
-        session.delete(tool)
-        session.commit()
+    if tool is None:
+        return False
+    session.delete(tool)
+    session.flush()
+    return True
 
 
 def drop_all(session: Session) -> int:
     """Truncate the tool table and return the number of deleted rows."""
     count_stmt = select(func.count()).select_from(ToolDefine)
-    count = session.exec(count_stmt).one()
+    count = session.scalar(count_stmt) or 0
 
     if count == 0:
         return 0
 
     table_name = ToolDefine.__tablename__
-    # pyrefly: ignore [no-matching-overload]
-    session.exec(text(f'TRUNCATE TABLE {table_name} CASCADE'))
-    session.commit()
+    session.execute(text(f'TRUNCATE TABLE {table_name} CASCADE'))
 
     return count
 
@@ -106,50 +94,23 @@ def drop_all(session: Session) -> int:
 def update(session: Session, tool: ToolDefine) -> ToolDefine:
     """Update an existing tool in the database."""
     session.add(tool)
-    session.commit()
+    session.flush()
     session.refresh(tool)
 
     return tool
-
-
-def update_partial(session: Session, tool_uid: str, tool_update: DockerToolUpdate) -> ToolDefine | None:
-    """部分更新工具配置."""
-    from app.crud.tools import tool_tag as tag_crud
-
-    db_tool = get(session, tool_uid)
-    if db_tool is None:
-        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
-
-    # Keep nested ParamDefine/FileMount objects intact for PydanticJson columns.
-    update_data = _get_update_data(tool_update)
-    db_tool.sqlmodel_update(update_data)
-
-    # 处理标签更新
-    if tool_update.tags is not None:
-        # pyrefly: ignore [bad-assignment]
-        exist_ids: list[int] = [tag.id for tag in tool_update.tags if tag.id is not None and tag.id != -1]
-        tags = tag_crud.get_all_by_id(session, exist_ids)
-        db_tool.tags = list(tags)
-
-    session.add(db_tool)
-    session.commit()
-    session.refresh(db_tool)
-
-    return db_tool
 
 
 def get_page(session: Session, limit: int, offset: int) -> tuple[Sequence[ToolDefine], int]:
     """Return a page of tools together with the total count."""
     page_stmt = (
         select(ToolDefine)
-        .order_by(col(ToolDefine.name))
-        # pyrefly: ignore [bad-argument-type]
-        .options(selectinload(ToolDefine.tags))
+        .order_by(ToolDefine.name)
+        .options(selectinload(ToolDefine.tags), selectinload(ToolDefine.image))
         .offset(offset)
         .limit(limit)
     )
     count_stmt = select(func.count()).select_from(ToolDefine)
-    return session.exec(page_stmt).all(), session.exec(count_stmt).one()
+    return session.scalars(page_stmt).all(), session.scalar(count_stmt) or 0
 
 
 def get_all_by_group(session: Session, group_id: int | None, limit: int, offset: int) -> Sequence[ToolDefine]:
@@ -157,31 +118,31 @@ def get_all_by_group(session: Session, group_id: int | None, limit: int, offset:
     stmt = (
         select(ToolDefine)
         .where(ToolDefine.group_id == group_id)
-        .options(selectinload(ToolDefine.tags))  # type: ignore
+        .options(selectinload(ToolDefine.tags), selectinload(ToolDefine.image))
         .offset(offset)
         .limit(limit)
     )
 
-    return session.exec(stmt).all()
+    return session.scalars(stmt).all()
 
 
-def get_all_by_image(session: Session, image_uid: str) -> Sequence[ToolDefine]:
+def get_all_by_image(session: Session, image_uid: UUIDLike) -> Sequence[ToolDefine]:
     """Return all tools associated with the given image UID."""
-    stmt = select(ToolDefine).where(ToolDefine.image_uid == image_uid)
+    stmt = select(ToolDefine).where(ToolDefine.image_uid == as_uuid(image_uid))
 
-    return session.exec(stmt).all()
+    return session.scalars(stmt).all()
 
 
-def get_all_by_uid(session: Session, uids: list[str]) -> Sequence[ToolDefine]:
+def get_all_by_uid(session: Session, uids: list[UUIDLike]) -> Sequence[ToolDefine]:
     """Return tools in the same relevance order as the requested UIDs."""
     if not uids:
         return []
 
-    stmt = (
-        select(ToolDefine).where(col(ToolDefine.uid).in_(uids)).options(selectinload(ToolDefine.tags))  # type: ignore
-    )
-    tools_by_uid = {str(tool.uid): tool for tool in session.exec(stmt).all()}
-    return [tools_by_uid[uid] for uid in dict.fromkeys(uids) if uid in tools_by_uid]
+    normalized_uids = [as_uuid(uid) for uid in uids]
+    stmt = select(ToolDefine).where(ToolDefine.uid.in_(normalized_uids)).options(selectinload(ToolDefine.tags))
+    tools_by_uid = {str(tool.uid): tool for tool in session.scalars(stmt).all()}
+    requested_uids = dict.fromkeys(str(uid) for uid in normalized_uids)
+    return [tools_by_uid[uid] for uid in requested_uids if uid in tools_by_uid]
 
 
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> Sequence[ToolDefine]:
@@ -191,24 +152,30 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> S
         select(ToolDefine)
         .where(predicate)
         .order_by(*ordering)
-        .options(selectinload(ToolDefine.tags))  # type: ignore
+        .options(selectinload(ToolDefine.tags), selectinload(ToolDefine.image))
         .offset(offset)
         .limit(limit)
     )
 
-    return session.exec(stmt).all()
+    return session.scalars(stmt).all()
 
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolDefine], int]:
     """Return a page of fuzzy-matched tools together with the total match count."""
     predicate, _ordering = _name_search_expressions(name)
     count_stmt = select(func.count()).select_from(ToolDefine).where(predicate)
-    return get_by_name_fuzzy(session, name, limit, offset), session.exec(count_stmt).one()
+    return get_by_name_fuzzy(session, name, limit, offset), session.scalar(count_stmt) or 0
 
 
-def get(session: Session, tool_uid: str) -> ToolDefine | None:
+def get(session: Session, tool_uid: UUIDLike) -> ToolDefine | None:
     """Return a tool by its UID."""
     stmt = (
-        select(ToolDefine).where(ToolDefine.uid == tool_uid).options(selectinload(ToolDefine.tags))  # type: ignore
+        select(ToolDefine)
+        .where(ToolDefine.uid == as_uuid(tool_uid))
+        .options(
+            selectinload(ToolDefine.tags),
+            selectinload(ToolDefine.image),
+            selectinload(ToolDefine.help_doc),
+        )
     )
-    return session.exec(stmt).one_or_none()
+    return session.scalar(stmt)

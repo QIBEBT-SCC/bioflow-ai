@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.graph.state import CompiledStateGraph
 
-    from app.models.tools import ImageConfig
+    from app.schemas.tool_config import ImageConfig
 
 
 DB_PATH = 'presets/build/develop.db'
@@ -270,6 +270,7 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUI
                 session,
                 ToolHelpDoc(help_command=help_command, content=content, image_uid=tool_image.uid),
             )
+            session.commit()
 
         return tool_image.uid, tool_image.image, tool_doc.uid
 
@@ -288,9 +289,9 @@ async def _tool_agent_session(
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
+                ('app.schemas.tool_config', 'FileMount'),
+                ('app.schemas.tool_config', 'ImageConfig'),
+                ('app.schemas.tool_config', 'ParamDefine'),
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
                 ('llm.states', 'WorkflowDraft'),
@@ -677,6 +678,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             if tool_info['tool_node']:
                 with Session(engine) as session:
                     tool_crud.delete(session, tool_info['tool_node'])
+                    session.commit()
                     logger.info(f'删除了一条数据库信息 (index={index})')
                 await vectorstore.adelete(
                     filter_expression='tool_uid == {uid}',

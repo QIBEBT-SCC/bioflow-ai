@@ -24,7 +24,8 @@ import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.tools import ToolDefine, ToolHelpDoc, ToolType
+from app.models.tools import ToolDefine, ToolHelpDoc
+from app.schemas.tool_config import ToolType
 from app.schemas.tools import ToolNodePublic
 from app.utils.container import run_command
 from llm.agents.tool_agent.config_generator import config_generate_agent
@@ -125,6 +126,9 @@ class CreateToolAgent:
             # 我们认为数据库中的镜像信息就是完全的
             with Session(engine) as session:
                 tool_image = image_crud.get(session, str(state['image_uid']))
+                if tool_image is None:
+                    err_msg = f'Image with uid {state["image_uid"]} not found'
+                    raise LookupError(err_msg)
                 return {'image': tool_image.image}
         else:
             # TODO: 重写镜像搜索
@@ -299,6 +303,7 @@ class CreateToolAgent:
                 image_uid=state.get('image_uid'),
             )
             tool_doc = doc_crud.insert(session, tool_doc)
+            session.commit()
             return {'doc_uid': tool_doc.uid}
 
     async def save_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
@@ -336,9 +341,24 @@ class CreateToolAgent:
                 **tool_config,
             )
             if not runtime.context.auto_save:
-                return {'json_response': tool_data.model_dump()}
+                return {
+                    'json_response': {
+                        'name': tool_data.name,
+                        'image_uid': tool_data.image_uid,
+                        'description': tool_data.description,
+                        'tool_type': tool_data.tool_type,
+                        'group_id': tool_data.group_id,
+                        'help_doc_uid': tool_data.help_doc_uid,
+                        'command_template': tool_data.command_template,
+                        'dynamic_params': tool_data.dynamic_params,
+                        'immutable_static_params': tool_data.immutable_static_params,
+                        'modifiable_static_params': tool_data.modifiable_static_params,
+                        'file_mounts': tool_data.file_mounts,
+                    }
+                }
 
             tool_data = tool_crud.insert(session, tool_data)
+            session.commit()
 
             # 添加描述的向量索引
             embedding_model = qwen3_embedding()

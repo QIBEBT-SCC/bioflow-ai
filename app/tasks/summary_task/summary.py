@@ -12,9 +12,9 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
-from app.models.tools import ImageConfig
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
+from app.schemas.tool_config import ImageConfig
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.container import ContainerMount, create_container, remove_container
 from llm.agents.fs_agent import FolderContext, summary_analysis_agent

@@ -9,7 +9,7 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from loguru import logger
 
-from app.models.tools import FileMount, ImageConfig
+from app.schemas.tool_config import FileMount, ImageConfig
 from app.services.tool_execution import (
     DockerToolExecutionConfig,
     DockerToolExecutionResult,

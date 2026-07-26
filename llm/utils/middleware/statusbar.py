@@ -5,7 +5,7 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from langchain.agents.middleware.types import ModelCallResult
 
 if TYPE_CHECKING:
-    from app.models.tools import ImageConfig
+    from app.schemas.tool_config import ImageConfig
     from llm.utils.middleware.todo import Todo
 
 

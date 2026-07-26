@@ -18,14 +18,14 @@ from llm.agents.tool_agent import CreateToolAgent
 from llm.context import CreateToolContext, ProjectContext
 from llm.prebuild.chains import check_update_args
 from llm.states import BuildEdge, BuildNode, CreateToolState
-from llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 from llm.utils.formatters import (
     format_validation_error,
     manager_help_command,
     node_formatter,
     search_nodes_formatter,
 )
-from llm.utils.uid_mapper import BidirectionalMapper, generate_char_index, merge_mappers
+from llm.utils.uid_mapper import BidirectionalMapper, HasUid, generate_char_index, merge_mappers
+from llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 
 
 class SearchToolSchema(BaseModel):
@@ -237,7 +237,7 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
 def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     with Session(engine) as session:
         exist_tools = tool_crud.get_by_name_fuzzy(session, name, 15, 0)
-        new_mapper = BidirectionalMapper(datas=exist_tools)
+        new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
 
     if exist_tools:
         exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))

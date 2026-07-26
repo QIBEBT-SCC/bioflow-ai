@@ -9,7 +9,7 @@ from podman import PodmanClient
 from podman.errors import ImageNotFound
 
 from app.core.config import get_settings
-from app.models.tools import ImageConfig
+from app.schemas.tool_config import ImageConfig
 from app.utils.container._general import _strip_ansi_escape_sequences
 from app.utils.system import get_cpu_cores
 

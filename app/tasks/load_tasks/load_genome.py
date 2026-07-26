@@ -9,10 +9,10 @@ import app.crud.resource.reference_genome as genome_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.resource import ReferenceGenomes
-from app.models.tools import ImageConfig
 from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.resource import GenomeUpdate
+from app.schemas.tool_config import ImageConfig
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.api.ncbi_datasets import (
     NCBIAssemblyDataReport,
@@ -379,15 +379,15 @@ def load_mm39_task(
 def _index_exists(genome_dir: Path, index_name: str, genome_fasta: Path) -> bool:
     """通过文件系统检查索引是否已构建."""
     checks = {
-        'bowtie2_index': lambda: any((genome_dir / 'bowtie2').iterdir())
-        if (genome_dir / 'bowtie2').exists()
-        else False,
+        'bowtie2_index': lambda: (
+            any((genome_dir / 'bowtie2').iterdir()) if (genome_dir / 'bowtie2').exists() else False
+        ),
         'bwa_index': lambda: genome_fasta.with_suffix('.fa.bwt').exists(),
         'hisat2_index': lambda: any((genome_dir / 'hisat2').iterdir()) if (genome_dir / 'hisat2').exists() else False,
         'star_index': lambda: any((genome_dir / 'star').iterdir()) if (genome_dir / 'star').exists() else False,
-        'minimap2_index': lambda: any((genome_dir / 'minimap2').glob('*.mmi'))
-        if (genome_dir / 'minimap2').exists()
-        else False,
+        'minimap2_index': lambda: (
+            any((genome_dir / 'minimap2').glob('*.mmi')) if (genome_dir / 'minimap2').exists() else False
+        ),
     }
     checker = checks.get(index_name)
     return checker() if checker else False

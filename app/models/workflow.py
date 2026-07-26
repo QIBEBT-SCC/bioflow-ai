@@ -5,17 +5,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column
+from sqlalchemy import Column, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.decorator.special_field import IntEnumType, PydanticJson
+from app.models.tools import ToolDefine
 from app.models.user import User  # noqa: TC001
 from app.schemas.react_flow import WorkflowDefinition
 from app.utils.system import random_uid, utc_now
 
 if TYPE_CHECKING:
     from app.models.resource import Sample
-    from app.models.tools import ToolDefine
 
 
 class Status(IntEnum):
@@ -107,7 +108,10 @@ class TaskInstance(SQLModel, table=True):
     owner_id: int = Field(foreign_key='users.id')
 
     # 工具任务才有
-    tool_uid: Optional[uuid.UUID] = Field(default=None, foreign_key='tools.uid')
+    tool_uid: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(ForeignKey(ToolDefine.__table__.c.uid), nullable=True),
+    )
     commands: Optional[str] = Field(default=None)
 
     base_dir: Optional[str] = Field(default=None)
@@ -121,7 +125,7 @@ class TaskInstance(SQLModel, table=True):
     start_time: Optional[datetime] = Field(default=None)
     end_time: Optional[datetime] = Field(default=None)
 
-    tool: Optional['ToolDefine'] = Relationship()
+    tool: Optional['ToolDefine'] = Relationship(sa_relationship=relationship(ToolDefine))
     owner: Optional['User'] = Relationship()
     run_instance: Optional['RunInstance'] = Relationship(back_populates='tasks')
 

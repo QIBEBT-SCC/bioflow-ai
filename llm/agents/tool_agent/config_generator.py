@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
-from app.models.tools import FileMount, ParamDefine
+from app.schemas.tool_config import FileMount, ParamDefine
 from llm.context import BaseContext, ToolGeneratorContext
 from llm.models import get_high_performance_model
 from llm.states import ToolGeneratorState

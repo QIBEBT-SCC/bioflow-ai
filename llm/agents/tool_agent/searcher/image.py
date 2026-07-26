@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, cast
 
 from langchain.agents import AgentState, create_agent
 
-from app.models.tools import ImageConfig
+from app.schemas.tool_config import ImageConfig
 from llm.context import BaseContext
 from llm.models import get_agent_model
 from llm.tools.database import search_local_image, select_image

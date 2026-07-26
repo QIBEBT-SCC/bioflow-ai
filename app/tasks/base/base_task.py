@@ -9,8 +9,9 @@ from pathlib import Path
 import celery
 from loguru import logger
 from redis import Redis
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
@@ -172,10 +173,13 @@ def _flush_monitor_to_db(task_id: str) -> None:
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
     """从数据库获取工具信息."""
     with Session(engine) as session:
-        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))  # type: ignore
-        tool = session.exec(statement).one_or_none()
+        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))
+        tool = session.scalar(statement)
         if not tool:
             error_msg = f'工具 {tool_uid} 不存在'
+            raise RuntimeError(error_msg)
+        if tool.image is None:
+            error_msg = f'工具 {tool_uid} 未关联镜像'
             raise RuntimeError(error_msg)
 
         return ToolTaskInfo(

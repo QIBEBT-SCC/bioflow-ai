@@ -12,7 +12,7 @@ import app.crud.project_file_mapping as project_file_mapping_crud
 import app.crud.resource.sample as sample_crud
 from app.core.session import engine
 from app.models.resource import Sample, SampleFiles
-from app.models.tools import ImageConfig
+from app.schemas.tool_config import ImageConfig
 from app.utils.container import ContainerMount, run_command
 from llm.context import ProjectContext
 from llm.states import SampleState

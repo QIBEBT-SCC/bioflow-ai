@@ -14,7 +14,7 @@ from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
 from llm.utils.formatters import search_nodes_formatter
 from llm.utils.retrievers import retrieve_documents
-from llm.utils.uid_mapper import BidirectionalMapper, merge_mappers
+from llm.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
 from llm.vectorstores import MilvusVectorStore
 
 TOOL_DESCRIPTION = """Search existing tools from the vector database based on functionality
@@ -69,7 +69,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
 
     with Session(engine) as session:
         exist_tools = list(tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results]))
-        new_mapper = BidirectionalMapper(datas=exist_tools)
+        new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', exist_tools))
 
     tool_nodes = [ToolNodePublic.model_validate(exist_tool) for exist_tool in exist_tools]
     exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
