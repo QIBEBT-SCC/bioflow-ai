@@ -3,15 +3,23 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlmodel import SQLModel
 
-from app.models.project import ProjectTag
 from app.schemas.user import UserPublic
 
 ProjectSort = Literal['recent', 'nameAsc', 'nameDesc']
 
 
+class ProjectTagPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int | None = None
+    name: str
+    color: str
+
+
 class ProjectPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     description: str
@@ -21,8 +29,22 @@ class ProjectPublic(BaseModel):
     update_time: datetime
 
     owner: UserPublic
-    tags: list[ProjectTag]
+    tags: list[ProjectTagPublic]
     file_mappings: list['ProjectFileMappingPublic'] = Field(default_factory=list)
+
+
+class ProjectCreateResult(BaseModel):
+    """Project column projection returned by the create endpoint."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    owner_id: int
+    name: str
+    description: str = ''
+    public: bool = True
+    create_time: datetime
+    update_time: datetime
 
 
 class TagWithCount(BaseModel):
@@ -49,16 +71,16 @@ class ProjectUpdate(BaseModel):
 
     name: str | None = None
     description: str | None = None
-    tags: list[ProjectTag] | None = None
+    tags: list[ProjectTagPublic] | None = None
 
 
-class ProjectFileMappingCreate(SQLModel):
+class ProjectFileMappingCreate(BaseModel):
     keyword: str = Field(max_length=50)
     file_path: str = Field(max_length=500)
     description: str = Field(default='')
 
 
-class ProjectFileMappingUpdate(SQLModel):
+class ProjectFileMappingUpdate(BaseModel):
     file_path: str | None = None
     description: str | None = None
 

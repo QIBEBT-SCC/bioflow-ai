@@ -1,7 +1,6 @@
 """Application services for workflow-template persistence and indexing."""
 
-from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 
 from langchain_core.documents import Document
 from sqlalchemy.orm import Session
@@ -10,6 +9,7 @@ import app.crud.workflow as workflow_crud
 from app.core.config import get_settings
 from app.models.workflow import Workflow
 from app.schemas.workflow import WorkflowUpdate
+from app.services._transaction import committing
 from app.utils.identifiers import UUIDLike
 from llm.models import qwen3_embedding
 from llm.vectorstores import MilvusVectorStore
@@ -25,20 +25,9 @@ class WorkflowCatalogNotFoundError(WorkflowCatalogError):
     """A requested workflow template does not exist."""
 
 
-@contextmanager
-def _committing(session: Session) -> Generator[None, None, None]:
-    """Commit a service transaction or roll it back on failure."""
-    try:
-        yield
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-
-
 async def create_workflow(session: Session, workflow: Workflow) -> Workflow:
     """Persist and index one workflow template."""
-    with _committing(session):
+    with committing(session):
         workflow_crud.insert(session, workflow)
     session.refresh(workflow)
     await _index_workflows([workflow])
@@ -47,7 +36,7 @@ async def create_workflow(session: Session, workflow: Workflow) -> Workflow:
 
 async def create_workflows(session: Session, workflows: Sequence[Workflow]) -> list[Workflow]:
     """Persist a batch of workflow templates in one transaction, then index them."""
-    with _committing(session):
+    with committing(session):
         saved_workflows = [workflow_crud.insert(session, workflow) for workflow in workflows]
     for workflow in saved_workflows:
         session.refresh(workflow)
@@ -57,7 +46,7 @@ async def create_workflows(session: Session, workflows: Sequence[Workflow]) -> l
 
 def update_workflow(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Workflow:
     """Update a workflow template in one database transaction."""
-    with _committing(session):
+    with committing(session):
         workflow = workflow_crud.update(session, uid, data)
         if workflow is None:
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
@@ -67,7 +56,7 @@ def update_workflow(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Wo
 
 async def delete_workflow(session: Session, uid: UUIDLike) -> None:
     """Delete a workflow template, then remove its vector projection."""
-    with _committing(session):
+    with committing(session):
         if not workflow_crud.delete(session, uid):
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
 

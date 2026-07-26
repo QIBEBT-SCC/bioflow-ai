@@ -4,7 +4,6 @@ import io
 import uuid
 import zipfile
 from collections.abc import Generator
-from contextlib import contextmanager
 from pathlib import Path
 
 from anyio import Path as AsyncPath
@@ -18,6 +17,7 @@ from app.crud import workflow as wf_crud
 from app.models.workflow import ProjectWorkflow, RunInstance, TaskInstance, TaskMonitor
 from app.schemas.project_workflow import ProjectWorkflowPublic
 from app.schemas.workflow_config import ExecutionScope
+from app.services._transaction import committing
 
 _AGENTS_MD = Path(__file__).parents[2] / 'presets' / 'download_resources' / 'Agent.md'
 _PACKAGE_SUBDIR_MAP = {'summary': 'summary', 'downstream': 'raw_data'}
@@ -39,17 +39,6 @@ class ProjectWorkflowConflictError(ProjectWorkflowError):
     """A workflow is already associated with the project."""
 
 
-@contextmanager
-def _committing(session: Session) -> Generator[None, None, None]:
-    """Commit a service transaction or roll it back on failure."""
-    try:
-        yield
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-
-
 def add_workflow_to_project(
     session: Session,
     project_id: int,
@@ -62,7 +51,7 @@ def add_workflow_to_project(
     if project_workflow_crud.exists(session, project_id, workflow_uid):
         raise ProjectWorkflowConflictError(_WORKFLOW_CONFLICT)
 
-    with _committing(session):
+    with committing(session):
         association = project_workflow_crud.insert(
             session,
             ProjectWorkflow(project_id=project_id, workflow_uid=workflow_uid),
@@ -108,7 +97,7 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
     if not project_workflow_crud.exists(session, project_id, workflow_uid):
         raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
 
-    with _committing(session):
+    with committing(session):
         _delete_workflow_runs(session, project_id, workflow_uid)
         project_workflow_crud.delete(session, project_id, workflow_uid)
 

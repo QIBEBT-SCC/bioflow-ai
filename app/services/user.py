@@ -7,6 +7,7 @@ from app.crud import user as user_crud
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
 from app.schemas.user_config import UserRole
+from app.services._transaction import committing
 
 USER_CACHE_TTL_SECONDS = 300
 
@@ -60,20 +61,19 @@ def create_user(
         role=role,
     )
     try:
-        user_crud.insert(session, user)
-        session.commit()
+        with committing(session):
+            user_crud.insert(session, user)
     except IntegrityError as error:
-        session.rollback()
         raise UserAlreadyExistsError from error
     return user
 
 
 def update_user(session: Session, user_id: int, data: UserUpdate) -> User:
     """Update and commit a user account."""
-    user = user_crud.update(session, user_id, data)
-    if user is None:
-        raise UserNotFoundError
-    session.commit()
+    with committing(session):
+        user = user_crud.update(session, user_id, data)
+        if user is None:
+            raise UserNotFoundError
     return user
 
 
@@ -85,10 +85,10 @@ def change_password(session: Session, user_id: int, current_password: str, new_p
     if not verify_password(current_password, user.hashed_password):
         raise InvalidCurrentPasswordError
 
-    updated = user_crud.update(session, user_id, UserUpdate(hashed_password=get_password_hash(new_password)))
-    if updated is None:  # Defensive against an unexpected concurrent delete.
-        raise UserNotFoundError
-    session.commit()
+    with committing(session):
+        updated = user_crud.update(session, user_id, UserUpdate(hashed_password=get_password_hash(new_password)))
+        if updated is None:  # Defensive against an unexpected concurrent delete.
+            raise UserNotFoundError
     return updated
 
 

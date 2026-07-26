@@ -42,10 +42,8 @@ class ProjectWorkflow(Base):
 
     __tablename__ = 'project_workflows'
 
-    # pyrefly: ignore [missing-attribute]
     project_id: Mapped[int] = mapped_column(
-        # pyrefly: ignore [missing-attribute]
-        ForeignKey(Project.__table__.c.id, ondelete='CASCADE'),
+        ForeignKey(Project.id, ondelete='CASCADE'),
         primary_key=True,
     )
     workflow_uid: Mapped[uuid.UUID] = mapped_column(
@@ -67,17 +65,13 @@ class RunInstance(Base):
     owner_id: Mapped[int] = mapped_column(ForeignKey(User.id))
 
     # 项目关联 (可选, 调试模式下为 None)
-    # pyrefly: ignore [missing-attribute]
     project_id: Mapped[Optional[int]] = mapped_column(
-        # pyrefly: ignore [missing-attribute]
-        ForeignKey(Project.__table__.c.id, ondelete='CASCADE'),
+        ForeignKey(Project.id, ondelete='CASCADE'),
         default=None,
     )
     workflow_uid: Mapped[Optional[uuid.UUID]] = mapped_column(default=None)
-    # pyrefly: ignore [missing-attribute]
     sample_uid: Mapped[Optional[uuid.UUID]] = mapped_column(
-        # pyrefly: ignore [missing-attribute]
-        ForeignKey(Sample.__table__.c.uid, ondelete='SET NULL'),
+        ForeignKey(Sample.uid, ondelete='SET NULL'),
         default=None,
     )
 

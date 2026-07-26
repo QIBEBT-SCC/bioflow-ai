@@ -1,8 +1,5 @@
 """Application services for managing the tool catalog."""
 
-from collections.abc import Generator
-from contextlib import contextmanager
-
 from langchain_core.documents import Document
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
@@ -24,6 +21,7 @@ from app.schemas.tools import (
     ToolGroupCreate,
 )
 from app.services import tool_cache
+from app.services._transaction import committing
 from app.services.tool_execution import ImageCommandResult, execute_image_command
 from app.utils.identifiers import UUIDLike
 from llm.models import qwen3_embedding
@@ -63,20 +61,9 @@ class ToolCommandExecutionError(ToolCatalogError):
         super().__init__(f'Command failed with exit code {result.exit_code}: {command}')
 
 
-@contextmanager
-def _committing(session: Session) -> Generator[None, None, None]:
-    """Commit a service transaction or roll it back on failure."""
-    try:
-        yield
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-
-
 def create_group(session: Session, group_data: ToolGroupCreate) -> ToolGroup:
     """Create a tool group and its corresponding tag atomically."""
-    with _committing(session):
+    with committing(session):
         group_tag = tag_crud.insert(session, ToolTag(name=group_data.name))
         group = group_crud.insert(
             session,
@@ -120,7 +107,7 @@ def create_image(session: Session, image_data: ImageCreate) -> ToolImage:
         paper_link=image_data.paper_link,
         image=image_data.image,
     )
-    with _committing(session):
+    with committing(session):
         image_crud.insert(session, image)
     session.refresh(image)
     return image
@@ -128,7 +115,7 @@ def create_image(session: Session, image_data: ImageCreate) -> ToolImage:
 
 def update_image(session: Session, image_uid: UUIDLike, image_update: ImageUpdate) -> ToolImage | None:
     """Update a tool image."""
-    with _committing(session):
+    with committing(session):
         image = image_crud.update(session, image_uid, image_update)
         if image is None:
             return None
@@ -138,7 +125,7 @@ def update_image(session: Session, image_uid: UUIDLike, image_update: ImageUpdat
 
 async def delete_image(session: Session, image_uid: UUIDLike) -> bool:
     """Delete a tool image and its vector index entry."""
-    with _committing(session):
+    with committing(session):
         deleted = image_crud.delete(session, image_uid)
         if not deleted:
             return False
@@ -180,7 +167,7 @@ def refresh_help_document(session: Session, doc_uid: UUIDLike) -> ToolHelpDoc:
     if not result.succeeded:
         raise ToolCommandExecutionError(doc.help_command, result)
 
-    with _committing(session):
+    with committing(session):
         doc_crud.update(session, doc_uid, doc_update=DocUpdate(content=result.output))
     session.refresh(doc)
     return doc
@@ -195,7 +182,7 @@ async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefi
     tags = list(tag_crud.get_all_by_id(session, tool_data.tag_ids))
     help_doc = doc_crud.get_by_command(session, tool_data.help_command, tool_data.image_uid)
 
-    with _committing(session):
+    with committing(session):
         if help_doc is None:
             result = execute_image_command(image.image, tool_data.help_command)
             if not result.succeeded:
@@ -272,7 +259,7 @@ async def update_tool(
         existing_tag_ids = [tag.id for tag in tool_update.tags if tag.id != -1]
         tool.tags = list(tag_crud.get_all_by_id(session, existing_tag_ids))
 
-    with _committing(session):
+    with committing(session):
         tool_crud.update(session, tool)
 
     await tool_cache.invalidate_tool_projections(redis, tool_uid)
@@ -296,7 +283,7 @@ async def mark_tool_as_ai_checked(
     tool.tags = [tag for tag in tool.tags if tag.name not in {'AI Checked', 'AI Unchecked'}]
     tool.tags.append(checked_tag)
 
-    with _committing(session):
+    with committing(session):
         tool_crud.update(session, tool)
 
     await tool_cache.invalidate_tool_projections(redis, tool_uid)
@@ -312,7 +299,7 @@ async def delete_tool(
     tool_uid: UUIDLike,
 ) -> bool:
     """Delete a tool, its vector index entry, and its cached projections."""
-    with _committing(session):
+    with committing(session):
         deleted = tool_crud.delete(session, tool_uid)
         if not deleted:
             return False

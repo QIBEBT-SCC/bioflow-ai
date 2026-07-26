@@ -13,6 +13,8 @@ import app.crud.resource.sample as sample_crud
 from app.core.session import engine
 from app.models.resource import Sample, SampleFiles
 from app.schemas.tool_config import ImageConfig
+from app.services import project_file_mapping as project_file_mapping_service
+from app.services import sample as sample_service
 from app.utils.container import ContainerMount, run_command
 from llm.context import ProjectContext
 from llm.states import SampleState
@@ -108,7 +110,7 @@ async def add_samples(
     ]
     with Session(engine) as session:
         try:
-            samples = sample_crud.batch_insert(session, samples)
+            samples = sample_service.create_samples(session, samples)
         except IntegrityError:
             session.rollback()
             return (
@@ -164,7 +166,7 @@ async def add_sample_file(
                 tag=tag,
             )
             try:
-                sample_file = sample_crud.add_file(session, sample_file)
+                sample_file = sample_service.add_file(session, sample_file)
             except IntegrityError:
                 session.rollback()
                 return f'Tag "{tag}" already exists for sample {sample_name}. Choose a different tag.'
@@ -198,7 +200,7 @@ async def add_project_file(
 
     with Session(engine) as session:
         try:
-            project_file_mapping_crud.create(
+            project_file_mapping_service.create_mapping(
                 session,
                 runtime.context.project_id,
                 keyword,
@@ -260,7 +262,7 @@ async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[Pr
         tag: Tag of the file to remove (e.g. 'r1', 'r2').
     """
     with Session(engine) as session:
-        deleted = sample_crud.delete_file_by_name_tag(session, runtime.context.project_id, sample_name, tag)
+        deleted = sample_service.delete_file_by_name_tag(session, runtime.context.project_id, sample_name, tag)
     if deleted:
         return f'Removed file "{tag}" of sample {sample_name}.'
     return f'No file with tag "{tag}" found on sample {sample_name}.'

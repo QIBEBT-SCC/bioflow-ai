@@ -1,6 +1,4 @@
-import shutil
 import uuid
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -8,7 +6,6 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
-from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.crud import project as project_crud
 from app.crud import project_file_mapping as project_file_mapping_crud
@@ -17,19 +14,17 @@ from app.crud import projetc_tag as tag_crud
 from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
 from app.crud.resource import sample as sample_crud
-from app.models.project import (
-    Project,
-    ProjectTag,
-)
 from app.models.resource import Sample, SampleFiles
 from app.schemas.common import Paginated, Statistics
 from app.schemas.project import (
     ProjectCreateProp,
+    ProjectCreateResult,
     ProjectFileMappingCreate,
     ProjectFileMappingPublic,
     ProjectFileMappingUpdate,
     ProjectPublic,
     ProjectSort,
+    ProjectTagPublic,
     ProjectUpdate,
     TagProp,
     TagWithCount,
@@ -51,8 +46,11 @@ from app.schemas.resource import (
 )
 from app.schemas.run_instance import SimpleRunPublic
 from app.schemas.workflow_config import ExecutionScope
+from app.services import project as project_service
+from app.services import project_file_mapping as project_file_mapping_service
 from app.services import project_workflow as project_workflow_service
 from app.services import runtime_status
+from app.services import sample as sample_service
 from app.utils.security import UserDep
 from app.utils.workflow import create_project_level_run, create_runs_from_samples
 
@@ -60,26 +58,21 @@ router = APIRouter()
 tag_router = APIRouter()
 workflow_router = APIRouter()
 
-STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
-
 
 @tag_router.post('')
 def new_tag(
     tag_prop: TagProp,
     session: SessionDep,
     _current_user: UserDep,
-) -> ProjectTag:
+) -> ProjectTagPublic:
     """Create a new project tag."""
-    tag = ProjectTag(name=tag_prop.name, color=tag_prop.color)
-    tag_crud.insert(session, tag)
-
-    return tag
+    return ProjectTagPublic.model_validate(project_service.create_tag(session, tag_prop))
 
 
 @tag_router.get('')
 def get_tag_list(session: SessionDep, _current_user: UserDep) -> list[TagWithCount]:
     """Get all project tags with usage counts."""
-    return tag_crud.get_all(session)  # type: ignore
+    return tag_crud.get_all(session)
 
 
 @router.post('')
@@ -87,25 +80,10 @@ def new_project(
     project_prop: ProjectCreateProp,
     session: SessionDep,
     current_user: UserDep,
-) -> Project:
+) -> ProjectCreateResult:
     """Create a new project."""
-    tags = []
-    if project_prop.tag_ids:
-        tags = tag_crud.get_all_by_id(session, project_prop.tag_ids)
-
-    project = Project(
-        owner_id=current_user.id,
-        name=project_prop.name,
-        description=project_prop.description,
-        public=project_prop.public,
-        tags=tags,
-    )
-    project = project_crud.insert(session, project)
-
-    project_path = Path(STORAGE_PATH) / 'proj' / f'{project.id}'
-    project_path.mkdir(parents=True, exist_ok=True)
-
-    return project
+    project = project_service.create_project(session, project_prop, current_user.id)
+    return ProjectCreateResult.model_validate(project)
 
 
 @router.post('/{project_id}/star')
@@ -115,7 +93,7 @@ def star_project(
     current_user: UserDep,
 ) -> None:
     """Star (bookmark) a project for the current user."""
-    project_crud.star_project(session, current_user.id, project_id)  # type: ignore
+    project_service.star_project(session, current_user.id, project_id)
 
 
 @router.post('/{project_id}/unstar')
@@ -125,7 +103,7 @@ def unstar_project(
     current_user: UserDep,
 ) -> None:
     """Remove a star (bookmark) from a project."""
-    project_crud.unstar_project(session, current_user.id, project_id)  # type: ignore
+    project_service.unstar_project(session, current_user.id, project_id)
 
 
 @router.get('')
@@ -145,11 +123,11 @@ def get_project_list(
     """
     match filter_type:
         case 'starred':
-            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id, sort)  # type: ignore
+            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id, sort)
         case 'my':
-            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id, sort)  # type: ignore
+            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id, sort)
         case 'all':
-            projects, total = project_crud.get_page(session, limit, offset, current_user.id, sort)  # type: ignore
+            projects, total = project_crud.get_page(session, limit, offset, current_user.id, sort)
         case _:
             projects, total = [], 0
 
@@ -165,7 +143,10 @@ def get_project_list(
 @router.get('/recent')
 def get_recent_project(session: SessionDep, current_user: UserDep) -> ProjectPublic:
     """Get user's recently updated projects."""
-    return project_crud.get_recent(session, current_user.id)  # type: ignore
+    project = project_crud.get_recent(session, current_user.id)
+    if project is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
+    return project
 
 
 @router.get('/{project_id}')
@@ -175,7 +156,10 @@ def get_project(
     current_user: UserDep,
 ) -> ProjectPublic:
     """Get project detail by ID."""
-    return project_crud.get(session, current_user.id, project_id)  # type: ignore
+    project = project_crud.get(session, current_user.id, project_id)
+    if project is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
+    return project
 
 
 @router.put('/{project_id}')
@@ -186,14 +170,21 @@ def update_project(
     current_user: UserDep,
 ) -> ProjectPublic:
     """Update a project's name, description, or tags."""
-    project = session.get(Project, project_id)
+    try:
+        project_service.update_project(
+            session,
+            project_id,
+            project_update,
+            current_user_id=current_user.id,
+        )
+    except project_service.ProjectNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found') from error
+    except project_service.ProjectPermissionError as error:
+        raise HTTPException(HTTP_403_FORBIDDEN, 'Only the project owner can update this project') from error
+    project = project_crud.get(session, current_user.id, project_id)
     if project is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
-    if project.owner_id != current_user.id:
-        raise HTTPException(HTTP_403_FORBIDDEN, 'Only the project owner can update this project')
-
-    project_crud.update(session, project_id, project_update)
-    return project_crud.get(session, current_user.id, project_id)
+    return project
 
 
 @router.delete('/{project_id}')
@@ -203,10 +194,7 @@ def delete_project(
     _current_user: UserDep,
 ) -> None:
     """Delete project."""
-    project_crud.delete(session, project_id)
-
-    project_path = Path(STORAGE_PATH) / 'proj' / f'{project_id}'
-    shutil.rmtree(project_path)
+    project_service.delete_project(session, project_id)
 
 
 # ==================== Sample Management Endpoints (Under Project) ====================
@@ -224,15 +212,17 @@ async def create_sample_in_project(
         raise HTTPException(400, 'Project ID mismatch')
 
     sample = Sample(
-        # pyrefly: ignore [bad-argument-type]
         owner_id=current_user.id,
         project_id=project_id,
         sample_name=sample_prop.sample_name,
         meta_data=sample_prop.meta_data or {},
     )
 
-    sample_crud.insert(session, sample)
-    return sample_crud.get_with_files(session, sample.uid)  # type: ignore
+    sample_service.create_sample(session, sample)
+    loaded = sample_crud.get_with_files(session, sample.uid)
+    if loaded is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
+    return SamplePublic.model_validate(loaded)
 
 
 @router.get('/{project_id}/samples')
@@ -297,7 +287,10 @@ async def batch_import_samples(
         raise HTTPException(400, f'Failed to read file: {e!s}') from e
 
     # Batch import
-    return sample_crud.batch_import_from_csv(session, content, project_id, current_user.id)  # type: ignore
+    try:
+        return sample_service.import_samples_from_csv(session, content, project_id, current_user.id)
+    except sample_service.SampleCsvError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @router.get('/{project_id}/samples/{sample_uid}')
@@ -313,7 +306,7 @@ async def get_project_sample(
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
     if sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
-    return sample  # type: ignore
+    return SamplePublic.model_validate(sample)
 
 
 @router.put('/{project_id}/samples/{sample_uid}')
@@ -329,8 +322,11 @@ async def update_project_sample(
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    sample_crud.update(session, sample_uid, sample_update)
-    return sample_crud.get_with_files(session, sample_uid)  # type: ignore
+    sample_service.update_sample(session, sample_uid, sample_update)
+    sample = sample_crud.get_with_files(session, sample_uid)
+    if sample is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
+    return SamplePublic.model_validate(sample)
 
 
 @router.delete('/{project_id}/samples/{sample_uid}')
@@ -345,7 +341,7 @@ async def delete_project_sample(
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    sample_crud.delete(session, sample_uid)
+    sample_service.delete_sample(session, sample_uid)
     return {'message': 'Sample deleted successfully'}
 
 
@@ -373,7 +369,7 @@ async def add_file_to_project_sample(
         md5_checksum='',
     )
 
-    return sample_crud.add_file(session, sample_file)  # type: ignore
+    return SampleFilePublic.model_validate(sample_service.add_file(session, sample_file))
 
 
 @router.delete('/{project_id}/samples/{sample_uid}/files/{file_uid}')
@@ -389,7 +385,10 @@ async def delete_file_from_project_sample(
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    sample_crud.delete_file(session, file_uid)
+    try:
+        sample_service.delete_file(session, file_uid)
+    except sample_service.SampleFileNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File not found') from error
     return {'message': 'File deleted successfully'}
 
 
@@ -405,7 +404,7 @@ async def get_project_sample_files(
     if not existing_sample or existing_sample.project_id != project_id:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
 
-    return sample_crud.get_files(session, sample_uid)  # type: ignore
+    return [SampleFilePublic.model_validate(sample_file) for sample_file in sample_crud.get_files(session, sample_uid)]
 
 
 # ==================== Workflow Management Endpoints (Under Project) ====================
@@ -668,7 +667,7 @@ async def create_project_file_mapping(
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
     """Create a new file mapping for the project."""
-    result = project_file_mapping_crud.create(
+    result = project_file_mapping_service.create_mapping(
         session, project_id, mapping.keyword, mapping.file_path, mapping.description
     )
     return ProjectFileMappingPublic.model_validate(result)
@@ -708,7 +707,15 @@ async def update_project_file_mapping(
     _current_user: UserDep,
 ) -> ProjectFileMappingPublic:
     """Update file mapping."""
-    result = project_file_mapping_crud.update(session, mapping_id, mapping_update.file_path, mapping_update.description)
+    try:
+        result = project_file_mapping_service.update_mapping(
+            session,
+            mapping_id,
+            file_path=mapping_update.file_path,
+            description=mapping_update.description,
+        )
+    except project_file_mapping_service.ProjectFileMappingNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File mapping not found') from error
     return ProjectFileMappingPublic.model_validate(result)
 
 
@@ -720,5 +727,8 @@ async def delete_project_file_mapping(
     _current_user: UserDep,
 ) -> dict:
     """Delete file mapping."""
-    project_file_mapping_crud.delete(session, mapping_id)
+    try:
+        project_file_mapping_service.delete_mapping(session, mapping_id)
+    except project_file_mapping_service.ProjectFileMappingNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File mapping not found') from error
     return {'message': 'File mapping deleted successfully'}

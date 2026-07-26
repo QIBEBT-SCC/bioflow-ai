@@ -196,8 +196,7 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
 async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
     """Remove evaluate-generated project contents while retaining the project itself."""
     from sqlalchemy import delete, select
-    from sqlmodel import Session, col
-    from sqlmodel import select as sm_select
+    from sqlmodel import Session
 
     from app.core.session import engine
     from app.models.project import ProjectFileMapping
@@ -217,11 +216,11 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
             session.execute(delete(TaskInstance).where(TaskInstance.instance_uid.in_(run_instance_uids)))
             session.execute(delete(RunInstance).where(RunInstance.uid.in_(run_instance_uids)))
 
-        sample_uids = session.exec(sm_select(Sample.uid).where(Sample.project_id == project_id)).all()
+        sample_uids = session.scalars(select(Sample.uid).where(Sample.project_id == project_id)).all()
         if sample_uids:
-            session.exec(delete(SampleFiles).where(col(SampleFiles.sample_uid).in_(sample_uids)))
-        session.exec(delete(Sample).where(col(Sample.project_id) == project_id))
-        session.exec(delete(ProjectFileMapping).where(col(ProjectFileMapping.project_id) == project_id))
+            session.execute(delete(SampleFiles).where(SampleFiles.sample_uid.in_(sample_uids)))
+        session.execute(delete(Sample).where(Sample.project_id == project_id))
+        session.execute(delete(ProjectFileMapping).where(ProjectFileMapping.project_id == project_id))
         session.commit()
 
     project_path = _get_project_path(project_id)

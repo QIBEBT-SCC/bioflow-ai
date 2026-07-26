@@ -5,15 +5,17 @@ from pathlib import Path
 
 from celery import Task
 from loguru import logger
-from sqlmodel import Session, col, select
+from sqlalchemy import select
+from sqlmodel import Session
 
 from app.core.session import engine
-from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample
 from app.models.workflow import RunInstance
 from app.schemas.react_flow import TaskInput
 from app.schemas.workflow_config import ToolOutput
+from app.services import project_file_mapping as project_file_mapping_service
+from app.services import sample as sample_service
 from app.services.output_validation import output_path_exists
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
 from app.utils.input_format import to_safe_path_segment
@@ -184,7 +186,7 @@ def _register_mark(
             if run.sample_uid is None:
                 msg = 'sample_mark requires a sample-level workflow run.'
                 raise ValueError(msg)
-            sample_crud.upsert_dynamic_file(
+            sample_service.upsert_dynamic_file(
                 session,
                 sample_uid=run.sample_uid,
                 workflow_uid=run.workflow_uid,
@@ -197,7 +199,7 @@ def _register_mark(
             if run.sample_uid is not None:
                 msg = 'project_mark requires a project-level workflow run.'
                 raise ValueError(msg)
-            project_file_mapping_crud.upsert_dynamic(
+            project_file_mapping_service.upsert_dynamic_mapping(
                 session,
                 project_id=run.project_id,
                 workflow_uid=run.workflow_uid,
@@ -282,7 +284,7 @@ def collect_sample_marks_task(
     with Session(engine) as session:
         sample_files = sample_crud.get_dynamic_files_by_tags(session, project_id, normalized_names)
         samples = list(
-            session.exec(select(Sample).where(Sample.project_id == project_id).order_by(col(Sample.sample_name))).all()
+            session.scalars(select(Sample).where(Sample.project_id == project_id).order_by(Sample.sample_name))
         )
 
     found = {(str(sample_file.sample_uid), sample_file.tag) for sample_file, _ in sample_files}

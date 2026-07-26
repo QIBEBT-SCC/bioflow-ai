@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, ForeignKey, UniqueConstraint, func
+from sqlalchemy import ForeignKey, String, UniqueConstraint, func, select
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import relationship
-from sqlmodel import Field, Relationship, SQLModel, select
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.selectable import ScalarSelect
 
+from app.models.base import Base
 from app.models.user import User
 from app.utils.system import utc_now
 
@@ -14,79 +15,90 @@ if TYPE_CHECKING:
     from app.models.resource import Sample
 
 
-class ProjectTagLink(SQLModel, table=True):
+class ProjectTagLink(Base):
     __tablename__ = 'project_tag_link'
 
-    project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
-    tag_id: int = Field(foreign_key='project_tags.id', primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey('projects.id', ondelete='CASCADE'), primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey('project_tags.id'), primary_key=True)
 
 
-class ProjectStar(SQLModel, table=True):
+class ProjectStar(Base):
     __tablename__ = 'project_star'
 
-    project_id: int = Field(foreign_key='projects.id', primary_key=True, ondelete='CASCADE')
-    user_id: int = Field(sa_column=Column(ForeignKey(User.__table__.c.id), nullable=False))
+    project_id: Mapped[int] = mapped_column(ForeignKey('projects.id', ondelete='CASCADE'), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(User.id))
 
 
-class ProjectTag(SQLModel, table=True):
+class ProjectTag(Base):
     __tablename__ = 'project_tags'
-    model_config = {'ignored_types': (hybrid_property,)}
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
-    color: str
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str]
+    color: Mapped[str]
 
-    projects: list['Project'] = Relationship(back_populates='tags', link_model=ProjectTagLink)
+    projects: Mapped[list['Project']] = relationship(
+        secondary=ProjectTagLink.__table__,
+        back_populates='tags',
+    )
 
     @hybrid_property
     def project_count(self) -> int:
         """Return the number of projects using this tag."""
         return len(self.projects)
 
-    @project_count.expression
-    def project_count(self) -> Any:
+    @project_count.inplace.expression
+    @classmethod
+    def _project_count_expression(cls) -> ScalarSelect[int]:
         """Return the SQL expression for counting projects using this tag."""
         return (
-            # pyrefly: ignore [bad-argument-type]
             select(func.count(ProjectTagLink.project_id))
-            .where(ProjectTagLink.tag_id == self.id)
+            .where(ProjectTagLink.tag_id == cls.id)
             .correlate_except(ProjectTagLink)
             .scalar_subquery()
         )
 
 
-class Project(SQLModel, table=True):
+class Project(Base):
     __tablename__ = 'projects'
 
-    id: int = Field(default=None, primary_key=True)
-    owner_id: int = Field(sa_column=Column(ForeignKey(User.__table__.c.id), nullable=False))
-    name: str
-    description: str = Field(default='')
-    public: bool = Field(default=True)
-    create_time: datetime = Field(default_factory=utc_now)
-    update_time: datetime = Field(default_factory=utc_now)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey(User.id))
+    name: Mapped[str]
+    description: Mapped[str] = mapped_column(default='')
+    public: Mapped[bool] = mapped_column(default=True)
+    create_time: Mapped[datetime] = mapped_column(default=utc_now)
+    update_time: Mapped[datetime] = mapped_column(default=utc_now)
 
-    tags: list['ProjectTag'] = Relationship(back_populates='projects', link_model=ProjectTagLink)
-    owner: Optional['User'] = Relationship(sa_relationship=relationship(User))
-    samples: list['Sample'] = Relationship(cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True})
-    file_mappings: list['ProjectFileMapping'] = Relationship(
-        back_populates='project', cascade_delete=True, sa_relationship_kwargs={'passive_deletes': True}
+    tags: Mapped[list[ProjectTag]] = relationship(
+        secondary=ProjectTagLink.__table__,
+        back_populates='projects',
+    )
+    owner: Mapped[User | None] = relationship(User)
+    samples: Mapped[list['Sample']] = relationship(
+        'Sample',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+    )
+    file_mappings: Mapped[list['ProjectFileMapping']] = relationship(
+        back_populates='project',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
     )
 
 
-class ProjectFileMapping(SQLModel, table=True):
+class ProjectFileMapping(Base):
     __tablename__ = 'project_file_mappings'
     __table_args__ = (UniqueConstraint('project_id', 'keyword', name='uq_project_file_mapping'),)
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    project_id: int = Field(foreign_key='projects.id', ondelete='CASCADE')
-    keyword: str = Field(max_length=50, index=True)
-    file_path: str = Field(max_length=500)
-    description: str = Field(default='')
-    is_dynamic: bool = Field(default=False, index=True)
-    producer_workflow_uid: Optional[uuid.UUID] = Field(default=None, index=True)
-    producer_run_uid: Optional[uuid.UUID] = Field(default=None)
-    create_time: datetime = Field(default_factory=utc_now)
-    update_time: datetime = Field(default_factory=utc_now)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey(Project.id, ondelete='CASCADE'))
+    keyword: Mapped[str] = mapped_column(String(50), index=True)
+    file_path: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str] = mapped_column(default='')
+    is_dynamic: Mapped[bool] = mapped_column(default=False, index=True)
+    producer_workflow_uid: Mapped[uuid.UUID | None] = mapped_column(default=None, index=True)
+    producer_run_uid: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    create_time: Mapped[datetime] = mapped_column(default=utc_now)
+    update_time: Mapped[datetime] = mapped_column(default=utc_now)
 
-    project: Optional['Project'] = Relationship(back_populates='file_mappings')
+    project: Mapped[Project | None] = relationship(back_populates='file_mappings')

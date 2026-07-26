@@ -164,7 +164,7 @@ class SamplePublic(BaseModel):
     meta_data: dict
     create_time: datetime
     # 使用别名, 让 API 响应中显示为 "files", 但从模型中读取 "sample_files"
-    sample_files: list[SampleFilePublic] = Field(default=[], alias='files', serialization_alias='files')
+    sample_files: list[SampleFilePublic] = Field(default_factory=list, alias='files', serialization_alias='files')
 
 
 class SampleListItem(BaseModel):
@@ -186,5 +186,5 @@ class SampleGroupSummary(BaseModel):
 class SampleBatchImportResult(BaseModel):
     success: int  # 成功导入的样本数
     failed: int  # 失败的样本数
-    errors: list[dict] = []  # 错误详情: [{"row": 1, "sample_name": "xxx", "error": "xxx"}]
-    samples: list[uuid.UUID] = []  # 成功创建的样本 UUID 列表
+    errors: list[dict] = Field(default_factory=list)  # 错误详情: [{"row": 1, "sample_name": "xxx", "error": "xxx"}]
+    samples: list[uuid.UUID] = Field(default_factory=list)  # 成功创建的样本 UUID 列表
