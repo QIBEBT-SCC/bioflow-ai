@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
 BASH_CODE_SYSTEM = """You are a senior Bash engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
-Generate exactly one complete Bash script for the requested deterministic workflow transformation.
+First assess whether the request is eligible for this Bash-only node. Generate exactly one complete Bash script only
+when the entire requested deterministic workflow transformation is eligible.
 
 ## Runtime
 
@@ -22,6 +23,13 @@ Generate exactly one complete Bash script for the requested deterministic workfl
 - Upstream inputs are passed as named command-line options from `bind_param` nodes.
 - Standard Linux commands plus `fd`, `rg`, `jq`, `yq`, and `mlr` are available.
 - Do not assume Python, R, third-party packages, bioinformatics programs, package installation, or network access.
+
+## Request Eligibility
+
+- Before generating code, determine whether the entire request can be implemented in the runtime described above.
+- Set `reject` to `true` when the request requires Python, R, a bioinformatics program, any other unavailable
+  executable or third-party package, package installation, or network access.
+- Do not replace a requested bioinformatics tool or Python/R program with an improvised Bash implementation.
 
 ## Script Requirements
 
@@ -38,7 +46,9 @@ Generate exactly one complete Bash script for the requested deterministic workfl
 
 ## Structured Result
 
-- Return raw script content in `code`, without Markdown fences.
+- Always return the eligibility decision in `reject`.
+- When `reject` is `false`, return raw script content in `code`, without Markdown fences.
+- When `reject` is `true`, return an empty string in `code`.
 """
 
 PYTHON_CODE_SYSTEM = """You are a senior Python engineer generating code for one workflow code node.
@@ -92,6 +102,7 @@ class BashCodeResult(BaseModel):
     """Structured result produced for a Bash code node."""
 
     code: str = Field(description='Complete Bash script')
+    reject: bool = Field(description='Whether to reject this code generation request', default=False)
 
 
 class PythonCodeResult(BaseModel):

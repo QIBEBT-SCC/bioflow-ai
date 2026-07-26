@@ -231,6 +231,21 @@ async def _add_code(
             }
         )
 
+    if generated.reject:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content=(
+                            'This request is not the responsibility of the Bash code node. '
+                            'Read the relevant documentation and use a Python code node or tool node to implement the requirements.'
+                        ),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
     node_id = generate_char_index(len(exist_nodes) + 1)
 
     new_node = BuildNode(
