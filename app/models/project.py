@@ -85,6 +85,9 @@ class ProjectFileMapping(SQLModel, table=True):
     keyword: str = Field(max_length=50, index=True)
     file_path: str = Field(max_length=500)
     description: str = Field(default='')
+    is_dynamic: bool = Field(default=False, index=True)
+    producer_workflow_uid: Optional[uuid.UUID] = Field(default=None, index=True)
+    producer_run_uid: Optional[uuid.UUID] = Field(default=None)
     create_time: datetime = Field(default_factory=utc_now)
     update_time: datetime = Field(default_factory=utc_now)
 

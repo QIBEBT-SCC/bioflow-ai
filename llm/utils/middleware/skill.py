@@ -1,15 +1,12 @@
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, cast
 
 import frontmatter
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
-from langgraph.prebuilt import ToolRuntime
-
-from llm.utils.formatters import global_mark_formatter
 
 CURRENT_DIR = Path(__file__).parent
 SKILLS_DIR = CURRENT_DIR.parent.parent / 'skills'
@@ -37,29 +34,8 @@ async def view_skill(skill_name: str) -> str:
     return 'This skill was not found. Please verify the name is correct.'
 
 
-@tool(parse_docstring=True)
-async def assist_tool(
-    action: str,
-    parameter: Optional[dict[str, Any]],  # noqa: ARG001
-    runtime: ToolRuntime,
-) -> str:
-    """Assist tool for various auxiliary functions.
-
-    This tool is designed for accessibility in SKILL. Do not call it if you do not see information on how to use it.
-
-    Args:
-        action: The action to perform.
-        parameter: Additional parameter for the action, if needed.
-    """
-    if action == 'view_global_marks':
-        global_marks = runtime.state.get('global_marks', [])
-        return global_mark_formatter(global_marks)
-
-    return f'Action "{action}" is not supported.'
-
-
 class SkillMiddleware(AgentMiddleware):
-    tools = [view_skill, assist_tool]  # noqa: RUF012
+    tools = [view_skill]  # noqa: RUF012
 
     def __init__(self, available_skills: list[str]):
         skills: list[str] = []
@@ -82,7 +58,11 @@ class SkillMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelCallResult:
-        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': self.prompt}]
+        content_blocks = request.system_message.content_blocks if request.system_message is not None else []
+        new_content = cast(
+            'list[dict[Any, Any] | str]',
+            [*list(content_blocks), {'type': 'text', 'text': self.prompt}],
+        )
         new_system_message = SystemMessage(content=new_content)
         return handler(request.override(system_message=new_system_message))
 
@@ -91,6 +71,10 @@ class SkillMiddleware(AgentMiddleware):
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelCallResult:
-        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': self.prompt}]
+        content_blocks = request.system_message.content_blocks if request.system_message is not None else []
+        new_content = cast(
+            'list[dict[Any, Any] | str]',
+            [*list(content_blocks), {'type': 'text', 'text': self.prompt}],
+        )
         new_system_message = SystemMessage(content=new_content)
         return await handler(request.override(system_message=new_system_message))

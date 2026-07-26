@@ -36,6 +36,10 @@ class SampleFiles(SQLModel, table=True):
     file_size: int = Field(sa_type=BigInteger, default=0)
     md5_checksum: Optional[str] = None
     tag: str = Field(max_length=50, index=True)
+    description: str = Field(default='')
+    is_dynamic: bool = Field(default=False, index=True)
+    producer_workflow_uid: Optional[uuid.UUID] = Field(default=None, index=True)
+    producer_run_uid: Optional[uuid.UUID] = Field(default=None)
     uploaded_time: datetime = Field(default_factory=utc_now)
 
     sample: Optional['Sample'] = Relationship(back_populates='sample_files')

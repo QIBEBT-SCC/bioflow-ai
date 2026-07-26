@@ -5,7 +5,8 @@ from pathlib import Path
 
 import polars as pl
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import and_, func
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select as sa_select
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
@@ -282,7 +283,13 @@ def summarize_samples_by_project(session: Session, project_id: int) -> list[Samp
             col(Sample.meta_data),
             col(SampleFiles.tag),
         )
-        .outerjoin(SampleFiles, col(Sample.uid) == SampleFiles.sample_uid)
+        .outerjoin(
+            SampleFiles,
+            and_(
+                col(Sample.uid) == SampleFiles.sample_uid,
+                col(SampleFiles.is_dynamic).is_(False),
+            ),
+        )
         .where(col(Sample.project_id) == project_id)
         .order_by(col(Sample.create_time))
     )
@@ -343,6 +350,138 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
     session.refresh(sample_file)
 
     return sample_file
+
+
+def upsert_dynamic_file(
+    session: Session,
+    *,
+    sample_uid: uuid.UUID,
+    workflow_uid: uuid.UUID,
+    run_uid: uuid.UUID,
+    tag: str,
+    file_path: str,
+    description: str,
+) -> SampleFiles:
+    """Create or replace one dynamic sample file after its mark node succeeds."""
+    sample = get(session, sample_uid)
+    if sample is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found')
+
+    sample_file = session.exec(
+        select(SampleFiles).where(
+            SampleFiles.sample_uid == sample_uid,
+            SampleFiles.tag == tag,
+        )
+    ).one_or_none()
+    if sample_file is not None and not sample_file.is_dynamic:
+        msg = f'Dynamic mark "{tag}" conflicts with initial sample resource "sample:{tag}".'
+        raise ValueError(msg)
+    if sample_file is not None and sample_file.producer_workflow_uid != workflow_uid:
+        msg = (
+            f'Dynamic sample mark "{tag}" is already owned by workflow '
+            f'{sample_file.producer_workflow_uid}.'
+        )
+        raise ValueError(msg)
+
+    path = Path(file_path)
+    file_format = 'directory' if path.is_dir() else ''.join(path.suffixes).lstrip('.') or 'unknown'
+    if sample_file is None:
+        sample_file = SampleFiles(
+            sample_uid=sample_uid,
+            file_path=file_path,
+            file_format=file_format,
+            tag=tag,
+            description=description,
+            is_dynamic=True,
+            producer_workflow_uid=workflow_uid,
+            producer_run_uid=run_uid,
+        )
+    else:
+        sample_file.file_path = file_path
+        sample_file.file_format = file_format
+        sample_file.file_size = 0
+        sample_file.md5_checksum = None
+        sample_file.description = description
+        sample_file.is_dynamic = True
+        sample_file.producer_workflow_uid = workflow_uid
+        sample_file.producer_run_uid = run_uid
+        sample_file.uploaded_time = datetime.now(UTC)
+
+    session.add(sample_file)
+    _update_project_time(session, sample.project_id)
+    session.commit()
+    session.refresh(sample_file)
+    return sample_file
+
+
+def delete_dynamic_files_for_workflow(
+    session: Session,
+    *,
+    sample_uid: uuid.UUID,
+    workflow_uid: uuid.UUID,
+) -> None:
+    """Remove dynamic sample files owned by a workflow before rerunning it."""
+    session.exec(
+        sa_delete(SampleFiles).where(
+            col(SampleFiles.sample_uid) == sample_uid,
+            col(SampleFiles.is_dynamic).is_(True),
+            col(SampleFiles.producer_workflow_uid) == workflow_uid,
+        )
+    )
+
+
+def get_dynamic_files_by_tags(
+    session: Session,
+    project_id: int,
+    tags: list[str],
+) -> list[tuple[SampleFiles, str]]:
+    """Return dynamic sample files and their sample names for collection."""
+    statement = (
+        select(SampleFiles, Sample.sample_name)
+        .join(Sample, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(
+            Sample.project_id == project_id,
+            col(SampleFiles.is_dynamic).is_(True),
+            col(SampleFiles.tag).in_(tags),
+        )
+        .order_by(col(Sample.sample_name), col(SampleFiles.tag))
+    )
+    return list(session.exec(statement).all())
+
+
+def get_files_by_project(
+    session: Session,
+    project_id: int,
+) -> list[tuple[SampleFiles, str]]:
+    """Return all sample-file markers and sample names in a project."""
+    statement = (
+        select(SampleFiles, Sample.sample_name)
+        .join(Sample, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(Sample.project_id == project_id)
+        .order_by(col(SampleFiles.is_dynamic), col(SampleFiles.tag), col(Sample.sample_name))
+    )
+    return list(session.exec(statement).all())
+
+
+def get_files_by_tag_in_project(
+    session: Session,
+    project_id: int,
+    tag: str,
+    *,
+    limit: int = 3,
+) -> list[tuple[SampleFiles, str]]:
+    """Return a few sample files that already occupy a tag in a project."""
+    statement = (
+        select(SampleFiles, Sample.sample_name)
+        .join(Sample, col(Sample.uid) == SampleFiles.sample_uid)
+        .where(
+            Sample.project_id == project_id,
+            SampleFiles.tag == tag,
+        )
+        .order_by(col(Sample.sample_name))
+        .limit(limit)
+    )
+    return list(session.exec(statement).all())
 
 
 def delete_file(session: Session, file_uid: uuid.UUID) -> None:

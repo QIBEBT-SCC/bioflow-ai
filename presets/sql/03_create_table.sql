@@ -193,14 +193,18 @@ CREATE TABLE IF NOT EXISTS samples
 
 CREATE TABLE IF NOT EXISTS sample_files
 (
-    uid           uuid                     NOT NULL,
-    sample_uid    uuid,
-    tag           VARCHAR(50),
-    file_path     VARCHAR                  NOT NULL,
-    file_format   VARCHAR,
-    file_size     BIGINT                   NOT NULL,
-    md5_checksum  VARCHAR,
-    uploaded_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    uid                   uuid                     NOT NULL,
+    sample_uid            uuid,
+    tag                   VARCHAR(50),
+    file_path             VARCHAR                  NOT NULL,
+    file_format           VARCHAR,
+    file_size             BIGINT                   NOT NULL,
+    md5_checksum          VARCHAR,
+    description           VARCHAR                  NOT NULL DEFAULT '',
+    is_dynamic            BOOLEAN                  NOT NULL DEFAULT FALSE,
+    producer_workflow_uid uuid,
+    producer_run_uid      uuid,
+    uploaded_time         TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (sample_uid) REFERENCES samples ON DELETE CASCADE,
     CONSTRAINT uq_sample_file_tag UNIQUE (sample_uid, tag)
@@ -208,13 +212,16 @@ CREATE TABLE IF NOT EXISTS sample_files
 
 CREATE TABLE IF NOT EXISTS project_file_mappings
 (
-    id          SERIAL,
-    project_id  INTEGER                  NOT NULL,
-    keyword     VARCHAR(50)              NOT NULL,
-    file_path   VARCHAR(500)             NOT NULL,
-    description VARCHAR                  NOT NULL,
-    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    update_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    id                    SERIAL,
+    project_id            INTEGER                  NOT NULL,
+    keyword               VARCHAR(50)              NOT NULL,
+    file_path             VARCHAR(500)             NOT NULL,
+    description           VARCHAR                  NOT NULL,
+    is_dynamic            BOOLEAN                  NOT NULL DEFAULT FALSE,
+    producer_workflow_uid uuid,
+    producer_run_uid      uuid,
+    create_time           TIMESTAMP WITH TIME ZONE NOT NULL,
+    update_time           TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
     CONSTRAINT uq_project_file_mapping UNIQUE (project_id, keyword)

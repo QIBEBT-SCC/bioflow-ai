@@ -135,11 +135,6 @@ class WorkflowDraft(BaseModel):
     edges: list[BuildEdge] = Field(default_factory=list)
 
 
-class GlobalMarker(BaseModel):
-    mark_name: str
-    description: str
-
-
 class BuildState(AgentState, total=False):
     paper_id: str
 

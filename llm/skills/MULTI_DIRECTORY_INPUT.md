@@ -79,6 +79,10 @@ Common examples:
 - Report collection tools that recursively scan tool output folders
 - Custom aggregation tools that expect one root folder containing several result directories
 
+This processor collects directories already present in the same workflow run. For a genuine project-level aggregation
+over outputs registered by separate sample runs, use the `sample_mark_collection` resource instead and connect its
+`mount_collection` output directly to the aggregation tool.
+
 ## Important Notes
 
 - Prefer connecting upstream tool `workdir` outputs, not individual report files, when the aggregation tool performs recursive discovery.

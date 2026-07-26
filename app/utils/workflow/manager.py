@@ -16,6 +16,7 @@ from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_409_
 import app.crud.resource.sample as sample_crud
 from app.core.config import get_settings
 from app.crud import project as proj_crud
+from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
 from app.models.user import User
@@ -81,12 +82,25 @@ def create_runs_from_samples(
     if len(samples) != len(sample_uids):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Some samples not found')
 
-    # Create run instances for each sample
+    existing_runs: dict[uuid.UUID, RunInstance | None] = {}
+    for sample in samples:
+        existing_run = run_crud.get_latest_run_by_sample_and_workflow(
+            session, sample.uid, workflow_uid
+        )
+        if existing_run is not None:
+            runtime_status.refresh_run_status(existing_run)
+            if existing_run.status == Status.RUNNING:
+                raise HTTPException(
+                    HTTP_409_CONFLICT,
+                    f'Sample {sample.sample_name} already has a running instance, please wait for it to finish',
+                )
+        existing_runs[sample.uid] = existing_run
+
+    # Create run instances only after every requested sample passes the rerun preflight.
     run_uids = []
 
     for sample in samples:
-        # Check if a run instance already exists for this sample+workflow combination
-        existing_run = run_crud.get_latest_run_by_sample_and_workflow(session, sample.uid, workflow_uid)
+        existing_run = existing_runs[sample.uid]
         effective_auto_summary = resolve_auto_summary(
             requested=auto_summary,
             previous_tasks=existing_run.tasks if existing_run else None,
@@ -97,15 +111,11 @@ def create_runs_from_samples(
         base_dir = _get_project_run_base_dir(project_id, workflow.name, sample.sample_name)
 
         if existing_run:
-            runtime_status.refresh_run_status(existing_run)
-
-            # If running, reject rerun
-            if existing_run.status == Status.RUNNING:
-                raise HTTPException(
-                    HTTP_409_CONFLICT,
-                    f'Sample {sample.sample_name} already has a running instance, please wait for it to finish',
-                )
-
+            sample_crud.delete_dynamic_files_for_workflow(
+                session,
+                sample_uid=sample.uid,
+                workflow_uid=workflow_uid,
+            )
             # Clear old execution data and reuse the existing instance
             run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
             if existing_run.base_dir and Path(existing_run.base_dir).exists():
@@ -116,6 +126,11 @@ def create_runs_from_samples(
 
             run = existing_run
         else:
+            sample_crud.delete_dynamic_files_for_workflow(
+                session,
+                sample_uid=sample.uid,
+                workflow_uid=workflow_uid,
+            )
             # Build run name
             if run_name_prefix:
                 run_name = f'{run_name_prefix}-{sample.sample_name}'
@@ -226,6 +241,11 @@ def create_project_level_run(
                 'Project already has a running instance of this workflow',
             )
 
+        project_file_mapping_crud.delete_dynamic_for_workflow(
+            session,
+            project_id=project_id,
+            workflow_uid=workflow_uid,
+        )
         # Clear old execution data and reuse the existing instance
         run_crud.clear_run_for_rerun(session, existing_run, workflow_definition)
         if existing_run.base_dir and Path(existing_run.base_dir).exists():
@@ -236,6 +256,11 @@ def create_project_level_run(
 
         run = existing_run
     else:
+        project_file_mapping_crud.delete_dynamic_for_workflow(
+            session,
+            project_id=project_id,
+            workflow_uid=workflow_uid,
+        )
         # Build run name
         run_name = f'{run_name_prefix}-{project.name}' if run_name_prefix else f'{project.name}-{workflow.name}'
 

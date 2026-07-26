@@ -769,6 +769,42 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
         if orphans:
             validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has {len(orphans)} orphan edge(s).')
 
+        node_types = {node.type for node in draft.nodes}
+        if draft.execution_scope == 'sample_level':
+            invalid = sorted(node_types & {'project_mark', 'resource_sample_mark_collection'})
+            if invalid:
+                validation_errors.append(
+                    f'- {draft.draft_id} ("{draft.name}") is sample-level but contains project-only nodes: {invalid}.'
+                )
+        elif 'sample_mark' in node_types:
+            validation_errors.append(
+                f'- {draft.draft_id} ("{draft.name}") is project-level but contains `sample_mark`.'
+            )
+
+        mark_names = [
+            str(node.data.get('mark_name', ''))
+            for node in draft.nodes
+            if node.type in {'project_mark', 'sample_mark'}
+        ]
+        duplicate_marks = sorted({name for name in mark_names if mark_names.count(name) > 1})
+        if duplicate_marks:
+            validation_errors.append(
+                f'- {draft.draft_id} ("{draft.name}") publishes duplicate mark names: {duplicate_marks}.'
+            )
+
+        if draft.execution_scope == 'project_level':
+            invalid_sample_refs = [
+                node.id
+                for node in draft.nodes
+                if node.type == 'resource_file'
+                and str(node.data.get('file_path', '')).startswith('sample:')
+            ]
+            if invalid_sample_refs:
+                validation_errors.append(
+                    f'- {draft.draft_id} ("{draft.name}") is project-level but contains sample-bound file '
+                    f'references on nodes: {invalid_sample_refs}. Use `sample_mark_collection` for aggregation.'
+                )
+
     if validation_errors:
         return Command(
             update={

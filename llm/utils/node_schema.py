@@ -1,13 +1,16 @@
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.tools import Handle
 
 # Forward declaration for type hint
 from llm.states import BuildEdge
+
+MARK_NAME_MAX_LENGTH = 50
 
 
 class NodeSchema(TypedDict):
@@ -24,9 +27,28 @@ class SimpleSchema(BaseModel):
 
 
 # 处理器节点
-class GlobalMarkSchema(BaseModel):
-    mark_name: str
+class ArtifactMarkSchema(BaseModel):
+    mark_name: str = Field(min_length=1, max_length=50, pattern=r'^[a-z][a-z0-9_]*$')
     description: str
+
+
+class SampleMarkCollectionSchema(BaseModel):
+    mark_names: list[str] = Field(min_length=1)
+    require_all_samples: bool = True
+
+    @field_validator('mark_names')
+    @classmethod
+    def validate_mark_names(cls, mark_names: list[str]) -> list[str]:
+        """Normalize duplicate mark names and reject invalid names."""
+        pattern = re.compile(r'^[a-z][a-z0-9_]*$')
+        normalized = list(dict.fromkeys(mark_names))
+        invalid = [
+            name for name in normalized if len(name) > MARK_NAME_MAX_LENGTH or pattern.fullmatch(name) is None
+        ]
+        if invalid:
+            msg = f'invalid mark names: {invalid}'
+            raise ValueError(msg)
+        return normalized
 
 
 class SelectFileInFolderSchema(BaseModel):
@@ -126,11 +148,18 @@ class TextFileResourceSchema(BaseModel):
 
 
 PROCESSORS: dict[str, NodeSchema] = {
-    'global_mark': {
-        'name': 'Global Mark',
-        'description': 'Registers an upstream file or directory as a project-level path. Other workflows load it through the general `file` resource with `file_path="proj:<mark_name>"`. `mark_name` is the unique project keyword without the `proj:` prefix, and `description` explains the path for later workflow design.',
-        'args': GlobalMarkSchema,
-        'input_handles': [Handle(name='file', description='File or directory to register for cross-workflow use')],
+    'project_mark': {
+        'name': 'Project Mark',
+        'description': 'Registers one project-level workflow output immediately when this node succeeds. Use only in project-level workflows. Later workflows load it with `proj:<mark_name>`. The mapping is stored with normal project files but tagged as dynamic, and is cleared when its producer workflow reruns.',
+        'args': ArtifactMarkSchema,
+        'input_handles': [Handle(name='file', description='Project-level file or directory to register')],
+        'output_handles': [],
+    },
+    'sample_mark': {
+        'name': 'Sample Mark',
+        'description': 'Registers one output for the current sample immediately when this node succeeds. Use only in sample-level workflows. A later workflow for the same sample loads it with `sample:<mark_name>`; project-level aggregation uses the `sample_mark_collection` resource.',
+        'args': ArtifactMarkSchema,
+        'input_handles': [Handle(name='file', description='Current sample file or directory to register')],
         'output_handles': [],
     },
     'bind_param': {
@@ -187,7 +216,7 @@ PROCESSORS: dict[str, NodeSchema] = {
 RESOURCES: dict[str, NodeSchema] = {
     'sequence': {
         'name': 'Pair-end Reads Input',
-        'description': 'Loads one paired-end sequencing input as R1 and R2. Each path may be a plain filesystem path, `sample:<tag>`, or `proj:<keyword>`. Use the general `file` resource for single-end reads and other ordinary file or directory inputs.',
+        'description': 'Loads one paired-end sequencing input as R1 and R2. Each path may be a plain filesystem path or a `sample:<tag>`/`proj:<keyword>` reference. Those references may point to initial or dynamically marked files. Use the general `file` resource for single-end reads and other ordinary files or directories.',
         'args': SequenceResourceSchema,
         'input_handles': [],
         'output_handles': [
@@ -197,10 +226,20 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'file': {
         'name': 'File / Directory Input',
-        'description': 'Loads any existing file or directory from a plain filesystem path, a sample-level `sample:<tag>` reference, or a project-level `proj:<keyword>` reference. Use this general path resource for non-paired inputs such as single-end reads, custom annotations, images, result files, and directories. Prefer dedicated database and reference-genome resource nodes when applicable.',
+        'description': 'Loads any existing file or directory from a plain path or a `sample:<tag>`/`proj:<keyword>` mapping. Mappings may be initial inputs or dynamically registered workflow outputs. Use this general path resource for non-paired inputs such as single-end reads, custom annotations, images, result files, and directories.',
         'args': FileInputSchema,
         'input_handles': [],
         'output_handles': [Handle(name='file_path', description='Resolved file or directory path')],
+    },
+    'sample_mark_collection': {
+        'name': 'Sample Mark Collection',
+        'description': 'Project-level resource that freezes current dynamic sample marks into a provenance-preserving JSON manifest and a virtual mounted collection organized by sample and mark. Connect `mount_collection` directly to directory-scanning tools such as MultiQC.',
+        'args': SampleMarkCollectionSchema,
+        'input_handles': [],
+        'output_handles': [
+            Handle(name='mount_collection', description='Virtual root containing collected sample artifacts'),
+            Handle(name='collection_manifest', description='Frozen JSON manifest with sample and run provenance'),
+        ],
     },
     'text_file': {
         'name': 'Text File',

@@ -1,17 +1,23 @@
+from __future__ import annotations
+
 import inspect
 import json
 import types
-from typing import Any, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin
 
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
-from app.schemas.tools import Handle, ToolNodePublic
 from app.utils.input_format import build_command_template
-from llm.states import BuildNode, GlobalMarker, ToolGeneratorState
-from llm.utils.uid_mapper import BidirectionalMapper
+
+if TYPE_CHECKING:
+    from app.models.project import ProjectFileMapping
+    from app.models.resource import SampleFiles
+    from app.schemas.tools import Handle, ToolNodePublic
+    from llm.states import BuildNode, ToolGeneratorState, WorkflowDraft
+    from llm.utils.uid_mapper import BidirectionalMapper
 
 
 def _extract_nested_model(annotation: Any) -> type[BaseModel] | None:
@@ -191,7 +197,6 @@ def tool_config_formatter(state: ToolGeneratorState) -> str:
         f'## Info\n'
         f'name: {state["name"]}\n'
         f'description: {state["description"]}\n'
-        f'help_command: {state["help_command"]}\n\n'
         f'## Command\n'
         f'```bash\n'
         f'{complete_command}\n'
@@ -263,16 +268,64 @@ def search_nodes_formatter(nodes: list[ToolNodePublic], mappers: BidirectionalMa
     return json.dumps(tool_blocks)
 
 
-def global_mark_formatter(markers: list[GlobalMarker]) -> str:
-    """Format workflow global markers for prompt context."""
-    if not markers:
-        return 'No Global Marks In Workflow.'
-    return '\n'.join(
-        [
-            f'<GlobalMark>\n'
-            f'  <mark_name>{m.mark_name}</mark_name>\n'
-            f'  <description>{m.description}</description>\n'
-            f'</GlobalMark>'
-            for m in markers
-        ]
-    )
+def format_marker_registry(
+    project_marks: list[ProjectFileMapping],
+    sample_marks: list[tuple[SampleFiles, str]],
+    workflow_drafts: list[WorkflowDraft],
+) -> str:
+    """List persisted resources and marks declared by the current builder drafts."""
+    draft_markers = [
+        (draft, node)
+        for draft in workflow_drafts
+        for node in draft.nodes
+        if node.type in {'project_mark', 'sample_mark'}
+    ]
+    if not project_marks and not sample_marks and not draft_markers:
+        return 'No project or sample markers are currently registered.'
+
+    sample_groups: dict[tuple[bool, str], dict[str, Any]] = {}
+    for mark, sample_name in sample_marks:
+        group = sample_groups.setdefault(
+            (mark.is_dynamic, mark.tag),
+            {'sample_names': set(), 'descriptions': set()},
+        )
+        group['sample_names'].add(sample_name)
+        if mark.description:
+            group['descriptions'].add(mark.description)
+
+    sections = [
+        (False, '=== INITIAL RESOURCES ==='),
+        (True, '=== PUBLISHED WORKFLOW MARKS ==='),
+    ]
+    output: list[str] = []
+    for is_dynamic, title in sections:
+        entries: list[str] = []
+        for mark in project_marks:
+            if mark.is_dynamic == is_dynamic:
+                description = mark.description or '(no description)'
+                entries.append(f'- `proj:{mark.keyword}` — {description}')
+
+        for (dynamic, tag), group in sample_groups.items():
+            if dynamic != is_dynamic:
+                continue
+            descriptions = '; '.join(sorted(group['descriptions'])) or '(no description)'
+            sample_count = len(group['sample_names'])
+            entries.append(f'- `sample:{tag}` — {descriptions} [{sample_count} sample(s)]')
+
+        output.append(title)
+        output.extend(entries or ['- (none)'])
+
+    draft_entries = []
+    for draft, node in draft_markers:
+        prefix = 'proj' if node.type == 'project_mark' else 'sample'
+        mark_name = str(node.data.get('mark_name', ''))
+        description = str(node.data.get('description', '')) or '(no description)'
+        draft_entries.append(
+            f'- `{prefix}:{mark_name}` — {description} '
+            f'[planned by {draft.draft_id} "{draft.name}", {draft.execution_scope}]'
+        )
+
+    output.append('=== DRAFT WORKFLOW MARKS (NOT PUBLISHED YET) ===')
+    output.extend(draft_entries or ['- (none)'])
+
+    return '\n'.join(output)

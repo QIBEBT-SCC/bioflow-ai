@@ -62,8 +62,8 @@ Use the dedicated `sequence` resource only when one logical input consists of pa
 Use the general `file` resource for ordinary file or directory inputs. Prefer dedicated database and reference-genome resource nodes when the requested resource is available through them.
 
 The `file` resource is the general input node for both files and directories. Its `file_path` argument accepts a plain filesystem path or an automatic reference:
-- `proj:<keyword>`: a project-level path previously registered by `global_mark`
-- `sample:<tag>`: a path registered on the current sample
+- `proj:<keyword>`: a project mapping, either an initial resource or a dynamic project mark
+- `sample:<tag>`: a current-sample mapping, either an initial input or a dynamic sample mark
 
 References are resolved when the workflow runs. For more details, refer to the **FILE_SYSTEM** skill.
 
@@ -221,6 +221,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 SkillMiddleware(
                     [
                         'FILE_SYSTEM',
+                        'CROSS_WORKFLOW_FILE_TRANSFER',
                         'USING_BASH_NODE',
                         'USING_PYTHON_NODE',
                         'MULTI_DIRECTORY_INPUT',
@@ -256,11 +257,12 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         middleware=[
             TodoMiddleware(),
             SkillMiddleware(
-                [
-                    'USING_BASH_NODE',
-                    'USING_PYTHON_NODE',
-                    'FILE_SYSTEM',
-                    'MULTI_DIRECTORY_INPUT',
+                    [
+                        'USING_BASH_NODE',
+                        'USING_PYTHON_NODE',
+                        'FILE_SYSTEM',
+                        'CROSS_WORKFLOW_FILE_TRANSFER',
+                        'MULTI_DIRECTORY_INPUT',
                     'WRITE_DOWNSTREAM_SUMMARY',
                 ]
             ),

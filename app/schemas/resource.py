@@ -132,10 +132,14 @@ class SampleFilePublic(BaseModel):
     uid: uuid.UUID
     sample_uid: uuid.UUID
     file_path: str
-    file_format: str
+    file_format: str | None
     file_size: int
-    md5_checksum: str
+    md5_checksum: str | None
     tag: str | None = None
+    description: str
+    is_dynamic: bool
+    producer_workflow_uid: uuid.UUID | None
+    producer_run_uid: uuid.UUID | None
     uploaded_time: datetime
 
 

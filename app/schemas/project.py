@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -70,5 +71,8 @@ class ProjectFileMappingPublic(BaseModel):
     keyword: str
     file_path: str
     description: str
+    is_dynamic: bool
+    producer_workflow_uid: uuid.UUID | None
+    producer_run_uid: uuid.UUID | None
     create_time: datetime
     update_time: datetime

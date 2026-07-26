@@ -6,7 +6,11 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
+from sqlmodel import Session
 
+from app.core.session import engine
+from app.crud import project_file_mapping as project_file_mapping_crud
+from app.crud.resource import sample as sample_crud
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
 from llm.utils.edge_validation import check_edge_handles
@@ -14,6 +18,7 @@ from llm.utils.formatters import format_validation_error, manager_help_command, 
 from llm.utils.node_schema import PROCESSORS
 from llm.utils.retrievers import retrieve_processor
 from llm.utils.uid_mapper import generate_char_index
+from llm.workflow_builder.validation import validate_node_addition
 
 # ---- Schemas ----
 
@@ -223,6 +228,16 @@ def _add_processor(
             }
         )
 
+    if error := validate_node_addition(
+        runtime.state,
+        node_type=processor_name,
+        arguments=arguments,
+    ):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
+
+    if error := _validate_mark_storage_conflict(processor_name, arguments, runtime):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
+
     if error := check_edge_handles(input_edges, PROCESSORS[processor_name]['input_handles'], exist_nodes):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
@@ -259,3 +274,39 @@ def _add_processor(
             ],
         }
     )
+
+
+def _validate_mark_storage_conflict(
+    processor_name: str,
+    arguments: dict[str, Any],
+    runtime: ToolRuntime[ProjectContext],
+) -> str | None:
+    """Reject mark names that are already occupied in the project file system."""
+    if processor_name not in {'project_mark', 'sample_mark'}:
+        return None
+
+    mark_name = str(arguments['mark_name'])
+    with Session(engine) as session:
+        if processor_name == 'project_mark':
+            mapping = project_file_mapping_crud.get_by_keyword(
+                session,
+                runtime.context.project_id,
+                mark_name,
+            )
+            if mapping is None:
+                return None
+            source = 'dynamic mark' if mapping.is_dynamic else 'initial project resource'
+            return f'Cannot add mark `{mark_name}` because `proj:{mark_name}` already exists as a {source}.'
+
+        matches = sample_crud.get_files_by_tag_in_project(
+            session,
+            runtime.context.project_id,
+            mark_name,
+        )
+        if not matches:
+            return None
+        sample_names = ', '.join(sample_name for _, sample_name in matches)
+        return (
+            f'Cannot add mark `{mark_name}` because `sample:{mark_name}` already exists '
+            f'on project sample(s): {sample_names}.'
+        )

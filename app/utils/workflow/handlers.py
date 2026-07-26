@@ -18,9 +18,11 @@ from app.tasks.file_operation import (
     bind_param_task,
     collect_files_task,
     collect_mount_dirs_task,
+    collect_sample_marks_task,
     create_text_file_task,
-    global_mark_task,
+    project_mark_task,
     rename_file_task,
+    sample_mark_task,
     select_file_task,
 )
 from app.tasks.load_tasks.load_bio_db import load_bio_db_task
@@ -290,26 +292,79 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
         return collect_files_task.s(inputs=task_node.kwarg, output_dir=output_dir).set(task_id=task_node.id)
 
 
-@register_handler('global_mark')
-class GlobalMarkTaskHandler(BaseTaskHandler):
-    """项目级文件标记任务处理器."""
+@register_handler('project_mark')
+class ProjectMarkTaskHandler(BaseTaskHandler):
+    """Project-scoped dynamic mapping registrar."""
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
             instance_uid=context.run_uid,
             owner_id=context.owner.id,
-            name='global_mark',
+            name='project_mark',
             status=Status.WAITING,
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        return global_mark_task.s(
+        return project_mark_task.s(
             inputs=task_node.kwarg,
-            project_id=context.project_id,
+            run_uid=str(context.run_uid),
             mark_name=task_node.data.get('mark_name', ''),
             description=task_node.data.get('description', ''),
         ).set(task_id=task_node.id)
+
+
+@register_handler('sample_mark')
+class SampleMarkTaskHandler(BaseTaskHandler):
+    """Sample-scoped dynamic mapping registrar."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='sample_mark',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        return sample_mark_task.s(
+            inputs=task_node.kwarg,
+            run_uid=str(context.run_uid),
+            mark_name=task_node.data.get('mark_name', ''),
+            description=task_node.data.get('description', ''),
+        ).set(task_id=task_node.id)
+
+
+@register_handler('resource_sample_mark_collection')
+class SampleMarkCollectionTaskHandler(BaseTaskHandler):
+    """Project-level resource that freezes current dynamic sample artifacts."""
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_sample_mark_collection'
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='sample_mark_collection',
+            base_dir=output_dir,
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_sample_mark_collection'
+        return collect_sample_marks_task.s(
+            project_id=context.project_id,
+            sample_uid=context.sample_uid,
+            mark_names=task_node.data.get('mark_names', []),
+            require_all_samples=task_node.data.get('require_all_samples', True),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
+
+    def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
+        """Use a dedicated output directory for the frozen manifest."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
 
 
 @register_handler('collect_mount_dirs')

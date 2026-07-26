@@ -1,14 +1,17 @@
 import json
+import re
+import uuid
 from pathlib import Path
 
 from celery import Task
 from loguru import logger
-from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
 from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
-from app.models.workflow import ToolOutput
+from app.crud.resource import sample as sample_crud
+from app.models.resource import Sample
+from app.models.workflow import RunInstance, ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.services.output_validation import output_path_exists
 from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
@@ -17,6 +20,7 @@ from script.worker import celery_app
 
 PROJECT_FILE_KEYWORD_MAX_LENGTH = 50
 TEXT_FILE_CONTENT_MAX_BYTES = 5 * 1024 * 1024
+MARK_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -135,61 +139,224 @@ def collect_files_task(
     return ToolOutput(result={'folder_path': output_folder})
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def global_mark_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def _normalize_mark_name(mark_name: str) -> str:
+    normalized = mark_name.strip()
+    if not normalized:
+        msg = 'mark_name must not be empty.'
+        raise ValueError(msg)
+    if len(normalized) > PROJECT_FILE_KEYWORD_MAX_LENGTH:
+        msg = f'mark_name must be no longer than {PROJECT_FILE_KEYWORD_MAX_LENGTH} characters.'
+        raise ValueError(msg)
+    if MARK_NAME_PATTERN.fullmatch(normalized) is None:
+        msg = 'mark_name must start with a lowercase letter and contain only lowercase letters, digits, or _.'
+        raise ValueError(msg)
+    return normalized
+
+
+def _register_mark(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
-    project_id: int | None,
+    run_uid: str,
     mark_name: str,
-    description: str = '',
+    description: str,
+    sample_scope: bool,
 ) -> ToolOutput:
-    """Mark an upstream file as a project-level reference."""
-    if project_id is None:
-        err_msg = 'global_mark requires a project_id.'
-        raise ValueError(err_msg)
-
-    keyword = mark_name.removeprefix('proj:').strip()
-    if not keyword:
-        err_msg = 'global_mark requires a non-empty mark_name.'
-        raise ValueError(err_msg)
-    if len(keyword) > PROJECT_FILE_KEYWORD_MAX_LENGTH:
-        err_msg = f'global_mark mark_name must be no longer than {PROJECT_FILE_KEYWORD_MAX_LENGTH} characters.'
-        raise ValueError(err_msg)
-
     input_file = inputs.get('file')
     if input_file is None or isinstance(input_file, list):
-        err_msg = 'global_mark requires exactly one file input.'
-        raise ValueError(err_msg)
+        msg = 'A mark node requires exactly one file input.'
+        raise ValueError(msg)
 
+    normalized_name = _normalize_mark_name(mark_name)
     file_path, sample_name = get_tool_output(input_file.source_uid, input_file.source_k)
     marked_path = Path(file_path).absolute()
     if not output_path_exists(marked_path):
         raise FileNotFoundError(marked_path)
 
     with Session(engine) as session:
-        mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
-        if mapping is None:
-            try:
-                project_file_mapping_crud.create(session, project_id, keyword, str(marked_path), description)
-            except IntegrityError:
-                session.rollback()
-                mapping = project_file_mapping_crud.get_by_keyword(session, project_id, keyword)
-                if mapping is None:
-                    raise
-                project_file_mapping_crud.update(
-                    mapping_id=mapping.id, session=session, file_path=str(marked_path), description=description
-                )
-        else:
-            project_file_mapping_crud.update(
+        parsed_run_uid = uuid.UUID(run_uid)
+        run = session.get(RunInstance, parsed_run_uid)
+        if run is None or run.project_id is None or run.workflow_uid is None:
+            msg = 'Dynamic marks require a project workflow run.'
+            raise ValueError(msg)
+
+        if sample_scope:
+            if run.sample_uid is None:
+                msg = 'sample_mark requires a sample-level workflow run.'
+                raise ValueError(msg)
+            sample_crud.upsert_dynamic_file(
                 session,
-                mapping.id,
+                sample_uid=run.sample_uid,
+                workflow_uid=run.workflow_uid,
+                run_uid=run.uid,
+                tag=normalized_name,
+                file_path=str(marked_path),
+                description=description,
+            )
+        else:
+            if run.sample_uid is not None:
+                msg = 'project_mark requires a project-level workflow run.'
+                raise ValueError(msg)
+            project_file_mapping_crud.upsert_dynamic(
+                session,
+                project_id=run.project_id,
+                workflow_uid=run.workflow_uid,
+                run_uid=run.uid,
+                keyword=normalized_name,
                 file_path=str(marked_path),
                 description=description,
             )
 
     return ToolOutput(result={'file_path': marked_path}, sample_name=sample_name)
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def project_mark_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput | list[TaskInput]],
+    run_uid: str,
+    mark_name: str,
+    description: str = '',
+) -> ToolOutput:
+    """Register an upstream path as a dynamic project mapping."""
+    return _register_mark(
+        inputs=inputs,
+        run_uid=run_uid,
+        mark_name=mark_name,
+        description=description,
+        sample_scope=False,
+    )
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def sample_mark_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput | list[TaskInput]],
+    run_uid: str,
+    mark_name: str,
+    description: str = '',
+) -> ToolOutput:
+    """Register an upstream path as a dynamic sample-file mapping."""
+    return _register_mark(
+        inputs=inputs,
+        run_uid=run_uid,
+        mark_name=mark_name,
+        description=description,
+        sample_scope=True,
+    )
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def collect_sample_marks_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    project_id: int | None,
+    sample_uid: str | None,
+    mark_names: list[str],
+    require_all_samples: bool,
+    output_dir: str,
+) -> ToolOutput:
+    """Freeze current dynamic sample marks into a manifest and virtual mount collection."""
+    if project_id is None:
+        msg = 'Sample mark collections require a project-level workflow run.'
+        raise ValueError(msg)
+    if sample_uid is not None:
+        msg = 'Sample mark collections cannot run inside a sample-level workflow.'
+        raise ValueError(msg)
+
+    normalized_names = list(dict.fromkeys(_normalize_mark_name(name) for name in mark_names))
+    if not normalized_names:
+        msg = 'mark_names must contain at least one mark.'
+        raise ValueError(msg)
+
+    output_folder = Path(output_dir).absolute()
+    output_folder.mkdir(parents=True, exist_ok=True)
+    mount_root = output_folder / 'mount_root'
+    mount_root.mkdir(parents=True, exist_ok=True)
+
+    with Session(engine) as session:
+        sample_files = sample_crud.get_dynamic_files_by_tags(session, project_id, normalized_names)
+        samples = list(
+            session.exec(
+                select(Sample).where(Sample.project_id == project_id).order_by(col(Sample.sample_name))
+            ).all()
+        )
+
+    found = {(str(sample_file.sample_uid), sample_file.tag) for sample_file, _ in sample_files}
+    missing = [
+        {'sample_uid': str(sample.uid), 'sample_name': sample.sample_name, 'mark_name': mark_name}
+        for sample in samples
+        for mark_name in normalized_names
+        if (str(sample.uid), mark_name) not in found
+    ]
+    if require_all_samples and missing:
+        summary = ', '.join(f'{item["sample_name"]}:{item["mark_name"]}' for item in missing)
+        msg = f'Missing dynamic sample marks: {summary}'
+        raise FileNotFoundError(msg)
+    if not sample_files:
+        msg = f'No dynamic sample marks found for: {", ".join(normalized_names)}'
+        raise FileNotFoundError(msg)
+
+    entries = []
+    seen_targets: set[str] = set()
+    for sample_file, sample_name in sample_files:
+        source_path = Path(sample_file.file_path).absolute()
+        if not output_path_exists(source_path):
+            raise FileNotFoundError(source_path)
+
+        sample_segment = to_safe_path_segment(sample_name, fallback=str(sample_file.sample_uid))
+        mark_segment = to_safe_path_segment(sample_file.tag, fallback='mark')
+        relative_path = f'{sample_segment}/{mark_segment}'
+        if source_path.is_file():
+            relative_path = f'{relative_path}/{to_safe_path_segment(source_path.name, fallback="file")}'
+        if relative_path in seen_targets:
+            msg = f'Duplicate collection target: {relative_path}'
+            raise ValueError(msg)
+        seen_targets.add(relative_path)
+
+        entries.append(
+            {
+                'mount_name': relative_path,
+                'source_path': str(source_path),
+                'source_uid': str(sample_file.uid),
+                'source_key': sample_file.tag,
+                'sample_uid': str(sample_file.sample_uid),
+                'sample_name': sample_name,
+                'mark_name': sample_file.tag,
+                'description': sample_file.description,
+                'workflow_uid': (
+                    str(sample_file.producer_workflow_uid)
+                    if sample_file.producer_workflow_uid is not None
+                    else None
+                ),
+                'run_uid': str(sample_file.producer_run_uid) if sample_file.producer_run_uid is not None else None,
+                'kind': 'directory' if source_path.is_dir() else 'file',
+            }
+        )
+
+    manifest_path = output_folder / 'collection_manifest.json'
+    manifest = {
+        'version': 1,
+        'type': 'artifact_collection',
+        'project_id': project_id,
+        'mark_names': normalized_names,
+        'require_all_samples': require_all_samples,
+        'root_dir': str(mount_root),
+        'entries': entries,
+        'missing': missing,
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
+
+    return ToolOutput(
+        result={
+            'mount_collection': f'mountlist:{manifest_path}',
+            'collection_manifest': manifest_path,
+        }
+    )
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)

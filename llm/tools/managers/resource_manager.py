@@ -10,12 +10,16 @@ from sqlmodel import Session
 
 import app.crud.resource.bio_db as db_crud
 from app.core.session import engine
+from app.crud import project_file_mapping as project_file_mapping_crud
+from app.crud.resource import sample as sample_crud
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
 from llm.utils.edge_validation import check_edge_handles
-from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
+from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter, format_marker_registry
 from llm.utils.node_schema import RESOURCES
 from llm.utils.uid_mapper import generate_char_index
+from llm.workflow_builder.drafts import snapshot_active_workflow
+from llm.workflow_builder.validation import validate_node_addition
 
 
 class ViewResourceSchema(BaseModel):
@@ -59,6 +63,7 @@ class AddResourceSchema(BaseModel):
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'view': ViewResourceSchema,
+    'view_marks': None,
     'search_db': SearchDbSchema,
     'create_db': CreateDbSchema,
     'add': AddResourceSchema,
@@ -99,6 +104,9 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                     }
                 )
             return _view_resource(validate_param.resource_type, runtime)
+
+        case 'view_marks':
+            return _view_marks(runtime)
 
         case 'search_db':
             try:
@@ -202,6 +210,25 @@ def _view_resource(resource_type: str, runtime: ToolRuntime[ProjectContext]) -> 
         'output_handles': [{'name': h.name, 'description': h.description} for h in resource_schema['output_handles']],
     }
     return Command(update={'messages': [ToolMessage(content=json.dumps(node_obj), tool_call_id=runtime.tool_call_id)]})
+
+
+def _view_marks(
+    runtime: ToolRuntime[ProjectContext],
+) -> Command:
+    """Read persisted markers and markers planned by every builder draft."""
+    with Session(engine) as session:
+        project_marks = project_file_mapping_crud.get_all_by_project(
+            session,
+            runtime.context.project_id,
+        )
+        sample_marks = sample_crud.get_files_by_project(
+            session,
+            runtime.context.project_id,
+        )
+
+    drafts = snapshot_active_workflow(runtime.state)
+    content = format_marker_registry(project_marks, sample_marks, list(drafts.values()))
+    return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
 
 
 def _search_db(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
@@ -321,6 +348,13 @@ def _add_resource(
                 ]
             }
         )
+
+    if error := validate_node_addition(
+        runtime.state,
+        node_type=f'resource_{resource_type}',
+        arguments=arguments,
+    ):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     if error := check_edge_handles(input_edges, resource_schema['input_handles'], exist_nodes):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})

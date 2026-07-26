@@ -101,13 +101,13 @@ def _resolve_mount_path(
 
 
 def _load_mountlist_manifest(manifest_ref: str) -> dict[str, Any]:
-    """Load a mount-list manifest produced by the collect_mount_dirs processor."""
+    """Load a mount-list manifest produced by a directory or artifact collection node."""
     manifest_path = Path(manifest_ref.removeprefix(MOUNTLIST_PREFIX)).absolute()
     if not manifest_path.exists():
         raise FileNotFoundError(manifest_path)
 
     manifest = json.loads(manifest_path.read_text())
-    if manifest.get('type') != 'mount_dir_list':
+    if manifest.get('type') not in {'mount_dir_list', 'artifact_collection'}:
         err_msg = f'Invalid mount-list manifest type: {manifest.get("type")}'
         raise ValueError(err_msg)
     if not isinstance(manifest.get('entries'), list):
@@ -120,10 +120,24 @@ def _load_mountlist_manifest(manifest_ref: str) -> dict[str, Any]:
     return manifest
 
 
+def _normalize_collection_mount_name(raw_name: str, fallback: str) -> str:
+    """Validate a relative POSIX mount target, including nested sample/mark paths."""
+    candidate = raw_name.strip().strip('/')
+    parts = candidate.split('/')
+    if not candidate or any(part in {'', '.', '..'} for part in parts):
+        msg = f'Invalid collection mount name: {raw_name!r}'
+        raise ValueError(msg)
+    if any('\\' in part for part in parts):
+        msg = f'Invalid collection mount name: {raw_name!r}'
+        raise ValueError(msg)
+    return candidate or fallback
+
+
 def _add_mountlist_mounts(
     manifest_ref: str,
     file: FileMount,
     mount_paths: dict[str, Path],
+    read_only_mounts: set[str],
     param_inputs: dict[str, str],
     conflicted_paths: set[str],
 ) -> str:
@@ -141,10 +155,11 @@ def _add_mountlist_mounts(
         source_path = Path(entry['source_path']).absolute()
         if not source_path.exists():
             raise FileNotFoundError(source_path)
-        if not source_path.is_dir():
-            raise NotADirectoryError(source_path)
 
-        mount_name = str(entry.get('mount_name') or f'dir_{index:03d}')
+        mount_name = _normalize_collection_mount_name(
+            str(entry.get('mount_name') or f'entry_{index:03d}'),
+            f'entry_{index:03d}',
+        )
         if mount_name in seen_mount_names:
             mount_name = f'{index:03d}_{mount_name}'
         seen_mount_names.add(mount_name)
@@ -154,7 +169,17 @@ def _add_mountlist_mounts(
             err_msg = f'Mount-list target conflict: {container_path}'
             raise ValueError(err_msg)
 
+        placeholder = host_root / mount_name
+        if source_path.is_dir():
+            placeholder.mkdir(parents=True, exist_ok=True)
+        elif source_path.is_file():
+            placeholder.parent.mkdir(parents=True, exist_ok=True)
+            placeholder.touch(exist_ok=True)
+        else:
+            msg = f'Collection source is neither a file nor a directory: {source_path}'
+            raise ValueError(msg)
         mount_paths[container_path] = source_path
+        read_only_mounts.add(container_path)
 
     return container_root
 
@@ -164,10 +189,11 @@ def build_tool_mounts(
     host_output_dir: str,
     sample_name: str,
     inputs: dict[str, ResolvedToolInput],
-) -> tuple[dict[str, str], dict[str, Path], ToolOutput]:
+) -> tuple[dict[str, str], dict[str, Path], set[str], ToolOutput]:
     """Build container mounts and expected outputs from resolved tool inputs."""
     param_inputs: dict[str, str] = {}
     mount_paths: dict[str, Path] = {}
+    read_only_mounts: set[str] = set()
     expected_output = ToolOutput()
     conflicted_paths: set[str] = set()
     source_sample_names: list[str | None] = []
@@ -188,6 +214,7 @@ def build_tool_mounts(
                 file_path,
                 file,
                 mount_paths,
+                read_only_mounts,
                 param_inputs,
                 conflicted_paths,
             )
@@ -248,7 +275,7 @@ def build_tool_mounts(
 
         param_inputs[file.name] = container_file_path
 
-    return param_inputs, mount_paths, expected_output
+    return param_inputs, mount_paths, read_only_mounts, expected_output
 
 
 def _get_common_sample_name(sample_names: list[str | None]) -> str | None:
@@ -275,7 +302,7 @@ def prepare_docker_tool_execution(
     host_output_dir = Path(output_dir).absolute()
     host_output_dir.mkdir(parents=True, exist_ok=True)
 
-    param_inputs, mount_paths, expected_output = build_tool_mounts(
+    param_inputs, mount_paths, read_only_mounts, expected_output = build_tool_mounts(
         config.file_mounts,
         output_dir,
         sample_name,
@@ -295,7 +322,11 @@ def prepare_docker_tool_execution(
         **param_inputs,
     )
     volume_binds = [
-        ContainerMount(source=str(host_path), target=container_path, read_only=False)
+        ContainerMount(
+            source=str(host_path),
+            target=container_path,
+            read_only=container_path in read_only_mounts,
+        )
         for container_path, host_path in mount_paths.items()
     ]
     volume_binds.append(ContainerMount(source='/tmp', target='/tmp', read_only=False))  # noqa: S108
