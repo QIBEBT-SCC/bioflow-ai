@@ -47,7 +47,7 @@ Your task is to explore raw data paths provided by the user, identify the file s
    - If the path is inaccessible, call `ask_human` — this is the **only** situation to use it.
 3. **Infer** — Determine the workflow execution unit first, then decide how each file should be registered.
    - A system `Sample` is the complete set of inputs that one sample-level workflow run must be able to access. It is not necessarily the same as one biological library, one filename prefix, or one input subdirectory.
-   - Read the task description and distinguish independent samples from files with complementary roles. If treatment/control, tumor/normal, case/reference, before/after, or other paired libraries must be compared or supplied together to one downstream command, register them in one composite sample.
+   - Read the task description and distinguish independent samples from files with complementary roles. If treatment/control, tumor/normal, case/reference, before/after, or other paired libraries must be compared or supplied together to one downstream command, register them in a same sample.
    - In a composite sample, give every file a role-prefixed tag, such as `treatment_r1`, `treatment_r2`, `control_r1`, and `control_r2`. Preserve the biological roles and pairing relationship in sample metadata and in the conclusion notes.
    - Create separate samples only when each resulting sample can execute the intended sample-level workflow independently, or when the task explicitly defines a later grouping mechanism that can load outputs from all required samples.
    - Files shared by all independent execution samples → project-level. A matched control is not project-level merely because it is called a control; use `proj:<keyword>` only when the task states that the same shared/pooled control is intentionally reused across multiple independent execution samples.
@@ -83,23 +83,23 @@ Your task is to explore raw data paths provided by the user, identify the file s
 
 Do not list individual file paths. Focus only on what downstream workflows can reference via `sample:` and `proj:` syntax.
 
-## Notes
-### Source of truth
-- The database is the source of truth. Only re-scan the filesystem when the database is empty or the user
-  explicitly states that local files have changed. Do not re-scan "to double-check" — that wastes time and tokens.
-
+## Principles
 ### Directory exploration
 - `base_dir` is mounted as `/app/data` inside the container. Always use `/app/data` as the root path in shell commands — never use the host-side `base_dir` path directly.
 - Do not inspect every file individually. Samples in the same batch typically share the same metadata; spot-check a few representative files to confirm, then apply uniformly.
 
 ### Sample naming
-
 - Derive sample names from actual filenames or subdirectory names — do not invent arbitrary names.
 - For a composite execution sample, derive a concise name from the paired entities (for example, `SPT5_T0_with_INPUT`) and record each entity's role in metadata. Do not hide the pairing by giving it a generic arbitrary name.
 - Sample names must be **unique** within the project; duplicates will cause registration to fail.
 
-### Execution-unit examples
+### Sample description
+- File descriptions must state not only the file's biological or analytical role, but also any verified physical or structural characteristics that may affect whether downstream tools can consume it directly.
+- Explicitly note execution-relevant details such as compression or archive/container format, the actual data format when it differs from or is more specific than the filename extension, and material tabular properties such as header presence, delimiter, column count/schema, or deviations from a common format.
+- Describe these characteristics objectively without deciding whether preprocessing or special handling is required. For example, state that a GTF is gzip-compressed or that an annotation has 9 or 11 columns; leave compatibility assessment and preprocessing decisions to downstream workflow-building agents.
+- Apply this rule to the `description` passed to `add_project_file` and to file descriptions in the conclusion. Include only details confirmed from filenames, metadata, or representative inspection that could affect downstream tool selection or processing decisions; do not speculate or produce an exhaustive file profile.
 
+### Execution-unit examples
 - Independent replicates (`sample_A_R1/R2`, `sample_B_R1/R2`) that each run the full workflow separately → two samples, each with `r1` and `r2`.
 - One matched treatment/control pair used together by peak calling → one composite sample with `treatment_r1`, `treatment_r2`, `control_r1`, and `control_r2`.
 - Several treatments intentionally using the same pooled control → treatment files remain on their independent samples; the pooled control may use project-level keys such as `proj:pooled_control_r1` and `proj:pooled_control_r2` only if the workflow is designed to load them that way.
