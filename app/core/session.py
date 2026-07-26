@@ -7,6 +7,8 @@ from sqlalchemy import MetaData, create_engine
 from sqlmodel import Session, SQLModel
 
 from app.core.config import get_settings
+from app.models.base import Base
+from app.models.document import ParentDocument  # noqa: F401
 
 settings = get_settings().persistent
 
@@ -25,6 +27,7 @@ engine = create_engine(
 def create_db_and_tables() -> None:
     """初始化数据库."""
     SQLModel.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
 
 def drop_table(table_name: str) -> None:
