@@ -23,6 +23,12 @@ GEMINI_25_REASONING_BUDGETS = {
     ReasoningEffort.HIGH: 24576,
 }
 
+USER_AGENT = {
+    'User-Agent': 'BioFlowAI-Agent/1.0',
+    'X-Agent-Name': 'BioFlowAI',
+    'X-Agent-Version': '1.0',
+}
+
 
 class NoApikeyError(ValueError):
     pass
@@ -53,9 +59,11 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                 else model_config.provider.base_url,
                 anthropic_proxy=proxy,
                 effort=anthropic_effort,
+                default_headers=USER_AGENT,
             )
         case ProviderType.GOOGLE:
-            client_args = {'proxy': proxy} if proxy else None
+            from google.genai.client import Client
+
             thinking_budget = None
             thinking_level = None
             if reasoning_effort is not None:
@@ -66,17 +74,27 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
             if model_config.provider.base_url is None:
                 model = ChatGoogleGenerativeAI(
                     model=model_config.name,
-                    api_key=SecretStr(api_key),
-                    client_args=client_args,
+                    client=Client(
+                        api_key=api_key,
+                        http_options={
+                            'client_args': {'proxy': proxy} if proxy else None,
+                            'headers': USER_AGENT,
+                        },
+                    ),
                     thinking_budget=thinking_budget,
                     thinking_level=thinking_level,
                 )
             else:
                 model = ChatGoogleGenerativeAI(
                     model=model_config.name,
-                    api_key=SecretStr(api_key),
-                    base_url=model_config.provider.base_url,
-                    client_args=client_args,
+                    client=Client(
+                        api_key=api_key,
+                        http_options={
+                            'base_url': model_config.provider.base_url,
+                            'client_args': {'proxy': proxy} if proxy else None,
+                            'headers': USER_AGENT,
+                        },
+                    ),
                     thinking_budget=thinking_budget,
                     thinking_level=thinking_level,
                 )
@@ -100,6 +118,7 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                     openai_proxy=proxy,
                     reasoning_effort=openai_reasoning_effort,
                     extra_body=effective_extra_body,
+                    default_headers=USER_AGENT,
                 )
             elif is_deepseek_provider(model_config.provider):
                 model = ChatDeepseekReasoning(
@@ -109,6 +128,7 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                     openai_proxy=proxy,
                     reasoning_effort=openai_reasoning_effort,
                     extra_body=effective_extra_body,
+                    default_headers=USER_AGENT,
                 )
             else:
                 model = ChatOpenAIReasoning(
@@ -118,6 +138,7 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
                     openai_proxy=proxy,
                     reasoning_effort=openai_reasoning_effort,
                     extra_body=effective_extra_body,
+                    default_headers=USER_AGENT,
                 )
         case _:
             raise TypeError
