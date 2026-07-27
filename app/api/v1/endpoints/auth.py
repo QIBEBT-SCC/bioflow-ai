@@ -6,25 +6,21 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-import app.crud.user as user_crud
 from app.core.config import get_settings
 from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
-from app.models.user import User
 from app.schemas.auth import Token
-from app.schemas.user import PasswordUpdate, UserPublic, UserUpdate
+from app.schemas.user import CurrentUser, PasswordUpdate, UserPublic
+from app.services import user as user_service
 from app.utils.security import (
     UserDep,
-    authenticate_user,
     create_access_token,
     create_refresh_token,
     get_current_active_user,
-    get_password_hash,
     get_token_from_header_or_cookie,
     revoke_token,
     store_refresh_token,
     validate_and_rotate_refresh_token,
-    verify_password,
 )
 
 router = APIRouter()
@@ -63,7 +59,7 @@ async def login_for_access_token(
     redis: RedisDep,
 ) -> Token:
     """Authenticate user and return access + refresh tokens (cookie + JSON body)."""
-    user = authenticate_user(session, form_data.username, form_data.password)
+    user = user_service.authenticate_user(session, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -116,10 +112,9 @@ async def refresh_access_token(request: Request, response: Response, redis: Redi
 
 
 @router.get('/me')
-async def read_users_me(current_user: Annotated[User, Depends(get_current_active_user)]) -> UserPublic:
+async def read_users_me(current_user: Annotated[CurrentUser, Depends(get_current_active_user)]) -> UserPublic:
     """Return the current authenticated user's information."""
-    # pyrefly: ignore [bad-return]
-    return current_user
+    return UserPublic.model_validate(current_user)
 
 
 @router.post('/logout')
@@ -172,10 +167,22 @@ async def logout(
 
 
 @router.put('/password', status_code=status.HTTP_204_NO_CONTENT)
-def update_password(body: PasswordUpdate, session: SessionDep, current_user: UserDep) -> None:
+async def update_password(
+    body: PasswordUpdate,
+    session: SessionDep,
+    redis: RedisDep,
+    current_user: UserDep,
+) -> None:
     """Update the current user's password."""
-    if not verify_password(body.current_password.get_secret_value(), current_user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Current password is incorrect')
-    update_data = UserUpdate(hashed_password=get_password_hash(body.new_password.get_secret_value()))
-    # pyrefly: ignore [bad-argument-type]
-    user_crud.update(session, current_user.id, update_data)
+    try:
+        user = user_service.change_password(
+            session,
+            current_user.id,
+            body.current_password.get_secret_value(),
+            body.new_password.get_secret_value(),
+        )
+    except user_service.InvalidCurrentPasswordError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Current password is incorrect') from error
+    except user_service.UserNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found') from error
+    await user_service.invalidate_user_cache(redis, user.email)

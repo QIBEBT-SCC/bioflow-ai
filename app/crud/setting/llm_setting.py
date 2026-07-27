@@ -1,14 +1,14 @@
 from sqlalchemy import select
-from sqlmodel import Session, col
+from sqlalchemy.orm import Session
 
 from app.models.setting import LLMModel, LLMProvider, LLMSetting, ModelRole
 
 
-def get_role(session: Session, role: ModelRole) -> int:
-    """Return the model ID configured for the given role."""
+def get_role(session: Session, role: ModelRole) -> int | None:
+    """Return the model ID configured for the given role, when present."""
     setting = session.get(LLMSetting, 1)
     if setting is None:
-        raise ValueError
+        return None
     return getattr(setting, f'{role.value}_id')
 
 
@@ -22,16 +22,15 @@ def get_all_with_details(session: Session) -> dict:
         if model_id is not None:
             stmt = (
                 select(
-                    col(LLMModel.id),
-                    col(LLMModel.display_name),
-                    col(LLMModel.name),
-                    col(LLMProvider.name).label('provider_name'),
+                    LLMModel.id,
+                    LLMModel.display_name,
+                    LLMModel.name,
+                    LLMProvider.name.label('provider_name'),
                 )
-                .join(LLMProvider, col(LLMModel.provider_id) == LLMProvider.id)
+                .join(LLMProvider, LLMModel.provider_id == LLMProvider.id)
                 .where(LLMModel.id == model_id)
             )
-            # pyrefly: ignore [no-matching-overload]
-            row = session.exec(stmt).one_or_none()
+            row = session.execute(stmt).one_or_none()
             if row:
                 result[role.value] = {
                     'model_id': model_id,
@@ -58,12 +57,12 @@ def get_all_with_details(session: Session) -> dict:
 
 
 def update(session: Session, role: ModelRole, model_id: int) -> LLMSetting:
-    """Update the model assignment for the given role and return the updated setting."""
+    """Stage a model assignment for one role."""
     setting = session.get(LLMSetting, 1)
     if setting is None:
         setting = LLMSetting(id=1)
         session.add(setting)
     setattr(setting, f'{role.value}_id', model_id)
-    session.commit()
+    session.flush()
     session.refresh(setting)
     return setting

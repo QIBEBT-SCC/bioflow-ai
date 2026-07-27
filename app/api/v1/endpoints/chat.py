@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.status import HTTP_404_NOT_FOUND
 from uuid_extensions import uuid7str
 
@@ -20,6 +20,7 @@ from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatResponse, ChatSessionPage, ChatSessionPublic, ChatSessionUpdate
+from app.services import chat as chat_service
 from app.utils.security import UserDep
 from llm.context import CreateToolContext, ProjectContext
 from llm.utils.ai_sdk.stream_protocol import (
@@ -51,13 +52,20 @@ SUPPORTED_CHAT_ROUTES = frozenset({'workflow-builder', 'sample-manager', 'tool-g
 PROJECT_CHAT_ROUTES = frozenset({'workflow-builder', 'sample-manager'})
 
 
+def _get_chat_session(session: Session, session_uid: str) -> ChatSessions:
+    """Translate a missing chat session into the existing HTTP response."""
+    try:
+        return chat_service.get_session(session, session_uid)
+    except chat_service.ChatSessionNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Chat session not found') from error
+
+
 @router.post('', description='Create new chat session')
 async def new_chat_session(session: SessionDep, current_user: UserDep) -> ChatSessionPublic:
     """Create new chat session."""
     session_uid = uuid7str()
     chat = ChatSessions(uid=uuid.UUID(session_uid), owner_id=current_user.id)
-    # pyrefly: ignore [bad-return]
-    return chat_crud.insert(session, chat)
+    return ChatSessionPublic.model_validate(chat_service.create_session(session, chat))
 
 
 @router.get('', description='获取历史对话列表')
@@ -91,10 +99,10 @@ async def get_chats_sessions(
 @router.delete('/{session_id}', description='删除对话')
 async def delete_chat_session(session: SessionDep, session_id: str, _current_user: UserDep) -> dict[str, str]:
     """Delete chat session."""
-    chat = chat_crud.get(session, session_id)
-    if not chat:
-        raise HTTPException(status_code=404, detail='对话不存在')
-    chat_crud.delete(session, chat)
+    try:
+        chat_service.delete_session(session, session_id)
+    except chat_service.ChatSessionNotFoundError as error:
+        raise HTTPException(status_code=404, detail='对话不存在') from error
 
     history = PostgresMessageHistory(session, session_id)
     await history.aclear()
@@ -111,8 +119,10 @@ async def update_chat_history(
 ) -> ChatSessionPublic:
     """Update chat description."""
     chat = ChatSessionUpdate(uid=session_id, description=description, update_time=datetime.now(UTC))
-    # pyrefly: ignore [bad-return]
-    return chat_crud.update(session, chat)
+    try:
+        return ChatSessionPublic.model_validate(chat_service.update_session(session, chat))
+    except chat_service.ChatSessionNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Chat session not found') from error
 
 
 @router.get('/{session_id}')
@@ -122,8 +132,7 @@ async def get_chat_session(
     _current_user: UserDep,
 ) -> ChatSessionPublic:
     """Get chat session."""
-    # pyrefly: ignore [bad-return]
-    return chat_crud.get(session, session_id)
+    return ChatSessionPublic.model_validate(_get_chat_session(session, session_id))
 
 
 @router.get('/{session_id}/history', description='获取对话历史消息')
@@ -153,7 +162,7 @@ async def chat_completions(
         raise HTTPException(status_code=400, detail='会话ID不能为空')
     route = None
     if response.resume:
-        chat_session = chat_crud.get(session, session_id)
+        chat_session = _get_chat_session(session, session_id)
         route = chat_session.route
     else:
         route, _ = _parse_slash_command(_latest_text(response.messages[-1]))
@@ -234,7 +243,7 @@ async def _generate_chat_stream(
     single turn.
     """
     history = PostgresMessageHistory(session, session_id)
-    chat_session = chat_crud.get(session, session_id)
+    chat_session = _get_chat_session(session, session_id)
 
     # ------------------------------------------------------------------ resolve route + input
     if response.resume:
@@ -270,7 +279,7 @@ async def _generate_chat_stream(
         agent_input = {'messages': messages}
         thread_id = uuid7str()
         # Persist the route so a later resume turn reuses the same agent.
-        chat_crud.update(
+        chat_service.update_session(
             session,
             ChatSessionUpdate(uid=str(chat_session.uid), checkpoint_uid=uuid.UUID(thread_id), route=route),
         )
@@ -318,7 +327,7 @@ async def _generate_chat_stream(
     # Record whether the turn paused on an interrupt so the next request knows to resume.
     state = await agent.aget_state(config)
     interrupted = bool(state.interrupts)
-    chat_crud.update(
+    chat_service.update_session(
         session,
         ChatSessionUpdate(uid=str(chat_session.uid), interrupted=interrupted),
     )

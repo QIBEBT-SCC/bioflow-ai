@@ -1,54 +1,51 @@
-from sqlalchemy import func, or_
-from sqlmodel import Session, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 from app.models.resource import ReferenceGenomes
 from app.schemas.resource import GenomeUpdate
 
 
 def insert(session: Session, genome: ReferenceGenomes) -> ReferenceGenomes:
-    """Insertion of a new reference genome."""
+    """Stage a new reference genome."""
     session.add(genome)
-    session.commit()
+    session.flush()
     session.refresh(genome)
     return genome
 
 
 def delete(session: Session, genome_id: int) -> bool:
-    """Remove reference genome."""
+    """Stage deletion of a reference genome."""
     genome = get(session, genome_id)
     if genome:
         session.delete(genome)
-        session.commit()
+        session.flush()
         return True
     return False
 
 
-def update(session: Session, genome_update: GenomeUpdate) -> ReferenceGenomes:
-    """Updating reference genome information."""
+def update(session: Session, genome_update: GenomeUpdate) -> ReferenceGenomes | None:
+    """Stage updates to a reference genome."""
     db_genome = get(session, genome_update.id)
     if not db_genome:
-        msg = f'Genome id {genome_update.id} not found'
-        raise ValueError(msg)
+        return None
 
-    update_data = genome_update.model_dump(exclude_unset=True)
-    db_genome.sqlmodel_update(update_data)
-
-    session.add(db_genome)
-    session.commit()
+    update_data = genome_update.model_dump(exclude={'id'}, exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_genome, field, value)
+    session.flush()
     session.refresh(db_genome)
     return db_genome
 
 
 def get(session: Session, genome_id: int) -> ReferenceGenomes | None:
     """Obtain the reference genome by ID."""
-    query = select(ReferenceGenomes).where(ReferenceGenomes.id == genome_id)
-    return session.exec(query).one_or_none()
+    return session.get(ReferenceGenomes, genome_id)
 
 
 def get_by_taxid(session: Session, tax_id: int) -> ReferenceGenomes | None:
     """Retrieve the reference genome by species ID."""
     query = select(ReferenceGenomes).where(ReferenceGenomes.ncbi_tax_id == tax_id)
-    return session.exec(query).one_or_none()
+    return session.scalar(query)
 
 
 def search(session: Session, search_term: str, threshold: float = 0.3) -> list[ReferenceGenomes]:
@@ -78,15 +75,15 @@ def search(session: Session, search_term: str, threshold: float = 0.3) -> list[R
         )
     )
 
-    return list(session.exec(query).all())
+    return list(session.scalars(query).all())
 
 
 def get_count(session: Session) -> int:
     """Obtain the total number of reference genomes."""
-    return session.exec(select(func.count()).select_from(ReferenceGenomes)).one()
+    return session.scalar(select(func.count()).select_from(ReferenceGenomes)) or 0
 
 
 def get_all(session: Session, limit: int = 20, offset: int = 0) -> list[ReferenceGenomes]:
     """分页获取参考基因组列表."""
     query = select(ReferenceGenomes).offset(offset).limit(limit)
-    return list(session.exec(query).all())
+    return list(session.scalars(query).all())

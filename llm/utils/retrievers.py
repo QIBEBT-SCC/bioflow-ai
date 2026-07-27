@@ -1,8 +1,10 @@
+from typing import cast
 from uuid import UUID
 
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from sqlmodel import Session, col, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings
@@ -10,7 +12,7 @@ from app.core.session import engine
 from app.models.document import ParentDocument
 from app.schemas.tools import ToolNodePublic
 from llm.models import qwen3_embedding
-from llm.utils.uid_mapper import BidirectionalMapper
+from llm.utils.uid_mapper import BidirectionalMapper, HasUid
 from llm.vectorstores import MilvusVectorStore
 
 
@@ -94,8 +96,8 @@ async def retrieve_documents(query: str, doc_id: str | None = None, k: int = 8) 
 
     # 3. 从数据库批量查询父文档
     with Session(engine) as session:
-        statement = select(ParentDocument).where(col(ParentDocument.uid).in_(parent_uids))
-        parent_docs = session.exec(statement).all()
+        statement = select(ParentDocument).where(ParentDocument.uid.in_(parent_uids))
+        parent_docs = session.execute(statement).scalars().all()
 
     # 4. 转换为 Document 对象
     return [
@@ -140,7 +142,7 @@ async def retrieve_tools(
 
     with Session(engine) as session:
         exist_tools = list(tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results]))
-        mappers = BidirectionalMapper(datas=exist_tools)
+        mappers = BidirectionalMapper(datas=cast('list[HasUid]', exist_tools))
 
     tool_nodes = [ToolNodePublic.model_validate(exist_tool) for exist_tool in exist_tools]
 

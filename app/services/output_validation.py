@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.models.workflow import ToolOutput
+from app.schemas.workflow_config import ToolOutput
 
 
 def output_path_exists(path: str | Path) -> bool:

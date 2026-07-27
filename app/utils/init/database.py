@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from anyio import Path
+from sqlalchemy.orm import Session
 
 from app.utils.init import tui
 
@@ -63,26 +64,29 @@ async def init_preset_database_records(
 
 async def init_admin() -> AdminInitResult:
     """当 User 表为空时, 创建默认管理员账户."""
-    from sqlmodel import Session, select
+    from pydantic import SecretStr
+    from sqlalchemy import select
 
-    import app.crud.user as user_crud
     from app.core.session import engine
-    from app.models.user import User, UserRole
-    from app.utils.security import get_password_hash
+    from app.models.user import User
+    from app.schemas.user import UserCreate
+    from app.schemas.user_config import UserRole
+    from app.services import user as user_service
 
     with Session(engine) as session:
-        existing = session.exec(select(User)).first()
+        existing = session.scalar(select(User))
         if existing is not None:
             return AdminInitResult(created=False)
 
-        admin = User(
-            username='admin',
-            email='admin@email.com',
+        user_service.create_user(
+            session,
+            UserCreate(
+                username='admin',
+                email='admin@email.com',
+                password=SecretStr('admin'),
+            ),
             role=UserRole.ADMIN,
-            hashed_password=get_password_hash('admin'),
-            is_active=True,
         )
-        user_crud.insert(session, admin)
         return AdminInitResult(created=True)
 
 
@@ -107,13 +111,13 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
     import polars as pl
     from langchain_core.documents import Document
     from pydantic import ValidationError
-    from sqlmodel import Session
     from tqdm import tqdm
 
     import app.crud.tools.image as image_crud
     from app.core.config import get_settings
     from app.core.session import engine
     from app.models.tools import ToolImage
+    from app.schemas.tools import ToolImageImport
     from llm.models import qwen3_embedding
     from llm.vectorstores import MilvusVectorStore
 
@@ -126,7 +130,12 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
         row['image'] = orjson.loads(row['image'])
 
         try:
-            images.append(ToolImage.model_validate(row))
+            image_data = ToolImageImport.model_validate(row)
+            image_kwargs = image_data.model_dump(exclude={'uid'})
+            image_kwargs['image'] = image_data.image
+            if image_data.uid is not None:
+                image_kwargs['uid'] = image_data.uid
+            images.append(ToolImage(**image_kwargs))
         except ValidationError:
             validation_error_count += 1
 
@@ -144,6 +153,9 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
             delete_count = image_crud.drop_all(session)
 
         images = image_crud.insert_all(session, images)
+        session.commit()
+        for image in images:
+            session.refresh(image)
 
     for i in tqdm(range(0, len(images), BATCH_SIZE), disable=not show_progress):
         batch_images = images[i : i + BATCH_SIZE]
@@ -170,11 +182,11 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
     """初始化工具文档库."""
     import polars as pl
     from pydantic import ValidationError
-    from sqlmodel import Session
 
     import app.crud.tools.tool_doc as doc_crud
     from app.core.session import engine
     from app.models.tools import ToolHelpDoc
+    from app.schemas.tools import ToolHelpDocImport
 
     preset_file = await _ensure_preset_file('tool_docs.parquet')
     docs_df = pl.read_parquet(preset_file.path)
@@ -183,7 +195,11 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
 
     for row in docs_df.iter_rows(named=True):
         try:
-            docs.append(ToolHelpDoc.model_validate(row))
+            doc_data = ToolHelpDocImport.model_validate(row)
+            doc_kwargs = doc_data.model_dump(exclude={'uid'})
+            if doc_data.uid is not None:
+                doc_kwargs['uid'] = doc_data.uid
+            docs.append(ToolHelpDoc(**doc_kwargs))
         except ValidationError:
             validation_error_count += 1
 
@@ -193,6 +209,7 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
             delete_count = doc_crud.drop_all(session)
 
         doc_crud.insert_all(session, docs)
+        session.commit()
 
     return PresetImportResult(
         name='docs',
@@ -210,7 +227,6 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     import polars as pl
     from langchain_core.documents import Document
     from pydantic import ValidationError
-    from sqlmodel import Session
     from tqdm import tqdm
 
     import app.crud.tools.tool as tool_crud
@@ -218,6 +234,7 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     from app.core.config import get_settings
     from app.core.session import engine
     from app.models.tools import ToolDefine
+    from app.schemas.tools import ToolDefinitionImport
     from llm.models import qwen3_embedding
     from llm.vectorstores import MilvusVectorStore
 
@@ -239,7 +256,13 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
         row['tags'] = []
 
         try:
-            tools.append(ToolDefine.model_validate(row))
+            tool_data = ToolDefinitionImport.model_validate(row)
+            tool_kwargs = tool_data.model_dump(exclude={'uid'})
+            tool_kwargs['dynamic_params'] = tool_data.dynamic_params
+            tool_kwargs['file_mounts'] = tool_data.file_mounts
+            if tool_data.uid is not None:
+                tool_kwargs['uid'] = tool_data.uid
+            tools.append(ToolDefine(**tool_kwargs))
             tag_ids_per_tool.append(tag_ids)
         except ValidationError:
             validation_error_count += 1
@@ -271,6 +294,7 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
                 tool.tags = [tag_map[i] for i in ids if i in tag_map]
 
         tools = tool_crud.insert_all(session, tools)
+        session.commit()
 
         for i in tqdm(range(0, len(tools), BATCH_SIZE), disable=not show_progress):
             batch_tools = tools[i : i + BATCH_SIZE]

@@ -4,9 +4,10 @@ from typing import Annotated, TypeAlias
 from fastapi import Depends
 from loguru import logger
 from sqlalchemy import MetaData, create_engine
-from sqlmodel import Session, SQLModel
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models import Base
 
 settings = get_settings().persistent
 
@@ -24,7 +25,7 @@ engine = create_engine(
 @logger.catch
 def create_db_and_tables() -> None:
     """初始化数据库."""
-    SQLModel.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
 
 def drop_table(table_name: str) -> None:
@@ -32,8 +33,7 @@ def drop_table(table_name: str) -> None:
     metadata = MetaData()
     metadata.reflect(bind=engine)
     table = metadata.tables[table_name]
-    if table is not None:
-        SQLModel.metadata.drop_all(engine, [table])
+    table.drop(engine)
 
 
 def _get_session() -> Generator[Session, None, None]:

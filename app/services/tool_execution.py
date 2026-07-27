@@ -9,8 +9,8 @@ from typing import Any
 
 from loguru import logger
 
-from app.models.tools import FileMount, ImageConfig, ParamDefine
-from app.models.workflow import ToolOutput
+from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine
+from app.schemas.workflow_config import ToolOutput
 from app.services.output_validation import all_output_paths_exist, missing_output_paths
 from app.utils.container import ContainerMount, run_command, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
@@ -61,6 +61,30 @@ class DockerToolExecutionResult:
     def succeeded(self) -> bool:
         """Return whether the command exited cleanly and produced every declared output."""
         return self.exit_code == 0 and not self.missing_outputs
+
+
+@dataclass(frozen=True)
+class ImageCommandResult:
+    """Result of running an ad-hoc command in a configured tool image."""
+
+    exit_code: int
+    output: str
+
+    @property
+    def succeeded(self) -> bool:
+        """Return whether the command exited successfully."""
+        return self.exit_code == 0
+
+
+def execute_image_command(
+    image: ImageConfig,
+    command: str,
+    *,
+    ensure_ascii: bool = True,
+) -> ImageCommandResult:
+    """Execute an ad-hoc command in a tool image."""
+    exit_code, output = run_command(image, [], command, ensure_ascii=ensure_ascii)
+    return ImageCommandResult(exit_code=exit_code, output=output)
 
 
 def _resolve_mount_path(

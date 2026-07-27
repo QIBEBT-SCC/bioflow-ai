@@ -1,19 +1,18 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import func
-from sqlalchemy import select as sa_select
-from sqlmodel import Session, col, select
-from sqlmodel.sql.expression import Select
+from sqlalchemy import Select, func, select
+from sqlalchemy.orm import Session
 
 from app.models.setting import LLMModel, LLMStatistic
 from app.models.user import User
 
 
 def insert(session: Session, statistic: LLMStatistic) -> None:
-    """Insert a new LLM usage statistic record into the database."""
+    """Stage a new LLM usage statistic record."""
     session.add(statistic)
-    session.commit()
+    session.flush()
 
 
 def get_summary(
@@ -33,11 +32,11 @@ def get_summary(
     """
 
     # 构建基础条件
-    def apply_date_filter(stmt: Select) -> Select:
+    def apply_date_filter(stmt: Select[Any]) -> Select[Any]:
         if start_date is not None:
-            stmt = stmt.where(col(LLMStatistic.time) >= start_date)
+            stmt = stmt.where(LLMStatistic.time >= start_date)
         if end_date is not None:
-            stmt = stmt.where(col(LLMStatistic.time) <= end_date)
+            stmt = stmt.where(LLMStatistic.time <= end_date)
         return stmt
 
     # 总体统计
@@ -48,72 +47,68 @@ def get_summary(
         func.sum(LLMStatistic.price).label('total_price'),
     )
     total_statement = apply_date_filter(total_statement)
-    total_result = session.exec(total_statement).one()
+    total_result = session.execute(total_statement).one()
 
     # 按 agent 分组统计
-    by_agent_statement = sa_select(
-        col(LLMStatistic.agent_name),
-        func.count(col(LLMStatistic.id)).label('count'),
+    by_agent_statement = select(
+        LLMStatistic.agent_name,
+        func.count(LLMStatistic.id).label('count'),
         func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
         func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
         func.sum(LLMStatistic.cache_read).label('total_cache_read'),
         func.sum(LLMStatistic.price).label('total_price'),
     ).group_by(LLMStatistic.agent_name)
-    # pyrefly: ignore [bad-argument-type]
     by_agent_statement = apply_date_filter(by_agent_statement)
-    by_agent_results = session.exec(by_agent_statement).all()
+    by_agent_results = session.execute(by_agent_statement).all()
 
     # 按 model 分组统计 (JOIN 获取模型显示名称和 API 名称)
     by_model_statement = (
-        sa_select(
-            col(LLMModel.display_name),
-            col(LLMModel.name),
-            func.count(col(LLMStatistic.id)).label('count'),
+        select(
+            LLMModel.display_name,
+            LLMModel.name,
+            func.count(LLMStatistic.id).label('count'),
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
             func.sum(LLMStatistic.price).label('total_price'),
         )
-        .join(LLMModel, col(LLMStatistic.model_id) == LLMModel.id, isouter=True)
+        .join(LLMModel, LLMStatistic.model_id == LLMModel.id, isouter=True)
         .group_by(LLMModel.id, LLMModel.display_name, LLMModel.name)
     )
-    # pyrefly: ignore [bad-argument-type]
     by_model_statement = apply_date_filter(by_model_statement)
-    by_model_results = session.exec(by_model_statement).all()
+    by_model_results = session.execute(by_model_statement).all()
 
     # 按 setting_key (类型) 分组统计
     by_type_statement = (
-        sa_select(
-            col(LLMStatistic.setting_key),
-            func.count(col(LLMStatistic.id)).label('count'),
+        select(
+            LLMStatistic.setting_key,
+            func.count(LLMStatistic.id).label('count'),
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
             func.sum(LLMStatistic.price).label('total_price'),
         )
-        .where(col(LLMStatistic.setting_key).is_not(None))
+        .where(LLMStatistic.setting_key.is_not(None))
         .group_by(LLMStatistic.setting_key)
     )
-    # pyrefly: ignore [bad-argument-type]
     by_type_statement = apply_date_filter(by_type_statement)
-    by_type_results = session.exec(by_type_statement).all()
+    by_type_results = session.execute(by_type_statement).all()
 
     # 按 user 分组统计
     by_user_statement = (
-        sa_select(
-            col(User.username).label('user_name'),
-            func.count(col(LLMStatistic.id)).label('count'),
-            func.sum(col(LLMStatistic.input_tokens)).label('total_input_tokens'),
-            func.sum(col(LLMStatistic.output_tokens)).label('total_output_tokens'),
-            func.sum(col(LLMStatistic.cache_read)).label('total_cache_read'),
-            func.sum(col(LLMStatistic.price)).label('total_price'),
+        select(
+            User.username.label('user_name'),
+            func.count(LLMStatistic.id).label('count'),
+            func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
+            func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
+            func.sum(LLMStatistic.cache_read).label('total_cache_read'),
+            func.sum(LLMStatistic.price).label('total_price'),
         )
-        .join(User, col(LLMStatistic.user_id) == User.id, isouter=True)
+        .join(User, LLMStatistic.user_id == User.id, isouter=True)
         .group_by(User.username)
     )
-    # pyrefly: ignore [bad-argument-type]
     by_user_statement = apply_date_filter(by_user_statement)
-    by_user_results = session.exec(by_user_statement).all()
+    by_user_results = session.execute(by_user_statement).all()
 
     return {
         'total': {
@@ -190,38 +185,37 @@ def get_details(
         详细记录列表和总数
     """
     # 构建查询, JOIN 获取模型显示名称和 API 名称
-    statement = sa_select(
-        col(LLMStatistic.id),
-        col(LLMStatistic.agent_name),
-        col(LLMModel.display_name),
-        col(LLMModel.name),
-        col(LLMStatistic.setting_key),
-        col(LLMStatistic.input_tokens),
-        col(LLMStatistic.output_tokens),
-        col(LLMStatistic.cache_read),
-        col(LLMStatistic.price),
-        col(LLMStatistic.time),
-    ).join(LLMModel, col(LLMStatistic.model_id) == LLMModel.id, isouter=True)
+    statement = select(
+        LLMStatistic.id,
+        LLMStatistic.agent_name,
+        LLMModel.display_name,
+        LLMModel.name,
+        LLMStatistic.setting_key,
+        LLMStatistic.input_tokens,
+        LLMStatistic.output_tokens,
+        LLMStatistic.cache_read,
+        LLMStatistic.price,
+        LLMStatistic.time,
+    ).join(LLMModel, LLMStatistic.model_id == LLMModel.id, isouter=True)
 
     if start_date is not None:
-        statement = statement.where(col(LLMStatistic.time) >= start_date)
+        statement = statement.where(LLMStatistic.time >= start_date)
 
     if end_date is not None:
-        statement = statement.where(col(LLMStatistic.time) <= end_date)
+        statement = statement.where(LLMStatistic.time <= end_date)
 
     # 获取总数
-    count_statement = select(func.count(col(LLMStatistic.id)))
+    count_statement = select(func.count(LLMStatistic.id))
     if start_date is not None:
-        count_statement = count_statement.where(col(LLMStatistic.time) >= start_date)
+        count_statement = count_statement.where(LLMStatistic.time >= start_date)
     if end_date is not None:
-        count_statement = count_statement.where(col(LLMStatistic.time) <= end_date)
+        count_statement = count_statement.where(LLMStatistic.time <= end_date)
 
-    total = session.exec(count_statement).one()
+    total = session.scalar(count_statement) or 0
 
     # 查询详细记录 (带分页)
-    statement = statement.order_by(col(LLMStatistic.time).desc()).limit(limit).offset(offset)
-    # pyrefly: ignore [no-matching-overload]
-    results = session.exec(statement).all()
+    statement = statement.order_by(LLMStatistic.time.desc()).limit(limit).offset(offset)
+    results = session.execute(statement).all()
 
     return {
         'total': total,
@@ -244,9 +238,9 @@ def get_details(
 
 
 def refresh_thread_id(session: Session, thread_id: str, new_id: str) -> None:
-    """刷新对应记录的thread_id."""
+    """Stage a thread-ID replacement for matching statistic records."""
     statement = select(LLMStatistic).where(LLMStatistic.thread == thread_id)
-    results = session.exec(statement).all()
+    results = session.scalars(statement).all()
     for record in results:
         record.thread = new_id
-    session.commit()
+    session.flush()

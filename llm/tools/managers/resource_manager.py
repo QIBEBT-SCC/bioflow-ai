@@ -6,19 +6,20 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.resource.bio_db as db_crud
 from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
+from app.services.resource import bio_db as db_service
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
-from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter, format_marker_registry
+from llm.utils.formatters import format_marker_registry, format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import RESOURCES
 from llm.utils.uid_mapper import generate_char_index
 from llm.workflow_builder.drafts import snapshot_active_workflow
-from llm.workflow_builder.validation import validate_node_addition, check_edge_handles
+from llm.workflow_builder.validation import check_edge_handles, validate_node_addition
 
 
 class ViewResourceSchema(BaseModel):
@@ -406,7 +407,7 @@ def _add_resource(
             db_id = arguments.get('db_id', -1)
             try:
                 with Session(engine) as session:
-                    bio_db = db_crud.get(session, int(db_id))
+                    bio_db = db_service.get_bio_db(session, int(db_id))
                     node_data = {**arguments, 'db_name': bio_db.name}
             except Exception as exc:
                 return Command(

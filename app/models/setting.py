@@ -1,11 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum, StrEnum
-from typing import Optional
 
-from sqlmodel import Field, Relationship, SQLModel
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.user import User  # noqa: TC001
+from app.models.base import Base
+from app.models.user import User
 from app.utils.system import utc_now
 
 
@@ -67,18 +68,18 @@ class ModelRole(StrEnum):
     HIGH_PERFORMANCE = 'high_performance_model'
 
 
-class LLMProvider(SQLModel, table=True):
+class LLMProvider(Base):
     __tablename__ = 'llm_providers'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)
-    provider_type: ProviderType = Field(default=ProviderType.OPENAI)
-    base_url: Optional[str] = Field(default=None)
-    api_key: Optional[str] = Field(default=None)
-    use_proxy: bool = Field(default=False)
-    is_active: bool = Field(default=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    provider_type: Mapped[ProviderType] = mapped_column(default=ProviderType.OPENAI)
+    base_url: Mapped[str | None] = mapped_column(default=None)
+    api_key: Mapped[str | None] = mapped_column(default=None)
+    use_proxy: Mapped[bool] = mapped_column(default=False)
+    is_active: Mapped[bool] = mapped_column(default=True)
 
-    models: list['LLMModel'] = Relationship(back_populates='provider')
+    models: Mapped[list['LLMModel']] = relationship(back_populates='provider')
 
 
 def is_deepseek_provider(provider: LLMProvider) -> bool:
@@ -90,54 +91,54 @@ def is_deepseek_provider(provider: LLMProvider) -> bool:
     )
 
 
-class LLMModel(SQLModel, table=True):
+class LLMModel(Base):
     __tablename__ = 'llm_models'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    provider_id: Optional[int] = Field(default=None, foreign_key='llm_providers.id')
-    display_name: str
-    name: str
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    provider_id: Mapped[int | None] = mapped_column(ForeignKey(LLMProvider.id), default=None)
+    display_name: Mapped[str]
+    name: Mapped[str]
 
-    input_price: Decimal
-    output_price: Decimal
-    cache_read_price: Decimal
+    input_price: Mapped[Decimal]
+    output_price: Mapped[Decimal]
+    cache_read_price: Mapped[Decimal]
 
-    reasoning_effort: Optional[str] = Field(default=None)
-    is_active: bool = Field(default=True)
+    reasoning_effort: Mapped[str | None] = mapped_column(default=None)
+    is_active: Mapped[bool] = mapped_column(default=True)
 
-    provider: 'LLMProvider' = Relationship(back_populates='models')
-    prices: list['LLMStatistic'] = Relationship(back_populates='model')
+    provider: Mapped[LLMProvider | None] = relationship(back_populates='models')
+    prices: Mapped[list['LLMStatistic']] = relationship(back_populates='model')
 
 
-class LLMSetting(SQLModel, table=True):
+class LLMSetting(Base):
     __tablename__ = 'llm_settings'
 
-    id: int = Field(default=1, primary_key=True)
-    chat_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    vision_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    agent_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    coding_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    simple_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    long_context_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    high_performance_model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    chat_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    vision_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    agent_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    coding_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    simple_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    long_context_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    high_performance_model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
 
 
-class LLMStatistic(SQLModel, table=True):
+class LLMStatistic(Base):
     __tablename__ = 'llm_statistics'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    agent_name: str
-    model_id: Optional[int] = Field(default=None, foreign_key='llm_models.id')
-    setting_key: Optional[str] = Field(default=None)
-    user_id: Optional[int] = Field(default=None, foreign_key='users.id')
-    thread: Optional[str] = Field(default=None)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    agent_name: Mapped[str]
+    model_id: Mapped[int | None] = mapped_column(ForeignKey(LLMModel.id), default=None)
+    setting_key: Mapped[str | None] = mapped_column(default=None)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey(User.id), default=None, nullable=True)
+    thread: Mapped[str | None] = mapped_column(default=None)
 
-    input_tokens: int
-    output_tokens: int
-    cache_read: Optional[int] = Field(default=0)
-    price: Decimal
+    input_tokens: Mapped[int]
+    output_tokens: Mapped[int]
+    cache_read: Mapped[int | None] = mapped_column(default=0)
+    price: Mapped[Decimal]
 
-    time: Optional[datetime] = Field(default_factory=utc_now)
+    time: Mapped[datetime | None] = mapped_column(default=utc_now)
 
-    model: Optional['LLMModel'] = Relationship()
-    user: Optional['User'] = Relationship()
+    model: Mapped[LLMModel | None] = relationship(back_populates='prices')
+    user: Mapped[User | None] = relationship(User)

@@ -2,11 +2,11 @@ from decimal import Decimal
 
 from langchain_core.messages import UsageMetadata
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
-import app.crud.setting.llm_statistic as statistic_crud
 from app.core.session import engine
 from app.models.setting import LLMStatistic
+from app.services import llm_setting as setting_service
 
 
 def store_token_usage(
@@ -57,6 +57,6 @@ def store_token_usage(
             price=price,
         )
         with Session(engine) as session:
-            statistic_crud.insert(session, statistic_data)
+            setting_service.record_statistic(session, statistic_data)
     else:
         logger.warning('token usage is empty')

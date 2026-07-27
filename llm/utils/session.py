@@ -1,9 +1,9 @@
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from uuid_extensions import uuid7str
 
-import app.crud.setting.llm_statistic as stat_crud
 from app.core.session import engine
+from app.services import llm_setting as setting_service
 
 
 async def delete_checkpoint(ckpt: BaseCheckpointSaver, thread_id: str) -> None:
@@ -12,4 +12,4 @@ async def delete_checkpoint(ckpt: BaseCheckpointSaver, thread_id: str) -> None:
 
     new_id = uuid7str()
     with Session(engine) as session:
-        stat_crud.refresh_thread_id(session, thread_id, new_id)
+        setting_service.refresh_statistic_thread_id(session, thread_id, new_id)

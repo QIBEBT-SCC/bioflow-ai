@@ -1,18 +1,19 @@
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlmodel import Field, SQLModel
+from sqlalchemy import DateTime, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
+from app.models.base import Base
 from app.utils.system import random_uid, utc_now
 
 
-class ParentDocument(SQLModel, table=True):
+class ParentDocument(Base):
     __tablename__ = 'parent_documents'
 
-    uid: uuid.UUID = Field(default_factory=random_uid, primary_key=True)
-    doc_id: str = Field(index=True)
-    content: str
-    title: Optional[str] = Field(default=None)
-    section: Optional[str] = Field(default=None)
-    create_time: datetime = Field(default_factory=utc_now)
+    uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
+    doc_id: Mapped[str] = mapped_column(index=True)
+    content: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(default=None)
+    section: Mapped[str | None] = mapped_column(default=None)
+    create_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -9,20 +9,22 @@ from pathlib import Path
 import celery
 from loguru import logger
 from redis import Redis
-from sqlalchemy.orm import joinedload
-from sqlmodel import Session, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
-import app.crud.task_monitor as monitor_crud
 from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.tools import ToolDefine
-from app.models.workflow import Status, TaskMonitor, ToolOutput
+from app.models.workflow import TaskInstance, TaskMonitor
 from app.schemas.run_instance import RunUpdate
 from app.schemas.task_instance import TaskUpdate
 from app.schemas.tools import ToolTaskInfo
+from app.schemas.workflow_config import Status, ToolOutput
+from app.services import workflow_runtime
+from app.utils.identifiers import as_uuid
 
 
 class BaseBioTask(celery.Task):
@@ -30,13 +32,16 @@ class BaseBioTask(celery.Task):
         """任务开始前的钩子 - 落盘任务启动状态."""
         try:
             with Session(engine) as session:
-                task = task_crud.get(session, task_id)
-                task.status = Status.RUNNING
-                task.system = platform.platform()
-                task.hostname = socket.gethostname()
-                task.start_time = datetime.now(UTC)
-                session.add(task)
-                session.commit()
+                task = workflow_runtime.update_task(
+                    session,
+                    task_id,
+                    TaskUpdate(
+                        status=Status.RUNNING,
+                        system=platform.platform(),
+                        hostname=socket.gethostname(),
+                        start_time=datetime.now(UTC),
+                    ),
+                )
                 logger.info(f'Task {task.name}({task_id}) START')
 
                 instance_uid = str(task.instance_uid)
@@ -51,12 +56,15 @@ class BaseBioTask(celery.Task):
             with Session(engine) as session:
                 tool_output = retval if isinstance(retval, ToolOutput) else ToolOutput.model_validate(retval)
 
-                task = task_crud.get(session, task_id)
-                task.status = Status.SUCCESS
-                task.tool_output = tool_output
-                task.end_time = datetime.now(UTC)
-                session.add(task)
-                session.commit()
+                task = workflow_runtime.update_task(
+                    session,
+                    task_id,
+                    TaskUpdate(
+                        status=Status.SUCCESS,
+                        tool_output=tool_output,
+                        end_time=datetime.now(UTC),
+                    ),
+                )
                 logger.success(f'Task {task.name}({task_id}) SUCCESS')
 
                 instance_uid = str(task.instance_uid)
@@ -74,11 +82,11 @@ class BaseBioTask(celery.Task):
         """任务失败后的钩子 - 落盘任务终态并 flush 监控日志."""
         try:
             with Session(engine) as session:
-                task = task_crud.get(session, task_id)
-                task.status = Status.ERROR
-                task.end_time = datetime.now(UTC)
-                session.add(task)
-                session.commit()
+                task = workflow_runtime.update_task(
+                    session,
+                    task_id,
+                    TaskUpdate(status=Status.ERROR, end_time=datetime.now(UTC)),
+                )
                 logger.error(f'Task {task.name}({task_id}) ERROR')
 
                 instance_uid = str(task.instance_uid)
@@ -97,11 +105,22 @@ class BaseBioTask(celery.Task):
 # Runtime persistence helpers
 # ---------------------------------------------------------------------------
 
+_TASK_NOT_FOUND = 'Task not found'
+
 
 def _get_redis() -> Redis:
+    # Delayed because script.worker imports the task modules during worker startup.
     from script.worker import monitor_redis_client
 
     return monitor_redis_client
+
+
+def _require_task(session: Session, task_uid: str) -> TaskInstance:
+    """Return a task instance or raise the runtime domain error."""
+    task = task_crud.get(session, task_uid)
+    if task is None:
+        raise workflow_runtime.WorkflowRuntimeNotFoundError(_TASK_NOT_FOUND)
+    return task
 
 
 def _mark_run_instance_running(run_uid: str) -> None:
@@ -109,11 +128,14 @@ def _mark_run_instance_running(run_uid: str) -> None:
     try:
         with Session(engine) as session:
             run = run_crud.get(session, run_uid)
+            if run is None:
+                return
             if run.status not in {Status.RUNNING, Status.SUCCESS, Status.ERROR}:
-                run.status = Status.RUNNING
-                run.start_time = datetime.now(tz=UTC)
-                session.add(run)
-                session.commit()
+                workflow_runtime.update_run(
+                    session,
+                    run_uid,
+                    RunUpdate(status=Status.RUNNING, start_time=datetime.now(tz=UTC)),
+                )
     except Exception as e:
         logger.warning(f'更新 RunInstance RUNNING 状态失败: {e}')
 
@@ -124,7 +146,11 @@ def _mark_run_instance_success_if_complete(run_uid: str) -> None:
         with Session(engine) as session:
             stats = run_crud.get_run_task_stats(session, run_uid)
             if 0 < stats.total == stats.success:
-                run_crud.update(session, run_uid, RunUpdate(status=Status.SUCCESS, end_time=datetime.now(tz=UTC)))
+                workflow_runtime.update_run(
+                    session,
+                    run_uid,
+                    RunUpdate(status=Status.SUCCESS, end_time=datetime.now(tz=UTC)),
+                )
     except Exception as e:
         logger.warning(f'更新 RunInstance SUCCESS 状态失败: {e}')
 
@@ -134,11 +160,14 @@ def _mark_run_instance_error(run_uid: str) -> None:
     try:
         with Session(engine) as session:
             run = run_crud.get(session, run_uid)
+            if run is None:
+                return
             if run.status != Status.ERROR:
-                run.status = Status.ERROR
-                run.end_time = datetime.now(tz=UTC)
-                session.add(run)
-                session.commit()
+                workflow_runtime.update_run(
+                    session,
+                    run_uid,
+                    RunUpdate(status=Status.ERROR, end_time=datetime.now(tz=UTC)),
+                )
     except Exception as e:
         logger.warning(f'更新 RunInstance ERROR 状态失败: {e}')
 
@@ -156,12 +185,12 @@ def _flush_monitor_to_db(task_id: str) -> None:
     for raw in logs:
         stat_data = json.loads(raw)
         if stat_data is not None:
-            stat_data['task_uid'] = task_id
-            monitors.append(TaskMonitor.model_validate(stat_data))
+            stat_data['task_uid'] = as_uuid(task_id)
+            monitors.append(TaskMonitor(**stat_data))
 
     if monitors:
         with Session(engine) as session:
-            monitor_crud.insert_list(session, monitors)
+            workflow_runtime.insert_monitors(session, monitors)
 
 
 # ---------------------------------------------------------------------------
@@ -172,10 +201,13 @@ def _flush_monitor_to_db(task_id: str) -> None:
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
     """从数据库获取工具信息."""
     with Session(engine) as session:
-        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))  # type: ignore
-        tool = session.exec(statement).one_or_none()
+        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))
+        tool = session.scalar(statement)
         if not tool:
             error_msg = f'工具 {tool_uid} 不存在'
+            raise RuntimeError(error_msg)
+        if tool.image is None:
+            error_msg = f'工具 {tool_uid} 未关联镜像'
             raise RuntimeError(error_msg)
 
         return ToolTaskInfo(
@@ -194,7 +226,7 @@ def update_task(uid: str, data: TaskUpdate) -> bool:
     """更新任务状态."""
     try:
         with Session(engine) as session:
-            task_crud.update(session, uid, data)
+            workflow_runtime.update_task(session, uid, data)
             return True
     except Exception as e:
         logger.error(f'更新任务 {uid} 状态失败: {e}')
@@ -206,7 +238,7 @@ def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: floa
     for attempt in range(max_retries):
         try:
             with Session(engine) as session:
-                task = task_crud.get(session, uid)
+                task = _require_task(session, uid)
 
                 if task.status == Status.ERROR:
                     error_msg = f'任务 {uid} 执行失败, 无法获取输出'

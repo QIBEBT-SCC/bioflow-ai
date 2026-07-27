@@ -10,12 +10,12 @@ from typing import Optional
 
 from celery import Signature
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
-import app.crud.task_instance as task_crud
-from app.models.user import User
 from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode
+from app.schemas.user import CurrentUser
+from app.services import workflow_runtime
 
 
 @dataclass
@@ -23,10 +23,10 @@ class TaskContext:
     """任务处理上下文, 封装处理器需要的所有共享数据."""
 
     session: Session
-    project_id: int
+    project_id: int | None
     sample_uid: uuid.UUID | None
     sample_name: str | None
-    owner: User
+    owner: CurrentUser
 
     output_base: str
     run_uid: uuid.UUID
@@ -143,7 +143,7 @@ class BaseTaskHandler(ABC):
         """
         # 创建数据库记录
         task_instance = self.create_task_instance(task_node, context)
-        task_crud.insert(context.session, task_instance)
+        workflow_runtime.create_task(context.session, task_instance)
 
         # 创建 Celery 任务
         celery_task = self.create_celery_task(task_node, context)

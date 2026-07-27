@@ -17,6 +17,7 @@ from app.schemas.resource import (
     ReferenceGenomeListItem,
     ReferenceGenomePublic,
 )
+from app.services.resource import reference_genome as genome_service
 from app.tasks.load_tasks.load_genome import build_genome_index_admin_task, download_genome_admin_task
 from app.utils.api.ncbi_datasets import get_species_info, search_reference_genomes, search_reference_genomes_by_tax_id
 from app.utils.security import AdminDep, UserDep
@@ -113,9 +114,10 @@ async def get_reference_by_id(ref_id: int, session: SessionDep, _current_user: U
 @reference_router.delete('/{ref_id}')
 async def delete_reference(ref_id: int, session: SessionDep, _current_user: AdminDep) -> dict[str, str]:
     """Delete a reference genome record from the database (files on disk are preserved)."""
-    deleted = genome_crud.delete(session, ref_id)
-    if not deleted:
-        raise HTTPException(HTTP_404_NOT_FOUND, f'Reference genome with id={ref_id} not found.')
+    try:
+        genome_service.delete_genome(session, ref_id)
+    except genome_service.ReferenceGenomeNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, f'Reference genome with id={ref_id} not found.') from error
     return {'message': f'Reference genome id={ref_id} deleted successfully.'}
 
 

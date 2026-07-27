@@ -3,16 +3,17 @@ from typing import Any
 
 from celery import Task
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.resource.reference_genome as genome_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.resource import ReferenceGenomes
-from app.models.tools import ImageConfig
-from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.resource import GenomeUpdate
+from app.schemas.tool_config import ImageConfig
+from app.schemas.workflow_config import ToolOutput
+from app.services.resource import reference_genome as genome_service
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from app.utils.api.ncbi_datasets import (
     NCBIAssemblyDataReport,
@@ -213,7 +214,7 @@ def _create_genome_record(
     if alias_name and alias_name != genome_record.name:
         genome_record.aliases = alias_name
 
-    return genome_crud.insert(session, genome_record)
+    return genome_service.create_genome(session, genome_record)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -250,7 +251,7 @@ def load_ncbi_genome_task(
                 if genome_record := genome_crud.get_by_taxid(session, species_info.tax_id):
                     # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, aliases=f'{genome_record.aliases}|{species_name}')
-                    genome_record = genome_crud.update(session, genome_update)
+                    genome_record = genome_service.update_genome(session, genome_update)
                 else:
                     genome_record = _create_genome_record(session, genome, species_info, species_name)
             else:
@@ -289,7 +290,7 @@ def load_ncbi_genome_task(
                     update_data = {index_name: new_index}
                     # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, **update_data)
-                    genome_record = genome_crud.update(session, genome_update)
+                    genome_record = genome_service.update_genome(session, genome_update)
                     load_result[index_name] = getattr(genome_record, index_name)
 
     return ToolOutput(result=load_result)
@@ -379,15 +380,15 @@ def load_mm39_task(
 def _index_exists(genome_dir: Path, index_name: str, genome_fasta: Path) -> bool:
     """通过文件系统检查索引是否已构建."""
     checks = {
-        'bowtie2_index': lambda: any((genome_dir / 'bowtie2').iterdir())
-        if (genome_dir / 'bowtie2').exists()
-        else False,
+        'bowtie2_index': lambda: (
+            any((genome_dir / 'bowtie2').iterdir()) if (genome_dir / 'bowtie2').exists() else False
+        ),
         'bwa_index': lambda: genome_fasta.with_suffix('.fa.bwt').exists(),
         'hisat2_index': lambda: any((genome_dir / 'hisat2').iterdir()) if (genome_dir / 'hisat2').exists() else False,
         'star_index': lambda: any((genome_dir / 'star').iterdir()) if (genome_dir / 'star').exists() else False,
-        'minimap2_index': lambda: any((genome_dir / 'minimap2').glob('*.mmi'))
-        if (genome_dir / 'minimap2').exists()
-        else False,
+        'minimap2_index': lambda: (
+            any((genome_dir / 'minimap2').glob('*.mmi')) if (genome_dir / 'minimap2').exists() else False
+        ),
     }
     checker = checks.get(index_name)
     return checker() if checker else False
@@ -435,7 +436,7 @@ def download_genome_admin_task(
                         id=genome_record.id,
                         aliases=f'{genome_record.aliases}|{species_name}',
                     )
-                    genome_record = genome_crud.update(session, genome_update)
+                    genome_record = genome_service.update_genome(session, genome_update)
                 else:
                     genome_record = _create_genome_record(session, genome, species_info, species_name)
             else:
@@ -468,7 +469,7 @@ def download_genome_admin_task(
                     update_data = {index_name: new_index}
                     # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, **update_data)
-                    genome_record = genome_crud.update(session, genome_update)
+                    genome_record = genome_service.update_genome(session, genome_update)
                     load_result[index_name] = getattr(genome_record, index_name)
 
     return load_result
@@ -510,7 +511,7 @@ def build_genome_index_admin_task(
                     new_index = index_builders[index_name]()
                     # pyrefly: ignore [bad-argument-type]
                     genome_update = GenomeUpdate(id=genome_record.id, **{index_name: new_index})
-                    genome_record = genome_crud.update(session, genome_update)
+                    genome_record = genome_service.update_genome(session, genome_update)
                     load_result[index_name] = getattr(genome_record, index_name)
 
     return load_result

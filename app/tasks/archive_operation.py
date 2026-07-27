@@ -11,8 +11,8 @@ from pathlib import Path
 
 from celery import Task
 
-from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
+from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from script.worker import celery_app
 
@@ -24,7 +24,11 @@ SUPPORTED_COMPRESSION_SUFFIXES = STREAM_SUFFIXES | ARCHIVE_SUFFIXES
 def get_compression_suffix(file_name: str) -> str | None:
     """Return the longest supported compression suffix for a file name."""
     return next(
-        (suffix for suffix in sorted(SUPPORTED_COMPRESSION_SUFFIXES, key=len, reverse=True) if file_name.endswith(suffix)),
+        (
+            suffix
+            for suffix in sorted(SUPPORTED_COMPRESSION_SUFFIXES, key=len, reverse=True)
+            if file_name.endswith(suffix)
+        ),
         None,
     )
 
@@ -192,4 +196,3 @@ def decompress_task(
         raise ValueError(msg)
 
     return ToolOutput(result={'output_path': output_path}, sample_name=sample_name)
-

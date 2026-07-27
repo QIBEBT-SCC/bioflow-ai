@@ -6,7 +6,7 @@ from langchain.agents import AgentState
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 
-from app.models.tools import FileMount, ImageConfig, ParamDefine
+from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine
 from app.schemas.tools import Handle
 from llm.tools.test_run_report import TestRunReport
 from llm.utils.uid_mapper import BidirectionalMapper

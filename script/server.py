@@ -49,9 +49,9 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
                 ('llm.states', 'BuildNode'),
                 ('llm.utils.middleware.todo', 'Todo'),
                 ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
+                ('app.schemas.tool_config', 'FileMount'),
+                ('app.schemas.tool_config', 'ImageConfig'),
+                ('app.schemas.tool_config', 'ParamDefine'),
                 ('llm.tools.test_run_report', 'TestRunReport'),
             ]
         )

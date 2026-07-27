@@ -4,8 +4,9 @@ from collections.abc import Iterable
 
 from celery import states
 
-from app.models.workflow import RunInstance, Status, TaskInstance
+from app.models.workflow import RunInstance, TaskInstance
 from app.schemas.common import Statistics
+from app.schemas.workflow_config import Status
 from script.worker import celery_app
 
 TERMINAL_STATUSES = {Status.SUCCESS, Status.ERROR}

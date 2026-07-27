@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
@@ -17,8 +17,7 @@ from llm.utils.formatters import format_validation_error, manager_help_command, 
 from llm.utils.node_schema import PROCESSORS
 from llm.utils.retrievers import retrieve_processor
 from llm.utils.uid_mapper import generate_char_index
-from llm.workflow_builder.validation import validate_node_addition, check_edge_handles
-
+from llm.workflow_builder.validation import check_edge_handles, validate_node_addition
 
 # ---- Schemas ----
 

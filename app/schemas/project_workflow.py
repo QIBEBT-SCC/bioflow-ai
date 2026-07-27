@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.models.workflow import ExecutionScope
+from app.schemas.workflow_config import ExecutionScope
 
 
 class ProjectWorkflowAdd(BaseModel):

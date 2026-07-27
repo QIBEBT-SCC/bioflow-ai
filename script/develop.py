@@ -12,12 +12,13 @@ import click
 import orjson
 from anyio import Path
 from loguru import logger
+from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.graph.state import CompiledStateGraph
 
-    from app.models.tools import ImageConfig
+    from app.schemas.tool_config import ImageConfig
 
 
 DB_PATH = 'presets/build/develop.db'
@@ -249,8 +250,6 @@ def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dic
 
 def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUID, 'ImageConfig', uuid.UUID] | None:
     """获取工具镜像并复用或创建对应的帮助文档."""
-    from sqlmodel import Session
-
     import app.crud.tools.image as image_crud
     import app.crud.tools.tool_doc as doc_crud
     from app.core.session import engine
@@ -270,6 +269,7 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUI
                 session,
                 ToolHelpDoc(help_command=help_command, content=content, image_uid=tool_image.uid),
             )
+            session.commit()
 
         return tool_image.uid, tool_image.image, tool_doc.uid
 
@@ -288,9 +288,9 @@ async def _tool_agent_session(
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
         checkpoint.serde = JsonPlusRedisSerializer(
             allowed_msgpack_modules=[
-                ('app.models.tools', 'FileMount'),
-                ('app.models.tools', 'ImageConfig'),
-                ('app.models.tools', 'ParamDefine'),
+                ('app.schemas.tool_config', 'FileMount'),
+                ('app.schemas.tool_config', 'ImageConfig'),
+                ('app.schemas.tool_config', 'ParamDefine'),
                 ('llm.states', 'BuildEdge'),
                 ('llm.states', 'BuildNode'),
                 ('llm.states', 'WorkflowDraft'),
@@ -648,12 +648,10 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 async def delete_prebuild_tool(indices: list[int]) -> None:
     """删除现有节点."""
     import duckdb
-    from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
     from app.core.config import get_settings
     from app.core.session import engine
-    from app.models.user import User  # noqa: F401
     from llm.vectorstores import MilvusVectorStore
 
     con = duckdb.connect(DB_PATH)
@@ -677,6 +675,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             if tool_info['tool_node']:
                 with Session(engine) as session:
                     tool_crud.delete(session, tool_info['tool_node'])
+                    session.commit()
                     logger.info(f'删除了一条数据库信息 (index={index})')
                 await vectorstore.adelete(
                     filter_expression='tool_uid == {uid}',
@@ -694,11 +693,9 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 async def check_records(*, clean_interrupted: bool = False, dry_run: bool = False) -> None:
     """检查并重置孤立的DuckDB记录."""
     import duckdb
-    from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
     from app.core.session import engine
-    from app.models.user import User  # noqa: F401
 
     con = duckdb.connect(DB_PATH)
     indices_to_reset: list[int] = []

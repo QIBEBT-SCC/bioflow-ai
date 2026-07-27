@@ -1,27 +1,23 @@
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import Annotated
 
 from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
-from langchain_core.documents import Document
 from starlette import status
 from uuid_extensions import uuid7
 
-import app.crud.run_instance as run_crud
 import app.crud.workflow as wf_crud
 from app.core.config import get_settings
 from app.core.session import SessionDep
-from app.models.workflow import RunInstance, Status, Workflow
+from app.models.workflow import RunInstance, Workflow
 from app.schemas.common import Paginated
 from app.schemas.react_flow import WorkflowDefinition
-from app.schemas.workflow import WorkflowCreateProp, WorkflowSimple, WorkflowUpdate
+from app.schemas.run_instance import RunRecord
+from app.schemas.workflow import WorkflowCreateProp, WorkflowPublic, WorkflowSimple, WorkflowUpdate
+from app.schemas.workflow_config import Status
+from app.services import workflow_catalog, workflow_runtime
 from app.utils.input_format import to_safe_path_segment
 from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
-from llm.models import qwen3_embedding
-from llm.vectorstores import MilvusVectorStore
-
-if TYPE_CHECKING:
-    from app.models.user import User
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
 
@@ -52,7 +48,7 @@ async def run_workflow(
     session: SessionDep,
     current_user: UserDep,
     template_name: str | None = None,
-) -> RunInstance:
+) -> RunRecord:
     """Create a new workflow run instance from the editor."""
     if template_name is None:
         template_name = 'unname'
@@ -76,7 +72,7 @@ async def run_workflow(
         base_dir=str(base_dir),
         status=Status.WAITING,
     )
-    run = run_crud.insert(session, run)
+    run = workflow_runtime.create_run(session, run)
 
     task_list = build_task_list(workflow)
     send_task(
@@ -85,18 +81,21 @@ async def run_workflow(
         None,
         None,
         None,
-        cast('User', current_user),
+        current_user,
         f'{base_dir}',
         run.uid,
     )
 
-    return run
+    return RunRecord.model_validate(run)
 
 
 @router.get('/{uid}')
-async def get_workflow(uid: str, session: SessionDep, _current_user: UserDep) -> Workflow:
+async def get_workflow(uid: str, session: SessionDep, _current_user: UserDep) -> WorkflowPublic:
     """Get a workflow by its UID."""
-    return wf_crud.get(session, uid)
+    workflow = wf_crud.get(session, uid)
+    if workflow is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Workflow not found')
+    return WorkflowPublic.model_validate(workflow)
 
 
 @router.post('')
@@ -111,9 +110,8 @@ async def save_workflow(
 
     # TODO: 合法性检查
 
-    uid = uuid7(as_type='str')
+    uid = uuid7()
     workflow = Workflow(
-        # pyrefly: ignore [bad-argument-type]
         uid=uid,
         name=workflow_prop.name,
         description=workflow_prop.description,
@@ -126,27 +124,8 @@ async def save_workflow(
         summary_prompt=workflow_prop.summary_prompt,
     )
 
-    wf_crud.insert(session, workflow)
-    embedding_model = qwen3_embedding()
-    vectorstore = MilvusVectorStore(
-        collection_name='WorkflowCollection',
-        embedding_function=embedding_model,
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-
-    docs = [
-        Document(
-            page_content=workflow.description,
-            metadata={
-                'wf_uid': str(workflow.uid),
-                'name': workflow.name,
-            },
-        ),
-    ]
-    async with vectorstore:
-        await vectorstore.aadd_documents(docs)
-    return uid  # type: ignore
+    await workflow_catalog.create_workflow(session, workflow)
+    return str(uid)
 
 
 @router.delete('/{uid}', status_code=status.HTTP_204_NO_CONTENT)
@@ -156,16 +135,10 @@ async def delete_workflow(
     _current_user: UserDep,
 ) -> None:
     """Delete a workflow by its UID."""
-    wf_crud.delete(session, uid)
-    vectorstore = MilvusVectorStore(
-        collection_name='WorkflowCollection',
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    await vectorstore.adelete(
-        filter_expression='wf_uid == {uid}',
-        filter_params={'uid': uid},
-    )
+    try:
+        await workflow_catalog.delete_workflow(session, uid)
+    except workflow_catalog.WorkflowCatalogNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
 
 
 @router.patch('/{uid}')
@@ -176,5 +149,8 @@ async def update_workflow(
     _current_user: UserDep,
 ) -> str:
     """Update an existing workflow's name and/or definition."""
-    wf_crud.update(session, uid, data)
+    try:
+        workflow_catalog.update_workflow(session, uid, data)
+    except workflow_catalog.WorkflowCatalogNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     return uid

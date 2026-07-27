@@ -4,6 +4,8 @@ from typing import Literal
 import click
 from anyio import Path
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.utils.init.database import (
     AdminInitResult,
@@ -44,7 +46,6 @@ def _log_import_result(result: PresetImportResult) -> None:
 async def rebuild_image_index() -> None:
     """重建镜像向量索引."""
     from langchain_core.documents import Document
-    from sqlmodel import Session, select
     from tqdm import tqdm
 
     from app.core.config import get_settings
@@ -67,20 +68,20 @@ async def rebuild_image_index() -> None:
             ToolImage.name,
             ToolImage.description,
         )
-        results = session.exec(statement).all()
+        results = session.execute(statement).all()
 
     images_to_add = []
     empty_images = []
     batch_size = 10
 
     for image_data in tqdm(results, total=len(results)):
-        if image_data.description:  # type: ignore[attr-defined]
+        if image_data.description:
             images_to_add.append(
                 Document(
-                    page_content=image_data.description,  # type: ignore[attr-defined]
+                    page_content=image_data.description,
                     metadata={
-                        'image_uid': str(image_data.uid),  # type: ignore[attr-defined]
-                        'name': image_data.name,  # type: ignore[attr-defined]
+                        'image_uid': str(image_data.uid),
+                        'name': image_data.name,
                     },
                 )
             )
@@ -90,7 +91,7 @@ async def rebuild_image_index() -> None:
                     await vectorstore.aadd_documents(images_to_add)
                 images_to_add = []
         else:
-            empty_images.append(str(image_data.uid))  # type: ignore[attr-defined]
+            empty_images.append(str(image_data.uid))
 
     if images_to_add:
         async with vectorstore:
@@ -104,7 +105,6 @@ async def rebuild_image_index() -> None:
 async def rebuild_tool_index() -> None:
     """重建工具库向量索引."""
     from langchain_core.documents import Document
-    from sqlmodel import Session, select
     from tqdm import tqdm
 
     from app.core.config import get_settings
@@ -124,7 +124,7 @@ async def rebuild_tool_index() -> None:
 
     with Session(engine) as session:
         statement = select(ToolDefine)
-        results = session.exec(statement).all()
+        results = session.scalars(statement).all()
 
     docs_to_add = []
     empty_tools = []
@@ -148,7 +148,7 @@ async def rebuild_tool_index() -> None:
                     await vectorstore.aadd_documents(docs_to_add)
                 docs_to_add = []
         else:
-            empty_tools.append(str(tool_data.uid))  # type: ignore[attr-defined]
+            empty_tools.append(str(tool_data.uid))
 
     if docs_to_add:
         async with vectorstore:

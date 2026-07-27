@@ -10,7 +10,7 @@ from docker.types import DeviceRequest, Mount
 from loguru import logger
 
 from app.core.config import get_settings
-from app.models.tools import ImageConfig
+from app.schemas.tool_config import ImageConfig
 from app.utils.container._general import _strip_ansi_escape_sequences
 from app.utils.system import get_current_user_identity
 

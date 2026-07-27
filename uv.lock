@@ -363,7 +363,7 @@ dependencies = [
     { name = "questionary" },
     { name = "rich" },
     { name = "rustworkx" },
-    { name = "sqlmodel" },
+    { name = "sqlalchemy" },
     { name = "tomli-w" },
     { name = "tqdm" },
     { name = "uuid7" },
@@ -438,7 +438,7 @@ requires-dist = [
     { name = "questionary", specifier = ">=2.1.1" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "rustworkx", specifier = ">=0.17.0" },
-    { name = "sqlmodel", specifier = ">=0.0.30" },
+    { name = "sqlalchemy", specifier = ">=2.0.44" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "uuid7", specifier = ">=0.1.0" },
@@ -4149,20 +4149,6 @@ wheels = [
     { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/32/d5/0e66097fc64fa266f29a7963296b40a80d6a997b7ac13806183700676f86/sqlalchemy-2.0.44-cp313-cp313-win32.whl", hash = "sha256:ee51625c2d51f8baadf2829fae817ad0b66b140573939dd69284d2ba3553ae73", size = 2101275, upload-time = "2025-10-10T15:03:26.096Z" },
     { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/03/51/665617fe4f8c6450f42a6d8d69243f9420f5677395572c2fe9d21b493b7b/sqlalchemy-2.0.44-cp313-cp313-win_amd64.whl", hash = "sha256:c1c80faaee1a6c3428cecf40d16a2365bcf56c424c92c2b6f0f9ad204b899e9e", size = 2127901, upload-time = "2025-10-10T15:03:27.548Z" },
     { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/9c/5e/6a29fa884d9fb7ddadf6b69490a9d45fded3b38541713010dad16b77d015/sqlalchemy-2.0.44-py3-none-any.whl", hash = "sha256:19de7ca1246fbef9f9d1bff8f1ab25641569df226364a0e40457dc5457c54b05", size = 1928718, upload-time = "2025-10-10T15:29:45.32Z" },
-]
-
-[[package]]
-name = "sqlmodel"
-version = "0.0.39"
-source = { registry = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "sqlalchemy" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/68/ee/22a0559283c3cf6048678e787ed5d4959dcd00dedd8ba4567eeae684eeb1/sqlmodel-0.0.39.tar.gz", hash = "sha256:23d8e50a8d8ee936032ed79c55023a5d618dd6bc3c510bbf4909d1a7a605a570", size = 91057, upload-time = "2026-06-25T13:01:38.475Z" }
-wheels = [
-    { url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/packages/cf/7d/b9813a582d4eb310be35e1fc7dfaae71207d7b62e9e53be314ebd251b53b/sqlmodel-0.0.39-py3-none-any.whl", hash = "sha256:90ebe92ce5cc11d7fff8dc7cb594790a102333c8fe7c14865254f6fc5c939795", size = 29680, upload-time = "2026-06-25T13:01:37.494Z" },
 ]
 
 [[package]]

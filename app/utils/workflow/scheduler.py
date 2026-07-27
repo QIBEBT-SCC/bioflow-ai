@@ -9,11 +9,11 @@ import rich
 import rustworkx as rx
 from celery import chain
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from uuid_extensions import uuid7str
 
-from app.models.user import User
 from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
+from app.schemas.user import CurrentUser
 from app.utils.workflow import TaskContext, get_handler
 
 
@@ -97,6 +97,7 @@ def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
 
     first_layers = [node for node in graph.node_indices() if graph.in_degree(node) == 0 and graph.out_degree(node) > 0]
     task_groups = rx.layers(graph, first_layers)
+    # pyrefly: ignore [bad-index]
     return [[node_map[index] for index in sublist] for sublist in task_groups]
 
 
@@ -106,9 +107,10 @@ def send_task(
     project_id: int | None,
     sample_uid: uuid.UUID | None,
     sample_name: str | None,
-    owner: User,
+    owner: CurrentUser,
     output_base: str,
     run_uid: uuid.UUID,
+    *,
     auto_summary: bool = False,
     summary_prompt: str | None = None,
 ) -> None:
@@ -116,7 +118,7 @@ def send_task(
 
     Args:
         task_nodes: Sorted task node queue.
-        session: SQLModel session.
+        session: SQLAlchemy session.
         project_id: Project ID.
         sample_uid: Sample UID for this analysis.
         sample_name: Sample name for this analysis.

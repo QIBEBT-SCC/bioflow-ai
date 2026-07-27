@@ -4,10 +4,10 @@ from typing import Any
 from celery import Task
 from loguru import logger
 
-from app.models.tools import FileMount, ImageConfig
-from app.models.workflow import ToolOutput
 from app.schemas.react_flow import TaskInput
 from app.schemas.task_instance import TaskUpdate
+from app.schemas.tool_config import FileMount, ImageConfig
+from app.schemas.workflow_config import ToolOutput
 from app.services.tool_execution import (
     DockerToolExecutionConfig,
     ResolvedToolInput,

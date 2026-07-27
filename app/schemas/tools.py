@@ -1,12 +1,42 @@
 import uuid
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.tools import FileMount, ImageConfig, ParamDefine, ToolDefine, ToolHelpDoc, ToolImage, ToolTag, ToolType
+from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
 from app.utils.input_format import build_command_template
 
 
+class ToolTagPublic(BaseModel):
+    """A tool tag returned by the API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
+class ToolGroupCreate(BaseModel):
+    """Properties accepted when creating a tool group."""
+
+    name: str
+    parent_id: int | None = None
+
+
+class ToolGroupRecord(BaseModel):
+    """A persisted tool group."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    parent_id: int | None
+    tag_id: int | None
+
+
 class ToolGroupPublic(BaseModel):
+    """A tool group with its tool count."""
+
     id: int
     name: str
     parent_id: int | None
@@ -14,19 +44,44 @@ class ToolGroupPublic(BaseModel):
     tool_count: int
 
 
-class ImagePublic(BaseModel):
-    uid: uuid.UUID
+class ToolImageData(BaseModel):
+    """Shared persisted properties of a tool image."""
+
     name: str
-    version: str | None
-    description: str | None
-    homepage: str | None
-    paper_link: str | None
+    version: str
+    description: str
+    homepage: str | None = None
+    paper_link: str | None = None
     image: ImageConfig
+
+
+class ImageCreate(ToolImageData):
+    """Properties accepted when creating a tool image."""
+
+
+class ToolImageImport(ToolImageData):
+    """Validated tool image data loaded from a preset."""
+
+    uid: uuid.UUID | None = None
+
+
+class ToolImagePublic(ToolImageData):
+    """A persisted tool image without reverse relationships."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+
+
+class ImagePublic(ToolImagePublic):
+    """A persisted tool image with its tools."""
 
     tools: list['SimpleToolPublic']
 
 
 class ImageUpdate(BaseModel):
+    """Editable tool image properties."""
+
     name: str | None = None
     version: str | None = None
     description: str | None = None
@@ -36,20 +91,52 @@ class ImageUpdate(BaseModel):
 
 
 class DocUpdate(BaseModel):
+    """Editable tool help document properties."""
+
     help_command: str | None = None
     content: str | None = None
 
 
+class ToolHelpDocImport(BaseModel):
+    """Validated help document data loaded from a preset."""
+
+    uid: uuid.UUID | None = None
+    help_command: str
+    description: str | None = None
+    content: str
+    image_uid: uuid.UUID | None = None
+
+
+class ToolHelpDocPublic(BaseModel):
+    """A persisted tool help document."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+    help_command: str
+    description: str | None
+    content: str
+    image_uid: uuid.UUID | None
+
+
 class SimpleToolDoc(BaseModel):
+    """A compact tool help document reference."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     help_command: str
 
 
 class RunRequest(BaseModel):
+    """A command to execute in a tool image."""
+
     command: str
 
 
 class DockerToolCreate(BaseModel):
+    """Properties accepted when creating a Docker tool."""
+
     name: str
     image_uid: uuid.UUID
     description: str
@@ -64,29 +151,34 @@ class DockerToolCreate(BaseModel):
     modifiable_static_params: str | None
     file_mounts: list[FileMount]
 
-    def to_tool_data(self) -> ToolDefine:
-        return ToolDefine(
-            name=self.name,
-            image_uid=self.image_uid,
-            description=self.description,
-            tool_type=ToolType.DOCKER,
-            group_id=self.group_id,
-            command_template=self.command_template,
-            dynamic_params=self.dynamic_params,
-            immutable_static_params=self.immutable_static_params,
-            modifiable_static_params=self.modifiable_static_params,
-            file_mounts=self.file_mounts,
-        )
+
+class ToolDefinitionImport(BaseModel):
+    """Validated tool definition data loaded from a preset."""
+
+    uid: uuid.UUID | None = None
+    name: str
+    image_uid: uuid.UUID | None = None
+    description: str
+    tool_type: ToolType
+    group_id: int | None = None
+    help_doc_uid: uuid.UUID | None = None
+    command_template: str
+    dynamic_params: list[ParamDefine]
+    immutable_static_params: str | None = None
+    modifiable_static_params: str | None = None
+    file_mounts: list[FileMount]
 
 
 class DockerToolUpdate(BaseModel):
+    """Editable Docker tool properties."""
+
     name: str | None = None
     image_uid: uuid.UUID | None = None
     description: str | None = None
     help_doc_uid: uuid.UUID | None = None
 
     group_id: int | None = None
-    tags: list[ToolTag] | None = None
+    tags: list[ToolTagPublic] | None = None
 
     command_template: str | None = None
     dynamic_params: list[ParamDefine] | None = None
@@ -96,19 +188,24 @@ class DockerToolUpdate(BaseModel):
 
 
 class SimpleToolPublic(BaseModel):
+    """A compact persisted tool definition."""
+
     model_config = ConfigDict(from_attributes=True)
+
     uid: uuid.UUID
     name: str
     description: str
     tool_type: ToolType
     group_id: int | None
 
-    image: ToolImage | None
+    image: ToolImagePublic | None
 
-    tags: list[ToolTag]
+    tags: list[ToolTagPublic]
 
 
 class ToolPublic(BaseModel):
+    """A complete persisted tool definition."""
+
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
@@ -126,12 +223,13 @@ class ToolPublic(BaseModel):
 
     complete_command: str | None = None
 
-    tags: list['ToolTag']
-    help_doc: ToolHelpDoc
-    image: ToolImage
+    tags: list[ToolTagPublic]
+    help_doc: ToolHelpDocPublic
+    image: ToolImagePublic
 
     @model_validator(mode='after')
-    def build_command(self):
+    def build_command(self) -> Self:
+        """Build the complete command after validation."""
         self.complete_command = build_command_template(
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
@@ -143,17 +241,21 @@ class ToolPublic(BaseModel):
 
 
 class Handle(BaseModel):
+    """A visual workflow input or output handle."""
+
     name: str
     description: str
 
 
 class ToolNodePublic(BaseModel):
+    """A tool definition projected into a workflow node."""
+
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
     name: str
     description: str
-    tags: list[ToolTag]
+    tags: list[ToolTagPublic]
 
     command_template: str = Field(exclude=True)
     dynamic_params: list[ParamDefine] = Field(exclude=True)
@@ -167,7 +269,8 @@ class ToolNodePublic(BaseModel):
     complete_command: str | None = None
 
     @model_validator(mode='after')
-    def build_handles(self):
+    def build_handles(self) -> Self:
+        """Build visual handles and the complete command after validation."""
         self.input_handles = [
             Handle(name=file.name, description=file.description)
             for file in self.file_mounts
@@ -193,6 +296,8 @@ class ToolNodePublic(BaseModel):
 
 
 class ToolTaskInfo(BaseModel):
+    """Task-relevant metadata for executing a tool."""
+
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
@@ -204,4 +309,4 @@ class ToolTaskInfo(BaseModel):
     modifiable_static_params: str | None
     file_mounts: list[FileMount]
 
-    image: ToolImage
+    image: ToolImagePublic

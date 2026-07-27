@@ -5,13 +5,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import SecretStr
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
-import app.crud.setting.llm_model as model_crud
-import app.crud.setting.llm_setting as setting_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort, is_deepseek_provider
+from app.services import llm_setting as setting_service
 from llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 
 _model_cache: dict[ModelRole, BaseChatModel] = {}
@@ -30,7 +29,9 @@ class NoApikeyError(ValueError):
 
 
 def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, LLMModel]:
-    model_config = model_crud.get(session, model_id)
+    model_config = setting_service.get_model(session, model_id)
+    if model_config.provider is None:
+        raise setting_service.LLMProviderNotFoundError
 
     api_key = model_config.provider.api_key or ''
     proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
@@ -138,7 +139,7 @@ def get_model(role: ModelRole) -> BaseChatModel:
         return _model_cache[role]
 
     with Session(engine) as session:
-        model_id = setting_crud.get_role(session, role)
+        model_id = setting_service.get_role_model_id(session, role)
         model, model_config = _get_model_from_db(session, model_id)
         model.metadata = {
             'setting_key': role.value,

@@ -4,21 +4,6 @@ from redis import Redis
 
 from app.core.config import get_settings
 from app.core.session import engine
-from app.models.chat import ChatMessages, ChatSessions  # noqa: F401
-from app.models.document import ParentDocument  # noqa: F401
-from app.models.project import Project, ProjectStar, ProjectTag, ProjectTagLink, ProjectWorkflow  # noqa: F401
-from app.models.resource import BioDb, File, ReferenceGenomes, Sample, SampleFiles  # noqa: F401
-from app.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic  # noqa: F401
-from app.models.tools import (  # noqa: F401
-    ToolDefine,
-    ToolGroup,
-    ToolHelpDoc,
-    ToolImage,
-    ToolTag,
-    ToolTagLink,
-)
-from app.models.user import User  # noqa: F401
-from app.models.workflow import RunInstance, TaskInstance, TaskMonitor, Workflow  # noqa: F401
 
 monitor_redis_client = Redis.from_url(get_settings().persistent.cache.MONITOR_CACHE.unicode_string())
 celery_app = Celery(
