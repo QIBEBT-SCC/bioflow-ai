@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, ValidationError
 
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
-from llm.workflow_builder.validation import check_orphan_edges
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.uid_mapper import generate_char_index
 from llm.workflow_builder.drafts import (
@@ -23,6 +22,7 @@ from llm.workflow_builder.messages import (
     format_workflow_drafts,
 )
 from llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
+from llm.workflow_builder.validation import check_orphan_edges
 
 
 class ViewNodeSchema(BaseModel):
@@ -168,9 +168,7 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
                     update={
                         'messages': [
                             ToolMessage(
-                                content=format_validation_error(
-                                    'delete_workflow_draft', e, DeleteWorkflowDraftSchema
-                                ),
+                                content=format_validation_error('delete_workflow_draft', e, DeleteWorkflowDraftSchema),
                                 tool_call_id=runtime.tool_call_id,
                             )
                         ]
@@ -530,16 +528,18 @@ def _update_workflow_metadata(
 
 def _view_workflow(runtime: ToolRuntime[ProjectContext]) -> Command:
     if runtime.state.get('exist_nodes', []):
-        nodes = [
-            {
-                'id': n.id,
-                'name': n.name,
-                'type': n.type,
-                'x': n.x,
-                'y': n.y,
+        nodes = []
+        for node in runtime.state.get('exist_nodes', []):
+            node_summary = {
+                'id': node.id,
+                'name': node.name,
+                'type': node.type,
+                'x': node.x,
+                'y': node.y,
             }
-            for n in runtime.state.get('exist_nodes', [])
-        ]
+            if node.type.startswith('code_'):
+                node_summary['description'] = node.data.get('description', '')
+            nodes.append(node_summary)
         edges = [
             {
                 'source_node': e.source_node,
@@ -559,9 +559,19 @@ def _view_workflow(runtime: ToolRuntime[ProjectContext]) -> Command:
 def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     for n in runtime.state.get('exist_nodes', []):
         if n.id == node_id:
-            return Command(
-                update={'messages': [ToolMessage(content=node_formatter(n), tool_call_id=runtime.tool_call_id)]}
-            )
+            if n.type.startswith('code_'):
+                content = json.dumps(
+                    {
+                        'id': n.id,
+                        'name': n.name,
+                        'type': n.type,
+                        'description': n.data.get('description', ''),
+                    },
+                    ensure_ascii=False,
+                )
+            else:
+                content = node_formatter(n)
+            return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -782,9 +792,7 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
             )
 
         mark_names = [
-            str(node.data.get('mark_name', ''))
-            for node in draft.nodes
-            if node.type in {'project_mark', 'sample_mark'}
+            str(node.data.get('mark_name', '')) for node in draft.nodes if node.type in {'project_mark', 'sample_mark'}
         ]
         duplicate_marks = sorted({name for name in mark_names if mark_names.count(name) > 1})
         if duplicate_marks:
@@ -796,8 +804,7 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
             invalid_sample_refs = [
                 node.id
                 for node in draft.nodes
-                if node.type == 'resource_file'
-                and str(node.data.get('file_path', '')).startswith('sample:')
+                if node.type == 'resource_file' and str(node.data.get('file_path', '')).startswith('sample:')
             ]
             if invalid_sample_refs:
                 validation_errors.append(

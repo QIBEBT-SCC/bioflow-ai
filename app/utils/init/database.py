@@ -322,41 +322,56 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     )
 
 
-async def rebuild_processor_index(*, show_progress: bool = True) -> None:
-    """重建处理器索引."""
+async def rebuild_auxiliary_node_index(*, show_progress: bool = True) -> None:
+    """Rebuild the shared static-processor and reusable-CODE index."""
     from langchain_core.documents import Document
+    from sqlalchemy import select
     from tqdm import tqdm
 
     from app.core.config import get_settings
+    from app.core.session import engine
+    from app.models.code import CodeDefine
+    from app.services.code_catalog import (
+        AUXILIARY_NODE_COLLECTION,
+        PROCESSOR_NODE_KIND,
+        code_index_document,
+    )
     from llm.models import qwen3_embedding
     from llm.utils.node_schema import PROCESSORS
     from llm.vectorstores import MilvusVectorStore
 
     embedding = qwen3_embedding()
     vectorstore = MilvusVectorStore(
-        collection_name='ProcessorCollection',
+        collection_name=AUXILIARY_NODE_COLLECTION,
         embedding_function=embedding,
         uri=get_settings().knowledge_base.MILVUS_URL,
         drop_old=True,
     )
 
-    for process_name in tqdm(PROCESSORS, total=len(PROCESSORS), disable=not show_progress):
-        description = PROCESSORS[process_name]['description']
-        docs = [
-            Document(
-                page_content=description,
-                metadata={
-                    'name': process_name,
-                },
-            ),
-        ]
+    processor_docs = [
+        Document(
+            page_content=PROCESSORS[processor_name]['description'],
+            metadata={
+                'kind': PROCESSOR_NODE_KIND,
+                'name': processor_name,
+                'node_type': processor_name,
+            },
+        )
+        for processor_name in PROCESSORS
+    ]
+
+    with Session(engine) as session:
+        codes = session.scalars(select(CodeDefine).order_by(CodeDefine.name)).all()
+
+    documents = [*processor_docs, *(code_index_document(code) for code in codes)]
+    for index in tqdm(range(0, len(documents), BATCH_SIZE), disable=not show_progress):
         async with vectorstore:
-            await vectorstore.aadd_documents(docs)
+            await vectorstore.aadd_documents(documents[index : index + BATCH_SIZE])
 
 
 async def initialize_preset_database(confirm: Callable[..., bool]) -> bool | None:
     """Prompt for and initialize preset SQL records and vector collections."""
-    tui.render_section('系统预置数据', '初始化管理员账户、工具数据库以及工具/镜像/处理器向量索引。')
+    tui.render_section('系统预置数据', '初始化管理员账户、工具数据库以及工具/镜像/辅助节点向量索引。')
     if not confirm('是否初始化系统预置数据和向量索引?', default=True):
         tui.render_notice('已跳过预置数据初始化。', style='#94a3b8')
         return None
@@ -366,7 +381,7 @@ async def initialize_preset_database(confirm: Callable[..., bool]) -> bool | Non
 
         create_db_and_tables()
         result = await init_preset_database_records(drop_old=True, show_progress=False)
-        await rebuild_processor_index(show_progress=False)
+        await rebuild_auxiliary_node_index(show_progress=False)
     except Exception as exc:
         tui.render_notice(f'预置数据初始化失败: {exc}', style='#ef4444')
         return False

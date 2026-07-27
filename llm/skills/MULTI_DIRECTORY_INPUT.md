@@ -24,7 +24,7 @@ The `collect_mount_dirs` processor creates a mount-list manifest. During tool ex
 
 ## Processor Node
 
-Use `processor_node_manager` to add the processor node named `collect_mount_dirs`.
+Use `utility_node_manager` to add the processor node named `collect_mount_dirs`.
 
 Input handle:
 

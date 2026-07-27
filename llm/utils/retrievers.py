@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.models.document import ParentDocument
 from app.schemas.tools import ToolNodePublic
+from app.services.code_catalog import AUXILIARY_NODE_COLLECTION
 from llm.models import qwen3_embedding
 from llm.utils.uid_mapper import BidirectionalMapper, HasUid
 from llm.vectorstores import MilvusVectorStore
@@ -149,16 +150,16 @@ async def retrieve_tools(
     return tool_nodes, mappers
 
 
-async def retrieve_processor(query: str) -> list[Document]:
-    """Search for the processor node corresponding to the function."""
+async def retrieve_auxiliary_nodes(query: str) -> list[Document]:
+    """Search reusable CODE definitions and static processors by function."""
     embedding = qwen3_embedding()
     vectorstore = MilvusVectorStore(
-        collection_name='ProcessorCollection',
+        collection_name=AUXILIARY_NODE_COLLECTION,
         embedding_function=embedding,
         uri=get_settings().knowledge_base.MILVUS_URL,
     )
 
-    task = 'Provide a search query to search for data processors with relevant functions'
+    task = 'Provide a search query to search for reusable code or data processors with relevant functions'
     query = f'Instruct: {task}\nQuery:{query}'
 
     async with vectorstore:

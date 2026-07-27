@@ -1,5 +1,6 @@
 from app.models.base import Base
 from app.models.chat import ChatMessages, ChatSessions
+from app.models.code import CodeDefine
 from app.models.document import ParentDocument
 from app.models.project import Project, ProjectFileMapping, ProjectStar, ProjectTag, ProjectTagLink
 from app.models.resource import BioDb, File, ReferenceGenomes, Sample, SampleFiles
@@ -13,6 +14,7 @@ __all__ = [
     'BioDb',
     'ChatMessages',
     'ChatSessions',
+    'CodeDefine',
     'File',
     'LLMModel',
     'LLMProvider',

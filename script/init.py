@@ -15,7 +15,7 @@ from app.utils.init.database import (
     init_images,
     init_preset_database_records,
     init_tools,
-    rebuild_processor_index,
+    rebuild_auxiliary_node_index,
 )
 
 
@@ -177,8 +177,8 @@ def system_init_cmd() -> None:
         _log_import_result(result.images)
         _log_import_result(result.docs)
         _log_import_result(result.tools)
-        logger.info('Rebuild processor index...')
-        await rebuild_processor_index()
+        logger.info('Rebuild auxiliary node index...')
+        await rebuild_auxiliary_node_index()
         logger.info('System initialization completed.')
 
     asyncio.run(_run())
@@ -251,8 +251,8 @@ def rebuild_index_cmd(collections: Literal['all', 'tool', 'processor', 'image'])
             await rebuild_tool_index()
 
         if collections in ('all', 'processor'):
-            logger.info('Rebuild processor index...')
-            await rebuild_processor_index()
+            logger.info('Rebuild auxiliary node index...')
+            await rebuild_auxiliary_node_index()
 
     asyncio.run(_run())
 

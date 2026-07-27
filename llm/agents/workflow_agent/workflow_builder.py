@@ -13,10 +13,9 @@ from llm.models import get_long_context_model
 from llm.states import BuildState
 from llm.tools.human import ask_human
 from llm.tools.managers import (
-    other_node_manager,
-    processor_node_manager,
     resource_node_manager,
     tool_node_manager,
+    utility_node_manager,
     workflow_manager,
 )
 from llm.utils.middleware import (
@@ -45,8 +44,6 @@ This editor includes the following types of nodes:
 - Code nodes: execute custom Bash scripts or simple single-file Python 3.13 transformations
 - Note nodes: do not participate in computation and are used to annotate certain nodes
 
-Special note: all resource nodes that provide reference genomes in this system also come with indexes for BWA, STAR, HISAT2, Bowtie2, and minimap2. When using these five tools, there is generally no need to build additional indexes, as the indexes provided by the resource nodes can be used directly.
-
 ### Node Data
 Different types of nodes have different content, which usually includes the following information. Fields marked with an asterisk are available only after a node is added to the panel:
 - `id*`: nodes already added to the panel are automatically assigned a unique id
@@ -65,7 +62,10 @@ The `file` resource is the general input node for both files and directories. It
 - `proj:<keyword>`: a project mapping, either an initial resource or a dynamic project mark
 - `sample:<tag>`: a current-sample mapping, either an initial input or a dynamic sample mark
 
-References are resolved when the workflow runs. For more details, refer to the **FILE_SYSTEM** skill.
+They are resolved when the workflow runs. For more details, refer to the **FILE_SYSTEM** skill.
+
+The reference genome node also provides indexes for the five tools BWA, STAR, HISAT2, Bowtie2, and minimap2.
+Therefore, when using a publicly published reference genome with these five tools, there is no need to build the indexes yourself.
 
 ### Interactive Tools
 All interactive tools (XX_manager) adopt a progressive disclosure mode of `action + params`:
@@ -85,13 +85,12 @@ The interaction targets and available actions for each tool are as follows:
   - `search_db`: search for a biological database before adding a database resource node
   - `create_db`: create a missing biological database record with an automatic download command
   - `add`: add a resource node to the workflow panel
-- `processor_node_manager` — processor nodes for system/file operations unrelated to bioinformatics analysis
-  - `search_processor`: search for processor nodes by function
-  - `view_processor`: view details of a specific processor node, including inputs, outputs, and parameter format
+- `utility_node_manager` — processor, reusable/generated CODE, note, and downstream-summary nodes
+  - `search`: search processors and reusable CODE definitions together by function
+  - `view`: view a processor by name or reusable CODE definition by UID; CODE results show the complete source code and the relevant CODE-node skill
   - `add_processor`: add a processor node to the workflow panel
-- `other_node_manager` — code nodes, note nodes, and downstream summary nodes
-  - `add_code`: describe and add a custom Bash code node; a dedicated coding model writes the script
-  - `add_python_code`: describe and add a simple single-file Python code node; a dedicated coding model writes the script
+  - `add_exist_code`: add a reusable CODE definition returned by `search`; the complete code is copied into the node
+  - `add_new_code`: describe and add a new CODE node, selecting `bash` or `python` with `code_type`
   - `add_note`: add a note node to annotate the workflow panel
   - `add_downstream_summary`: add a downstream summary node for later downstream analysis
 - `workflow_manager` — workflow draft and panel operations
@@ -135,21 +134,24 @@ You will be given a prepared plan along with the user's original task requiremen
 8. After every workflow draft is complete, call `workflow_manager` with `save_all_workflows` to save all workflow drafts to the database in one operation, then provide a final summary and conclude the work.
 
 
-## Notes
+## Principles
 - Only one task can be processed at a time. Before starting the next task, ensure that the current task has been marked as "completed".
 - When a task is marked as "completed", the current context information will be cleared. You can obtain necessary information by viewing the to-do list, handover information, and current workflow status.
-- Do not save an individual workflow immediately after it is constructed. Keep it as a workflow draft and save all drafts together only after every workflow in the plan is complete.
+- Do not save each workflow immediately after it is completed; instead, keep it as a draft. Save all drafts at once only after all workflows have been completed.
 - If the plan contains multiple workflows, use `create_workflow_draft` for each workflow and `switch_workflow_draft` whenever you need to inspect or continue editing a previous draft.
-- Drafts represent execution boundaries from the plan, not individual tools or todo steps. Do not split one planned workflow into separate QC, trimming, alignment, calling, or summary drafts unless the plan explicitly defines those as separate workflows.
 - Workflow execution scope must match the plan: per-sample workflows are `sample_level`; preparatory workflows and aggregation workflows that run once globally are `project_level`.
 - Before using any interactive operation (XX_manager), always first use action="help" with params={"action": "<action_name>"} to clarify the parameter description of the specific operation. **It is forbidden to directly perform an operation without understanding its parameters!**
 - Edges between nodes are directional. Therefore, before adding any node, ensure that all required source nodes for that node already exist on the panel (for example, before adding a comparison tool, the sequence file and reference genome index nodes required by that tool must first be added to the panel).
+- For tools, creating a new node is extremely costly. Therefore, prioritize using the `search` operation to look for existing nodes, and use the `create` operation to create a new node only when the current database genuinely lacks a node with the required functionality.
+- For tasks such as decompression, renaming, copying, and simple text filtering that **do not require specialized bioinformatics tools**, use PROCESSOR nodes and CODE nodes. The relevant tool is `utility_node_manager`; follow the rules below:
+    - Prioritize using the `search` operation to search for existing PROCESSOR or CODE nodes, then use the `view` operation to inspect the details of nodes that you think may meet the requirements.
+    - If a node meeting the requirements exists, use `add_processor` or `add_exist_code` to add the corresponding type of node that meets the requirements to the panel.
+    - If there is no suitable node, use `add_new_code` with `code_type="bash"` or `code_type="python"` to create a new code node that meets the requirements.
 - For Bash and Python code nodes, determine the input bindings and deterministic output file names, then describe the required behavior in the action's `request`. Do not write code yourself. After the manager returns the generated node, inspect its code before adding downstream selectors or tools.
 - Node placement rules:
     - When there are no nodes on the current panel, place the newly added node at the center of the panel (x=0, y=0).
     - When there are already nodes on the current panel, place the newly added node to the right (x+1) according to the order of analysis execution, with the y-coordinate aligned with the associated upstream node.
     - If the current position already has a node, adjust the y-coordinate upward or downward as appropriate (±1) to avoid node overlap.
-- For tools, creating a new node is extremely costly. Therefore, prioritize using the `search` operation to look for existing nodes, and use the `create` operation to create a new node only when the current database genuinely lacks a node with the required functionality.
 """
 
 
@@ -176,8 +178,13 @@ WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work',
 WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
     'tool_node_manager': {'add', 'update_args', 'create', 'search'},
     'resource_node_manager': {'create_db', 'add'},
-    'processor_node_manager': {'add_processor'},
-    'other_node_manager': {'add_code', 'add_python_code', 'add_note', 'add_downstream_summary'},
+    'utility_node_manager': {
+        'add_processor',
+        'add_exist_code',
+        'add_new_code',
+        'add_note',
+        'add_downstream_summary',
+    },
     'workflow_manager': {
         'create_workflow_draft',
         'switch_workflow_draft',
@@ -209,8 +216,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             [
                 tool_node_manager,
                 resource_node_manager,
-                processor_node_manager,
-                other_node_manager,
+                utility_node_manager,
                 workflow_manager,
                 summarize_work,
                 ask_human,
@@ -247,8 +253,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         [
             tool_node_manager,
             resource_node_manager,
-            processor_node_manager,
-            other_node_manager,
+            utility_node_manager,
             workflow_manager,
             summarize_work,
             ask_human,
@@ -257,12 +262,12 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         middleware=[
             TodoMiddleware(),
             SkillMiddleware(
-                    [
-                        'USING_BASH_NODE',
-                        'USING_PYTHON_NODE',
-                        'FILE_SYSTEM',
-                        'CROSS_WORKFLOW_FILE_TRANSFER',
-                        'MULTI_DIRECTORY_INPUT',
+                [
+                    'USING_BASH_NODE',
+                    'USING_PYTHON_NODE',
+                    'FILE_SYSTEM',
+                    'CROSS_WORKFLOW_FILE_TRANSFER',
+                    'MULTI_DIRECTORY_INPUT',
                     'WRITE_DOWNSTREAM_SUMMARY',
                 ]
             ),

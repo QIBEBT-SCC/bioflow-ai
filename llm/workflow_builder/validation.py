@@ -5,6 +5,14 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
+from langgraph.prebuilt import ToolRuntime
+from sqlalchemy.orm import Session
+
+from app.core.session import engine
+from app.crud import project_file_mapping as project_file_mapping_crud
+from app.crud.resource import sample as sample_crud
+from llm.context import ProjectContext
+
 from llm.workflow_builder.drafts import get_workflow_drafts
 
 if TYPE_CHECKING:
@@ -170,3 +178,39 @@ def check_ncbi_genome_edges(
         return f'NCBI genome node requires at least one input. Available handles: {handle_names}.'
 
     return None
+
+
+def validate_mark_storage_conflict(
+    processor_name: str,
+    arguments: dict[str, Any],
+    runtime: ToolRuntime[ProjectContext],
+) -> str | None:
+    """Reject mark names that are already occupied in the project file system."""
+    if processor_name not in {'project_mark', 'sample_mark'}:
+        return None
+
+    mark_name = str(arguments['mark_name'])
+    with Session(engine) as session:
+        if processor_name == 'project_mark':
+            mapping = project_file_mapping_crud.get_by_keyword(
+                session,
+                runtime.context.project_id,
+                mark_name,
+            )
+            if mapping is None:
+                return None
+            source = 'dynamic mark' if mapping.is_dynamic else 'initial project resource'
+            return f'Cannot add mark `{mark_name}` because `proj:{mark_name}` already exists as a {source}.'
+
+        matches = sample_crud.get_files_by_tag_in_project(
+            session,
+            runtime.context.project_id,
+            mark_name,
+        )
+        if not matches:
+            return None
+        sample_names = ', '.join(sample_name for _, sample_name in matches)
+        return (
+            f'Cannot add mark `{mark_name}` because `sample:{mark_name}` already exists '
+            f'on project sample(s): {sample_names}.'
+        )
