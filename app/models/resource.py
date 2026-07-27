@@ -1,11 +1,9 @@
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import BigInteger, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlmodel import Field, SQLModel
 
 from app.models.base import Base
 from app.models.project import Project
@@ -48,43 +46,43 @@ class SampleFiles(Base):
     sample: Mapped[Sample | None] = relationship(back_populates='sample_files')
 
 
-class BioDb(SQLModel, table=True):
+class BioDb(Base):
     __tablename__ = 'bio_dbs'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)
-    description: Optional[str] = Field(default=None)
-    path: Optional[str] = Field(default=None)
-    size: Optional[str] = Field(default=None)
-    last_update: Optional[str] = Field(default=None)
-    download_command: Optional[str] = Field(default=None)
-    download_image: Optional[str] = Field(default=None)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    description: Mapped[str | None] = mapped_column(default=None)
+    path: Mapped[str | None] = mapped_column(default=None)
+    size: Mapped[str | None] = mapped_column(default=None)
+    last_update: Mapped[str | None] = mapped_column(default=None)
+    download_command: Mapped[str | None] = mapped_column(default=None)
+    download_image: Mapped[str | None] = mapped_column(default=None)
 
 
-class ReferenceGenomes(SQLModel, table=True):
+class ReferenceGenomes(Base):
     __tablename__ = 'reference_genomes'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    ncbi_tax_id: int = Field(unique=True)
-    name: str = Field(unique=True)
-    accession: str
-    aliases: Optional[str] = Field(default=None, description='物种别名, 多个别名用|分隔')
-    genome_sequences: str
-    annotation_gff: str
-    annotation_gtf: str
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ncbi_tax_id: Mapped[int] = mapped_column(unique=True)
+    name: Mapped[str] = mapped_column(unique=True)
+    accession: Mapped[str]
+    aliases: Mapped[str | None] = mapped_column(default=None)
+    genome_sequences: Mapped[str]
+    annotation_gff: Mapped[str]
+    annotation_gtf: Mapped[str]
 
-    bowtie2_index: Optional[str] = None
-    bwa_index: Optional[str] = None
-    hisat2_index: Optional[str] = None
-    star_index: Optional[str] = None
-    minimap2_index: Optional[str] = None
+    bowtie2_index: Mapped[str | None] = mapped_column(default=None)
+    bwa_index: Mapped[str | None] = mapped_column(default=None)
+    hisat2_index: Mapped[str | None] = mapped_column(default=None)
+    star_index: Mapped[str | None] = mapped_column(default=None)
+    minimap2_index: Mapped[str | None] = mapped_column(default=None)
 
 
-class File(SQLModel, table=True):
+class File(Base):
     __tablename__ = 'files'
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    sha256: str = Field(unique=True)
-    file_name: str
-    s3_path: str
-    upload_time: datetime = Field(default_factory=utc_now)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    sha256: Mapped[str] = mapped_column(unique=True)
+    file_name: Mapped[str]
+    s3_path: Mapped[str]
+    upload_time: Mapped[datetime] = mapped_column(default=utc_now)

@@ -1,51 +1,42 @@
 from collections.abc import Sequence
 from datetime import datetime
 
-from fastapi import HTTPException
-from sqlmodel import Session, col, select
-from starlette.status import HTTP_404_NOT_FOUND
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.models.chat import ChatSessions
+from app.models.chat import ChatMessages, ChatSessions
 from app.schemas.chat import ChatSessionUpdate
+from app.utils.identifiers import UUIDLike, as_uuid
 
 
 def insert(session: Session, chat: ChatSessions) -> ChatSessions:
-    """Insert a new chat session into the database."""
+    """Stage a new chat session."""
     session.add(chat)
-    session.commit()
+    session.flush()
     session.refresh(chat)
-
     return chat
 
 
 def delete(session: Session, chat: ChatSessions) -> None:
-    """Delete a chat session from the database."""
+    """Stage deletion of a chat session."""
     session.delete(chat)
-    session.commit()
+    session.flush()
 
 
-def update(session: Session, chat_update: ChatSessionUpdate) -> ChatSessions:
-    """Update an existing chat session with new data."""
-    db_chat = get(session, chat_update.uid)
-    if db_chat is None:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Chat session not found')
-
-    update_data = chat_update.model_dump(exclude_unset=True)
-    db_chat.sqlmodel_update(update_data)
-
-    session.add(db_chat)
-    session.commit()
-    session.refresh(db_chat)
-    return db_chat
-
-
-def get(session: Session, uid: str) -> ChatSessions:
-    """Return a chat session by its uid, or None if not found."""
-    query = select(ChatSessions).where(ChatSessions.uid == uid)
-    chat = session.exec(query).one_or_none()
-    if chat is None:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Chat session not found')
+def update(session: Session, chat: ChatSessions, chat_update: ChatSessionUpdate) -> ChatSessions:
+    """Stage updates to an existing chat session."""
+    update_data = chat_update.model_dump(exclude={'uid'}, exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(chat, field, value)
+    session.flush()
+    session.refresh(chat)
     return chat
+
+
+def get(session: Session, uid: UUIDLike) -> ChatSessions | None:
+    """Return a chat session by UID, or ``None`` when absent."""
+    return session.scalar(select(ChatSessions).where(ChatSessions.uid == as_uuid(uid)))
 
 
 def get_page(
@@ -63,6 +54,23 @@ def get_page(
     """
     query = select(ChatSessions).where(ChatSessions.owner_id == owner_id)
     if cursor is not None:
-        query = query.where(col(ChatSessions.update_time) < cursor)
-    query = query.order_by(col(ChatSessions.update_time).desc()).limit(limit + 1)
-    return session.exec(query).all()
+        query = query.where(ChatSessions.update_time < cursor)
+    query = query.order_by(ChatSessions.update_time.desc()).limit(limit + 1)
+    return session.scalars(query).all()
+
+
+def list_messages(session: Session, session_id: str) -> Sequence[ChatMessages]:
+    """Return persisted messages for a chat session in insertion order."""
+    statement = select(ChatMessages).where(ChatMessages.session_id == session_id).order_by(ChatMessages.id.asc())
+    return session.scalars(statement).all()
+
+
+def insert_messages(session: Session, messages: Sequence[ChatMessages]) -> None:
+    """Stage a batch of persisted chat messages."""
+    session.add_all(messages)
+    session.flush()
+
+
+def delete_messages(session: Session, session_id: str) -> None:
+    """Stage deletion of every persisted message for a chat session."""
+    session.execute(sa_delete(ChatMessages).where(ChatMessages.session_id == session_id))

@@ -5,7 +5,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.resource.bio_db as db_crud
 import app.crud.tools.image as image_crud
@@ -15,6 +15,7 @@ from app.core.session import engine
 from app.models.resource import BioDb
 from app.models.tools import ToolGroup
 from app.services import tool_catalog
+from app.services.resource import bio_db as db_service
 
 if TYPE_CHECKING:
     from llm.utils.uid_mapper import BidirectionalMapper
@@ -266,7 +267,7 @@ def create_biodb(
         new_db = BioDb(
             name=name, description=description, download_command=download_command, download_image=download_image
         )
-        new_db = db_crud.insert(session, new_db)
+        new_db = db_service.create_bio_db(session, new_db)
         update: dict[str, Any] = {
             'should_end': True,
             'messages': [

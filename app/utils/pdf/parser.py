@@ -3,12 +3,13 @@ import tempfile
 from pathlib import Path
 
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.session import engine
 from app.crud.resource import file as file_crud
 from app.models.resource import File
+from app.services.resource import file as file_service
 from app.utils.file import storage
 from app.utils.file.hash import calculate_base64_sha256
 from app.utils.pdf import open_mineru
@@ -16,7 +17,7 @@ from llm.utils.retrievers import insert_documents
 
 
 async def parse_pdf(base64_data: str, file_name: str) -> str:
-    """解析 PDF 并上传到对象存储，带查重功能
+    """Parse a PDF, deduplicate it, and upload its generated artifacts.
 
     Args:
         base64_data: PDF 文件的 base64 编码
@@ -28,7 +29,6 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
     Raises:
         ValueError: 解析引擎不支持或解析失败
     """
-
     with Session(engine) as session:
         pdf_hash = calculate_base64_sha256(base64_data)
         existing_file = file_crud.get_by_sha256(session, pdf_hash)
@@ -55,26 +55,27 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
                 img_mappers = parse_result.images
 
             case _:
-                raise ValueError(f'不支持的解析引擎: {engine}')
+                message = f'不支持的解析引擎: {engine}'
+                raise ValueError(message)
 
-        # 上传文件到对象存储（所有文件使用 PDF 的 hash 来生成路径，确保在同一目录下）
+        # Upload all generated files below a shared path derived from the PDF hash.
         # 同时更新markdown中的图片引用路径
         pdf_key = storage.upload_file(pdf_path, pdf_hash, prefix='documents')
 
-        md_text = md_path.read_text(encoding='utf-8')
+        md_text = md_path.read_text(encoding='utf-8')  # noqa: ASYNC240
         for mapper in img_mappers:
             img_key = storage.upload_file(mapper.file_path, pdf_hash, prefix='documents')
             md_text = md_text.replace(mapper.old_name, img_key)
 
-        md_path.write_text(md_text, encoding='utf-8')
+        md_path.write_text(md_text, encoding='utf-8')  # noqa: ASYNC240
         storage.upload_file(md_path, pdf_hash, prefix='documents')
 
-        # 将文件存入向量数据库（父文档存数据库，子文档存 Milvus）
+        # Persist parent documents in PostgreSQL and child documents in Milvus.
         await insert_documents(md_text, pdf_key)
 
         # 保存到数据库
         with Session(engine) as session:
             new_file = File(sha256=pdf_hash, file_name=file_name, s3_path=pdf_key)
-            file_crud.insert(session, new_file)
+            file_service.create_file(session, new_file)
 
         return pdf_key

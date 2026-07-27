@@ -4,15 +4,15 @@ from typing import Any, cast
 
 from celery import Task
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
-import app.crud.resource.bio_db as db_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.resource import BioDb
 from app.schemas.task_instance import TaskUpdate
 from app.schemas.tool_config import ImageConfig
 from app.schemas.workflow_config import ToolOutput
+from app.services.resource import bio_db as db_service
 from app.tasks.base.base_task import BaseBioTask, update_task
 from app.utils.container import ContainerMount, run_command
 from app.utils.input_format import to_safe_path_segment
@@ -81,7 +81,7 @@ def _run_bio_db_download(
         target_dir.mkdir(parents=True, exist_ok=True)
 
         # 清理残余数据
-        db_crud.clear_download_result(session, bio_db.id)
+        db_service.clear_download_result(session, bio_db.id)
         for child in target_dir.iterdir():
             if child.is_symlink() or child.is_file():
                 child.unlink()
@@ -116,7 +116,7 @@ def _run_bio_db_download(
             msg = f'BioDb download command failed with exit code {status}: {output}'
             raise RuntimeError(msg)
 
-        db_crud.update_download_result(
+        db_service.update_download_result(
             session,
             bio_db.id,
             path=str(target_dir),
@@ -135,10 +135,9 @@ def download_bio_db_task(
     db_id: int,
 ) -> dict[str, Any]:
     """Download or re-download a BioDb from the admin API."""
-    task_id = self.request.id
+    task_id = cast('str', self.request.id)
     with Session(engine) as session:
-        bio_db = db_crud.get(session, db_id)
-        # pyrefly: ignore [bad-argument-type]
+        bio_db = db_service.get_bio_db(session, db_id)
         target_dir = _run_bio_db_download(session, bio_db, task_id)
         return {'db_id': db_id, 'path': str(target_dir)}
 
@@ -152,7 +151,7 @@ def load_bio_db_task(
 ) -> ToolOutput:
     """Load a BioDb path, downloading it lazily when it has not been prepared yet."""
     with Session(engine) as session:
-        bio_db = db_crud.get(session, db_id)
+        bio_db = db_service.get_bio_db(session, db_id)
 
         if bio_db.path:
             return ToolOutput(result={'file_path': Path(bio_db.path)})
@@ -161,6 +160,6 @@ def load_bio_db_task(
             msg = f'BioDb {db_id} has no valid path and no download_command.'
             raise FileNotFoundError(msg)
 
-        # pyrefly: ignore [bad-argument-type]
-        target_dir = _run_bio_db_download(session, bio_db, self.request.id, task_instance_uid=self.request.id)
+        task_id = cast('str', self.request.id)
+        target_dir = _run_bio_db_download(session, bio_db, task_id, task_instance_uid=task_id)
         return ToolOutput(result={'file_path': target_dir})

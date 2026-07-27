@@ -1,11 +1,11 @@
-from typing import Sequence
+from collections.abc import Sequence
 
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage, message_to_dict, messages_from_dict
-from sqlalchemy import Select, delete
-from sqlmodel import Session, col, select
+from sqlalchemy.orm import Session
 
 from app.models.chat import ChatMessages
+from app.services import chat as chat_service
 
 
 class PostgresMessageHistory(BaseChatMessageHistory):
@@ -15,30 +15,24 @@ class PostgresMessageHistory(BaseChatMessageHistory):
 
     @property
     def messages(self) -> list[BaseMessage]:
-        query: Select = (
-            select(ChatMessages).where(ChatMessages.session_id == self.session_id).order_by(col(ChatMessages.id).asc())
-        )
-        messages_data = self.session.exec(query).all()
+        """Return the persisted chat messages as LangChain messages."""
+        messages_data = chat_service.list_messages(self.session, self.session_id)
         if messages_data:
             return messages_from_dict([m.message for m in messages_data])
-        else:
-            return []
+        return []
 
     def add_message(self, message: BaseMessage) -> None:
+        """Persist one LangChain message."""
         new_message = ChatMessages(session_id=self.session_id, message=message_to_dict(message))
-        self.session.add(new_message)
-        self.session.commit()
+        chat_service.add_message(self.session, new_message)
 
     def add_messages(self, messages: Sequence[BaseMessage]) -> None:
-        try:
-            new_objs = [ChatMessages(session_id=self.session_id, message=message_to_dict(m)) for m in messages]
-            self.session.add_all(new_objs)
-            self.session.commit()
-        except Exception as e:
-            self.session.rollback()
-            raise e
+        """Persist multiple LangChain messages atomically."""
+        new_messages = [
+            ChatMessages(session_id=self.session_id, message=message_to_dict(message)) for message in messages
+        ]
+        chat_service.add_messages(self.session, new_messages)
 
     def clear(self) -> None:
-        statement = delete(ChatMessages).where(col(ChatMessages.session_id) == self.session_id)
-        self.session.exec(statement)
-        self.session.commit()
+        """Delete all persisted messages for this chat session."""
+        chat_service.clear_messages(self.session, self.session_id)

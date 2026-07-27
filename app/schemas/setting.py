@@ -1,9 +1,9 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort
+from app.models.setting import ModelRole, ProviderType, ReasoningEffort
 from app.utils.model_pricing import find_model_price
 
 
@@ -24,17 +24,6 @@ class LLMProviderUpdate(BaseModel):
     api_key: str | None = None
     use_proxy: bool | None = None
     is_active: bool | None = None
-
-
-class LLMProviderPublic(BaseModel):
-    id: int
-    name: str
-    provider_type: ProviderType
-    base_url: str | None = None
-    api_key: str | None = None
-    use_proxy: bool
-    is_active: bool
-    models: list[LLMModel]
 
 
 # ==================== LLMModel Schemas ====================
@@ -83,6 +72,8 @@ class LLMModelUpdate(BaseModel):
 
 
 class LLMModelPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     display_name: str
     name: str
@@ -93,6 +84,19 @@ class LLMModelPublic(BaseModel):
     is_active: bool
 
     provider_name: str | None = None
+
+
+class LLMProviderPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    provider_type: ProviderType
+    base_url: str | None = None
+    api_key: str | None = None
+    use_proxy: bool
+    is_active: bool
+    models: list[LLMModelPublic]
 
 
 # ==================== LLMSetting Schemas ====================

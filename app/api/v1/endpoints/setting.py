@@ -32,6 +32,7 @@ from app.schemas.setting import (
     LLMStatisticDetailsResponse,
     LLMStatisticOverview,
 )
+from app.services import llm_setting as setting_service
 from app.utils.security import AdminDep
 from llm.models import invalidate_model_cache
 
@@ -56,32 +57,53 @@ def _validate_reasoning_effort(provider: LLMProvider, reasoning_effort: Reasonin
     )
 
 
+def _get_provider(session: SessionDep, provider_id: int) -> LLMProvider:
+    try:
+        return setting_service.get_provider(session, provider_id)
+    except setting_service.LLMProviderNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Provider not found') from error
+
+
+def _get_model(session: SessionDep, model_id: int) -> LLMModel:
+    try:
+        return setting_service.get_model(session, model_id)
+    except setting_service.LLMModelNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Model not found') from error
+
+
+def _to_model_public(model: LLMModel, *, include_provider_name: bool = False) -> LLMModelPublic:
+    projection = LLMModelPublic.model_validate(model)
+    if include_provider_name:
+        return projection.model_copy(
+            update={'provider_name': model.provider.name if model.provider is not None else None}
+        )
+    return projection
+
+
+def _to_provider_public(provider: LLMProvider) -> LLMProviderPublic:
+    return LLMProviderPublic.model_validate(provider)
+
+
 # ==================== LLM Provider Endpoints ====================
 @router.post('/providers')
 async def create_llm_provider(
     provider_data: LLMProviderCreate, session: SessionDep, _current_user: AdminDep
 ) -> LLMProviderPublic:
     """Create a new LLM provider."""
-    provider = LLMProvider.model_validate(provider_data.model_dump())
-    # pyrefly: ignore [bad-return]
-    return provider_crud.insert(session, provider)
+    provider = LLMProvider(**provider_data.model_dump())
+    return _to_provider_public(setting_service.create_provider(session, provider))
 
 
 @router.get('/providers')
 async def get_llm_providers(session: SessionDep, _current_user: AdminDep) -> list[LLMProviderPublic]:
     """Get all LLM providers."""
-    # pyrefly: ignore [bad-return]
-    return provider_crud.get_all(session)
+    return [_to_provider_public(provider) for provider in provider_crud.get_all(session)]
 
 
 @router.get('/providers/{provider_id}')
 async def get_llm_provider(provider_id: int, session: SessionDep, _current_user: AdminDep) -> LLMProviderPublic:
     """Get a single LLM provider by ID."""
-    provider = provider_crud.get(session, provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail='Provider not found')
-    # pyrefly: ignore [bad-return]
-    return provider
+    return _to_provider_public(_get_provider(session, provider_id))
 
 
 @router.patch('/providers/{provider_id}')
@@ -89,19 +111,19 @@ async def update_llm_provider(
     provider_id: int, provider_data: LLMProviderUpdate, session: SessionDep, _current_user: AdminDep
 ) -> LLMProviderPublic:
     """Update an existing LLM provider."""
-    provider = provider_crud.update(session, provider_id, provider_data)
-    if provider is None:
-        raise HTTPException(status_code=404, detail='Provider not found')
-    # pyrefly: ignore [bad-return]
-    return provider
+    try:
+        return _to_provider_public(setting_service.update_provider(session, provider_id, provider_data))
+    except setting_service.LLMProviderNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Provider not found') from error
 
 
 @router.delete('/providers/{provider_id}')
 async def delete_llm_provider(provider_id: int, session: SessionDep, _current_user: AdminDep) -> dict:
     """Delete an LLM provider by ID."""
-    success = provider_crud.delete(session, provider_id)
-    if not success:
-        raise HTTPException(status_code=404, detail='Provider not found')
+    try:
+        setting_service.delete_provider(session, provider_id)
+    except setting_service.LLMProviderNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Provider not found') from error
     return {'message': 'Provider deleted successfully'}
 
 
@@ -109,32 +131,29 @@ async def delete_llm_provider(provider_id: int, session: SessionDep, _current_us
 @router.post('/models')
 async def create_llm_model(model_data: LLMModelCreate, session: SessionDep, _current_user: AdminDep) -> LLMModelPublic:
     """Create a new LLM model under an existing provider."""
-    provider = provider_crud.get(session, model_data.provider_id)
+    provider = _get_provider(session, model_data.provider_id)
     _validate_reasoning_effort(provider, model_data.reasoning_effort)
     model = LLMModel(**model_data.model_dump())
-    # pyrefly: ignore [bad-return]
-    return model_crud.insert(session, model)
+    return _to_model_public(setting_service.create_model(session, model))
 
 
 @router.get('/models')
 async def get_llm_models(session: SessionDep, _current_user: AdminDep) -> list[LLMModelPublic]:
     """Get all LLM models."""
     results = model_crud.get_all(session)
-    return [LLMModelPublic.model_validate({'provider_name': r.provider.name, **r.model_dump()}) for r in results]
+    return [_to_model_public(model, include_provider_name=True) for model in results]
 
 
 @router.get('/models/{model_id}')
 async def get_llm_model(model_id: int, session: SessionDep, _current_user: AdminDep) -> LLMModelPublic:
     """Get a single LLM model by ID."""
-    # pyrefly: ignore [bad-return]
-    return model_crud.get(session, model_id)
+    return _to_model_public(_get_model(session, model_id))
 
 
 @router.get('/providers/{provider_id}/models')
 async def get_provider_models(provider_id: int, session: SessionDep, _current_user: AdminDep) -> list[LLMModelPublic]:
     """Get all models belonging to a specific provider."""
-    # pyrefly: ignore [bad-return]
-    return model_crud.get_by_provider(session, provider_id)
+    return [_to_model_public(model) for model in model_crud.get_by_provider(session, provider_id)]
 
 
 @router.patch('/models/{model_id}')
@@ -145,20 +164,25 @@ async def update_llm_model(
     _current_user: AdminDep,
 ) -> LLMModelPublic:
     """Update an existing LLM model."""
-    model = model_crud.get(session, model_id)
+    model = _get_model(session, model_id)
+    if model.provider is None:
+        raise HTTPException(status_code=404, detail='Provider not found')
     _validate_reasoning_effort(model.provider, model_data.reasoning_effort)
-    updated_model = model_crud.update(session, model_id, model_data)
+    try:
+        updated_model = setting_service.update_model(session, model_id, model_data)
+    except setting_service.LLMModelNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Model not found') from error
     invalidate_model_cache()
-    # pyrefly: ignore [bad-return]
-    return updated_model
+    return _to_model_public(updated_model)
 
 
 @router.delete('/models/{model_id}')
 async def delete_llm_model(model_id: int, session: SessionDep, _current_user: AdminDep) -> dict:
     """Delete an LLM model by ID."""
-    success = model_crud.delete(session, model_id)
-    if not success:
-        raise HTTPException(status_code=404, detail='Model not found')
+    try:
+        setting_service.delete_model(session, model_id)
+    except setting_service.LLMModelNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Model not found') from error
     return {'message': 'Model deleted successfully'}
 
 
@@ -182,7 +206,7 @@ async def update_llm_setting(setting_data: LLMSettingUpdate, session: SessionDep
     - **key**: setting key (e.g. chat_model, agent_model)
     - **model_id**: target model ID to associate
     """
-    setting_crud.update(session, setting_data.key, setting_data.model_id)
+    setting_service.update_role(session, setting_data.key, setting_data.model_id)
     invalidate_model_cache(setting_data.key)
     return {'message': f'Setting {setting_data.key.value} updated successfully'}
 

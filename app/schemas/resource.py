@@ -37,6 +37,19 @@ class BioDbSimple(BaseModel):
     size: str | None = None
 
 
+class BioDbPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str | None = None
+    path: str | None = None
+    size: str | None = None
+    last_update: str | None = None
+    download_command: str | None = None
+    download_image: str | None = None
+
+
 class BioDbDownloadResponse(BaseModel):
     task_id: str
     message: str

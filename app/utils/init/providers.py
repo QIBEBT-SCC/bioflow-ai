@@ -81,20 +81,21 @@ def initialize_llm_providers() -> bool:
     tui.render_section('模型 Provider', '至少启用一个模型服务, 并配置 API key、base URL 和代理。')
 
     try:
-        from sqlmodel import Session, col, select
+        from sqlalchemy.orm import Session
 
+        import app.crud.setting.llm_provider as provider_crud
         from app.core.session import engine
+        from app.services import llm_setting as setting_service
 
         with Session(engine) as session:
-            providers = list(session.exec(select(LLMProvider).order_by(col(LLMProvider.id).asc())).all())
+            providers = list(provider_crud.get_all(session))
             if not providers:
                 tui.render_notice('未找到预置模型 Provider, 请先初始化数据库。', style='#ef4444')
                 return False
 
             configurations = prompt_provider_configurations(providers)
             apply_provider_configurations(providers, configurations)
-            session.add_all(providers)
-            session.commit()
+            setting_service.save_providers(session, providers)
     except Exception as exc:
         tui.render_notice(f'模型 Provider 配置失败: {exc}', style='#ef4444')
         return False
