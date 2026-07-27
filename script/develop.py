@@ -12,6 +12,7 @@ import click
 import orjson
 from anyio import Path
 from loguru import logger
+from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
@@ -249,8 +250,6 @@ def _rows_to_dicts(con: Any, query: str, params: list | None = None) -> list[dic
 
 def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUID, 'ImageConfig', uuid.UUID] | None:
     """获取工具镜像并复用或创建对应的帮助文档."""
-    from sqlmodel import Session
-
     import app.crud.tools.image as image_crud
     import app.crud.tools.tool_doc as doc_crud
     from app.core.session import engine
@@ -649,12 +648,10 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 async def delete_prebuild_tool(indices: list[int]) -> None:
     """删除现有节点."""
     import duckdb
-    from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
     from app.core.config import get_settings
     from app.core.session import engine
-    from app.models.user import User  # noqa: F401
     from llm.vectorstores import MilvusVectorStore
 
     con = duckdb.connect(DB_PATH)
@@ -696,11 +693,9 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 async def check_records(*, clean_interrupted: bool = False, dry_run: bool = False) -> None:
     """检查并重置孤立的DuckDB记录."""
     import duckdb
-    from sqlmodel import Session
 
     import app.crud.tools.tool as tool_crud
     from app.core.session import engine
-    from app.models.user import User  # noqa: F401
 
     con = duckdb.connect(DB_PATH)
     indices_to_reset: list[int] = []

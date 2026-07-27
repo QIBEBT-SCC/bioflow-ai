@@ -118,6 +118,7 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
     with committing(session):
         sample_crud.insert_file(session, sample_file)
         _update_project_time(session, sample.project_id)
+    session.refresh(sample_file)
     return sample_file
 
 

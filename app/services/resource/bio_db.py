@@ -146,6 +146,7 @@ async def build_download_status_from_redis(db_id: int) -> BioDbDownloadStatusRes
 
 async def submit_download_task(db_id: int, session: Session) -> BioDbDownloadResponse:
     """Submit a locked background download task for a bio database."""
+    # Delayed to avoid the load_bio_db task -> service -> task import cycle.
     from app.tasks.load_tasks.load_bio_db import download_bio_db_task
 
     bio_db = get_bio_db(session, db_id)

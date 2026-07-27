@@ -6,7 +6,7 @@ from pathlib import Path
 from celery import Task
 from loguru import logger
 from sqlalchemy import select
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.core.session import engine
 from app.crud.resource import sample as sample_crud

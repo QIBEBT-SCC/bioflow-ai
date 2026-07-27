@@ -11,6 +11,7 @@ import click
 from anyio import Path
 from langchain_core.messages import HumanMessage
 from loguru import logger
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 
@@ -114,8 +115,6 @@ def _get_project_path(project_id: int) -> FilePath:
 
 
 def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
-    import uuid
-
     if not raw_uids:
         return []
 
@@ -132,10 +131,7 @@ def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
 
 
 async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
-    import uuid
-
     from sqlalchemy import select
-    from sqlmodel import Session
 
     import app.crud.workflow as wf_crud
     import app.services.project_workflow as proj_wf_service
@@ -196,7 +192,6 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
 async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, project_id: int) -> None:
     """Remove evaluate-generated project contents while retaining the project itself."""
     from sqlalchemy import delete, select
-    from sqlmodel import Session
 
     from app.core.session import engine
     from app.models.project import ProjectFileMapping
@@ -241,8 +236,6 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
 
 
 def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
-    from sqlmodel import Session
-
     import app.crud.project as proj_crud
     from app.core.session import engine
     from app.models.project import Project
@@ -529,8 +522,6 @@ def _log_created_records(result: WorkflowGenerationResult) -> None:
         logger.info('本次构建未新增工具或数据库。')
         return
 
-    from sqlmodel import Session
-
     import app.crud.resource.bio_db as db_crud
     import app.crud.tools.tool as tool_crud
     from app.core.session import engine
@@ -546,11 +537,11 @@ def _log_created_records(result: WorkflowGenerationResult) -> None:
         if result.new_db_ids:
             db_labels = []
             for db_id in result.new_db_ids:
-                try:
-                    db = db_crud.get(session, db_id)
-                    db_labels.append(f'{db.name}({db_id})')
-                except Exception:
+                db = db_crud.get(session, db_id)
+                if db is None:
                     db_labels.append(str(db_id))
+                else:
+                    db_labels.append(f'{db.name}({db_id})')
             logger.success(f'新增数据库已记录: {", ".join(db_labels)}')
 
 
@@ -561,12 +552,9 @@ def _send_run_task(
     result: WorkflowGenerationResult,
     output_dir: str,
 ) -> None:
-    from sqlmodel import Session
-
     import app.crud.project_workflow as proj_wf_crud
     import app.services.project_workflow as proj_wf_service
     from app.core.session import engine
-    from app.models.user import User  # noqa: F401
 
     con.execute(
         """

@@ -3,7 +3,7 @@
 import datetime
 import uuid
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.core.session import engine
 from app.models.workflow import Workflow

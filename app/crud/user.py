@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlmodel import col
 
 from app.models.setting import LLMStatistic
 from app.models.user import User
@@ -48,14 +47,14 @@ def get_all_with_stats(session: Session) -> list[UserDetail]:
     one_month_ago = datetime.now(UTC) - timedelta(days=30)
 
     total_cost_sq = (
-        select(col(LLMStatistic.user_id), func.sum(LLMStatistic.price).label('total'))
-        .group_by(col(LLMStatistic.user_id))
+        select(LLMStatistic.user_id, func.sum(LLMStatistic.price).label('total'))
+        .group_by(LLMStatistic.user_id)
         .subquery()
     )
     monthly_cost_sq = (
-        select(col(LLMStatistic.user_id), func.sum(LLMStatistic.price).label('monthly'))
-        .where(col(LLMStatistic.time) >= one_month_ago)
-        .group_by(col(LLMStatistic.user_id))
+        select(LLMStatistic.user_id, func.sum(LLMStatistic.price).label('monthly'))
+        .where(LLMStatistic.time >= one_month_ago)
+        .group_by(LLMStatistic.user_id)
         .subquery()
     )
     run_count_sq = (

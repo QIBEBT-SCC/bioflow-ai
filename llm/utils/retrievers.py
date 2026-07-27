@@ -4,6 +4,7 @@ from uuid import UUID
 from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings
@@ -17,8 +18,6 @@ from llm.vectorstores import MilvusVectorStore
 
 async def insert_documents(document_content: str, doc_id: str) -> None:
     """插入文档: 父文档存数据库, 子文档存 Milvus."""
-    from sqlalchemy.orm import Session
-
     embedding_model = qwen3_embedding()
     vectorstore = MilvusVectorStore(
         collection_name='PaperCollection',
@@ -71,8 +70,6 @@ async def insert_documents(document_content: str, doc_id: str) -> None:
 
 async def retrieve_documents(query: str, doc_id: str | None = None, k: int = 8) -> list[Document]:
     """从 Milvus 查子文档, 根据 parent_uid 从数据库取父文档."""
-    from sqlalchemy.orm import Session
-
     embedding = qwen3_embedding()
     vectorstore = MilvusVectorStore(
         collection_name='PaperCollection',
@@ -121,8 +118,6 @@ async def retrieve_tools(
     query: str, image_uid: UUID | None = None
 ) -> tuple[list[ToolNodePublic], BidirectionalMapper | None]:
     """Search existing tools from the vector database based on functionality."""
-    from sqlmodel import Session
-
     embedding = qwen3_embedding()
     vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',

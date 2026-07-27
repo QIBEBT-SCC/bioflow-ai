@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 
 import questionary
+from sqlalchemy.orm import Session
 
+import app.crud.setting.llm_provider as provider_crud
+from app.core.session import engine
 from app.models.setting import LLMProvider
+from app.services import llm_setting as setting_service
 from app.utils.init import tui
 
 
@@ -81,12 +85,6 @@ def initialize_llm_providers() -> bool:
     tui.render_section('模型 Provider', '至少启用一个模型服务, 并配置 API key、base URL 和代理。')
 
     try:
-        from sqlalchemy.orm import Session
-
-        import app.crud.setting.llm_provider as provider_crud
-        from app.core.session import engine
-        from app.services import llm_setting as setting_service
-
         with Session(engine) as session:
             providers = list(provider_crud.get_all(session))
             if not providers:

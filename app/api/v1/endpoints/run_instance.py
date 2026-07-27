@@ -6,7 +6,7 @@ from typing import Annotated
 from anyio import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 

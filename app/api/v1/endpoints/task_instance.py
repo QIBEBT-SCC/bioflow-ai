@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.status import HTTP_404_NOT_FOUND
 

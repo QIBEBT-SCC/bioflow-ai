@@ -10,8 +10,7 @@ import celery
 from loguru import logger
 from redis import Redis
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
-from sqlmodel import Session
+from sqlalchemy.orm import Session, joinedload
 
 import app.crud.run_instance as run_crud
 import app.crud.task_instance as task_crud
@@ -110,6 +109,7 @@ _TASK_NOT_FOUND = 'Task not found'
 
 
 def _get_redis() -> Redis:
+    # Delayed because script.worker imports the task modules during worker startup.
     from script.worker import monitor_redis_client
 
     return monitor_redis_client

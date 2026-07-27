@@ -8,7 +8,7 @@ from langgraph.config import get_stream_writer
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, Field, ValidationError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.tools.tool as tool_crud
 from app.core.session import engine

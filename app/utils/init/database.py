@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from anyio import Path
+from sqlalchemy.orm import Session
 
 from app.utils.init import tui
 
@@ -65,7 +66,6 @@ async def init_admin() -> AdminInitResult:
     """当 User 表为空时, 创建默认管理员账户."""
     from pydantic import SecretStr
     from sqlalchemy import select
-    from sqlalchemy.orm import Session
 
     from app.core.session import engine
     from app.models.user import User
@@ -111,7 +111,6 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
     import polars as pl
     from langchain_core.documents import Document
     from pydantic import ValidationError
-    from sqlmodel import Session
     from tqdm import tqdm
 
     import app.crud.tools.image as image_crud
@@ -183,7 +182,6 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
     """初始化工具文档库."""
     import polars as pl
     from pydantic import ValidationError
-    from sqlmodel import Session
 
     import app.crud.tools.tool_doc as doc_crud
     from app.core.session import engine
@@ -229,7 +227,6 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     import polars as pl
     from langchain_core.documents import Document
     from pydantic import ValidationError
-    from sqlmodel import Session
     from tqdm import tqdm
 
     import app.crud.tools.tool as tool_crud

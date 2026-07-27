@@ -4,6 +4,8 @@ from typing import Literal
 import click
 from anyio import Path
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.utils.init.database import (
     AdminInitResult,
@@ -44,8 +46,6 @@ def _log_import_result(result: PresetImportResult) -> None:
 async def rebuild_image_index() -> None:
     """重建镜像向量索引."""
     from langchain_core.documents import Document
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
     from tqdm import tqdm
 
     from app.core.config import get_settings
@@ -105,8 +105,6 @@ async def rebuild_image_index() -> None:
 async def rebuild_tool_index() -> None:
     """重建工具库向量索引."""
     from langchain_core.documents import Document
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
     from tqdm import tqdm
 
     from app.core.config import get_settings

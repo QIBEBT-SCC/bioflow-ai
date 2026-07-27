@@ -9,7 +9,7 @@ import rich
 import rustworkx as rx
 from celery import chain
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from uuid_extensions import uuid7str
 
 from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
@@ -118,7 +118,7 @@ def send_task(
 
     Args:
         task_nodes: Sorted task node queue.
-        session: SQLModel session.
+        session: SQLAlchemy session.
         project_id: Project ID.
         sample_uid: Sample UID for this analysis.
         sample_name: Sample name for this analysis.

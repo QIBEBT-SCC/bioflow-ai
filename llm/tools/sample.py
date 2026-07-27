@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.project_file_mapping as project_file_mapping_crud
 import app.crud.resource.sample as sample_crud

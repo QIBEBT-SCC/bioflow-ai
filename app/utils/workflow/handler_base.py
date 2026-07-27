@@ -10,7 +10,7 @@ from typing import Optional
 
 from celery import Signature
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode

@@ -6,7 +6,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.session import engine

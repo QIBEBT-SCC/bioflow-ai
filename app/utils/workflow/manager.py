@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from loguru import logger
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 import app.crud.resource.sample as sample_crud

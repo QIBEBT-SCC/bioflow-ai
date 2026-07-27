@@ -16,7 +16,7 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 - `script/server.py` - Main FastAPI application entry point
 - `app/` - Application code organized by function:
     - `api/v1/endpoints/` - REST API endpoints
-    - `models/` - SQLModel database models
+    - `models/` - SQLAlchemy database models
     - `schemas/` - Pydantic schemas for API validation
     - `crud/` - Database operations
 

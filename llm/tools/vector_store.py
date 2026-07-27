@@ -5,7 +5,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.tools.tool as tool_crud
 from app.core.config import get_settings

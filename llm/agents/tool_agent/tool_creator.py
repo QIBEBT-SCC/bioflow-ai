@@ -15,7 +15,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 import app.crud.tools.image as image_crud
 import app.crud.tools.tool as tool_crud

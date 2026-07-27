@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 from celery import Task
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
