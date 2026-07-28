@@ -15,35 +15,9 @@ from uuid_extensions import uuid7str
 from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
 from app.schemas.user import CurrentUser
 from app.utils.workflow import TaskContext, get_handler
+from app.utils.workflow_definition import update_node_id
 
-
-def update_node_id(workflow: WorkflowDefinition) -> WorkflowDefinition:
-    """Refresh node IDs.
-
-    Used to refresh node IDs when instantiating nodes from a template.
-
-    Args:
-        workflow: The react-flow object parsed from the template.
-
-    Returns:
-        The react-flow object with updated node UIDs.
-    """
-    for node in workflow.nodes:
-        old_id = node.id
-        new_id = uuid7str()
-        # No need to refresh edge ID, it's useless
-        for edge in workflow.edges:
-            if edge.source == old_id:
-                edge.source = new_id
-                edge.sourceHandle = edge.sourceHandle.replace(old_id, new_id)
-
-            elif edge.target == old_id:
-                edge.target = new_id
-                edge.targetHandle = edge.targetHandle.replace(old_id, new_id)
-
-        node.id = new_id
-
-    return workflow
+__all__ = ['build_task_list', 'send_task', 'update_node_id']
 
 
 def build_task_list(workflow: WorkflowDefinition) -> list[list[TaskNode]]:
