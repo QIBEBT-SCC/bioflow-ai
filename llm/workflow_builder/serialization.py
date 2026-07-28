@@ -1,6 +1,6 @@
 """Serialization helpers for workflow-builder state."""
 
-from app.schemas.react_flow import Edge, Node, Position, WorkflowDefinition
+from app.schemas.react_flow import Edge, Node, WorkflowDefinition
 from app.schemas.workflow_config import ExecutionScope
 from llm.states import BuildEdge, BuildNode
 from llm.workflow_builder.drafts import WorkflowScope
@@ -29,7 +29,6 @@ def build_workflow_definition(exist_nodes: list[BuildNode], exist_edges: list[Bu
                 id=n.id,
                 type=n.type,
                 data={'required_index': required_index},
-                position=Position(x=n.x * 500, y=n.y * 400),
                 dragHandle='.nodeDragable',
                 zIndex=-10 if n.type == 'note' else 20,
             )
@@ -38,7 +37,6 @@ def build_workflow_definition(exist_nodes: list[BuildNode], exist_edges: list[Bu
                 id=n.id,
                 type=n.type,
                 data=n.data,
-                position=Position(x=n.x * 500, y=n.y * 400),
                 dragHandle='.nodeDragable',
                 zIndex=-10 if n.type == 'note' else 20,
             )

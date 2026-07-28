@@ -238,7 +238,6 @@ def node_formatter(node: BuildNode) -> str:
 
     data_obj['input_handles'] = [{'name': h.name, 'description': h.description} for h in node.input_handles]
     data_obj['output_handles'] = [{'name': h.name, 'description': h.description} for h in node.output_handles]
-    data_obj['pos'] = {'x': node.x, 'y': node.y}
 
     return json.dumps(data_obj)
 

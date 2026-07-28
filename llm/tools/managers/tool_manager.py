@@ -42,8 +42,6 @@ class AddToolSchema(BaseModel):
         default_factory=list,
         description='Input edge connection list for this node. Each input handle allows only one edge to be connected.',
     )
-    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
-    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
 
 
 class UpdateArgsSchema(BaseModel):
@@ -133,8 +131,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
             return _add_tool_node(
                 validate_param.selected_id,
                 validate_param.input_edges,
-                validate_param.pos_x,
-                validate_param.pos_y,
                 runtime,
             )
 
@@ -284,8 +280,6 @@ def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
 def _add_tool_node(
     selected_id: int,
     input_edges: list[BuildEdge],
-    pos_x: int,
-    pos_y: int,
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     mapper = runtime.state.get('id_mapper')
@@ -347,8 +341,6 @@ def _add_tool_node(
         output_handles=db_node.output_handles,
         data={'tool_uid': tool_uid, 'modifiable_params': db_node.modifiable_static_params},
         command=db_node.complete_command,
-        x=pos_x,
-        y=pos_y,
     )
 
     for edge in input_edges:

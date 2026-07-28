@@ -112,8 +112,6 @@ class BuildNode(BaseModel):
     output_handles: list[Handle]
     data: dict[str, Any] = Field(default_factory=dict)
     command: Optional[str] = None
-    x: int
-    y: int
 
 
 class BuildEdge(BaseModel):

@@ -5,20 +5,20 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
-from langgraph.prebuilt import ToolRuntime
 from sqlalchemy.orm import Session
 
 from app.core.session import engine
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
-from llm.context import ProjectContext
-
 from llm.workflow_builder.drafts import get_workflow_drafts
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from langgraph.prebuilt import ToolRuntime
+
     from app.schemas.tools import Handle
+    from llm.context import ProjectContext
     from llm.states import BuildEdge, BuildNode
 
 MARK_NODE_TYPES = {'project_mark', 'sample_mark'}
@@ -75,6 +75,19 @@ def validate_node_addition(
             'Use `sample_mark_collection` for cross-sample aggregation.'
         )
 
+    return None
+
+
+def validate_note_anchor(anchor_node_id: str | None, exist_nodes: list[BuildNode]) -> str | None:
+    """Ensure an optional note anchor refers to an existing non-note node."""
+    if anchor_node_id is None:
+        return None
+
+    anchor_node = next((node for node in exist_nodes if node.id == anchor_node_id), None)
+    if anchor_node is None:
+        return f'Anchor node "{anchor_node_id}" does not exist.'
+    if anchor_node.type == 'note':
+        return 'A note can only be anchored to a non-note node.'
     return None
 
 

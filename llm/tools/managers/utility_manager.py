@@ -31,6 +31,7 @@ from llm.workflow_builder.validation import (
     check_edge_handles,
     validate_mark_storage_conflict,
     validate_node_addition,
+    validate_note_anchor,
 )
 
 # ---- Schemas ----
@@ -54,8 +55,6 @@ class AddProcessorSchema(BaseModel):
     processor_name: str = Field(description='Processor name')
     arguments: dict[str, Any] | None = Field(default=None, description='Parameters of the processor node')
     input_edges: list[BuildEdge] = Field(default_factory=list, description='Input edge connection list for this node')
-    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
-    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
 
 
 class AddExistCodeSchema(BaseModel):
@@ -66,8 +65,6 @@ class AddExistCodeSchema(BaseModel):
         default_factory=list,
         description='Connect each required bind_param output to the CODE node input_files handle.',
     )
-    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
-    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
 
 
 class AddNewCodeSchema(BaseModel):
@@ -89,16 +86,19 @@ class AddNewCodeSchema(BaseModel):
             '`bind_param` processor node.'
         ),
     )
-    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
-    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
 
 
 class AddNoteSchema(BaseModel):
     """Add a note node to the workflow."""
 
     note_content: str = Field(description='Specific content of the notes (as brief and precise as possible)')
-    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
-    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
+    anchor_node_id: str | None = Field(
+        default=None,
+        description=(
+            'Optional ID of an existing non-note node that this note annotates. '
+            'Omit it to create a global workflow note.'
+        ),
+    )
 
 
 class AddSummarySchema(BaseModel):
@@ -109,8 +109,6 @@ class AddSummarySchema(BaseModel):
         default_factory=list,
         description='The node has one `input_files` handle; connect every file required for downstream analysis.',
     )
-    pos_x: int = Field(description="The x-coordinate of the node's layout on the panel, only positive integer")
-    pos_y: int = Field(description="The y-coordinate of the node's layout on the panel")
 
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
@@ -192,8 +190,6 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
                 validate_param.processor_name,
                 validate_param.arguments,
                 validate_param.input_edges,
-                validate_param.pos_x,
-                validate_param.pos_y,
                 runtime,
             )
 
@@ -214,8 +210,6 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
             return _add_existing_code(
                 validate_param.code_uid,
                 validate_param.input_edges,
-                validate_param.pos_x,
-                validate_param.pos_y,
                 runtime,
             )
 
@@ -236,8 +230,6 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
             return await _add_new_code(
                 validate_param.code_type,
                 validate_param.request,
-                validate_param.pos_x,
-                validate_param.pos_y,
                 validate_param.input_edges,
                 runtime,
             )
@@ -256,7 +248,7 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
                         ]
                     }
                 )
-            return _add_note_node(validate_param.note_content, validate_param.pos_x, validate_param.pos_y, runtime)
+            return _add_note_node(validate_param.note_content, validate_param.anchor_node_id, runtime)
 
         case 'add_downstream_summary':
             try:
@@ -274,8 +266,6 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
                 )
             return _add_downstream_node(
                 validate_param.prompt,
-                validate_param.pos_x,
-                validate_param.pos_y,
                 validate_param.input_edges,
                 runtime,
             )
@@ -398,8 +388,6 @@ def _add_processor(
     processor_name: str,
     arguments: dict[str, Any] | None,
     input_edges: list[BuildEdge],
-    pos_x: int,
-    pos_y: int,
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
@@ -467,8 +455,6 @@ def _add_processor(
         input_handles=PROCESSORS[processor_name]['input_handles'],
         output_handles=PROCESSORS[processor_name]['output_handles'],
         data=arguments,
-        x=pos_x,
-        y=pos_y,
     )
 
     for edge in input_edges:
@@ -491,8 +477,6 @@ def _add_processor(
 def _add_existing_code(
     code_uid: str,
     input_edges: list[BuildEdge],
-    pos_x: int,
-    pos_y: int,
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
@@ -554,8 +538,6 @@ def _add_existing_code(
         input_handles=input_handles,
         output_handles=[Handle(name='output_folder', description='The files generated by this code')],
         data=node_data,
-        x=pos_x,
-        y=pos_y,
     )
 
     for edge in input_edges:
@@ -600,21 +582,17 @@ async def _store_generated_code(
 async def _add_new_code(
     code_type: Literal['bash', 'python'],
     request: str,
-    pos_x: int,
-    pos_y: int,
     input_edges: list[BuildEdge],
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     """Generate and add a CODE node in the requested language."""
     if code_type == 'bash':
-        return await _add_generated_bash_code(request, pos_x, pos_y, input_edges, runtime)
-    return await _add_generated_python_code(request, pos_x, pos_y, input_edges, runtime)
+        return await _add_generated_bash_code(request, input_edges, runtime)
+    return await _add_generated_python_code(request, input_edges, runtime)
 
 
 async def _add_generated_bash_code(
     request: str,
-    pos_x: int,
-    pos_y: int,
     input_edges: list[BuildEdge],
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
@@ -689,8 +667,6 @@ async def _add_generated_bash_code(
             'code': generated.code,
             'description': request,
         },
-        x=pos_x,
-        y=pos_y,
     )
 
     for edge in input_edges:
@@ -712,8 +688,6 @@ async def _add_generated_bash_code(
 
 async def _add_generated_python_code(
     request: str,
-    pos_x: int,
-    pos_y: int,
     input_edges: list[BuildEdge],
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
@@ -775,8 +749,6 @@ async def _add_generated_python_code(
             'description': request,
             'dependencies': generated.dependencies,
         },
-        x=pos_x,
-        y=pos_y,
     )
 
     for edge in input_edges:
@@ -796,18 +768,24 @@ async def _add_generated_python_code(
     )
 
 
-def _add_note_node(note_content: str, pos_x: int, pos_y: int, runtime: ToolRuntime[ProjectContext]) -> Command:
+def _add_note_node(
+    note_content: str,
+    anchor_node_id: str | None,
+    runtime: ToolRuntime[ProjectContext],
+) -> Command:
     """Add one note node."""
-    node_id = generate_char_index(len(runtime.state.get('exist_nodes', [])) + 1)
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    if error := validate_note_anchor(anchor_node_id, exist_nodes):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
+
+    node_id = generate_char_index(len(exist_nodes) + 1)
     new_node = BuildNode(
         id=node_id,
         name='note',
         type='note',
         input_handles=[],
         output_handles=[],
-        data={'content': note_content},
-        x=pos_x,
-        y=pos_y,
+        data={'content': note_content, 'anchor_node_id': anchor_node_id},
     )
 
     return Command(
@@ -825,8 +803,6 @@ def _add_note_node(note_content: str, pos_x: int, pos_y: int, runtime: ToolRunti
 
 def _add_downstream_node(
     prompt: str,
-    pos_x: int,
-    pos_y: int,
     input_edges: list[BuildEdge],
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
@@ -856,8 +832,6 @@ def _add_downstream_node(
         input_handles=input_handles,
         output_handles=[],
         data={'prompt': prompt},
-        x=pos_x,
-        y=pos_y,
     )
 
     node_name_map = {node.id: node.name for node in exist_nodes}

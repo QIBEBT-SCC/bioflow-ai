@@ -15,7 +15,7 @@ from uuid_extensions import uuid7str
 from app.schemas.react_flow import TaskInput, TaskNode, WorkflowDefinition
 from app.schemas.user import CurrentUser
 from app.utils.workflow import TaskContext, get_handler
-from app.utils.workflow_definition import update_node_id
+from app.utils.workflow.workflow_definition import update_node_id
 
 __all__ = ['build_task_list', 'send_task', 'update_node_id']
 

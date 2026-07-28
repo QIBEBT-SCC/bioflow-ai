@@ -15,7 +15,7 @@ class NodeBase(BaseModel):
 
 
 class Node(NodeBase):
-    position: Position
+    position: Position | None = None
     dragHandle: str  # noqa: N815
     zIndex: int  # noqa: N815
 

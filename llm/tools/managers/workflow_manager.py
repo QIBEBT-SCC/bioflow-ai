@@ -22,7 +22,7 @@ from llm.workflow_builder.messages import (
     format_workflow_drafts,
 )
 from llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
-from llm.workflow_builder.validation import check_orphan_edges
+from llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 
 
 class ViewNodeSchema(BaseModel):
@@ -534,8 +534,6 @@ def _view_workflow(runtime: ToolRuntime[ProjectContext]) -> Command:
                 'id': node.id,
                 'name': node.name,
                 'type': node.type,
-                'x': node.x,
-                'y': node.y,
             }
             if node.type.startswith('code_'):
                 node_summary['description'] = node.data.get('description', '')
@@ -618,6 +616,15 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
         if edge.target_node in id_map:
             edge.target_node = id_map[edge.target_node]
 
+    for node in remaining_nodes:
+        if node.type != 'note':
+            continue
+        anchor_node_id = node.data.get('anchor_node_id')
+        if anchor_node_id == node_id:
+            node.data['anchor_node_id'] = None
+        elif isinstance(anchor_node_id, str) and anchor_node_id in id_map:
+            node.data['anchor_node_id'] = id_map[anchor_node_id]
+
     # Build deletion report
     if removed_edges:
         edge_lines = []
@@ -637,8 +644,7 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     id_remap_summary = ', '.join(f'{old}→{new}' for old, new in id_map.items()) if id_map else 'no changes'
 
     msg = (
-        f'Deleted node {node_id} ("{target_node.name}", type={target_node.type}, '
-        f'pos={{x:{target_node.x}, y:{target_node.y}}}).\n'
+        f'Deleted node {node_id} ("{target_node.name}", type={target_node.type}).\n'
         f'{edge_summary}\n'
         f'Node ID reassignment: {id_remap_summary}.'
     )
@@ -779,6 +785,13 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
         if orphans:
             validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has {len(orphans)} orphan edge(s).')
 
+        validation_errors.extend(
+            f'- {draft.draft_id} ("{draft.name}") note {note.id}: {error}'
+            for note in draft.nodes
+            if note.type == 'note'
+            if (error := validate_note_anchor(note.data.get('anchor_node_id'), draft.nodes))
+        )
+
         node_types = {node.type for node in draft.nodes}
         if draft.execution_scope == 'sample_level':
             invalid = sorted(node_types & {'project_mark', 'resource_sample_mark_collection'})
@@ -819,9 +832,9 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
                 'messages': [
                     ToolMessage(
                         content=(
-                            'Cannot save all workflows because some drafts have orphan edges:\n'
+                            'Cannot save all workflows because some drafts are invalid:\n'
                             + '\n'.join(validation_errors)
-                            + '\nSwitch to the affected draft, use fix_edge, then retry save_all_workflows.'
+                            + '\nSwitch to each affected draft, resolve the reported issue, then retry save_all_workflows.'
                         ),
                         tool_call_id=runtime.tool_call_id,
                     )
