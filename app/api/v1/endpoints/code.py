@@ -6,10 +6,19 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 import app.crud.code as code_crud
 from app.core.session import SessionDep
-from app.schemas.code import CodeCreate, CodeNodeType, CodePublic, CodeUpdate, SimpleCodePublic
+from app.schemas.code import (
+    CodeCreate,
+    CodeMetadataPublic,
+    CodeMetadataRequest,
+    CodeNodeType,
+    CodePublic,
+    CodeUpdate,
+    SimpleCodePublic,
+)
 from app.schemas.common import Paginated
 from app.services import code_catalog
 from app.utils.security import AdminDep, UserDep
+from llm.prebuild.code_node import generate_code_metadata
 
 router = APIRouter()
 
@@ -49,6 +58,15 @@ async def create_code(
     """Create and index a reusable CODE definition."""
     code = await code_catalog.create_code(session, code_data)
     return CodePublic.model_validate(code)
+
+
+@router.post('/generate-metadata')
+async def generate_metadata(
+    request: CodeMetadataRequest,
+    current_user: AdminDep,
+) -> CodeMetadataPublic:
+    """Generate a catalog name and description without persisting the code."""
+    return await generate_code_metadata(request, current_user.id)
 
 
 @router.get('/{code_uid}')

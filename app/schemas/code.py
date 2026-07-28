@@ -36,6 +36,30 @@ class CodeCreate(CodeData):
     """Properties accepted when creating a reusable CODE definition."""
 
 
+class CodeMetadataRequest(BaseModel):
+    """Source code submitted for AI-generated catalog metadata."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    node_type: CodeNodeType
+    code: str = Field(min_length=1)
+    dependencies: list[str] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_dependencies(self) -> 'CodeMetadataRequest':
+        """Allow runtime dependencies only for Python CODE definitions."""
+        if self.node_type is CodeNodeType.BASH and self.dependencies:
+            raise ValueError(BASH_DEPENDENCIES_ERROR)
+        return self
+
+
+class CodeMetadataPublic(BaseModel):
+    """AI-generated human-facing catalog metadata."""
+
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1)
+
+
 class CodeUpdate(BaseModel):
     """Editable reusable CODE definition properties."""
 
