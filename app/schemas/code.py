@@ -1,7 +1,9 @@
 import uuid
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+BASH_DEPENDENCIES_ERROR = 'Bash CODE definitions cannot declare Python dependencies'
 
 
 class CodeNodeType(StrEnum):
@@ -14,11 +16,20 @@ class CodeNodeType(StrEnum):
 class CodeData(BaseModel):
     """Shared persisted properties of a reusable CODE definition."""
 
-    name: str = Field(min_length=1)
+    model_config = ConfigDict(extra='forbid')
+
+    name: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1)
     node_type: CodeNodeType
     code: str = Field(min_length=1)
     dependencies: list[str] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def validate_dependencies(self) -> 'CodeData':
+        """Allow runtime dependencies only for Python CODE definitions."""
+        if self.node_type is CodeNodeType.BASH and self.dependencies:
+            raise ValueError(BASH_DEPENDENCIES_ERROR)
+        return self
 
 
 class CodeCreate(CodeData):
@@ -28,11 +39,21 @@ class CodeCreate(CodeData):
 class CodeUpdate(BaseModel):
     """Editable reusable CODE definition properties."""
 
-    name: str | None = Field(default=None, min_length=1)
+    model_config = ConfigDict(extra='forbid')
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, min_length=1)
-    node_type: CodeNodeType | None = None
     code: str | None = Field(default=None, min_length=1)
     dependencies: list[str] | None = None
+
+    @model_validator(mode='after')
+    def reject_explicit_nulls(self) -> 'CodeUpdate':
+        """Treat omitted fields as unchanged and reject explicit null values."""
+        null_fields = sorted(field for field in self.model_fields_set if getattr(self, field) is None)
+        if null_fields:
+            message = f'CODE update fields cannot be null: {", ".join(null_fields)}'
+            raise ValueError(message)
+        return self
 
 
 class SimpleCodePublic(BaseModel):

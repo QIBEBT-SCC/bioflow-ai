@@ -47,6 +47,7 @@ when the entire requested deterministic workflow transformation is eligible.
 ## Structured Result
 
 - Always return the eligibility decision in `reject`.
+- Return a concise human-readable catalog name in `name`, even when rejecting the request.
 - When `reject` is `false`, return raw script content in `code`, without Markdown fences.
 - When `reject` is `true`, return an empty string in `code`.
 """
@@ -84,6 +85,7 @@ Generate exactly one complete Python 3.13 script for the requested bounded, dete
 
 ## Structured Result
 
+- Return a concise human-readable catalog name in `name`.
 - Return raw Python source in `code`, without Markdown fences.
 - Return additional Python distribution requirements in `dependencies`; use an empty list when none are needed.
 """
@@ -101,6 +103,7 @@ class CodeInput(BaseModel):
 class BashCodeResult(BaseModel):
     """Structured result produced for a Bash code node."""
 
+    name: str = Field(min_length=1, max_length=100, description='Concise human-readable catalog name')
     code: str = Field(description='Complete Bash script')
     reject: bool = Field(description='Whether to reject this code generation request', default=False)
 
@@ -108,6 +111,7 @@ class BashCodeResult(BaseModel):
 class PythonCodeResult(BaseModel):
     """Structured result produced for a Python code node."""
 
+    name: str = Field(min_length=1, max_length=100, description='Concise human-readable catalog name')
     code: str = Field(description='Complete Python 3.13 script')
     dependencies: list[str] = Field(
         default_factory=list,
@@ -144,9 +148,7 @@ def build_code_inputs(
             None,
         )
         if source_handle is None:
-            msg = (
-                f'upstream node "{upstream_node.id}" has no output handle named "{upstream_edge.source_handle}"'
-            )
+            msg = f'upstream node "{upstream_node.id}" has no output handle named "{upstream_edge.source_handle}"'
             raise ValueError(msg)
 
         inputs.append(

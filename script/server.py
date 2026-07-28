@@ -11,6 +11,7 @@ from starlette.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints import (
     auth,
     chat,
+    code,
     genome,
     project,
     resource,
@@ -96,6 +97,7 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'])
     app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'])
     app.include_router(tool.doc_router, prefix='/api/v1/documents', tags=['tool'])
+    app.include_router(code.router, prefix='/api/v1/codes', tags=['code'])
     app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
     app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'])
     app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'])

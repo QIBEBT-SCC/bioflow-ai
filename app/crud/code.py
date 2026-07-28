@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.models.code import CodeDefine
@@ -46,10 +46,24 @@ def get(session: Session, code_uid: UUIDLike) -> CodeDefine | None:
     return session.get(CodeDefine, as_uuid(code_uid))
 
 
-def get_page(session: Session, limit: int, offset: int) -> tuple[Sequence[CodeDefine], int]:
-    """Return a page of reusable CODE definitions and the total count."""
-    page_stmt = select(CodeDefine).order_by(CodeDefine.name).offset(offset).limit(limit)
-    count_stmt = select(func.count()).select_from(CodeDefine)
+def get_page(
+    session: Session,
+    limit: int,
+    offset: int,
+    *,
+    query: str | None = None,
+    node_type: str | None = None,
+) -> tuple[Sequence[CodeDefine], int]:
+    """Return a filtered page of reusable CODE definitions and the total count."""
+    filters: list[ColumnElement[bool]] = []
+    if normalized_query := (query or '').strip():
+        pattern = f'%{normalized_query}%'
+        filters.append(CodeDefine.name.ilike(pattern))
+    if node_type is not None:
+        filters.append(CodeDefine.node_type == node_type)
+
+    page_stmt = select(CodeDefine).where(*filters).order_by(CodeDefine.name).offset(offset).limit(limit)
+    count_stmt = select(func.count()).select_from(CodeDefine).where(*filters)
     return session.scalars(page_stmt).all(), session.scalar(count_stmt) or 0
 
 

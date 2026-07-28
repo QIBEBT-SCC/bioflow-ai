@@ -316,7 +316,6 @@ async def _search_nodes(query: str, runtime: ToolRuntime[ProjectContext]) -> Com
             codes.append(
                 {
                     'code_uid': result.metadata['code_uid'],
-                    'name': result.metadata['name'],
                     'node_type': result.metadata['node_type'],
                     'description': result.page_content,
                 }
@@ -388,7 +387,7 @@ def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
         skill_name = 'USING_BASH_NODE' if node_type is CodeNodeType.BASH else 'USING_PYTHON_NODE'
         code_content = code.code if code.code.endswith('\n') else f'{code.code}\n'
         content = (
-            f'Name: {code.name}\n\n'
+            f'Code:\n\n'
             f'```{language}\n{code_content}```\n\n'
             f'If this node meets the requirement, refer to the **{skill_name}** skill to add the CODE node.'
         )
@@ -535,12 +534,12 @@ def _add_existing_code(
                 }
             )
 
-        code_name = code.name
         code_description = code.description
         code_content = code.code
         dependencies = list(code.dependencies)
 
     node_id = generate_char_index(len(exist_nodes) + 1)
+    code_name = 'Bash Code' if node_type is CodeNodeType.BASH else 'Python Code'
     node_data: dict[str, Any] = {
         'code': code_content,
         'description': code_description,
@@ -661,7 +660,7 @@ async def _add_generated_bash_code(
 
     try:
         await _store_generated_code(
-            name='Bash Code',
+            name=generated.name,
             description=request,
             node_type=CodeNodeType.BASH,
             code=generated.code,
@@ -745,7 +744,7 @@ async def _add_generated_python_code(
 
     try:
         await _store_generated_code(
-            name='Python Code',
+            name=generated.name,
             description=request,
             node_type=CodeNodeType.PYTHON,
             code=generated.code,
