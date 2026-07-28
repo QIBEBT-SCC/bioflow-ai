@@ -173,6 +173,46 @@ def refresh_help_document(session: Session, doc_uid: UUIDLike) -> ToolHelpDoc:
     return doc
 
 
+def _tool_index_document(tool: ToolDefine) -> Document:
+    """Build the vector document used to discover a tool."""
+    return Document(
+        page_content=tool.description,
+        metadata={
+            'image_uid': str(tool.image_uid),
+            'tool_uid': str(tool.uid),
+            'name': tool.name,
+        },
+    )
+
+
+async def _add_tool_index(tool: ToolDefine) -> None:
+    """Add a tool description projection to the vector index."""
+    vectorstore = MilvusVectorStore(
+        collection_name='ToolCollection',
+        embedding_function=qwen3_embedding(),
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    async with vectorstore:
+        await vectorstore.aadd_documents([_tool_index_document(tool)])
+
+
+async def _refresh_tool_index(tool: ToolDefine) -> None:
+    """Replace a tool's vector projection after its description changes."""
+    vectorstore = MilvusVectorStore(
+        collection_name='ToolCollection',
+        embedding_function=qwen3_embedding(),
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    async with vectorstore:
+        await vectorstore.adelete(
+            filter_expression='tool_uid == {uid}',
+            filter_params={'uid': str(tool.uid)},
+        )
+        await vectorstore.aadd_documents([_tool_index_document(tool)])
+
+
 async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefine:
     """Create a Docker tool, reusing or generating its help document, then index it."""
     image = image_crud.get(session, tool_data.image_uid)
@@ -211,24 +251,9 @@ async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefi
             help_doc_uid=help_doc.uid,
         )
         tool_crud.insert(session, tool)
-        index_document = Document(
-            page_content=tool.description,
-            metadata={
-                'image_uid': str(tool.image_uid),
-                'tool_uid': str(tool.uid),
-                'name': tool.name,
-            },
-        )
         tool_uid = tool.uid
 
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=qwen3_embedding(),
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    async with vectorstore:
-        await vectorstore.aadd_documents([index_document])
+    await _add_tool_index(tool)
 
     persisted_tool = tool_crud.get(session, tool_uid)
     if persisted_tool is None:
@@ -247,6 +272,7 @@ async def update_tool(
     if tool is None:
         return None
 
+    description_changed = 'description' in tool_update.model_fields_set and tool_update.description != tool.description
     update_data = {
         field_name: getattr(tool_update, field_name)
         for field_name in tool_update.model_fields_set
@@ -262,6 +288,8 @@ async def update_tool(
     with committing(session):
         tool_crud.update(session, tool)
 
+    if description_changed:
+        await _refresh_tool_index(tool)
     await tool_cache.invalidate_tool_projections(redis, tool_uid)
     return tool_crud.get(session, tool_uid)
 
