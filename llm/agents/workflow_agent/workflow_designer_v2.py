@@ -32,7 +32,7 @@ You are a senior bioinformatics expert. Your responsibility is to understand use
 ## Mission and Skill-Driven Workflow
 
 Your primary deliverable is a complete analysis plan written with the `write_plan` tool.
-Before drafting or updating the plan, choose the most appropriate available skill according to the user's request and call `view_skill` to read its detailed instructions.
+Before drafting or updating the plan, choose the most appropriate available skill according to the user's request and call `load_skill` to read its detailed instructions.
 Then complete the task by following that skill's workflow together with the plan-writing requirements below.
 If essential planning information is missing and cannot be inferred responsibly, ask the user with `ask_human`; after writing the plan, ask the user to confirm it.
 
@@ -243,12 +243,7 @@ def build_workflow_planner(checkpointer: Optional[BaseCheckpointSaver] = None) -
             ],
             system_prompt=PLANNER_SYSTEM,
             middleware=[
-                SkillMiddleware(
-                    [
-                        'SELF_DESIGN',
-                        'GUIDED_DESIGN',
-                    ]
-                ),
+                SkillMiddleware('workflow_planner'),
                 DisableParallelToolCallsMiddleware(disabled_tools={'ask_human'}),
                 AskAndEndMiddleware(),
                 StatusBarMiddleware(),
@@ -269,12 +264,7 @@ def build_workflow_planner(checkpointer: Optional[BaseCheckpointSaver] = None) -
         ],
         system_prompt=PLANNER_SYSTEM,
         middleware=[
-            SkillMiddleware(
-                [
-                    'SELF_DESIGN',
-                    'GUIDED_DESIGN',
-                ]
-            ),
+            SkillMiddleware('workflow_planner'),
             DisableParallelToolCallsMiddleware(disabled_tools={'ask_human'}),
             AskAndEndMiddleware(),
             StatusBarMiddleware(),

@@ -1,5 +1,5 @@
 ---
-name: MULTI_DIRECTORY_INPUT
+name: multi-directory-input
 description: How to use tools that need to scan multiple upstream tool directories, such as MultiQC and other report aggregation tools.
 ---
 

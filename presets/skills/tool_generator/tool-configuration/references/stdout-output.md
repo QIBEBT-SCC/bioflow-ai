@@ -1,9 +1,4 @@
----
-name: STDOUT_TOOLS
-description: How to write configuration files when tools can only use standard output streams as output
----
-
-# Skill: Tools with stdout as output
+# Standard Output Redirection Pattern
 
 Taking the tool `seqtk seq` as an example, this tool uses the standard output stream as its output. The actual command is shown below:
 
@@ -36,7 +31,7 @@ seqtk seq -q 30 S1.fq.gz > /data/output/S1.fa 2> log.txt
   {
     "name": "log",
     "description": "log",
-    "file_path": "{output_dir}/00_run.log",
+    "file_path": "{output_dir}/11_run.log",
     "mount_path": "/data/output",
     "file_type": "OUTPUT",
     "is_report": false,

@@ -1,9 +1,4 @@
----
-name: SIMPLE_TOOLS
-description: Example of writing configuration files for standard command-line tools, applicable to most command-line tools.
----
-
-# Skill: Example Configuration for Standard Tools
+# Standard Explicit Output Pattern
 
 Taking `samtools sort` as an example, the command for this tool is:
 

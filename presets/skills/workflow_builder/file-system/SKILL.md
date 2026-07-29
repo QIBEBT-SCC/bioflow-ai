@@ -1,6 +1,6 @@
 ---
-name: FILE_SYSTEM
-description: How to load initial and dynamically marked project/sample files and collect sample outputs for aggregation
+name: file-system
+description: Load initial or dynamically marked project/sample files, publish outputs for later workflows, and collect sample outputs for project-level aggregation. Use when a workflow reads or transfers files through project/sample mappings.
 ---
 
 # File System and Dynamic Marks
@@ -31,6 +31,17 @@ workflow marks, and marks planned by every workflow draft in the current builder
 `proj:<keyword>` and sample entries use `sample:<tag>`. Draft marks are explicitly labeled as not published yet, so they
 may be referenced while designing dependent workflows without being mistaken for currently available files.
 
+## Choosing a Cross-Workflow Pattern
+
+| Transfer | Producer | Consumer |
+|---|---|---|
+| Project output to a later workflow | Connect one output to `project_mark` | Load `proj:<mark_name>` with a general `file` resource |
+| Sample output to a later workflow for the same sample | Connect one output to `sample_mark` | Load `sample:<mark_name>` with a general `file` resource |
+| Outputs from many sample runs to one aggregation workflow | Publish the same semantic `sample_mark` in every sample run | Use `sample_mark_collection` in a project-level workflow |
+
+Use a direct edge when producer and consumer are in the same workflow. Do not use `project_mark` as a substitute for
+collecting outputs belonging to separate samples.
+
 ## Project Marks
 
 Use `project_mark` only in a `project_level` workflow. Connect exactly one upstream file or directory and provide a
@@ -45,8 +56,6 @@ Use `sample_mark` only in a `sample_level` workflow. Every sample stores the sam
 
 When the mark node succeeds, it immediately creates or replaces a dynamic sample-file mapping. A later sample-level
 workflow for the same sample loads it with `sample:<mark_name>`.
-
-Use a direct edge when producer and consumer are in the same workflow. Marks are intended for cross-workflow transfer.
 
 ## Collecting Sample Marks
 

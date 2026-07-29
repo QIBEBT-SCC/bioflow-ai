@@ -1,5 +1,5 @@
 ---
-name: WRITE_DOWNSTREAM_SUMMARY
+name: write-downstream-summary
 description: Explains when and how to add a downstream_summary node for systematic statistical analysis, clustering, visualization, data mining, or biological interpretation after the executable workflow, rather than for a deterministic Python adapter inside the DAG.
 ---
 

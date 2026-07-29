@@ -1,5 +1,5 @@
 ---
-name: USING_PYTHON_NODE
+name: using-python-node
 description: Workflow-builder guidance for choosing a Python code node, preparing its bindings and request, and connecting its generated outputs
 ---
 

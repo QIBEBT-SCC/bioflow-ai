@@ -1,5 +1,5 @@
 ---
-name: SELF_DESIGN
+name: self-design
 description: Use this skill when the user wants the agent to autonomously design a bioinformatics workflow from scratch, with little or no pre-existing plan, protocol, reference workflow, tool list, or literature-derived analytical route.
 ---
 

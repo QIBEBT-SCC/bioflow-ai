@@ -28,7 +28,7 @@ Your task is to create a Docker execution template for the tool based on this in
 <ThoughtProcess>
 In the context information, the user will provide a test run command, and all you need to do is abstract based on this command and the output files it generates.
 To achieve this goal, you can break down the task into the following steps:
-1. **Read Skill**: Based on the operation report, select a skill corresponding to the relevant category to view detailed cases. Do not view multiple skills -- only examine the skill corresponding to the current tool's category.
+1. **Read Skill**: Load the `tool-configuration` skill, classify the tool's output behavior, and read exactly one referenced configuration pattern. Do not load unrelated pattern references.
 2. **Mount Files**: Process the tool's input/output files, organizing them into a list with specific format (details are provided in the <FileMounts> section)
     - If the tool's output consists of only a few files, list all of them.
     - If the tool's output files are complex (e.g., including intermediate files generated during execution, temporary folders, etc.), only list files needed for subsequent analysis tasks based on your knowledge.
@@ -225,7 +225,7 @@ config_generate_agent = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[
         DisableParallelToolCallsMiddleware(),
-        SkillMiddleware(['MODIFY_ORIGIN_TOOLS', 'PREFIX_OUTPUT_TOOLS', 'SIMPLE_TOOLS', 'STDOUT_TOOLS']),
+        SkillMiddleware('tool_generator'),
         # CheckGenerateMiddleware(2),
         CheckStateExistMiddleware('validated', 'validate_tool_config'),
         EndLoopMiddleware(),

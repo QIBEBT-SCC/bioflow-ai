@@ -1,14 +1,9 @@
----
-name: MODIFY_ORIGIN_TOOLS
-description: How to write configuration files when tools modify source files directly without generating new output
----
-
-# Example Configuration for Standard Tools
+# In-Place Modification Pattern
 
 For example, the tool `cooler balance` directly modifies the original file. Commands for this tool look like this:
 
 ```
-cooler balance --force --nproc 32 H1.cool 2>&1 /data/output/11_run.log
+cooler balance --force --nproc 32 H1.cool > /data/output/11_run.log 2>&1
 ```
 
 ## File Mounts
@@ -35,7 +30,7 @@ Therefore, we must prepare both the original file (input) and the copied file (o
     "file_path": "{output_dir}/{sample_name}.cool",
     "mount_path": "/data/output",
     "is_report": false,
-    "is_log": true
+    "is_log": false
   },
   {
     "name": "log",
@@ -59,7 +54,7 @@ templates:
   "dynamic_params": [],
   "immutable_static_params": "--force",
   "modifiable_static_params": "--nproc 32",
-  "command_template": "cp {cool_path} {balanced_cool_path} && cooler balance {static_params} {balanced_cool_path} 2>&1 {log}"
+  "command_template": "cp {cool_path} {balanced_cool_path} && cooler balance {static_params} {balanced_cool_path} > {log} 2>&1"
 }
 ```
 

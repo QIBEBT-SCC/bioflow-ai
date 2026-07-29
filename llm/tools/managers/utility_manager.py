@@ -374,7 +374,7 @@ def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
             )
 
         language = 'bash' if node_type is CodeNodeType.BASH else 'python'
-        skill_name = 'USING_BASH_NODE' if node_type is CodeNodeType.BASH else 'USING_PYTHON_NODE'
+        skill_name = 'using-bash-node' if node_type is CodeNodeType.BASH else 'using-python-node'
         code_content = code.code if code.code.endswith('\n') else f'{code.code}\n'
         content = (
             f'Code:\n\n'

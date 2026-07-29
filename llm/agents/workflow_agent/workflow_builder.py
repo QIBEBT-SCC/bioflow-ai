@@ -61,7 +61,7 @@ The `file` resource is the general input node for both files and directories. It
 - `proj:<keyword>`: a project mapping, either an initial resource or a dynamic project mark
 - `sample:<tag>`: a current-sample mapping, either an initial input or a dynamic sample mark
 
-They are resolved when the workflow runs. For more details, refer to the **FILE_SYSTEM** skill.
+They are resolved when the workflow runs. For more details, refer to the **file-system** skill.
 
 The reference genome node also provides indexes for the five tools BWA, STAR, HISAT2, Bowtie2, and minimap2.
 Therefore, when using a publicly published reference genome with these five tools, there is no need to build the indexes yourself.
@@ -219,16 +219,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             system_prompt=BUILD_FLOW_SYSTEM,
             middleware=[
                 TodoMiddleware(),
-                SkillMiddleware(
-                    [
-                        'FILE_SYSTEM',
-                        'CROSS_WORKFLOW_FILE_TRANSFER',
-                        'USING_BASH_NODE',
-                        'USING_PYTHON_NODE',
-                        'MULTI_DIRECTORY_INPUT',
-                        'WRITE_DOWNSTREAM_SUMMARY',
-                    ]
-                ),
+                SkillMiddleware('workflow_builder'),
                 CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
                 DisableParallelToolCallsMiddleware(
                     disabled_tools=WORKFLOW_BUILDER_DISABLED_TOOLS,
@@ -256,16 +247,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         system_prompt=BUILD_FLOW_SYSTEM,
         middleware=[
             TodoMiddleware(),
-            SkillMiddleware(
-                [
-                    'USING_BASH_NODE',
-                    'USING_PYTHON_NODE',
-                    'FILE_SYSTEM',
-                    'CROSS_WORKFLOW_FILE_TRANSFER',
-                    'MULTI_DIRECTORY_INPUT',
-                    'WRITE_DOWNSTREAM_SUMMARY',
-                ]
-            ),
+            SkillMiddleware('workflow_builder'),
             CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
             DisableParallelToolCallsMiddleware(
                 disabled_tools=WORKFLOW_BUILDER_DISABLED_TOOLS,

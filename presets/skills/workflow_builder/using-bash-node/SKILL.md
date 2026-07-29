@@ -1,5 +1,5 @@
 ---
-name: USING_BASH_NODE
+name: using-bash-node
 description: Workflow-builder guidance for choosing a Bash node, preparing its bindings and request, and connecting its generated outputs
 ---
 

@@ -1,9 +1,9 @@
 ---
-name: GUIDED_DESIGN
+name: guided-design
 description: Use this skill when the user wants the agent to design, revise, extend, or operationalize a bioinformatics workflow using user-provided guidance, such as a preliminary plan, reference papers, existing protocols, tool preferences, prior results, constraints, or partial workflow steps.
 ---
 
-# Self Design Workflow
+# Guided Design Workflow
 
 ## Workflow
 

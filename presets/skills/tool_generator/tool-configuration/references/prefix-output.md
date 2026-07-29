@@ -1,9 +1,4 @@
----
-name: PREFIX_OUTPUT_TOOLS
-description: How to configure tools whose output argument is a path prefix that produces multiple sibling files, such as RSEM, Bowtie, or other index builders.
----
-
-# Skill: Tools with a path prefix as output
+# Output Prefix Pattern
 
 Use this pattern when a command receives one output path such as `/data/output/reference`, but creates multiple
 artifacts such as `reference.grp`, `reference.idx.fa`, and `reference.seq` instead of creating `reference` itself.
