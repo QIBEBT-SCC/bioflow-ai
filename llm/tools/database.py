@@ -25,8 +25,6 @@ if TYPE_CHECKING:
 def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
     """Search the database for images that have already been pulled locally.
 
-    **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
-
     Args:
         query: Search keywords, generally tool name
     """
@@ -56,12 +54,19 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
             }
         )
 
+    if ' ' in query:
+        feedback_msg = (
+            'Based on the keywords you provided, no results found. '
+            'Consider first searching with short relatively concise keywords (e.g., STAR), then gradually adding restrictions.'
+        )
+    else:
+        feedback_msg = 'Based on the keywords you provided, no results found. Try searching with different keywords.'
+
     return Command(
         update={
             'messages': [
                 ToolMessage(
-                    content='Based on the keywords you provided, no results found. '
-                    'Consider first searching with relatively concise keywords (e.g., STAR), then gradually adding restrictions.',
+                    content=feedback_msg,
                     tool_call_id=runtime.tool_call_id,
                 )
             ]
