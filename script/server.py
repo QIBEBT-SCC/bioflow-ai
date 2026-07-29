@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     resource,
     run_instance,
     setting,
+    skill,
     task_instance,
     tool,
     user,
@@ -87,6 +88,7 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
     app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
     app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'])
+    app.include_router(skill.router, prefix='/api/v1/skills', tags=['skill'])
     app.include_router(project.tag_router, prefix='/api/v1/project-tags', tags=['project'])
     app.include_router(project.router, prefix='/api/v1/projects', tags=['project'])
     app.include_router(workflow.router, prefix='/api/v1/workflows', tags=['workflow'])
