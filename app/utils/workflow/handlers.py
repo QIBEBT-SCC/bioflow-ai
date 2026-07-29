@@ -455,6 +455,7 @@ class CompressTaskHandler(BaseTaskHandler):
         return compress_task.s(
             inputs=task_node.kwarg,
             compressed_file_name=task_node.data.get('compressed_file_name', ''),
+            compression_format=task_node.data['compression_format'],
             output_dir=output_dir,
         ).set(task_id=task_node.id)
 

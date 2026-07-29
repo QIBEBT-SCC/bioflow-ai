@@ -3,8 +3,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.archive import CompressionFormat, resolve_compression_format
 from app.schemas.tools import Handle
 
 # Forward declaration for type hint
@@ -42,9 +43,7 @@ class SampleMarkCollectionSchema(BaseModel):
         """Normalize duplicate mark names and reject invalid names."""
         pattern = re.compile(r'^[a-z][a-z0-9_]*$')
         normalized = list(dict.fromkeys(mark_names))
-        invalid = [
-            name for name in normalized if len(name) > MARK_NAME_MAX_LENGTH or pattern.fullmatch(name) is None
-        ]
+        invalid = [name for name in normalized if len(name) > MARK_NAME_MAX_LENGTH or pattern.fullmatch(name) is None]
         if invalid:
             msg = f'invalid mark names: {invalid}'
             raise ValueError(msg)
@@ -79,11 +78,17 @@ class RenameFileSchema(BaseModel):
 
 class CompressSchema(BaseModel):
     compressed_file_name: str
+    compression_format: CompressionFormat = Field(
+        description=(
+            'Compression format. Archive formats work with files and directories; '
+            'stream formats `.gz`, `.bz2`, and `.xz` only work with regular files.'
+        )
+    )
 
     @field_validator('compressed_file_name')
     @classmethod
     def validate_compressed_file_name(cls, compressed_file_name: str) -> str:
-        """Validate the output name and use its suffix to select the compression format."""
+        """Validate that the output is a plain file name."""
         if (
             not compressed_file_name
             or compressed_file_name in {'.', '..'}
@@ -93,12 +98,13 @@ class CompressSchema(BaseModel):
             msg = 'compressed_file_name must be a single, non-empty file name'
             raise ValueError(msg)
 
-        supported_suffixes = {'.gz', '.bz2', '.xz', '.zip', '.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz'}
-        if not any(compressed_file_name.endswith(suffix) for suffix in supported_suffixes):
-            supported = ', '.join(sorted(supported_suffixes))
-            msg = f'unsupported compression suffix; supported suffixes: {supported}'
-            raise ValueError(msg)
         return compressed_file_name
+
+    @model_validator(mode='after')
+    def validate_compression_format(self) -> 'CompressSchema':
+        """Require the selected format to match the output file suffix."""
+        resolve_compression_format(self.compressed_file_name, self.compression_format)
+        return self
 
 
 class BindParamSchema(BaseModel):
@@ -192,7 +198,7 @@ PROCESSORS: dict[str, NodeSchema] = {
     },
     'compress': {
         'name': 'Compress',
-        'description': 'Compresses one upstream file or directory. Set `compressed_file_name` to the desired output name; its suffix selects gzip, bzip2, xz, ZIP, or a TAR variant. Stream formats such as `.gz` support files only, while archive formats also support directories.',
+        'description': 'Compresses one upstream file or directory. Set `compression_format` explicitly and use the matching suffix in `compressed_file_name`. Supported formats are `.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.gz`, `.bz2`, and `.xz`. Stream formats `.gz`, `.bz2`, and `.xz` support regular files only; archive formats also support directories.',
         'args': CompressSchema,
         'input_handles': [Handle(name='input_path', description='File or directory to compress')],
         'output_handles': [Handle(name='compressed_path', description='Generated compressed file')],

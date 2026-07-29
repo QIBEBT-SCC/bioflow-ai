@@ -11,26 +11,15 @@ from pathlib import Path
 
 from celery import Task
 
+from app.schemas.archive import (
+    STREAM_COMPRESSION_FORMATS,
+    CompressionFormat,
+    resolve_compression_format,
+)
 from app.schemas.react_flow import TaskInput
 from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from script.worker import celery_app
-
-STREAM_SUFFIXES = {'.gz', '.bz2', '.xz'}
-ARCHIVE_SUFFIXES = {'.zip', '.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz'}
-SUPPORTED_COMPRESSION_SUFFIXES = STREAM_SUFFIXES | ARCHIVE_SUFFIXES
-
-
-def get_compression_suffix(file_name: str) -> str | None:
-    """Return the longest supported compression suffix for a file name."""
-    return next(
-        (
-            suffix
-            for suffix in sorted(SUPPORTED_COMPRESSION_SUFFIXES, key=len, reverse=True)
-            if file_name.endswith(suffix)
-        ),
-        None,
-    )
 
 
 def _copy_stream(source: Path, destination: Path, suffix: str) -> None:
@@ -72,9 +61,10 @@ def compress_task(
     *,
     inputs: dict[str, TaskInput],
     compressed_file_name: str,
+    compression_format: CompressionFormat,
     output_dir: str,
 ) -> ToolOutput:
-    """Compress an upstream file or directory according to the requested suffix."""
+    """Compress an upstream path using the explicitly selected format."""
     input_path = inputs.get('input_path')
     if input_path is None:
         msg = 'compress requires exactly one input_path input'
@@ -89,30 +79,26 @@ def compress_task(
         msg = 'compressed_file_name must be a single, non-empty file name'
         raise ValueError(msg)
 
-    suffix = get_compression_suffix(compressed_file_name)
-    if suffix is None:
-        supported = ', '.join(sorted(SUPPORTED_COMPRESSION_SUFFIXES))
-        msg = f'unsupported compression suffix; supported suffixes: {supported}'
-        raise ValueError(msg)
+    resolved_format = resolve_compression_format(compressed_file_name, compression_format)
 
     source_path_str, sample_name = get_tool_output(input_path.source_uid, input_path.source_k)
     source_path = Path(source_path_str).absolute()
     if not source_path.exists():
         raise FileNotFoundError(source_path)
-    if source_path.is_dir() and suffix in STREAM_SUFFIXES:
-        msg = f'{suffix} stream compression only supports regular files; use an archive suffix for directories'
+    if source_path.is_dir() and resolved_format in STREAM_COMPRESSION_FORMATS:
+        msg = f'{resolved_format} stream compression only supports regular files; use an archive format for directories'
         raise ValueError(msg)
 
     output_folder = Path(output_dir).absolute()
     output_folder.mkdir(parents=True, exist_ok=True)
     compressed_path = output_folder / compressed_file_name
 
-    if suffix in STREAM_SUFFIXES:
-        _copy_stream(source_path, compressed_path, suffix)
-    elif suffix == '.zip':
+    if resolved_format in STREAM_COMPRESSION_FORMATS:
+        _copy_stream(source_path, compressed_path, resolved_format)
+    elif resolved_format == '.zip':
         _write_zip(source_path, compressed_path)
     else:
-        _write_tar(source_path, compressed_path, suffix)
+        _write_tar(source_path, compressed_path, resolved_format)
 
     return ToolOutput(result={'compressed_path': compressed_path}, sample_name=sample_name)
 
