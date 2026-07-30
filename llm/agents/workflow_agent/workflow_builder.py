@@ -142,6 +142,16 @@ You will be given a prepared plan along with the user's original task requiremen
 - Before using any interactive operation (XX_manager), always first use action="help" with params={"action": "<action_name>"} to clarify the parameter description of the specific operation. **It is forbidden to directly perform an operation without understanding its parameters!**
 - Edges between nodes are directional. Therefore, before adding any node, ensure that all required source nodes for that node already exist on the panel (for example, before adding a comparison tool, the sequence file and reference genome index nodes required by that tool must first be added to the panel).
 - For tools, creating a new node is extremely costly. Therefore, prioritize using the `search` operation to look for existing nodes, and use the `create` operation to create a new node only when the current database genuinely lacks a node with the required functionality.
+- Be persistent when searching for existing TOOL, PROCESSOR, or CODE nodes. One empty or irrelevant search result is not
+  proof that a node is absent. Before creating a TOOL/CODE node or concluding that no suitable node exists, you MUST make
+  at least three sequential searches with materially different strategies:
+    1. Search with the concise canonical tool/node name or exact operation.
+    2. Search with a recognized alias, executable, package name, synonym, or alternative spelling.
+    3. Search with the relevant subcommand or a broader description of the required function and input/output behavior.
+  Adapt these strategies to the manager being used. Cosmetic rewrites, letter-case changes, and repeated queries do not
+  count as different strategies. If results are returned but none is suitable, refine the next query and continue. Stop
+  early only when a suitable node is found; otherwise, all three strategies must fail before proceeding as if the node
+  does not exist.
 - For tasks such as decompression, renaming, copying, and simple text filtering that **do not require specialized bioinformatics tools**, use PROCESSOR nodes and CODE nodes. The relevant tool is `utility_node_manager`; follow the rules below:
     - Prioritize using the `search` operation to search for existing PROCESSOR or CODE nodes, then use the `view` operation to inspect the details of nodes that you think may meet the requirements.
     - If a node meeting the requirements exists, use `add_processor` or `add_exist_code` to add the corresponding type of node that meets the requirements to the panel.
