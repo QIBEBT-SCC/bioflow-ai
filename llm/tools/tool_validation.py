@@ -11,6 +11,7 @@ from loguru import logger
 
 from app.schemas.tool_config import FileMount, ImageConfig
 from app.services.tool_execution import (
+    DockerToolExecution,
     DockerToolExecutionConfig,
     DockerToolExecutionResult,
     ResolvedToolInput,
@@ -128,6 +129,16 @@ def _format_execution_failure(
     )
 
 
+def _format_execution_exception(error: Exception, execution: DockerToolExecution) -> str:
+    """Expose the prepared command and mounts when container validation raises."""
+    mounts = '\n'.join(f'{bind.source} -> {bind.target}' for bind in execution.volume_binds) or '(no mounts)'
+    return (
+        f'Container validation could not start or complete: {type(error).__name__}: {error}\n\n'
+        f'Command:\n{execution.command}\n\n'
+        f'Mounts:\n{mounts}'
+    )
+
+
 @tool('validate_tool_config')
 def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
     """Run the generated tool configuration with the real test-run inputs.
@@ -178,8 +189,8 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
             )
     except Exception as error:
         logger.exception('Generated tool configuration validation failed')
-        command_context = f' Generated command: {execution.command}' if execution is not None else ''
-        return _validation_failed(f'{error}{command_context}', runtime.tool_call_id)
+        detail = _format_execution_exception(error, execution) if execution is not None else str(error)
+        return _validation_failed(detail, runtime.tool_call_id)
 
     output_paths = ', '.join(str(Path(path)) for path in execution_result.output.all_files().values())
     return Command(
