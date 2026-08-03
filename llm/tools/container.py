@@ -13,6 +13,7 @@ from app.core.session import engine
 from app.schemas.tool_config import ImageConfig
 from app.services import tool_catalog
 from app.utils.container import ContainerMount, run_command
+from app.utils.system import get_current_user_identity
 from llm.context import TestRunContext
 
 MAX_CHAR = 3000
@@ -89,10 +90,12 @@ def _validate_extra_mounts(
     if mounts is None:
         return [], None
 
+    default_mounts = {'/data/testdata', '/data/output', '/tmp'}  # noqa: S108
     for mount in mounts:
-        if mount.target in {'/data/testdata', '/data/output'}:
+        if mount.target in default_mounts:
             return [], _blocked_command(
-                'The default test data directory `/data/testdata` and the output root directory `/data/output` are already mounted by default, so manual configuration is not required. '
+                f'The container path `{mount.target}` is already managed and mounted by default, '
+                'so manual configuration is not required. '
                 'If additional data needs to be mounted, use a different path.',
                 tool_call_id,
             )
@@ -158,10 +161,11 @@ async def advance_run_command_tool(
     all_mounts = [
         ContainerMount(target='/data/testdata', source=str(testdata_path), read_only=True),
         ContainerMount(target='/data/output', source=str(output_path), read_only=False),
+        ContainerMount(target='/tmp', source='/tmp', read_only=False),  # noqa: S108
         *extra_mounts,
     ]
 
-    code, output = run_command(image, all_mounts, command, workdir)
+    code, output = run_command(image, all_mounts, command, workdir, user=get_current_user_identity())
     status = 'successfully' if code == 0 else 'failed'
 
     image_name = image_ref or 'linux_default'

@@ -115,7 +115,9 @@ def run_docker_background(
     mounts: list[Mount],
     working_dir: str,
     interval: float = 1.0,
-    **kwargs: int,
+    *,
+    user: str | None = None,
+    **kwargs: Any,
 ) -> Generator[dict[str, Any] | None, None, None]:
     """后台运行docker容器, 并实时返回容器资源占用信息.
 
@@ -147,6 +149,8 @@ def run_docker_background(
         device_requests = [DeviceRequest(count=gpu_count, capabilities=[['gpu']])]
         if settings.GPU_DEVICES != 'all':
             device_requests[0]['device_ids'] = settings.GPU_DEVICES.split(',')
+    if user is not None:
+        kwargs['user'] = user
 
     try:
         # pyrefly: ignore [no-matching-overload]
@@ -156,7 +160,6 @@ def run_docker_background(
             mounts=mounts,
             entrypoint=['/bin/sh', '-c'],
             working_dir=working_dir,
-            user=get_current_user_identity(),
             auto_remove=False,
             detach=True,
             device_requests=device_requests,

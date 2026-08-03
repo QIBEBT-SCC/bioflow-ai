@@ -101,12 +101,15 @@ def _validate_report_file(file: TestRunFile, test_run_id: str, label: str) -> tu
     except ValueError as error:
         return None, [f'{label} `{file.name}`: {error}']
 
-    if not host_path.exists():
-        errors.append(f'{label} `{file.name}` does not exist: {file.path} (host: {host_path})')
-    elif file.file_type == 'file' and not host_path.is_file():
-        errors.append(f'{label} `{file.name}` is declared as a file but is not a file: {file.path}')
-    elif file.file_type == 'folder' and not host_path.is_dir():
-        errors.append(f'{label} `{file.name}` is declared as a folder but is not a directory: {file.path}')
+    try:
+        if not host_path.exists():
+            errors.append(f'{label} `{file.name}` does not exist: {file.path} (host: {host_path})')
+        elif file.file_type == 'file' and not host_path.is_file():
+            errors.append(f'{label} `{file.name}` is declared as a file but is not a file: {file.path}')
+        elif file.file_type == 'folder' and not host_path.is_dir():
+            errors.append(f'{label} `{file.name}` is declared as a folder but is not a directory: {file.path}')
+    except OSError as error:
+        errors.append(f'{label} `{file.name}` cannot be accessed: {file.path} (host: {host_path}): {error}')
 
     return host_path, errors
 
@@ -120,10 +123,15 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str) -> list[st
         errors.append(f'working_dir: {error}')
         host_working_dir = None
     else:
-        if not host_working_dir.is_dir():
-            errors.append(
-                f'working_dir does not exist or is not a directory: {report.working_dir} (host: {host_working_dir})'
-            )
+        try:
+            is_working_dir = host_working_dir.is_dir()
+        except OSError as error:
+            errors.append(f'working_dir cannot be accessed: {report.working_dir} (host: {host_working_dir}): {error}')
+        else:
+            if not is_working_dir:
+                errors.append(
+                    f'working_dir does not exist or is not a directory: {report.working_dir} (host: {host_working_dir})'
+                )
 
     if not report.help_command.strip():
         errors.append('help_command cannot be empty.')

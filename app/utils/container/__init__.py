@@ -85,19 +85,31 @@ def run_command_background(  # noqa: ANN201
     mounts: list[ContainerMount],
     working_dir: str,
     interval: float = 1.0,
+    *,
+    user: str | None = None,
 ):
     """后台运行容器命令, 实时 yield 资源占用统计, 自动分发到 podman 或 docker."""
     if get_settings().docker.CONTAINER == 'podman':
         from app.utils.container.podman import run_podman_background
 
         yield from run_podman_background(
-            image_cfg, command, _convert_to_podman_mount(mounts), interval=interval, workdir=working_dir
+            image_cfg,
+            command,
+            _convert_to_podman_mount(mounts),
+            interval=interval,
+            workdir=working_dir,
+            user=user,
         )
     else:
         from app.utils.container.docker import run_docker_background
 
         yield from run_docker_background(
-            image_cfg, command, _convert_to_docker_mount(mounts), working_dir, interval=interval
+            image_cfg,
+            command,
+            _convert_to_docker_mount(mounts),
+            working_dir,
+            interval=interval,
+            user=user,
         )
 
 

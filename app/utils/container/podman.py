@@ -119,7 +119,9 @@ def run_podman_background(
     mounts: list[dict],
     interval: float = 1.0,
     workdir: Optional[str] = None,
-    **kwargs: int,
+    *,
+    user: str | None = None,
+    **kwargs: Any,
 ) -> Generator[dict[str, Any], None, None]:
     """后台运行podman容器, 并实时返回容器资源占用信息.
 
@@ -156,6 +158,8 @@ def run_podman_background(
                 device = ['nvidia.com/gpu=all']
             else:
                 device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
+        if user is not None:
+            kwargs['user'] = user
 
         try:
             container = client.containers.run(

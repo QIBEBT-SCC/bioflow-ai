@@ -14,6 +14,7 @@ from app.schemas.workflow_config import ToolOutput
 from app.services.output_validation import all_output_paths_exist, missing_output_paths
 from app.utils.container import ContainerMount, run_command, run_command_background
 from app.utils.input_format import PartialFormatter, build_command_template
+from app.utils.system import get_current_user_identity
 
 MOUNTLIST_PREFIX = 'mountlist:'
 
@@ -376,6 +377,7 @@ def execute_docker_tool(
         execution.command,
         execution.volume_binds,
         working_dir='/data/output',
+        user=get_current_user_identity(),
     ):
         if monitor is not None:
             monitor(stats)
@@ -397,6 +399,7 @@ def execute_docker_tool_with_result(execution: DockerToolExecution) -> DockerToo
         execution.command,
         workdir='/data/output',
         ensure_ascii=False,
+        user=get_current_user_identity(),
     )
     missing_outputs = missing_output_paths(execution.expected_output)
     return DockerToolExecutionResult(
