@@ -775,18 +775,18 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             logger.info(f'要删除的数据 (index={index}): {tool_info}')
             valid_indices.append(index)
 
-            if tool_info['tool_uid']:
+            if tool_uid:= tool_info.get('tool_uid'):
                 with Session(engine) as session:
-                    tool_crud.delete(session, tool_info['tool_uid'])
+                    tool_crud.delete(session, tool_uid)
                     session.commit()
                     logger.info(f'删除了一条数据库信息 (index={index})')
                 await vectorstore.adelete(
                     filter_expression='tool_uid == {uid}',
-                    filter_params={'uid': tool_info['tool_uid']},
+                    filter_params={'uid': tool_uid},
                 )
 
-            if tool_info['thread_id']:
-                thread_ids_to_delete.append(tool_info['thread_id'])
+            if thread_id := tool_info.get('thread_id'):
+                thread_ids_to_delete.append(thread_id)
 
     await _cleanup_threads(con, thread_ids_to_delete, valid_indices, delete_trajectories=True)
     con.close()
