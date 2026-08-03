@@ -1,9 +1,11 @@
 import hashlib
 import os
 import re
+import shutil
 import time
 import uuid
 from collections.abc import Iterator, Mapping
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -103,3 +105,21 @@ def iter_trajectory_events(
     agent_pattern = f'agent={_safe_component(agent_name)}' if agent_name else 'agent=*'
     for event_path in sorted(root.glob(f'{agent_pattern}/run=*/events/*.json')):
         yield orjson.loads(event_path.read_bytes())
+
+
+def delete_trajectory_run(
+    agent_name: str,
+    run_id: str,
+    root_path: str | Path | None = None,
+) -> bool:
+    """Delete one exact agent run and its immutable events."""
+    root = Path(root_path).expanduser().resolve() if root_path is not None else get_trajectory_root()
+    agent_directory = root / f'agent={_safe_component(agent_name)}'
+    run_directory = agent_directory / f'run={_safe_component(run_id)}'
+    if not run_directory.is_dir():
+        return False
+
+    shutil.rmtree(run_directory)
+    with suppress(OSError):
+        agent_directory.rmdir()
+    return True

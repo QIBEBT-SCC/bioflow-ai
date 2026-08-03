@@ -30,6 +30,7 @@ TOOL_STATUS_INTERRUPTED = 'INTERRUPTED'
 TOOL_STATUS_FAILED = 'FAILED'
 TOOL_STATUS_COMPLETED = 'COMPLETED'
 TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_STATUS_FAILED)
+TOOL_TRAJECTORY_AGENTS = ('test_run', 'tool_generator')
 
 
 def _default_trajectory_dataset_path() -> str:
@@ -319,15 +320,21 @@ async def _tool_agent_session(
         yield checkpoint, agent
 
 
-async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) -> None:
+async def _cleanup_threads(
+    con: Any,
+    thread_ids: list[str],
+    indices: list[int],
+    *,
+    delete_trajectories: bool = False,
+) -> None:
     """清理指定尝试的检查点和测试产物, 并将开发任务重置为待运行状态.
 
-    已写入持久化存储的不可变轨迹会被保留, 后续重试使用新的 thread_id,
-    因而不会与旧尝试混入同一个轨迹 run。
+    普通重置保留持久化轨迹; delete_trajectories=true 时同步删除对应轨迹.
     """
     from app.core.config import get_settings
     from app.utils.container import remove_container
     from llm.utils.session import delete_checkpoint
+    from llm.utils.trajectory_store import delete_trajectory_run
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -349,13 +356,19 @@ async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) 
                     except Exception as e:
                         logger.warning(e)
                 await delete_checkpoint(checkpoint, thread_id)
-                logger.info(f'删除了智能体 checkpoint, 保留轨迹记录: {thread_id}')
+                logger.info(f'删除了智能体 checkpoint: {thread_id}')
 
         for thread_id in thread_ids:
             output_path = await Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
             if await output_path.exists():
                 shutil.rmtree(output_path)
                 logger.info(f'清理了运行目录: {output_path}')
+
+            if delete_trajectories:
+                for agent_name in TOOL_TRAJECTORY_AGENTS:
+                    run_id = f'{agent_name}:{thread_id}'
+                    if delete_trajectory_run(agent_name, run_id):
+                        logger.info(f'删除了智能体轨迹: agent={agent_name}, thread_id={thread_id}')
 
     if indices:
         idx_placeholders = ','.join(['?' for _ in indices])
@@ -775,7 +788,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             if tool_info['thread_id']:
                 thread_ids_to_delete.append(tool_info['thread_id'])
 
-    await _cleanup_threads(con, thread_ids_to_delete, valid_indices)
+    await _cleanup_threads(con, thread_ids_to_delete, valid_indices, delete_trajectories=True)
     con.close()
     logger.info(f'成功删除 {len(valid_indices)} 个工具记录')
 
