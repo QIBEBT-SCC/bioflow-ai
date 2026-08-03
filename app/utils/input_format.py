@@ -4,7 +4,6 @@ import string
 import unicodedata
 from itertools import takewhile
 from pathlib import Path
-from typing import Optional
 
 from app.schemas.react_flow import TaskNode
 from app.schemas.tool_config import FileMount, ParamDefine
@@ -16,32 +15,33 @@ class PartialFormatter(string.Formatter):
         try:
             return super().get_value(key, args, kwargs)
         except (KeyError, IndexError):
-            return '{' + str(key) + '}'
+            return '{' + key + '}'
 
 
 def build_command_template(
     command_template: str,
     dynamic_params: list[ParamDefine],
-    immutable_static_params: Optional[str],
-    modifiable_static_params: Optional[str],
+    immutable_static_params: str | None,
+    modifiable_static_params: str | None,
     file_mounts: list[FileMount],
 ) -> str:
     """构建到最后一级的指令模板字符串."""
     position_params: list[ParamDefine] = sorted(
         [param for param in dynamic_params if param.is_position], key=lambda x: x.index
     )
-    dynamic_commands = [param.command for param in dynamic_params if not param.is_position]
+    optional_params = [param.command for param in dynamic_params if not param.is_position]
 
     immutable_static_params = immutable_static_params or ''
     modifiable_static_params = modifiable_static_params or ''
     static_params = f'{immutable_static_params} {modifiable_static_params}'.strip()
+    if static_params:
+        optional_params.append(static_params)
 
     formatter = PartialFormatter()
     command_template = formatter.format(
         command_template,
         position_params=' '.join([param.command for param in position_params]),
-        dynamic_params=' '.join(dynamic_commands),
-        static_params=static_params,
+        optional_params=' '.join(optional_params),
     )
     final_template = formatter.format(
         command_template,
