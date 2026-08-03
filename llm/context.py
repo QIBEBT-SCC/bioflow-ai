@@ -26,6 +26,8 @@ class TestRunContext(BaseContext):
 class ToolGeneratorContext(BaseContext):
     test_run_id: str
 
+    save_message: bool = True
+
 
 class ProjectContext(BaseContext):
     project_id: int

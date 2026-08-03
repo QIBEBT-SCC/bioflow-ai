@@ -22,8 +22,22 @@ if TYPE_CHECKING:
 
 
 DB_PATH = 'presets/build/develop.db'
-TRAJECTORY_DATASET_PATH = 'storage/agent_datasets/trajectories'
+TRAJECTORY_DATASET_DIRECTORY = 'agent_datasets/trajectories'
 TRAJECTORY_INSERT_BATCH_SIZE = 500
+TOOL_STATUS_PENDING = 'PENDING'
+TOOL_STATUS_RUNNING = 'RUNNING'
+TOOL_STATUS_INTERRUPTED = 'INTERRUPTED'
+TOOL_STATUS_FAILED = 'FAILED'
+TOOL_STATUS_COMPLETED = 'COMPLETED'
+TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_STATUS_FAILED)
+
+
+def _default_trajectory_dataset_path() -> str:
+    """Return the configured persistent destination for compacted trajectories."""
+    from app.core.config import get_settings
+
+    storage_root = FilePath(get_settings().persistent.storage.STORAGE_PATH).expanduser().resolve()
+    return str(storage_root / TRAJECTORY_DATASET_DIRECTORY)
 
 
 def _load_trajectory_event(event_file: FilePath) -> dict[str, Any]:
@@ -306,7 +320,11 @@ async def _tool_agent_session(
 
 
 async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) -> None:
-    """清理指定线程的检查点、测试记录及文件, 并重置DuckDB状态."""
+    """清理指定尝试的检查点和测试产物, 并将开发任务重置为待运行状态.
+
+    已写入持久化存储的不可变轨迹会被保留, 后续重试使用新的 thread_id,
+    因而不会与旧尝试混入同一个轨迹 run。
+    """
     from app.core.config import get_settings
     from app.utils.container import remove_container
     from llm.utils.session import delete_checkpoint
@@ -331,15 +349,7 @@ async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) 
                     except Exception as e:
                         logger.warning(e)
                 await delete_checkpoint(checkpoint, thread_id)
-                logger.info(f'删除了智能体记录: {thread_id}')
-
-        placeholders = ','.join(['?' for _ in thread_ids])
-        deleted = con.execute(
-            f'DELETE FROM test_run WHERE test_run_id IN ({placeholders})',  # noqa: S608
-            thread_ids,
-        ).rowcount
-        if deleted:
-            logger.info(f'从 test_run 表中删除了 {deleted} 条保存数据')
+                logger.info(f'删除了智能体 checkpoint, 保留轨迹记录: {thread_id}')
 
         for thread_id in thread_ids:
             output_path = await Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
@@ -350,8 +360,16 @@ async def _cleanup_threads(con: Any, thread_ids: list[str], indices: list[int]) 
     if indices:
         idx_placeholders = ','.join(['?' for _ in indices])
         con.execute(
-            f'UPDATE tool_functions SET thread = NULL, tool_node = NULL, interrupted = false WHERE index IN ({idx_placeholders})',  # noqa: S608
-            indices,
+            f"""UPDATE tool_functions
+                SET status = ?,
+                    thread_id = NULL,
+                    tool_uid = NULL,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    last_error = NULL,
+                    updated_at = current_timestamp
+                WHERE index IN ({idx_placeholders})""",  # noqa: S608
+            [TOOL_STATUS_PENDING, *indices],
         )
 
 
@@ -370,20 +388,21 @@ def search_tools(tool_name: str) -> None:
         content = Text()
         content.append('Tool: ', style='bold cyan')
         content.append(f'{row["tool_name"]}\n', style='magenta')
-        content.append('Interrupted: ', style='bold cyan')
-        if row.get('interrupted', False):
-            content.append(f'{row["interrupted"]}\n', style='red')
-        else:
-            content.append(f'{row["interrupted"]}\n', style='green')
-            content.append('Node ID: ', style='bold cyan')
-            content.append(f'{row["tool_node"]}\n', style='white')
+        content.append('Status: ', style='bold cyan')
+        status = row['status']
+        status_style = (
+            'green' if status == TOOL_STATUS_COMPLETED else 'yellow' if status == TOOL_STATUS_PENDING else 'red'
+        )
+        content.append(f'{status}\n', style=status_style)
+        content.append('Tool UID: ', style='bold cyan')
+        content.append(f'{row["tool_uid"]}\n', style='white')
         content.append('Description:\n', style='bold cyan')
         content.append(row['function_description'], style='white')
 
         console.print(
             Panel(
                 content,
-                title=f'[yellow]#{row["index"]} {row["thread"]}[/yellow]',
+                title=f'[yellow]#{row["index"]} {row["thread_id"]}[/yellow]',
                 border_style='blue',
                 expand=True,
             )
@@ -424,8 +443,8 @@ async def init_tools(index: int | None = None) -> None:
         placeholders = ','.join(['?' for _ in skip_tools])
         todo_rows = _rows_to_dicts(
             con,
-            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND thread IS NULL',  # noqa: S608
-            skip_tools,
+            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND status = ?',  # noqa: S608
+            [*skip_tools, TOOL_STATUS_PENDING],
         )
 
     console = Console()
@@ -456,7 +475,7 @@ async def init_tools(index: int | None = None) -> None:
                 'doc_uid': doc_uid,
             }
 
-            thread_id = f'tool_{row_index}_{tool_name}'
+            thread_id = f'tool_{row_index}_{uuid.uuid4().hex}'
             config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
             context = CreateToolContext(
                 user_id=2,
@@ -466,28 +485,63 @@ async def init_tools(index: int | None = None) -> None:
                 test_run_id=thread_id,
             )
 
-            con.execute('UPDATE tool_functions SET thread = ? WHERE index = ?', [thread_id, row_index])
+            con.execute(
+                """UPDATE tool_functions
+                   SET status = ?,
+                       thread_id = ?,
+                       tool_uid = NULL,
+                       attempt_count = attempt_count + 1,
+                       started_at = current_timestamp,
+                       finished_at = NULL,
+                       last_error = NULL,
+                       updated_at = current_timestamp
+                   WHERE index = ?""",
+                [TOOL_STATUS_RUNNING, thread_id, row_index],
+            )
 
-            # pyrefly: ignore [no-matching-overload]
-            async for chunk in agent.astream(
-                agent_input,
-                config,
-                context=context,
-                stream_mode=['custom', 'updates'],
-                version='v2',
-                subgraphs=True,
-            ):
-                print_stream_chunk(console, chunk)
+            try:
+                # pyrefly: ignore [no-matching-overload]
+                async for chunk in agent.astream(
+                    agent_input,
+                    config,
+                    context=context,
+                    stream_mode=['custom', 'updates'],
+                    version='v2',
+                    subgraphs=True,
+                ):
+                    print_stream_chunk(console, chunk)
 
-            response = await agent.aget_state(config)
+                response = await agent.aget_state(config)
+            except Exception as error:
+                con.execute(
+                    """UPDATE tool_functions
+                       SET status = ?,
+                           finished_at = current_timestamp,
+                           last_error = ?,
+                           updated_at = current_timestamp
+                       WHERE index = ?""",
+                    [TOOL_STATUS_FAILED, f'{type(error).__name__}: {error}', row_index],
+                )
+                raise
+
             if response.interrupts:
-                con.execute('UPDATE tool_functions SET interrupted = true WHERE index = ?', [row_index])
+                con.execute(
+                    """UPDATE tool_functions
+                       SET status = ?, finished_at = current_timestamp, updated_at = current_timestamp
+                       WHERE index = ?""",
+                    [TOOL_STATUS_INTERRUPTED, row_index],
+                )
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
             else:
                 con.execute(
-                    'UPDATE tool_functions SET tool_node = ? WHERE index = ?',
-                    [response.values['tool_uid'], row_index],
+                    """UPDATE tool_functions
+                       SET status = ?,
+                           tool_uid = ?,
+                           finished_at = current_timestamp,
+                           updated_at = current_timestamp
+                       WHERE index = ?""",
+                    [TOOL_STATUS_COMPLETED, response.values['tool_uid'], row_index],
                 )
                 logger.success(f'{thread_id} done')
 
@@ -571,9 +625,12 @@ async def read_interrupt(index: int) -> None:
     if tool_info is None:
         logger.error(f'未找到索引为 {index} 的数据')
         return
+    if tool_info['status'] != TOOL_STATUS_INTERRUPTED or not tool_info['thread_id']:
+        logger.error(f'索引 {index} 不是可读取的中断记录: status={tool_info["status"]}')
+        return
 
     async with _tool_agent_session() as (_, agent):
-        thread_id = tool_info['thread']
+        thread_id = tool_info['thread_id']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
 
         response = await agent.aget_state(config)
@@ -594,18 +651,28 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
         from langchain_core.runnables import RunnableConfig
 
     con = duckdb.connect(DB_PATH)
-    con.execute('UPDATE tool_functions SET interrupted = false WHERE index = ?', [index])
     tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
 
     if tool_info is None:
         logger.error(f'未找到索引为 {index} 的数据')
         con.close()
         return
+    if tool_info['status'] != TOOL_STATUS_INTERRUPTED or not tool_info['thread_id']:
+        logger.error(f'索引 {index} 不是可继续的中断记录: status={tool_info["status"]}')
+        con.close()
+        return
+
+    con.execute(
+        """UPDATE tool_functions
+           SET status = ?, finished_at = NULL, last_error = NULL, updated_at = current_timestamp
+           WHERE index = ?""",
+        [TOOL_STATUS_RUNNING, index],
+    )
 
     console = Console()
 
     async with _tool_agent_session() as (_, agent):
-        thread_id = tool_info['thread']
+        thread_id = tool_info['thread_id']
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
         context = CreateToolContext(
             user_id=2,
@@ -621,25 +688,48 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
             input_message = Command(resume=message)
         else:
             input_message = None
-        # pyrefly: ignore [no-matching-overload]
-        async for chunk in agent.astream(
-            input_message,
-            config,
-            context=context,
-            stream_mode=['custom', 'updates'],
-            version='v2',
-            subgraphs=True,
-        ):
-            print_stream_chunk(console, chunk)
+        try:
+            # pyrefly: ignore [no-matching-overload]
+            async for chunk in agent.astream(
+                input_message,
+                config,
+                context=context,
+                stream_mode=['custom', 'updates'],
+                version='v2',
+                subgraphs=True,
+            ):
+                print_stream_chunk(console, chunk)
 
-        response = await agent.aget_state(config)
+            response = await agent.aget_state(config)
+        except Exception as error:
+            con.execute(
+                """UPDATE tool_functions
+                   SET status = ?,
+                       finished_at = current_timestamp,
+                       last_error = ?,
+                       updated_at = current_timestamp
+                   WHERE index = ?""",
+                [TOOL_STATUS_FAILED, f'{type(error).__name__}: {error}', index],
+            )
+            raise
+
         if response.interrupts:
-            con.execute('UPDATE tool_functions SET interrupted = true WHERE index = ?', [index])
+            con.execute(
+                """UPDATE tool_functions
+                   SET status = ?, finished_at = current_timestamp, updated_at = current_timestamp
+                   WHERE index = ?""",
+                [TOOL_STATUS_INTERRUPTED, index],
+            )
             rich.print(response.interrupts)
         else:
             con.execute(
-                'UPDATE tool_functions SET tool_node = ? WHERE index = ?',
-                [response.values['tool_uid'], index],
+                """UPDATE tool_functions
+                   SET status = ?,
+                       tool_uid = ?,
+                       finished_at = current_timestamp,
+                       updated_at = current_timestamp
+                   WHERE index = ?""",
+                [TOOL_STATUS_COMPLETED, response.values['tool_uid'], index],
             )
 
     con.close()
@@ -672,26 +762,26 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             logger.info(f'要删除的数据 (index={index}): {tool_info}')
             valid_indices.append(index)
 
-            if tool_info['tool_node']:
+            if tool_info['tool_uid']:
                 with Session(engine) as session:
-                    tool_crud.delete(session, tool_info['tool_node'])
+                    tool_crud.delete(session, tool_info['tool_uid'])
                     session.commit()
                     logger.info(f'删除了一条数据库信息 (index={index})')
                 await vectorstore.adelete(
                     filter_expression='tool_uid == {uid}',
-                    filter_params={'uid': tool_info['tool_node']},
+                    filter_params={'uid': tool_info['tool_uid']},
                 )
 
-            if tool_info['thread']:
-                thread_ids_to_delete.append(tool_info['thread'])
+            if tool_info['thread_id']:
+                thread_ids_to_delete.append(tool_info['thread_id'])
 
     await _cleanup_threads(con, thread_ids_to_delete, valid_indices)
     con.close()
     logger.info(f'成功删除 {len(valid_indices)} 个工具记录')
 
 
-async def check_records(*, clean_interrupted: bool = False, dry_run: bool = False) -> None:
-    """检查并重置孤立的DuckDB记录."""
+async def check_records(*, clean_incomplete: bool = False, dry_run: bool = False) -> None:
+    """检查并重置孤立或未完成的 DuckDB 开发任务."""
     import duckdb
 
     import app.crud.tools.tool as tool_crud
@@ -701,23 +791,28 @@ async def check_records(*, clean_interrupted: bool = False, dry_run: bool = Fals
     indices_to_reset: list[int] = []
     thread_ids_to_delete: list[str] = []
 
-    rows_with_node = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE tool_node IS NOT NULL')
+    rows_with_node = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE tool_uid IS NOT NULL')
     with Session(engine) as session:
         for row in rows_with_node:
-            if tool_crud.get(session, row['tool_node']) is None:
+            if tool_crud.get(session, row['tool_uid']) is None:
                 indices_to_reset.append(row['index'])
-                if row['thread']:
-                    thread_ids_to_delete.append(row['thread'])
-                logger.info(f'发现孤立记录 (index={row["index"]}): tool_node={row["tool_node"]} 在数据库中不存在')
+                if row['thread_id']:
+                    thread_ids_to_delete.append(row['thread_id'])
+                logger.info(f'发现孤立记录 (index={row["index"]}): tool_uid={row["tool_uid"]} 在数据库中不存在')
 
-    if clean_interrupted:
-        interrupted_rows = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE interrupted = true')
-        for row in interrupted_rows:
+    if clean_incomplete:
+        placeholders = ','.join(['?' for _ in TOOL_INCOMPLETE_STATUSES])
+        incomplete_rows = _rows_to_dicts(
+            con,
+            f'SELECT * FROM tool_functions WHERE status IN ({placeholders})',  # noqa: S608
+            list(TOOL_INCOMPLETE_STATUSES),
+        )
+        for row in incomplete_rows:
             if row['index'] not in indices_to_reset:
                 indices_to_reset.append(row['index'])
-                if row['thread']:
-                    thread_ids_to_delete.append(row['thread'])
-                logger.info(f'发现中断记录 (index={row["index"]}): {row["tool_name"]}')
+                if row['thread_id']:
+                    thread_ids_to_delete.append(row['thread_id'])
+                logger.info(f'发现未完成记录 (index={row["index"]}, status={row["status"]}): {row["tool_name"]}')
 
     if not indices_to_reset:
         logger.info('没有需要重置的记录')
@@ -834,17 +929,26 @@ def statistic() -> None:
     con = duckdb.connect(DB_PATH, read_only=True)
 
     total = (con.execute('SELECT COUNT(*) FROM tool_functions').fetchone() or (0,))[0]
-    processed = (con.execute('SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL').fetchone() or (0,))[0]
-    success = (con.execute('SELECT COUNT(*) FROM tool_functions WHERE tool_node IS NOT NULL').fetchone() or (0,))[0]
+    pending = (
+        con.execute('SELECT COUNT(*) FROM tool_functions WHERE status = ?', [TOOL_STATUS_PENDING]).fetchone() or (0,)
+    )[0]
+    processed = total - pending
+    success = (
+        con.execute('SELECT COUNT(*) FROM tool_functions WHERE status = ?', [TOOL_STATUS_COMPLETED]).fetchone() or (0,)
+    )[0]
     unique_nodes = (
-        con.execute('SELECT COUNT(DISTINCT tool_node) FROM tool_functions WHERE tool_node IS NOT NULL').fetchone()
-        or (0,)
+        con.execute('SELECT COUNT(DISTINCT tool_uid) FROM tool_functions WHERE tool_uid IS NOT NULL').fetchone() or (0,)
     )[0]
     failed = (
-        con.execute('SELECT COUNT(*) FROM tool_functions WHERE thread IS NOT NULL AND tool_node IS NULL').fetchone()
+        con.execute('SELECT COUNT(*) FROM tool_functions WHERE status = ?', [TOOL_STATUS_FAILED]).fetchone() or (0,)
+    )[0]
+    interrupted = (
+        con.execute('SELECT COUNT(*) FROM tool_functions WHERE status = ?', [TOOL_STATUS_INTERRUPTED]).fetchone()
         or (0,)
     )[0]
-    interrupted = (con.execute('SELECT COUNT(*) FROM tool_functions WHERE interrupted = true').fetchone() or (0,))[0]
+    running = (
+        con.execute('SELECT COUNT(*) FROM tool_functions WHERE status = ?', [TOOL_STATUS_RUNNING]).fetchone() or (0,)
+    )[0]
 
     console = Console()
 
@@ -857,7 +961,10 @@ def statistic() -> None:
     stats.add_row('总记录数', f'[cyan]{total:,}[/cyan]')
     stats.add_row('已处理', f'[cyan]{processed:,}[/cyan] [dim]({pct:.1f}%)[/dim]')
     stats.add_row('成功', f'[green]{success:,}[/green]  生成节点 [green]{unique_nodes:,}[/green] 个')
-    stats.add_row('失败', f'[red]{failed:,}[/red]  其中中断 [yellow]{interrupted:,}[/yellow] 条')
+    stats.add_row(
+        '未完成',
+        f'运行中 [cyan]{running:,}[/cyan]  中断 [yellow]{interrupted:,}[/yellow]  失败 [red]{failed:,}[/red]',
+    )
 
     console.print(
         Panel(
@@ -881,10 +988,11 @@ def statistic() -> None:
         for key, value in row.items():
             if value is None:
                 display = '[dim]None[/dim]'
-            elif isinstance(value, bool):
-                display = f'[red]{value}[/red]' if value else f'[green]{value}[/green]'
-                if key == 'interrupted' and value:
-                    display = f'[bold red]{value}[/bold red]'
+            elif key == 'status':
+                style = (
+                    'green' if value == TOOL_STATUS_COMPLETED else 'yellow' if value == TOOL_STATUS_PENDING else 'red'
+                )
+                display = f'[{style}]{value}[/{style}]'
             else:
                 display = str(value)
             body.add_row(f'{key}:', display)
@@ -899,10 +1007,18 @@ def statistic() -> None:
             )
         )
 
-    latest = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE thread IS NOT NULL ORDER BY index DESC LIMIT 1')
+    latest = _row_to_dict(
+        con,
+        'SELECT * FROM tool_functions WHERE status <> ? ORDER BY started_at DESC NULLS LAST LIMIT 1',
+        [TOOL_STATUS_PENDING],
+    )
     _render_record_panel(latest, '[bold green]最新运行记录[/bold green]')
 
-    latest_interrupt = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE interrupted = true ORDER BY index LIMIT 1')
+    latest_interrupt = _row_to_dict(
+        con,
+        'SELECT * FROM tool_functions WHERE status = ? ORDER BY finished_at DESC NULLS LAST LIMIT 1',
+        [TOOL_STATUS_INTERRUPTED],
+    )
     _render_record_panel(latest_interrupt, '[bold yellow]最新中断记录[/bold yellow]')
 
     con.close()
@@ -996,11 +1112,16 @@ def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
 
 
 @cli.command()
-@click.option('--clean-interrupted', is_flag=True, default=False, help='同时清理 interrupted=true 的记录')
+@click.option(
+    '--clean-incomplete',
+    is_flag=True,
+    default=False,
+    help='同时清理 RUNNING、INTERRUPTED 和 FAILED 状态的未完成任务',
+)
 @click.option('--dry-run', is_flag=True, default=False, help='仅预览待处理记录, 不执行实际操作')
-def check_cmd(*, clean_interrupted: bool, dry_run: bool) -> None:
+def check_cmd(*, clean_incomplete: bool, dry_run: bool) -> None:
     """检查并重置孤立的 DuckDB 记录."""
-    asyncio.run(check_records(clean_interrupted=clean_interrupted, dry_run=dry_run))
+    asyncio.run(check_records(clean_incomplete=clean_incomplete, dry_run=dry_run))
 
 
 @cli.command()
@@ -1035,30 +1156,32 @@ def statistic_cmd() -> None:
 @click.option(
     '--input-dir',
     type=click.Path(exists=True, file_okay=False, path_type=str),
-    default='storage/agent_trajectories',
-    show_default=True,
-    help='不可变 JSON 轨迹的根目录',
+    default=None,
+    help='不可变 JSON 轨迹根目录; 默认使用 persistent.storage.storage_path/agent_trajectories',
 )
 @click.option(
     '--output-dir',
     type=click.Path(file_okay=False, path_type=str),
-    default=TRAJECTORY_DATASET_PATH,
-    show_default=True,
-    help='Parquet 数据集输出目录',
+    default=None,
+    help='Parquet 输出目录; 默认使用 persistent.storage.storage_path/agent_datasets/trajectories',
 )
 @click.option('--agent', 'agents', multiple=True, help='只整合指定 agent; 可重复传入')
 @click.option('--skip-invalid', is_flag=True, help='跳过损坏或字段不完整的 JSON, 并记录到 metadata.json')
 @click.option('--overwrite', is_flag=True, help='原子替换已存在的输出目录')
 def compact_trajectories_cmd(
-    input_dir: str,
-    output_dir: str,
+    input_dir: str | None,
+    output_dir: str | None,
     agents: tuple[str, ...],
     *,
     skip_invalid: bool,
     overwrite: bool,
 ) -> None:
     """将原始智能体 JSON 事件整合为 events/runs Parquet 数据集."""
-    compact_trajectories(input_dir, output_dir, agents, skip_invalid=skip_invalid, overwrite=overwrite)
+    from llm.utils.trajectory_store import get_trajectory_root
+
+    resolved_input = input_dir or str(get_trajectory_root())
+    resolved_output = output_dir or _default_trajectory_dataset_path()
+    compact_trajectories(resolved_input, resolved_output, agents, skip_invalid=skip_invalid, overwrite=overwrite)
 
 
 if __name__ == '__main__':

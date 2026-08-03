@@ -10,7 +10,9 @@ from typing import Any, Protocol
 
 import orjson
 
-TRAJECTORY_ROOT = 'storage/agent_trajectories'
+from app.core.config import get_settings
+
+TRAJECTORY_DIRECTORY = 'agent_trajectories'
 SCHEMA_VERSION = 1
 _PATH_COMPONENT_PATTERN = re.compile(r'[^A-Za-z0-9._-]+')
 
@@ -21,6 +23,12 @@ class TrajectoryStore(Protocol):
     def append_event(self, agent_name: str, run_id: str, event: Mapping[str, Any]) -> Path:
         """Persist one immutable event and return its path."""
         ...
+
+
+def get_trajectory_root() -> Path:
+    """Return the configured persistent root for immutable agent trajectories."""
+    storage_root = Path(get_settings().persistent.storage.STORAGE_PATH).expanduser().resolve()
+    return storage_root / TRAJECTORY_DIRECTORY
 
 
 def _safe_component(value: str, *, max_length: int = 80) -> str:
@@ -61,8 +69,8 @@ def _atomic_write(path: Path, content: bytes) -> None:
 class LocalEventStore:
     """Store each trajectory event as an immutable, atomically committed JSON file."""
 
-    def __init__(self, root_path: str | Path = TRAJECTORY_ROOT):
-        self.root_path = Path(root_path)
+    def __init__(self, root_path: str | Path | None = None):
+        self.root_path = Path(root_path).expanduser().resolve() if root_path is not None else get_trajectory_root()
 
     def append_event(self, agent_name: str, run_id: str, event: Mapping[str, Any]) -> Path:
         """Write an event without requiring a shared database or cross-process lock."""
@@ -86,12 +94,12 @@ class LocalEventStore:
 
 
 def iter_trajectory_events(
-    root_path: str | Path = TRAJECTORY_ROOT,
+    root_path: str | Path | None = None,
     *,
     agent_name: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Iterate locally stored events in deterministic per-run order."""
-    root = Path(root_path)
+    root = Path(root_path).expanduser().resolve() if root_path is not None else get_trajectory_root()
     agent_pattern = f'agent={_safe_component(agent_name)}' if agent_name else 'agent=*'
     for event_path in sorted(root.glob(f'{agent_pattern}/run=*/events/*.json')):
         yield orjson.loads(event_path.read_bytes())

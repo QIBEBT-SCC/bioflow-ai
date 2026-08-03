@@ -260,6 +260,7 @@ class CreateToolAgent:
             context=ToolGeneratorContext(
                 user_id=runtime.context.user_id,
                 test_run_id=runtime.context.test_run_id,
+                save_message=runtime.context.save_message,
             ),
         )
         return {

@@ -18,7 +18,7 @@ from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, SecretStr
 
-from llm.utils.trajectory_store import TRAJECTORY_ROOT, LocalEventStore, TrajectoryStore
+from llm.utils.trajectory_store import LocalEventStore, TrajectoryStore
 
 _SENSITIVE_KEYS = {
     'access_key',
@@ -122,7 +122,7 @@ class SaveMessagesMiddleware(AgentMiddleware):
         agent_name: str,
         *,
         store: TrajectoryStore | None = None,
-        root_path: str | Path = TRAJECTORY_ROOT,
+        root_path: str | Path | None = None,
     ):
         self.agent_name = agent_name
         self.store = store or LocalEventStore(root_path)
