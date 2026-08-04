@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 import app.crud.code as code_crud
+from app.core.auth import AdminDep, UserDep
 from app.core.session import SessionDep
 from app.schemas.code import (
     CodeCreate,
@@ -17,7 +18,6 @@ from app.schemas.code import (
 )
 from app.schemas.common import Paginated
 from app.services import code_catalog
-from app.utils.security import AdminDep, UserDep
 from llm.prebuild.code_node import generate_code_metadata
 
 router = APIRouter()

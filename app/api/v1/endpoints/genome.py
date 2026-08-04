@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 import app.crud.resource.reference_genome as genome_crud
+from app.core.auth import AdminDep, UserDep
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.models.resource import ReferenceGenomes
@@ -20,7 +21,6 @@ from app.schemas.resource import (
 from app.services.resource import reference_genome as genome_service
 from app.tasks.load_tasks.load_genome import build_genome_index_admin_task, download_genome_admin_task
 from app.utils.api.ncbi_datasets import get_species_info, search_reference_genomes, search_reference_genomes_by_tax_id
-from app.utils.security import AdminDep, UserDep
 
 reference_router = APIRouter()
 

@@ -1,6 +1,7 @@
 import base64
 import hashlib
 
+import bcrypt
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import get_settings
@@ -10,6 +11,16 @@ SECRET_CIPHERTEXT_PREFIX = 'bioflow:v1:'  # noqa: S105
 
 class SecretDecryptionError(ValueError):
     """Raised when a stored secret cannot be decrypted."""
+
+
+def hash_password(password: str) -> str:
+    """Generate a one-way bcrypt password hash."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """Verify a password against a bcrypt hash."""
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 def _cipher(purpose: str) -> Fernet:

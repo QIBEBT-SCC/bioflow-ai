@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.auth import AdminDep
 from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.crud import user as user_crud
 from app.schemas.user import RoleUpdate, UserCreate, UserDetail, UserPublic, UserUpdate
 from app.services import user as user_service
-from app.utils.security import AdminDep
 
 router = APIRouter()
 

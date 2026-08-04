@@ -10,6 +10,7 @@ import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_provider as provider_crud
 import app.crud.setting.llm_setting as setting_crud
 import app.crud.setting.llm_statistic as statistic_crud
+from app.core.auth import AdminDep
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.setting import (
@@ -33,7 +34,6 @@ from app.schemas.setting import (
     LLMStatisticOverview,
 )
 from app.services import llm_setting as setting_service
-from app.utils.security import AdminDep
 from llm.models import invalidate_model_cache
 
 router = APIRouter()

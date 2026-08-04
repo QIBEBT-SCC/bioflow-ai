@@ -10,6 +10,7 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNP
 
 import app.crud.resource.bio_db as db_crud
 import app.crud.resource.sample as sample_crud
+from app.core.auth import AdminDep, UserDep
 from app.core.session import SessionDep, engine
 from app.models.resource import BioDb
 from app.schemas.common import Paginated
@@ -23,7 +24,6 @@ from app.schemas.resource import (
     SampleListItem,
 )
 from app.services.resource import bio_db as db_service
-from app.utils.security import AdminDep, UserDep
 
 db_router = APIRouter()
 sample_router = APIRouter()

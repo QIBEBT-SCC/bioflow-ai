@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.status import HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
 import app.crud.run_instance as run_crud
+from app.core.auth import UserDep
 from app.core.session import SessionDep
 from app.schemas.common import Paginated, Statistics
 from app.schemas.run_instance import (
@@ -24,7 +25,6 @@ from app.schemas.run_instance import (
 from app.schemas.workflow_config import Status
 from app.services import runtime_status, workflow_runtime
 from app.utils.file_browser import build_file_tree, serve_file
-from app.utils.security import UserDep
 
 router = APIRouter()
 

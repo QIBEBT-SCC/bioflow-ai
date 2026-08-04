@@ -16,12 +16,12 @@ from starlette.status import HTTP_404_NOT_FOUND
 from uuid_extensions import uuid7str
 
 import app.crud.chat as chat_crud
+from app.core.auth import UserDep
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.chat import ChatSessions
 from app.schemas.chat import ChatResponse, ChatSessionPage, ChatSessionPublic, ChatSessionUpdate
 from app.services import chat as chat_service
-from app.utils.security import UserDep
 from llm.context import CreateToolContext, ProjectContext
 from llm.utils.ai_sdk.stream_protocol import (
     data_part,

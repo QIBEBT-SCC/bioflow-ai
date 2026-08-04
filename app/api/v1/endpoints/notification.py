@@ -2,6 +2,7 @@ from typing import Annotated, TypeAlias
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.core.auth import AdminDep
 from app.core.session import SessionDep
 from app.schemas.notification import (
     NOTIFICATION_TEST_EVENT,
@@ -13,7 +14,6 @@ from app.schemas.notification import (
 from app.services.notification import channels as channel_service
 from app.services.notification.events import list_notification_events, publish_notification
 from app.services.notification.gateway import NotificationGateway
-from app.utils.security import AdminDep
 
 router = APIRouter()
 

@@ -1,15 +1,13 @@
-import bcrypt
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.secret_cipher import hash_password, verify_password
 from app.crud import user as user_crud
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
 from app.schemas.user_config import UserRole
 from app.services._transaction import committing
-
-USER_CACHE_TTL_SECONDS = 300
 
 
 class UserServiceError(ValueError):
@@ -26,16 +24,6 @@ class UserNotFoundError(UserServiceError):
 
 class InvalidCurrentPasswordError(UserServiceError):
     """Raised when a password change supplies the wrong current password."""
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain-text password against a bcrypt hash."""
-    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
-
-
-def get_password_hash(password: str) -> str:
-    """Generate a bcrypt hash for a password."""
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def authenticate_user(session: Session, email: str, password: str) -> User | None:
@@ -56,7 +44,7 @@ def create_user(
     user = User(
         email=data.email,
         username=data.username,
-        hashed_password=get_password_hash(data.password.get_secret_value()),
+        hashed_password=hash_password(data.password.get_secret_value()),
         is_active=True,
         role=role,
     )
@@ -86,7 +74,7 @@ def change_password(session: Session, user_id: int, current_password: str, new_p
         raise InvalidCurrentPasswordError
 
     with committing(session):
-        updated = user_crud.update(session, user_id, UserUpdate(hashed_password=get_password_hash(new_password)))
+        updated = user_crud.update(session, user_id, UserUpdate(hashed_password=hash_password(new_password)))
         if updated is None:  # Defensive against an unexpected concurrent delete.
             raise UserNotFoundError
     return updated

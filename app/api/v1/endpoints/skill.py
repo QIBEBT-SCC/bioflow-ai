@@ -2,6 +2,7 @@ from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.auth import AdminDep
 from app.schemas.skill import (
     SkillCatalogPublic,
     SkillCreate,
@@ -11,7 +12,6 @@ from app.schemas.skill import (
     SkillUpdate,
 )
 from app.services import skill_catalog
-from app.utils.security import AdminDep
 
 router = APIRouter()
 

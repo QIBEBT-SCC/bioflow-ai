@@ -13,12 +13,12 @@ from starlette.status import HTTP_404_NOT_FOUND
 
 import app.crud.task_instance as task_crud
 import app.crud.task_monitor as monitor_crud
+from app.core.auth import UserDep
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic
 from app.schemas.workflow_config import Status, ToolOutput
 from app.services import runtime_status
-from app.utils.security import UserDep
 
 router = APIRouter()
 

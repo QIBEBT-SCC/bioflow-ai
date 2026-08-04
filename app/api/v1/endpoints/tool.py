@@ -8,6 +8,7 @@ import app.crud.tools.tool as tool_crud
 import app.crud.tools.tool_doc as doc_crud
 import app.crud.tools.tool_group as group_crud
 import app.crud.tools.tool_tag as tag_crud
+from app.core.auth import AdminDep, MemberDep
 from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
 from app.schemas.common import Paginated
@@ -30,7 +31,6 @@ from app.schemas.tools import (
     ToolTaskInfo,
 )
 from app.services import tool_cache, tool_catalog
-from app.utils.security import AdminDep, MemberDep
 
 router = APIRouter()
 tag_router = APIRouter()

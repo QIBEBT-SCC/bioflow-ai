@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
+from app.core.auth import UserDep
 from app.core.session import SessionDep
 from app.crud import project as project_crud
 from app.crud import project_file_mapping as project_file_mapping_crud
@@ -51,7 +52,6 @@ from app.services import project_file_mapping as project_file_mapping_service
 from app.services import project_workflow as project_workflow_service
 from app.services import runtime_status
 from app.services import sample as sample_service
-from app.utils.security import UserDep
 from app.utils.workflow import create_project_level_run, create_runs_from_samples
 
 router = APIRouter()

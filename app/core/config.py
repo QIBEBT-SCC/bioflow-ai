@@ -23,6 +23,7 @@ class SecurityConfig(BaseSectionConfig):
     ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    USER_CACHE_TTL_SECONDS: int = 300
     COOKIE_SECURE: bool = False
     COOKIE_DOMAIN: str | None = None
     COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = 'lax'

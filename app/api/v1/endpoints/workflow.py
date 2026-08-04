@@ -6,6 +6,7 @@ from starlette import status
 from uuid_extensions import uuid7
 
 import app.crud.workflow as wf_crud
+from app.core.auth import UserDep
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Workflow
@@ -16,7 +17,6 @@ from app.schemas.workflow import WorkflowCreateProp, WorkflowPublic, WorkflowSim
 from app.schemas.workflow_config import Status
 from app.services import workflow_catalog, workflow_runtime
 from app.utils.input_format import to_safe_path_segment
-from app.utils.security import UserDep
 from app.utils.workflow import build_task_list, send_task, update_node_id
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
