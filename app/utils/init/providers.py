@@ -15,7 +15,7 @@ class ProviderConfiguration:
     """Values collected for a selected LLM provider."""
 
     name: str
-    api_key: str
+    api_key: str | None
     base_url: str | None
     use_proxy: bool
 
@@ -25,14 +25,14 @@ def validate_provider_selection(selected: list[str]) -> bool | str:
     return True if selected else '请至少选择一个模型 Provider。'
 
 
-def _validate_api_key(value: str, *, existing_api_key: str | None) -> bool | str:
-    return True if value or existing_api_key else 'API key 不能为空。'
+def _validate_api_key(value: str, *, credential_configured: bool) -> bool | str:
+    return True if value or credential_configured else 'API key 不能为空。'
 
 
 def prompt_provider_configurations(providers: list[LLMProvider]) -> list[ProviderConfiguration]:
     """Collect provider credentials and connection options interactively."""
     choices = [
-        questionary.Choice(provider.name, checked=provider.is_active and bool(provider.api_key))
+        questionary.Choice(provider.name, checked=provider.is_active and provider.credential_configured)
         for provider in providers
     ]
     selected_names = tui.prompt_checkbox(
@@ -46,10 +46,13 @@ def prompt_provider_configurations(providers: list[LLMProvider]) -> list[Provide
     for name in selected_names:
         provider = provider_by_name[name]
         tui.render_section(provider.name, '配置模型服务的连接信息。')
-        key_hint = ' (留空保留已有值)' if provider.api_key else ''
+        key_hint = ' (留空保留已有值)' if provider.credential_configured else ''
         api_key = tui.prompt_password(
             f'{provider.name} API key{key_hint}',
-            validate=lambda value, existing=provider.api_key: _validate_api_key(value, existing_api_key=existing),
+            validate=lambda value, configured=provider.credential_configured: _validate_api_key(
+                value,
+                credential_configured=configured,
+            ),
         )
         base_url = tui.prompt_text(
             f'{provider.name} base URL (留空使用官方地址)',
@@ -59,7 +62,7 @@ def prompt_provider_configurations(providers: list[LLMProvider]) -> list[Provide
         configurations.append(
             ProviderConfiguration(
                 name=name,
-                api_key=api_key or provider.api_key or '',
+                api_key=api_key or None,
                 base_url=base_url or None,
                 use_proxy=use_proxy,
             )
@@ -75,7 +78,8 @@ def apply_provider_configurations(providers: list[LLMProvider], configurations: 
         configuration = configuration_by_name.get(provider.name)
         provider.is_active = configuration is not None
         if configuration is not None:
-            provider.api_key = configuration.api_key
+            if configuration.api_key is not None:
+                setting_service.set_provider_api_key(provider, configuration.api_key)
             provider.base_url = configuration.base_url
             provider.use_proxy = configuration.use_proxy
 

@@ -1,10 +1,10 @@
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.setting import LLMProvider
-from app.schemas.setting import LLMProviderUpdate
 
 
 def insert(session: Session, provider: LLMProvider) -> LLMProvider:
@@ -27,12 +27,11 @@ def get_all(session: Session) -> Sequence[LLMProvider]:
     return session.scalars(statement).all()
 
 
-def update(session: Session, provider_id: int, provider_update: LLMProviderUpdate) -> LLMProvider | None:
+def update(session: Session, provider_id: int, update_data: dict[str, Any]) -> LLMProvider | None:
     """Stage updates to an LLM provider."""
     provider = get(session, provider_id)
     if provider is None:
         return None
-    update_data = provider_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(provider, field, value)
     session.flush()

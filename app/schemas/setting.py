@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from app.models.setting import ModelRole, ProviderType, ReasoningEffort
 from app.utils.model_pricing import find_model_price
@@ -12,7 +12,7 @@ class LLMProviderCreate(BaseModel):
     name: str
     provider_type: ProviderType
     base_url: str | None = None
-    api_key: str
+    api_key: SecretStr = Field(min_length=1)
     use_proxy: bool = False
     is_active: bool = True
 
@@ -21,7 +21,7 @@ class LLMProviderUpdate(BaseModel):
     name: str | None = None
     provider_type: ProviderType | None = None
     base_url: str | None = None
-    api_key: str | None = None
+    api_key: SecretStr | None = None
     use_proxy: bool | None = None
     is_active: bool | None = None
 
@@ -93,7 +93,7 @@ class LLMProviderPublic(BaseModel):
     name: str
     provider_type: ProviderType
     base_url: str | None = None
-    api_key: str | None = None
+    credential_configured: bool
     use_proxy: bool
     is_active: bool
     models: list[LLMModelPublic]

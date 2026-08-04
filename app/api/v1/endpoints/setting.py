@@ -90,8 +90,7 @@ async def create_llm_provider(
     provider_data: LLMProviderCreate, session: SessionDep, _current_user: AdminDep
 ) -> LLMProviderPublic:
     """Create a new LLM provider."""
-    provider = LLMProvider(**provider_data.model_dump())
-    return _to_provider_public(setting_service.create_provider(session, provider))
+    return _to_provider_public(setting_service.create_provider(session, provider_data))
 
 
 @router.get('/providers')
@@ -112,9 +111,11 @@ async def update_llm_provider(
 ) -> LLMProviderPublic:
     """Update an existing LLM provider."""
     try:
-        return _to_provider_public(setting_service.update_provider(session, provider_id, provider_data))
+        provider = setting_service.update_provider(session, provider_id, provider_data)
     except setting_service.LLMProviderNotFoundError as error:
         raise HTTPException(status_code=404, detail='Provider not found') from error
+    invalidate_model_cache()
+    return _to_provider_public(provider)
 
 
 @router.delete('/providers/{provider_id}')
@@ -124,6 +125,7 @@ async def delete_llm_provider(provider_id: int, session: SessionDep, _current_us
         setting_service.delete_provider(session, provider_id)
     except setting_service.LLMProviderNotFoundError as error:
         raise HTTPException(status_code=404, detail='Provider not found') from error
+    invalidate_model_cache()
     return {'message': 'Provider deleted successfully'}
 
 

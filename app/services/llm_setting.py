@@ -8,9 +8,12 @@ import app.crud.setting.llm_model as model_crud
 import app.crud.setting.llm_provider as provider_crud
 import app.crud.setting.llm_setting as setting_crud
 import app.crud.setting.llm_statistic as statistic_crud
+from app.core.secret_cipher import decrypt_secret, encrypt_secret
 from app.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic, ModelRole
-from app.schemas.setting import LLMModelUpdate, LLMProviderUpdate
+from app.schemas.setting import LLMModelUpdate, LLMProviderCreate, LLMProviderUpdate
 from app.services._transaction import committing
+
+LLM_PROVIDER_API_KEY_PURPOSE = 'llm-provider-api-keys'
 
 
 class LLMSettingServiceError(ValueError):
@@ -37,8 +40,15 @@ def get_provider(session: Session, provider_id: int) -> LLMProvider:
     return provider
 
 
-def create_provider(session: Session, provider: LLMProvider) -> LLMProvider:
-    """Create and commit an LLM provider."""
+def create_provider(session: Session, data: LLMProviderCreate) -> LLMProvider:
+    """Create an LLM provider with an encrypted API key."""
+    provider = LLMProvider(
+        **data.model_dump(exclude={'api_key'}),
+        api_key_ciphertext=encrypt_secret(
+            data.api_key.get_secret_value(),
+            purpose=LLM_PROVIDER_API_KEY_PURPOSE,
+        ),
+    )
     with committing(session):
         provider_crud.insert(session, provider)
     session.refresh(provider)
@@ -46,9 +56,15 @@ def create_provider(session: Session, provider: LLMProvider) -> LLMProvider:
 
 
 def update_provider(session: Session, provider_id: int, data: LLMProviderUpdate) -> LLMProvider:
-    """Update and commit an LLM provider."""
+    """Update an LLM provider while preserving an omitted or blank API key."""
+    update_data = data.model_dump(exclude_unset=True, exclude={'api_key'})
+    if data.api_key is not None and data.api_key.get_secret_value():
+        update_data['api_key_ciphertext'] = encrypt_secret(
+            data.api_key.get_secret_value(),
+            purpose=LLM_PROVIDER_API_KEY_PURPOSE,
+        )
     with committing(session):
-        provider = provider_crud.update(session, provider_id, data)
+        provider = provider_crud.update(session, provider_id, update_data)
         if provider is None:
             raise LLMProviderNotFoundError
     session.refresh(provider)
@@ -66,6 +82,19 @@ def save_providers(session: Session, providers: Sequence[LLMProvider]) -> None:
     """Commit a batch of provider configuration changes."""
     with committing(session):
         provider_crud.update_all(session, providers)
+
+
+def set_provider_api_key(provider: LLMProvider, api_key: str) -> None:
+    """Replace one provider's API key with encrypted storage."""
+    provider.api_key_ciphertext = encrypt_secret(api_key, purpose=LLM_PROVIDER_API_KEY_PURPOSE)
+
+
+def get_provider_api_key(provider: LLMProvider) -> str:
+    """Decrypt and return one provider API key."""
+    stored = provider.api_key_ciphertext
+    if not stored:
+        return ''
+    return decrypt_secret(stored, purpose=LLM_PROVIDER_API_KEY_PURPOSE)
 
 
 def get_model(session: Session, model_id: int) -> LLMModel:

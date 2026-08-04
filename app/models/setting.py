@@ -75,11 +75,16 @@ class LLMProvider(Base):
     name: Mapped[str] = mapped_column(unique=True)
     provider_type: Mapped[ProviderType] = mapped_column(default=ProviderType.OPENAI)
     base_url: Mapped[str | None] = mapped_column(default=None)
-    api_key: Mapped[str | None] = mapped_column(default=None)
+    api_key_ciphertext: Mapped[str | None] = mapped_column('api_key', default=None)
     use_proxy: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)
 
     models: Mapped[list['LLMModel']] = relationship(back_populates='provider')
+
+    @property
+    def credential_configured(self) -> bool:
+        """Whether this provider has an API credential stored."""
+        return bool(self.api_key_ciphertext)
 
 
 def is_deepseek_provider(provider: LLMProvider) -> bool:

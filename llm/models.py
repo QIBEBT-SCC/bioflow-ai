@@ -39,7 +39,7 @@ def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, 
     if model_config.provider is None:
         raise setting_service.LLMProviderNotFoundError
 
-    api_key = model_config.provider.api_key or ''
+    api_key = setting_service.get_provider_api_key(model_config.provider)
     proxy = get_settings().network.get_proxy_url() if model_config.provider.use_proxy else None
     reasoning_effort = (
         ReasoningEffort(model_config.reasoning_effort) if model_config.reasoning_effort is not None else None
