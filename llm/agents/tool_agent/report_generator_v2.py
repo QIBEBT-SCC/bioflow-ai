@@ -16,8 +16,8 @@ from llm.utils.middleware import (
     SaveMessagesMiddleware,
     StatusBarMiddleware,
     TodoMiddleware,
+    TokenStatisticMiddleware,
 )
-from llm.utils.middleware.statistic import TokenStatisticMiddleware
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata

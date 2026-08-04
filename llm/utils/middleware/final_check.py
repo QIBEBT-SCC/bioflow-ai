@@ -9,7 +9,7 @@ from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from loguru import logger
 
-from llm.context import BaseContext, FolderContext
+from llm.context import FolderContext
 
 
 class CheckState(AgentState):
@@ -49,107 +49,6 @@ def _handle_check_failed(
     }
 
 
-class CheckGenerateMiddleware(AgentMiddleware):
-    state_schema = CheckState
-
-    def __init__(
-        self,
-        error_time: int = 3,
-    ) -> None:
-        super().__init__()
-
-        self.error_time = error_time
-
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
-        return {'check_failed_count': 0}
-
-    @hook_config(can_jump_to=['model'])
-    def after_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
-        last_message = cast('AIMessage', state['messages'][-1])
-        if last_message.tool_calls:
-            return None
-
-        check_failed_count = state.get('check_failed_count', 0)
-
-        if 'file_mounts' not in state or not state['file_mounts']:
-            return _handle_check_failed(
-                check_failed_count,
-                [
-                    HumanMessage(
-                        content='You have not set up file mounts yet. Use the `set_file_mounts` tool to configure them.'
-                    )
-                ],
-                self.error_time,
-            )
-
-        if 'command_template' not in state or not state['command_template']:
-            return _handle_check_failed(
-                check_failed_count,
-                [
-                    HumanMessage(
-                        content='You have not set up command template yet. Use the `set_command_detail` tool to configure it.'
-                    )
-                ],
-                self.error_time,
-            )
-
-        if 'name' not in state or 'description' not in state:
-            return _handle_check_failed(
-                check_failed_count,
-                [
-                    HumanMessage(
-                        content='You have not completed the tool info yet. Use the `set_tool_info` tool to configure name and description.'
-                    )
-                ],
-                self.error_time,
-            )
-
-        # complete_command = build_command_template(
-        #     command_template=state['command_template'],
-        #     dynamic_params=state['dynamic_params'],
-        #     immutable_static_params=state['immutable_static_params'],
-        #     modifiable_static_params=state['modifiable_static_params'],
-        #     file_mounts=state['file_mounts'],
-        # )
-        # template_params = {field_name for _, field_name, _, _ in Formatter().parse(complete_command) if field_name}
-        # input_files = {mount.name for mount in state['file_mounts'] if mount.file_type == 'INPUT'}
-        #
-        # # # 检查1: template_params中的变量名是否只有input_files中值的以及output_dir和sample_name
-        # allowed_params = input_files | {'output_dir', 'sample_name'}
-        # invalid_params = template_params - allowed_params
-        # if invalid_params:
-        #     return _handle_check_failed(
-        #         check_failed_count,
-        #         [
-        #             HumanMessage(
-        #                 content=f'Invalid parameter(s) in command template: "{", ".join(invalid_params)}". Invoke the `set_command_detail` tool again based on the rules to make corrections.'
-        #             )
-        #         ],
-        #         self.error_time,
-        #     )
-        #
-        # # 检查2: input_files中的值是否在template_params中均存在
-        # missing_inputs = input_files - template_params
-        # if missing_inputs:
-        #     return _handle_check_failed(
-        #         check_failed_count,
-        #         [
-        #             HumanMessage(
-        #                 content=f'Input file(s) not used in command: "{", ".join(missing_inputs)}". '
-        #                 f'All input files must be referenced in the command. Check if the command_template and parameter settings are correct, and call the `set_command_detail` tool again to correct them.'
-        #             )
-        #         ],
-        #         self.error_time,
-        #     )
-
-        logger.success('Check passed')
-        return None
-
-    @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: CheckState, runtime: Runtime[BaseContext]) -> dict[str, Any] | None:  # noqa: D102
-        return self.after_model(state, runtime)
-
-
 class CheckTaskReportMiddleware(AgentMiddleware):
     state_schema = CheckState
 
@@ -186,7 +85,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         )
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: CheckState, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
+    async def aafter_model(self, state: CheckState, runtime: Runtime[FolderContext]) -> dict[str, Any] | None: # noqa: D102
         return self.after_model(state, runtime)
 
 

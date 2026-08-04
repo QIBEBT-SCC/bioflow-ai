@@ -1,7 +1,8 @@
-from typing import Any, Optional
+import operator
+from typing import Annotated, Any, Optional
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import StateT, hook_config
+from langchain.agents.middleware.types import AgentState, StateT, hook_config
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.runtime import Runtime
@@ -62,39 +63,6 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
 
         return None
 
-    # 部分模型不支持, 用这种方法反而会报错。改为直接使用工具提示来限制。
-    # @staticmethod
-    # def _disable_parallel(request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
-    #     return request.override(model_settings={**request.model_settings, 'parallel_tool_calls': False})
-    #
-    # def _disable_specific_tools_parallel(self, request: ModelRequest[ContextT]) -> ModelRequest[ContextT]:
-    #     if not self.disabled_tools:
-    #         return request.override(model_settings={**request.model_settings, 'parallel_tool_calls': False})
-    #
-    #     tool_list = '\n'.join(f'- {t}' for t in sorted(self.disabled_tools))
-    #     prompt = SPECIFIC_TOOLS_PARALLEL_PROMPT_TEMPLATE.format(tool_list=tool_list)
-    #     new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': prompt}]
-    #     return request.override(
-    #         model_settings={**request.model_settings, 'parallel_tool_calls': False},
-    #         system_message=SystemMessage(content=new_content),
-    #     )
-    #
-    # def wrap_model_call(
-    #     self,
-    #     request: ModelRequest[ContextT],
-    #     handler: Callable[[ModelRequest[ContextT]], ModelResponse[ResponseT]],
-    # ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
-    #     request = self._disable_specific_tools_parallel(request)
-    #     return handler(request)
-    #
-    # async def awrap_model_call(
-    #     self,
-    #     request: ModelRequest[ContextT],
-    #     handler: Callable[[ModelRequest[ContextT]], Awaitable[ModelResponse[ResponseT]]],
-    # ) -> ModelResponse[ResponseT] | AIMessage | ExtendedModelResponse[ResponseT]:
-    #     request = self._disable_specific_tools_parallel(request)
-    #     return await handler(request)
-
     @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         last_message = state['messages'][-1]
@@ -152,4 +120,27 @@ class TokenLimitMiddleware(AgentMiddleware):
 
             return {'checked': is_approved}
 
+        return None
+
+
+class RetryState(AgentState):
+    retry_times: Annotated[int, operator.add]
+
+
+class MaxRetriesError(Exception):
+    pass
+
+
+class MaxRetriesMiddleware(AgentMiddleware):
+    state_schema = RetryState
+
+    def __init__(self, max_retries: int = 5):
+        self.max_retries = max_retries
+
+    def before_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
+        return {'retry_times': 0}
+
+    def before_model(self, state: RetryState, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+        if state['retry_times'] >= self.max_retries:
+            raise MaxRetriesError
         return None

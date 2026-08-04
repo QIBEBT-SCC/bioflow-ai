@@ -44,6 +44,7 @@ def _validation_failed(message: str, tool_call_id: str | None) -> Command:
             'validated': False,
             'updated': False,
             'should_end': False,
+            'retry_times': 1,
             'messages': [
                 ToolMessage(content=f'Tool configuration validation failed: {message}', tool_call_id=tool_call_id)
             ],
@@ -56,7 +57,7 @@ def _build_validation_inputs(
     file_mounts: list[FileMount],
     test_run_id: str,
 ) -> dict[str, ResolvedToolInput]:
-    """Bind generated input handles to concrete files recorded by the test-run report."""
+    """确保输入报告中提到的每一个输入文件都定义了."""
     report_inputs = {file.name: file for file in report.input_files}
     generated_inputs = [file for file in file_mounts if file.file_type == 'INPUT']
     generated_names = {file.name for file in generated_inputs}
@@ -139,7 +140,7 @@ def _format_execution_exception(error: Exception, execution: DockerToolExecution
     )
 
 
-@tool('validate_tool_config')
+@tool(parse_docstring=True)
 def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
     """Run the generated tool configuration with the real test-run inputs.
 
@@ -147,6 +148,7 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
     fails, inspect the returned command, mount, or missing-output error, update the relevant configuration, and call
     this tool again. A successful validation ends the configuration task automatically.
     """
+    # 确保三个工具都已经调用过
     missing_fields = [field for field in REQUIRED_CONFIG_FIELDS if field not in runtime.state]
     if missing_fields:
         return _validation_failed(
@@ -176,6 +178,7 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
             sample_name='validation',
             params=config.modifiable_static_params or '',
         )
+        runtime.stream_writer({'validate_node': execution})
         execution_result = execute_docker_tool_with_result(execution)
         if not execution_result.succeeded:
             return _validation_failed(
