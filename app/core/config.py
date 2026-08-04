@@ -60,6 +60,7 @@ class CacheConfig(BaseSectionConfig):
     LLM_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/0')
     MONITOR_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
     API_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
+    NOTIFICATION_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
 
 
 class S3StorageConfig(BaseSectionConfig):

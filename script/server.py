@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     chat,
     code,
     genome,
+    notification,
     project,
     resource,
     run_instance,
@@ -24,9 +25,10 @@ from app.api.v1.endpoints import (
     workflow,
 )
 from app.core.config import get_settings
-from app.core.redis_client import close_cache_regis, setup_cache_redis
+from app.core.redis_client import close_cache_regis, notification_redis_client, setup_cache_redis
 from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
+from app.services.notification.gateway import NotificationGateway
 from app.utils.middleware import LogRequestMiddleware
 from llm.prebuild.dispatch import build_agents
 
@@ -38,6 +40,9 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     create_db_and_tables()
     init_bucket()
     main_app.state.redis = await setup_cache_redis()
+    notification_gateway = NotificationGateway(notification_redis_client)
+    await notification_gateway.start()
+    main_app.state.notification_gateway = notification_gateway
 
     async with AsyncExitStack() as stack:
         # A single long-lived checkpointer shared by every top-level agent. The agents are
@@ -62,6 +67,8 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
 
         yield
 
+    await notification_gateway.close()
+    await notification_redis_client.aclose()
     await close_cache_regis(main_app.state.redis)
     logger.info('server stop')
 
@@ -88,6 +95,7 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
     app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
     app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'])
+    app.include_router(notification.router, prefix='/api/v1/notifications', tags=['notification'])
     app.include_router(skill.router, prefix='/api/v1/skills', tags=['skill'])
     app.include_router(project.tag_router, prefix='/api/v1/project-tags', tags=['project'])
     app.include_router(project.router, prefix='/api/v1/projects', tags=['project'])

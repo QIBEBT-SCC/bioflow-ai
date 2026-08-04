@@ -2,6 +2,7 @@ from app.models.base import Base
 from app.models.chat import ChatMessages, ChatSessions
 from app.models.code import CodeDefine
 from app.models.document import ParentDocument
+from app.models.notification import NotificationChannel, NotificationSubscription
 from app.models.project import Project, ProjectFileMapping, ProjectStar, ProjectTag, ProjectTagLink
 from app.models.resource import BioDb, File, ReferenceGenomes, Sample, SampleFiles
 from app.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic
@@ -19,6 +20,8 @@ __all__ = [
     'LLMModel',
     'LLMProvider',
     'LLMSetting',
+    'NotificationChannel',
+    'NotificationSubscription',
     'LLMStatistic',
     'ParentDocument',
     'Project',

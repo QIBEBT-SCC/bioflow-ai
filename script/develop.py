@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -31,6 +32,28 @@ TOOL_STATUS_FAILED = 'FAILED'
 TOOL_STATUS_COMPLETED = 'COMPLETED'
 TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_STATUS_FAILED)
 TOOL_TRAJECTORY_AGENTS = ('test_run', 'tool_generator')
+
+
+def _format_notification_duration(duration_ms: int) -> str:
+    seconds = max(0, round(duration_ms / 1000))
+    minutes, remainder = divmod(seconds, 60)
+    if minutes:
+        return f'{minutes} 分 {remainder} 秒'
+    return f'{remainder} 秒'
+
+
+async def _publish_tool_creation_event(event_type: str, message: str) -> None:
+    """Publish a tool-creation event without changing the underlying task outcome."""
+    try:
+        from app.services.notification.events import publish_notification
+
+        await publish_notification(
+            event_type,
+            source='develop.create_tool',
+            message=message,
+        )
+    except Exception:
+        logger.exception('工具创建状态已更新, 但通知事件发布失败。')
 
 
 def _default_trajectory_dataset_path() -> str:
@@ -433,6 +456,7 @@ async def init_tools(index: int | None = None) -> None:
     from langchain_core.messages import HumanMessage
     from rich.console import Console
 
+    from app.schemas.notification import NotificationEventType
     from llm.context import CreateToolContext
     from llm.utils.render import print_stream_chunk
 
@@ -461,6 +485,8 @@ async def init_tools(index: int | None = None) -> None:
         )
 
     console = Console()
+    completed_count = 0
+    total_count = len(todo_rows)
 
     async with _tool_agent_session(setup=True) as (_, agent):
         for row in todo_rows:
@@ -497,6 +523,7 @@ async def init_tools(index: int | None = None) -> None:
                 save_message=True,
                 test_run_id=thread_id,
             )
+            started_at_monotonic = time.monotonic()
 
             con.execute(
                 """UPDATE tool_functions
@@ -526,6 +553,8 @@ async def init_tools(index: int | None = None) -> None:
 
                 response = await agent.aget_state(config)
             except Exception as error:
+                error_message = f'{type(error).__name__}: {error}'
+                duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
                 con.execute(
                     """UPDATE tool_functions
                        SET status = ?,
@@ -533,7 +562,17 @@ async def init_tools(index: int | None = None) -> None:
                            last_error = ?,
                            updated_at = current_timestamp
                        WHERE index = ?""",
-                    [TOOL_STATUS_FAILED, f'{type(error).__name__}: {error}', row_index],
+                    [TOOL_STATUS_FAILED, error_message, row_index],
+                )
+                await _publish_tool_creation_event(
+                    NotificationEventType.TOOL_CREATE_FAILED,
+                    '## BioFlow AI 工具创建异常退出\n'
+                    f'> 工具: **{tool_name}**\n'
+                    f'> 数据索引: {row_index}\n'
+                    f'> 耗时: {_format_notification_duration(duration_ms)}\n'
+                    f'> 当前批次已完成: {completed_count}/{total_count}\n\n'
+                    f'任务线程: `{thread_id}`\n\n'
+                    f'异常: `{type(error).__name__}` {str(error)[:1000]}',
                 )
                 raise
 
@@ -546,7 +585,19 @@ async def init_tools(index: int | None = None) -> None:
                 )
                 logger.error(f'{thread_id} interrupted')
                 rich.print(response.interrupts)
+                duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
+                await _publish_tool_creation_event(
+                    NotificationEventType.TOOL_CREATE_INTERRUPTED,
+                    '## BioFlow AI 工具创建被中断\n'
+                    f'> 工具: **{tool_name}**\n'
+                    f'> 数据索引: {row_index}\n'
+                    f'> 耗时: {_format_notification_duration(duration_ms)}\n'
+                    f'> 当前批次已完成: {completed_count}/{total_count}\n\n'
+                    f'任务线程: `{thread_id}`\n\n'
+                    f'中断信息: {str(response.interrupts)[:1000]}',
+                )
             else:
+                tool_uid = response.values['tool_uid']
                 con.execute(
                     """UPDATE tool_functions
                        SET status = ?,
@@ -554,9 +605,21 @@ async def init_tools(index: int | None = None) -> None:
                            finished_at = current_timestamp,
                            updated_at = current_timestamp
                        WHERE index = ?""",
-                    [TOOL_STATUS_COMPLETED, response.values['tool_uid'], row_index],
+                    [TOOL_STATUS_COMPLETED, tool_uid, row_index],
                 )
                 logger.success(f'{thread_id} done')
+                completed_count += 1
+                duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
+                await _publish_tool_creation_event(
+                    NotificationEventType.TOOL_CREATE_SUCCEEDED,
+                    '## BioFlow AI 工具创建成功\n'
+                    f'> 工具: **{tool_name}**\n'
+                    f'> 数据索引: {row_index}\n'
+                    f'> Tool UID: `{tool_uid}`\n'
+                    f'> 耗时: {_format_notification_duration(duration_ms)}\n'
+                    f'> 批次进度: {completed_count}/{total_count}\n\n'
+                    f'任务线程: `{thread_id}`',
+                )
 
     con.close()
 
@@ -775,7 +838,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
             logger.info(f'要删除的数据 (index={index}): {tool_info}')
             valid_indices.append(index)
 
-            if tool_uid:= tool_info.get('tool_uid'):
+            if tool_uid := tool_info.get('tool_uid'):
                 with Session(engine) as session:
                     tool_crud.delete(session, tool_uid)
                     session.commit()

@@ -405,3 +405,31 @@ CREATE TABLE IF NOT EXISTS files
     PRIMARY KEY (id),
     UNIQUE (sha256)
 );
+
+-- 系统通知渠道
+CREATE TABLE IF NOT EXISTS notification_channels
+(
+    id                SERIAL                   NOT NULL,
+    name              VARCHAR(120)             NOT NULL,
+    provider          VARCHAR(32)              NOT NULL,
+    enabled           BOOLEAN                  NOT NULL DEFAULT TRUE,
+    config            jsonb                    NOT NULL DEFAULT '{}'::jsonb,
+    secret_ciphertext TEXT                     NOT NULL,
+    last_attempt_at   TIMESTAMP WITH TIME ZONE,
+    last_success_at   TIMESTAMP WITH TIME ZONE,
+    last_error        TEXT,
+    created_at        TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at        TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (name)
+);
+
+CREATE TABLE IF NOT EXISTS notification_subscriptions
+(
+    id         SERIAL       NOT NULL,
+    channel_id INTEGER      NOT NULL,
+    event_type VARCHAR(120) NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE (channel_id, event_type),
+    FOREIGN KEY (channel_id) REFERENCES notification_channels ON DELETE CASCADE
+);

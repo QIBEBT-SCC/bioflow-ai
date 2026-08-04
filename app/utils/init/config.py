@@ -193,6 +193,7 @@ def apply_update_port(settings: 'Settings', update_port: UpdatePort) -> None:
         settings.persistent.cache.LLM_CACHE = RedisDsn(f'redis://localhost:{redis_port}/0')
         settings.persistent.cache.MONITOR_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
         settings.persistent.cache.API_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
+        settings.persistent.cache.NOTIFICATION_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
         settings.celery.BACKEND = RedisDsn(f'redis://localhost:{redis_port}/1')
         settings.develop.CHECKPOINT_URL = RedisDsn(f'redis://localhost:{redis_port}/0')
 

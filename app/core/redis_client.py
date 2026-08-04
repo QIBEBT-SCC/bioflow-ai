@@ -1,7 +1,7 @@
 from typing import Annotated, TypeAlias
 
 from fastapi import Depends
-from langgraph.checkpoint.redis import AsyncRedisSaver, RedisSaver
+from langgraph.checkpoint.redis import AsyncRedisSaver
 from redis.asyncio import Redis
 from starlette.requests import Request
 
@@ -9,6 +9,7 @@ from app.core.config import get_settings
 
 settings = get_settings().persistent.cache
 monitor_redis_client = Redis.from_url(settings.MONITOR_CACHE.unicode_string())
+notification_redis_client = Redis.from_url(settings.NOTIFICATION_CACHE.unicode_string(), decode_responses=True)
 
 
 async def setup_cache_redis() -> Redis:
