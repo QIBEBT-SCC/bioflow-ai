@@ -100,6 +100,12 @@ def _validate_extra_mounts(
                 tool_call_id,
             )
 
+        if mount.source and not Path(mount.source).exists():
+            return [], _blocked_command(
+                f'The source path `{mount.source}` does not exist. `source` must be an actual directory or file path on the host machine.',
+                tool_call_id,
+            )
+
     return mounts, None
 
 
