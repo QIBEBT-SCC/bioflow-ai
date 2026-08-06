@@ -593,6 +593,7 @@ async def init_tools(index: int | None = None) -> None:
                 )
             else:
                 tool_uid = response.values['tool_uid']
+                node_name = response.values['name']
                 con.execute(
                     """UPDATE tool_functions
                        SET status = ?,
@@ -610,7 +611,7 @@ async def init_tools(index: int | None = None) -> None:
                     '## BioFlow AI 工具创建成功\n'
                     f'- 工具: **{tool_name}**\n'
                     f'- 编号: {row_index}\n'
-                    f'- Tool UID: `{tool_uid}`\n'
+                    f'- 节点名称: `{node_name}`\n'
                     f'- 耗时: {_format_notification_duration(duration_ms)}',
                 )
 
