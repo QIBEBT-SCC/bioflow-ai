@@ -4,7 +4,7 @@ from typing import Any, NotRequired, cast
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from loguru import logger
@@ -85,7 +85,7 @@ class CheckTaskReportMiddleware(AgentMiddleware):
         )
 
     @hook_config(can_jump_to=['model'])
-    async def aafter_model(self, state: CheckState, runtime: Runtime[FolderContext]) -> dict[str, Any] | None: # noqa: D102
+    async def aafter_model(self, state: CheckState, runtime: Runtime[FolderContext]) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)
 
 
@@ -116,6 +116,36 @@ class CheckStateExistMiddleware(AgentMiddleware):
         # 此时检查: 1、state_name 有内容; 2、updated 为真
         if state.get(self.state_name) and state['updated']:  # type: ignore
             return None
+
+        # 当存在错误的工具调用尝试时, 模型也会解析到这里, 需要额外处理
+        invalid_tool_calls = getattr(last_message, 'invalid_tool_calls', [])
+        if invalid_tool_calls:
+            messages = [
+                ToolMessage(
+                    content=(
+                        f'The `{tool_call["name"]}` tool call failed because its arguments could not be parsed. '
+                        'Please correct the arguments and try the tool call again.'
+                    ),
+                    tool_call_id=tool_call['id'],
+                )
+                for tool_call in invalid_tool_calls
+            ]
+
+            messages.extend(
+                ToolMessage(
+                    content=(
+                        'This tool call was not executed because another tool call in the same response failed. '
+                        'Please try the tool call again.'
+                    ),
+                    tool_call_id=tool_call['id'],
+                )
+                for tool_call in getattr(last_message, 'tool_calls', [])
+            )
+
+            return {
+                'jump_to': 'model',
+                'messages': messages,
+            }
 
         return {
             'jump_to': 'model',
