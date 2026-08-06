@@ -593,7 +593,6 @@ async def init_tools(index: int | None = None) -> None:
                 )
             else:
                 tool_uid = response.values['tool_uid']
-                node_name = response.values['name']
                 con.execute(
                     """UPDATE tool_functions
                        SET status = ?,
@@ -606,14 +605,24 @@ async def init_tools(index: int | None = None) -> None:
                 logger.success(f'{thread_id} done')
                 completed_count += 1
                 duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
-                await _publish_tool_creation_event(
-                    NotificationEventType.TOOL_CREATE_SUCCEEDED,
-                    '## BioFlow AI 工具创建成功\n'
-                    f'- 工具: **{tool_name}**\n'
-                    f'- 编号: {row_index}\n'
-                    f'- 节点名称: `{node_name}`\n'
-                    f'- 耗时: {_format_notification_duration(duration_ms)}',
-                )
+                if node_name := response.values.get('name'):
+                    await _publish_tool_creation_event(
+                        NotificationEventType.TOOL_CREATE_SUCCEEDED,
+                        '## BioFlow AI 工具创建成功\n'
+                        f'- 工具: **{tool_name}**\n'
+                        f'- 编号: {row_index}\n'
+                        f'- 节点名称: `{node_name}`\n'
+                        f'- 耗时: {_format_notification_duration(duration_ms)}',
+                    )
+                else:
+                    await _publish_tool_creation_event(
+                        NotificationEventType.TOOL_CREATE_SUCCEEDED,
+                        '## BioFlow AI 工具创建成功\n'
+                        f'- 工具: **{tool_name}**\n'
+                        f'- 编号: {row_index}\n'
+                        f'- 耗时: {_format_notification_duration(duration_ms)}\n'
+                        f'数据库中存在现有节点, 未新建',
+                    )
 
     con.close()
 
