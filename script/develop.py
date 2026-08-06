@@ -567,12 +567,10 @@ async def init_tools(index: int | None = None) -> None:
                 await _publish_tool_creation_event(
                     NotificationEventType.TOOL_CREATE_FAILED,
                     '## BioFlow AI 工具创建异常退出\n'
-                    f'> 工具: **{tool_name}**\n'
-                    f'> 数据索引: {row_index}\n'
-                    f'> 耗时: {_format_notification_duration(duration_ms)}\n'
-                    f'> 当前批次已完成: {completed_count}/{total_count}\n\n'
-                    f'任务线程: `{thread_id}`\n\n'
-                    f'异常: `{type(error).__name__}` {str(error)[:1000]}',
+                    f'- 工具: **{tool_name}**\n'
+                    f'- 编号: {row_index}\n'
+                    f'- 耗时: {_format_notification_duration(duration_ms)}\n'
+                    f'> 异常: `{type(error).__name__}` {str(error)[:1000]}',
                 )
                 raise
 
@@ -588,13 +586,11 @@ async def init_tools(index: int | None = None) -> None:
                 duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
                 await _publish_tool_creation_event(
                     NotificationEventType.TOOL_CREATE_INTERRUPTED,
-                    '## BioFlow AI 工具创建被中断\n'
-                    f'> 工具: **{tool_name}**\n'
-                    f'> 数据索引: {row_index}\n'
-                    f'> 耗时: {_format_notification_duration(duration_ms)}\n'
-                    f'> 当前批次已完成: {completed_count}/{total_count}\n\n'
-                    f'任务线程: `{thread_id}`\n\n'
-                    f'中断信息: {str(response.interrupts)[:1000]}',
+                    '## BioFlow AI 工具创建中断\n'
+                    f'- 工具: **{tool_name}**\n'
+                    f'- 编号: {row_index}\n'
+                    f'- 耗时: {_format_notification_duration(duration_ms)}\n'
+                    f'> 中断信息: {response.interrupts[0].value}',
                 )
             else:
                 tool_uid = response.values['tool_uid']
@@ -613,12 +609,10 @@ async def init_tools(index: int | None = None) -> None:
                 await _publish_tool_creation_event(
                     NotificationEventType.TOOL_CREATE_SUCCEEDED,
                     '## BioFlow AI 工具创建成功\n'
-                    f'> 工具: **{tool_name}**\n'
-                    f'> 数据索引: {row_index}\n'
-                    f'> Tool UID: `{tool_uid}`\n'
-                    f'> 耗时: {_format_notification_duration(duration_ms)}\n'
-                    f'> 批次进度: {completed_count}/{total_count}\n\n'
-                    f'任务线程: `{thread_id}`',
+                    f'- 工具: **{tool_name}**\n'
+                    f'- 编号: {row_index}\n'
+                    f'- Tool UID: `{tool_uid}`\n'
+                    f'- 耗时: {_format_notification_duration(duration_ms)}',
                 )
 
     con.close()
