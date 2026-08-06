@@ -152,14 +152,18 @@ def check_exist_container(compose_command: list[str]) -> RunningServicesResult:
 
 
 def prepare_container_volumes() -> OperationResult:
-    """Prepare first-run compose mount directories."""
+    """Prepare compose mount directories and their required ownership."""
     rustfs_path = Path('volumes') / 'rustfs'
-    if rustfs_path.exists():
-        return OperationResult(success=True)
-    rustfs_path.mkdir(parents=True, exist_ok=True)
-    os.chown(rustfs_path, 10001, 10001)
+    if not rustfs_path.exists():
+        rustfs_path.mkdir(parents=True, exist_ok=True)
+        os.chown(rustfs_path, 10001, 10001)
 
-    return OperationResult(success=True, message=f'已准备 RustFS 数据目录: {rustfs_path}')
+    milvus_path = Path('volumes') / 'milvus'
+    if not milvus_path.exists():
+        milvus_path.mkdir(parents=True, exist_ok=True)
+        os.chown(milvus_path, 999, 999)
+
+    return OperationResult(success=True, message=f'初始化 RustFS 和 Milvus 数据目录: {rustfs_path}, {milvus_path}')
 
 
 def initialize_project_containers(

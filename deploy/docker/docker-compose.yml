@@ -31,8 +31,8 @@ services:
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rustfs:/data
     command: >
-      --address :9000 
-      --console-enable 
+      --address :9000
+      --console-enable
       /data
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9000/health" ]
@@ -44,7 +44,7 @@ services:
 
   standalone:
     container_name: milvus-standalone
-    image: docker.io/milvusdb/milvus:v2.6.14
+    image: docker.io/milvusdb/milvus:v3.0.0
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
