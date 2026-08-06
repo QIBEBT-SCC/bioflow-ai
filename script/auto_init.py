@@ -5,7 +5,6 @@ from app.utils.init import tui
 from app.utils.init.config import create_settings
 from app.utils.init.containers import initialize_project_containers
 from app.utils.init.database import initialize_preset_database
-from app.utils.init.providers import initialize_llm_providers
 from app.utils.init.test_data import initialize_test_data
 
 
@@ -45,6 +44,9 @@ def run_auto_init() -> None:
 
     provider_ready = None
     if container_ready is not False and database_ready is not False:
+        # Import after config.toml has been created so the database engine uses the new settings.
+        from app.utils.init.providers import initialize_llm_providers
+
         provider_ready = initialize_llm_providers()
 
     if any(result is False for result in (test_data_ready, container_ready, database_ready, provider_ready)):

@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import Settings
+from app.utils import health_check
 from app.utils.init import tui
 from app.utils.init.common import run_command
 from app.utils.init.ports import UpdatePort
@@ -18,6 +20,24 @@ if TYPE_CHECKING:
 
 COMPOSE_TEMPLATE_ROOT = Path('deploy')
 COMPOSE_FILE = Path('docker-compose.yml')
+REQUIRED_SERVICES = frozenset(
+    {
+        'etcd',
+        'rustfs',
+        'standalone',
+        'rabbitmq-db',
+        'redis-db',
+        'postgres-db',
+        'web-ui',
+    }
+)
+SERVICE_HEALTH_CHECKS: dict[str, Callable[[list[str], Path], bool]] = {
+    'postgres-db': health_check.check_postgres,
+    'rustfs': health_check.check_rustfs,
+    'standalone': health_check.check_milvus,
+}
+SERVICE_READY_TIMEOUT_SECONDS = 180.0
+SERVICE_READY_POLL_SECONDS = 2.0
 
 
 class ComposeCommandResult(BaseModel):
@@ -151,6 +171,38 @@ def check_exist_container(compose_command: list[str]) -> RunningServicesResult:
     return RunningServicesResult(success=True, services=services)
 
 
+def check_unready_services(compose_command: list[str]) -> list[str]:
+    """Return missing, stopped, or unhealthy project services."""
+    running_result = check_exist_container(compose_command)
+    if not running_result.success:
+        return sorted(REQUIRED_SERVICES)
+
+    running_services = set(running_result.services)
+    unready = set(REQUIRED_SERVICES - running_services)
+    for service, check_service in SERVICE_HEALTH_CHECKS.items():
+        if service in running_services and not check_service(compose_command, COMPOSE_FILE):
+            unready.add(service)
+    return sorted(unready)
+
+
+def wait_for_project_services(
+    compose_command: list[str],
+    *,
+    timeout: float = SERVICE_READY_TIMEOUT_SECONDS,
+    poll_interval: float = SERVICE_READY_POLL_SECONDS,
+) -> OperationResult:
+    """Wait until all compose services run and initialization dependencies report healthy."""
+    deadline = time.monotonic() + timeout
+    while True:
+        unready_services = check_unready_services(compose_command)
+        if not unready_services:
+            return OperationResult(success=True, message='项目依赖服务已就绪。')
+        if time.monotonic() >= deadline:
+            names = ', '.join(unready_services)
+            return OperationResult(success=False, error=f'等待项目依赖服务就绪超时: {names}')
+        time.sleep(poll_interval)
+
+
 def prepare_container_volumes() -> OperationResult:
     """Prepare compose mount directories and their required ownership."""
     rustfs_path = Path('volumes') / 'rustfs'
@@ -205,10 +257,17 @@ def initialize_project_containers(
     running_result = check_exist_container(compose_command)
     if not running_result.success:
         tui.render_notice(running_result.error or '无法读取 compose 运行状态。', style='#f59e0b')
-    if running_result.services:
+    running_services = set(running_result.services)
+    if running_services:
         tui.console.print(f'[bold #10b981]检测到已运行服务:[/bold #10b981] {", ".join(running_result.services)}')
-        tui.render_notice('项目容器已在运行, 跳过启动。', style='#94a3b8')
-        return True
+    if running_services >= REQUIRED_SERVICES:
+        tui.render_notice('项目容器已在运行, 正在检查服务状态。', style='#94a3b8')
+        ready_result = wait_for_project_services(compose_command)
+        if ready_result.success:
+            tui.render_notice(ready_result.message or '项目依赖服务已就绪。', style='#10b981')
+            return True
+        tui.render_notice(ready_result.error or '项目依赖服务未就绪。', style='#ef4444')
+        return False
 
     volume_result = prepare_container_volumes()
     if not volume_result.success:
@@ -225,5 +284,10 @@ def initialize_project_containers(
         tui.render_notice(f'项目容器启动失败, compose 退出码: {result.returncode}', style='#ef4444')
         return False
 
-    tui.render_notice('项目容器启动命令已执行。', style='#10b981')
+    tui.render_notice('项目容器启动命令已执行, 正在等待依赖服务就绪。', style='#10b981')
+    ready_result = wait_for_project_services(compose_command)
+    if not ready_result.success:
+        tui.render_notice(ready_result.error or '项目依赖服务未就绪。', style='#ef4444')
+        return False
+    tui.render_notice(ready_result.message or '项目依赖服务已就绪。', style='#10b981')
     return True

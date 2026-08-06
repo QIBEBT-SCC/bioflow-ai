@@ -40,7 +40,7 @@ class LogConfig(BaseSectionConfig):
 
 
 class NetworkConfig(BaseSectionConfig):
-    HOST: str = 'localhost'
+    HOST: str = '0.0.0.0'  # noqa: S104 - the containerized Web UI reaches the host API through host-gateway.
     PORT: int = 8000
     CORS_ORIGINS: list[str] = ['http://localhost:3000']
     PROXY_TYPE: Literal['http', 'socks5'] = 'http'
