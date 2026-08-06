@@ -486,7 +486,6 @@ async def init_tools(index: int | None = None) -> None:
 
     console = Console()
     completed_count = 0
-    total_count = len(todo_rows)
 
     async with _tool_agent_session(setup=True) as (_, agent):
         for row in todo_rows:
