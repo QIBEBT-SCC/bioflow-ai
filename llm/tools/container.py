@@ -83,7 +83,7 @@ def _resolve_image_ref(
     return tool_image.image, known_images, None
 
 
-def _validate_extra_mounts(
+async def _validate_extra_mounts(
     mounts: list[ContainerMount] | None,
     tool_call_id: str | None,
 ) -> tuple[list[ContainerMount], Command | None]:
@@ -100,7 +100,7 @@ def _validate_extra_mounts(
                 tool_call_id,
             )
 
-        if mount.source and not Path(mount.source).exists():
+        if mount.source and not await Path(mount.source).exists():
             return [], _blocked_command(
                 f'The source path `{mount.source}` does not exist. `source` must be an actual directory or file path on the host machine.',
                 tool_call_id,
@@ -160,7 +160,7 @@ async def advance_run_command_tool(
 
     testdata_path = await (await Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser()).resolve()
 
-    extra_mounts, invalid_mount = _validate_extra_mounts(mounts, runtime.tool_call_id)
+    extra_mounts, invalid_mount = await _validate_extra_mounts(mounts, runtime.tool_call_id)
     if invalid_mount is not None:
         return invalid_mount
 
