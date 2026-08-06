@@ -166,6 +166,27 @@ def render_preset_database_summary(result: Any) -> None:
     )
 
 
+def render_model_role_assignments(assignments: list[tuple[str, str]]) -> None:
+    """Render the model currently assigned to each system role."""
+    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    table.add_column(style='#64748b', justify='right')
+    table.add_column(style='#cbd5e1')
+    table.add_column(style='#10b981')
+    for index, (role_label, model_label) in enumerate(assignments, start=1):
+        table.add_row(str(index), role_label, model_label)
+
+    console.print()
+    console.print(
+        Panel(
+            table,
+            title='[bold #f8fafc]系统智能体模型[/bold #f8fafc]',
+            border_style='#334155',
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def render_system_success() -> None:
     """Render system initialization success."""
     console.print()
