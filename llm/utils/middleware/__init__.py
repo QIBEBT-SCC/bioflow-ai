@@ -4,6 +4,7 @@ from llm.utils.middleware.archive import SaveMessagesMiddleware
 from llm.utils.middleware.cleanup import ClearContainerMiddleware
 from llm.utils.middleware.end_loop import AskAndEndMiddleware, EndLoopMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
+from llm.utils.middleware.frontend_progress import SampleManagerProgressMiddleware
 from llm.utils.middleware.limit import DisableParallelToolCallsMiddleware, MaxRetriesMiddleware, TokenLimitMiddleware
 from llm.utils.middleware.skill import SkillMiddleware
 from llm.utils.middleware.statistic import TokenStatisticMiddleware
@@ -18,6 +19,7 @@ __all__ = [
     'EndLoopMiddleware',
     'InitedTodoMiddleware',
     'MaxRetriesMiddleware',
+    'SampleManagerProgressMiddleware',
     'SaveMessagesMiddleware',
     'SkillMiddleware',
     'StatusBarMiddleware',

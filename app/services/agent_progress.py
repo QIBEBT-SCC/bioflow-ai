@@ -4,12 +4,29 @@ from app.models.agent import AgentRun
 from app.schemas.agent import AgentName
 from app.utils.jsonable import to_json_object
 
+SAMPLE_MANAGER_PROGRESS_KEYS = (
+    'sample_list_project_samples',
+    'sample_set_base_dir',
+    'sample_run_command',
+    'sample_add_samples',
+    'sample_add_sample_file',
+    'sample_add_project_file',
+    'sample_write_conclusion',
+    'sample_ask_human',
+)
+
 
 def event_payload(payload: object) -> dict[str, Any]:
     """Normalize LangGraph custom stream values into stable UI activities."""
     converted = to_json_object(payload)
     if isinstance(payload, str):
         return {'kind': 'info', 'message': payload}
+
+    sample_progress_key = next((key for key in SAMPLE_MANAGER_PROGRESS_KEYS if key in converted), None)
+    if sample_progress_key is not None:
+        sample_progress = converted[sample_progress_key]
+        if isinstance(sample_progress, dict):
+            return {'kind': sample_progress_key, **sample_progress}
 
     info = converted.get('info')
     if isinstance(info, str):

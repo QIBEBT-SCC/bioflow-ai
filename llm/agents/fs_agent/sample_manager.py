@@ -18,7 +18,7 @@ from llm.tools.sample import (
     set_base_dir,
     write_conclusion,
 )
-from llm.utils.middleware import StatusBarMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import SampleManagerProgressMiddleware, StatusBarMiddleware, TokenStatisticMiddleware
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
@@ -160,6 +160,7 @@ def build_create_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -
             ],
             system_prompt=SYSTEM_PROMPT,
             middleware=[
+                SampleManagerProgressMiddleware(),
                 StatusBarMiddleware(),
                 CheckStateExistMiddleware('summary', 'write_conclusion'),
                 TokenStatisticMiddleware('sample_manager', **metadata),
@@ -183,6 +184,7 @@ def build_create_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -
         ],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
+            SampleManagerProgressMiddleware(),
             StatusBarMiddleware(),
             CheckStateExistMiddleware('summary', 'write_conclusion'),
             TokenStatisticMiddleware('sample_manager', **metadata),
