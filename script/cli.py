@@ -31,6 +31,17 @@ def worker() -> None:
     main()
 
 
+@cli.command(name='agent-worker')
+@click.option('--concurrency', type=click.IntRange(min=1), default=1, show_default=True)
+def agent_worker(*, concurrency: int) -> None:
+    """Start the isolated Celery worker for web agent runs."""
+    from app.utils.logger import init_logging
+    from script.worker import agent_main
+
+    init_logging()
+    agent_main(concurrency=concurrency)
+
+
 @cli.command(name='auto-init')
 def auto_init() -> None:
     """Run the interactive system initialization wizard (config + database)."""

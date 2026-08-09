@@ -18,6 +18,7 @@ celery_app.conf.update(
     result_serializer='pickle',
     accept_content=['pickle'],
     task_track_started=True,
+    task_routes={'app.tasks.agent_run.execute_agent_run': {'queue': 'agent'}},
     enable_utc=True,
     timezone='Asia/Shanghai',
 )
@@ -32,6 +33,7 @@ celery_app.autodiscover_tasks(
         'app.tasks.code',
         'app.tasks.file_operation',
         'app.tasks.run_tool',
+        'app.tasks.agent_run',
     ],
     # pyrefly: ignore [bad-argument-type]
     None,
@@ -50,5 +52,12 @@ def main() -> None:
     celery_app.worker_main(argv=args)
 
 
-if __name__ == '__main__':
-    main()
+def agent_main(*, concurrency: int = 1) -> None:
+    """Start the isolated long-running agent worker."""
+    args = [
+        'worker',
+        f'--loglevel={get_settings().logger.CELERY_LEVEL}',
+        '--queues=agent',
+        f'--concurrency={concurrency}',
+    ]
+    celery_app.worker_main(argv=args)

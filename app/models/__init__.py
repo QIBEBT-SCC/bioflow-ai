@@ -1,5 +1,5 @@
+from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentSession
 from app.models.base import Base
-from app.models.chat import ChatMessages, ChatSessions
 from app.models.code import CodeDefine
 from app.models.document import ParentDocument
 from app.models.notification import NotificationChannel, NotificationSubscription
@@ -11,18 +11,20 @@ from app.models.user import User
 from app.models.workflow import ProjectWorkflow, RunInstance, TaskInstance, TaskMonitor, Workflow
 
 __all__ = [
+    'AgentEvent',
+    'AgentMessage',
+    'AgentRun',
+    'AgentSession',
     'Base',
     'BioDb',
-    'ChatMessages',
-    'ChatSessions',
     'CodeDefine',
     'File',
     'LLMModel',
     'LLMProvider',
     'LLMSetting',
+    'LLMStatistic',
     'NotificationChannel',
     'NotificationSubscription',
-    'LLMStatistic',
     'ParentDocument',
     'Project',
     'ProjectFileMapping',

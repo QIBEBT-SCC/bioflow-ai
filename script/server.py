@@ -1,16 +1,14 @@
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from importlib.metadata import metadata
 
 import uvicorn
 from fastapi import FastAPI
-from langgraph.checkpoint.redis import AsyncRedisSaver
-from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.v1.endpoints import (
+    agent,
     auth,
-    chat,
     code,
     genome,
     notification,
@@ -30,7 +28,6 @@ from app.core.s3_client import init_bucket
 from app.core.session import create_db_and_tables
 from app.services.notification.gateway import NotificationGateway
 from app.utils.middleware import LogRequestMiddleware
-from llm.prebuild.dispatch import build_agents
 
 meta = metadata('bioflow-ai')
 
@@ -44,28 +41,7 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     await notification_gateway.start()
     main_app.state.notification_gateway = notification_gateway
 
-    async with AsyncExitStack() as stack:
-        # A single long-lived checkpointer shared by every top-level agent. The agents are
-        # compiled once here and cached on app.state; per request only thread_id/context vary.
-        checkpointer = await stack.enter_async_context(
-            AsyncRedisSaver.from_conn_string(get_settings().persistent.cache.LLM_CACHE.unicode_string())
-        )
-        checkpointer.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('llm.states', 'BuildEdge'),
-                ('llm.states', 'BuildNode'),
-                ('llm.utils.middleware.todo', 'Todo'),
-                ('llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ('app.schemas.tool_config', 'FileMount'),
-                ('app.schemas.tool_config', 'ImageConfig'),
-                ('app.schemas.tool_config', 'ParamDefine'),
-                ('llm.tools.test_run_report', 'TestRunReport'),
-            ]
-        )
-        main_app.state.checkpointer = checkpointer
-        main_app.state.chat_agents = build_agents(checkpointer)
-
-        yield
+    yield
 
     await notification_gateway.close()
     await notification_redis_client.aclose()
@@ -93,6 +69,8 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
         app.add_middleware(LogRequestMiddleware)
 
     app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
+    app.include_router(agent.session_router, prefix='/api/v1/agent-sessions', tags=['agent'])
+    app.include_router(agent.run_router, prefix='/api/v1/agent-runs', tags=['agent'])
     app.include_router(user.router, prefix='/api/v1/user', tags=['user'])
     app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'])
     app.include_router(notification.router, prefix='/api/v1/notifications', tags=['notification'])
@@ -111,8 +89,6 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'])
     app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'])
     app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'])
-    app.include_router(chat.router, prefix='/api/v1/chat', tags=['chat'])
-
     return app
 
 

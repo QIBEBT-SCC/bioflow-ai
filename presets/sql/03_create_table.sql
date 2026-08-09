@@ -11,28 +11,6 @@ CREATE TABLE IF NOT EXISTS users
     UNIQUE (email)
 );
 
-CREATE TABLE IF NOT EXISTS chat_sessions
-(
-    uid            uuid                     NOT NULL,
-    owner_id       INTEGER                  NOT NULL,
-    description    VARCHAR                  NOT NULL,
-    checkpoint_uid uuid,
-    route          VARCHAR,
-    interrupted    BOOLEAN                  NOT NULL,
-    create_time    TIMESTAMP WITH TIME ZONE NOT NULL,
-    update_time    TIMESTAMP WITH TIME ZONE NOT NULL,
-    PRIMARY KEY (uid),
-    FOREIGN KEY (owner_id) REFERENCES users
-);
-
-CREATE TABLE IF NOT EXISTS chat_messages
-(
-    id         SERIAL,
-    session_id VARCHAR NOT NULL,
-    message    jsonb   NOT NULL,
-    PRIMARY KEY (id)
-);
-
 -- 设置相关
 CREATE TYPE providertype AS ENUM ('OPENAI', 'ANTHROPIC', 'GOOGLE');
 CREATE TABLE IF NOT EXISTS llm_providers
@@ -114,6 +92,71 @@ CREATE TABLE IF NOT EXISTS projects
     update_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (owner_id) REFERENCES users
+);
+
+-- 可持久执行和重放的 Web 智能体会话
+CREATE TABLE IF NOT EXISTS agent_sessions
+(
+    uid         uuid                     NOT NULL,
+    owner_id    INTEGER                  NOT NULL,
+    project_id  INTEGER,
+    title       VARCHAR(200)             NOT NULL DEFAULT '',
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    update_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (uid),
+    FOREIGN KEY (owner_id) REFERENCES users ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS agent_runs
+(
+    uid                  uuid                     NOT NULL,
+    session_uid          uuid                     NOT NULL,
+    project_id           INTEGER,
+    agent_name           VARCHAR(64)              NOT NULL,
+    status               VARCHAR(32)              NOT NULL DEFAULT 'queued',
+    checkpoint_thread_id VARCHAR(64)              NOT NULL,
+    celery_task_id       VARCHAR(64),
+    interrupt_payload    jsonb,
+    result_payload       jsonb,
+    error_code           VARCHAR(64),
+    error_message        TEXT,
+    cancel_requested     BOOLEAN                  NOT NULL DEFAULT FALSE,
+    retry_of_uid         uuid,
+    heartbeat_at         TIMESTAMP WITH TIME ZONE,
+    create_time          TIMESTAMP WITH TIME ZONE NOT NULL,
+    start_time           TIMESTAMP WITH TIME ZONE,
+    end_time             TIMESTAMP WITH TIME ZONE,
+    update_time          TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (uid),
+    UNIQUE (checkpoint_thread_id),
+    FOREIGN KEY (session_uid) REFERENCES agent_sessions ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects ON DELETE SET NULL,
+    FOREIGN KEY (retry_of_uid) REFERENCES agent_runs ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_messages
+(
+    uid         uuid                     NOT NULL,
+    session_uid uuid                     NOT NULL,
+    run_uid     uuid                     NOT NULL,
+    role        VARCHAR(16)              NOT NULL,
+    parts       jsonb                    NOT NULL DEFAULT '[]'::jsonb,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (uid),
+    FOREIGN KEY (session_uid) REFERENCES agent_sessions ON DELETE CASCADE,
+    FOREIGN KEY (run_uid) REFERENCES agent_runs ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS agent_events
+(
+    id          BIGSERIAL,
+    run_uid     uuid                     NOT NULL,
+    event_type  VARCHAR(64)              NOT NULL,
+    payload     jsonb                    NOT NULL DEFAULT '{}'::jsonb,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (id),
+    FOREIGN KEY (run_uid) REFERENCES agent_runs ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS project_tags

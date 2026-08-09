@@ -45,6 +45,29 @@ class TodoState(AgentState):
 TODO_TOOL_NAMES = {'view_todos'}
 
 
+def _write_todo_progress(
+    runtime: ToolRuntime[Any, TodoState],
+    todos: list[Todo],
+    action: str,
+) -> None:
+    completed = sum(todo.status == 'completed' for todo in todos)
+    current = next((todo for todo in todos if todo.status == 'in_progress'), None)
+    current = current or next((todo for todo in todos if todo.status == 'pending'), None)
+    runtime.stream_writer(
+        {
+            'todo': {
+                'action': action,
+                'completed': completed,
+                'total': len(todos),
+                'current': current.content if current else None,
+                'current_index': current.index if current else None,
+                'current_status': current.status if current else 'completed',
+                'items': [todo.model_dump(mode='json') for todo in todos],
+            }
+        }
+    )
+
+
 @tool(parse_docstring=True)
 def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime[Any, TodoState]) -> Command:
     """Add new tasks to the todo list or insert tasks at a specific position.
@@ -57,9 +80,6 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime[Any,
         tasks: A list of task descriptions strings.
         before: Optional index of the task before which to insert new tasks. If None, tasks are appended to the end.
     """
-    writer = runtime.stream_writer
-    writer('Update task list')
-
     current_todos = runtime.state.get('todos', [])
 
     # If no 'before' parameter, append to the end (original behavior)
@@ -95,8 +115,7 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime[Any,
 
         # Insert new todos and copy existing ones to avoid mutating objects in the current state.
         updated_todos = [
-            todo.model_copy()
-            for todo in current_todos[:insert_position] + new_todos + current_todos[insert_position:]
+            todo.model_copy() for todo in current_todos[:insert_position] + new_todos + current_todos[insert_position:]
         ]
 
         # Keep indices aligned with their positions after insertion.
@@ -104,6 +123,8 @@ def add_todos(tasks: list[str], before: Optional[int], runtime: ToolRuntime[Any,
             todo.index = index
 
         message = f'Inserted {len(tasks)} tasks before task {before}.'
+
+    _write_todo_progress(runtime, updated_todos, 'added')
 
     return Command(
         update={
@@ -131,9 +152,6 @@ def update_todo_state(
         index: The index of the task to update.
         status: The new status.
     """
-    writer = runtime.stream_writer
-    writer('Update task list')
-
     current_todos = runtime.state.get('todos', [])
 
     # Find todo by index
@@ -214,6 +232,7 @@ def update_todo_state(
     if status == 'completed' and 'id_mapper' in runtime.state:
         update['id_mapper'] = BidirectionalMapper()
 
+    _write_todo_progress(runtime, updated_todos, 'status_changed')
     return Command(update=update)
 
 
@@ -227,9 +246,6 @@ def update_todo_content(index: int, content: str, runtime: ToolRuntime[Any, Todo
         index: The index of the task to update.
         content: The new content/description for the todo item.
     """
-    writer = runtime.stream_writer
-    writer('Update task list')
-
     current_todos = runtime.state.get('todos', [])
 
     # Find todo by index
@@ -252,6 +268,7 @@ def update_todo_content(index: int, content: str, runtime: ToolRuntime[Any, Todo
             todo.content = content
             break
 
+    _write_todo_progress(runtime, updated_todos, 'content_changed')
     return Command(
         update={
             'todos': updated_todos,
@@ -275,9 +292,6 @@ def delete_todo(indexs: list[int], runtime: ToolRuntime[Any, TodoState]) -> Comm
     Args:
         indexs: A list of task indices to delete.
     """
-    writer = runtime.stream_writer
-    writer('Update task list')
-
     current_todos = runtime.state.get('todos', [])
 
     if not current_todos:
@@ -320,6 +334,7 @@ def delete_todo(indexs: list[int], runtime: ToolRuntime[Any, TodoState]) -> Comm
     deleted_list = '\n'.join(deleted_contents)
     message = f'Deleted {len(indexs)} task(s):\n{deleted_list}\n\nAll remaining tasks have been reindexed.'
 
+    _write_todo_progress(runtime, updated_todos, 'deleted')
     return Command(
         update={
             'todos': updated_todos,

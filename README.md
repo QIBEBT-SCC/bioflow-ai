@@ -53,11 +53,14 @@ uv run bioflow-ai init system-init
 
 ### 6. Start the Application
 
-Start the Celery worker and the API server in separate terminals:
+Start the API server, the regular workflow worker, and the isolated Web agent
+worker in separate terminals. Agent runs use a dedicated queue and default to
+one concurrent process so they never occupy a normal workflow worker:
 
 ```bash
 uv run bioflow-ai api
 uv run bioflow-ai worker
+uv run bioflow-ai agent-worker
 ```
 
 The web interface is now accessible at `http://<host>:3001`.
@@ -85,6 +88,5 @@ podman system service --time=0 unix:///run/user/$(id -u)/podman/podman.sock > /d
 ```bash
 podman-compose up -d
 ```
-
 
 
