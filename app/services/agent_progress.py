@@ -15,6 +15,9 @@ SAMPLE_MANAGER_PROGRESS_KEYS = (
     'sample_ask_human',
 )
 
+WORKFLOW_PHASE_KEY = 'workflow_phase'
+WORKFLOW_MANAGER_ACTION_KEY = 'workflow_manager_action'
+
 
 def event_payload(payload: object) -> dict[str, Any]:
     """Normalize LangGraph custom stream values into stable UI activities."""
@@ -27,6 +30,19 @@ def event_payload(payload: object) -> dict[str, Any]:
         sample_progress = converted[sample_progress_key]
         if isinstance(sample_progress, dict):
             return {'kind': sample_progress_key, **sample_progress}
+
+    workflow_phase = converted.get(WORKFLOW_PHASE_KEY)
+    if isinstance(workflow_phase, dict):
+        phase = workflow_phase.get('phase')
+        return {
+            'kind': WORKFLOW_PHASE_KEY,
+            **workflow_phase,
+            **({'tool_call_id': f'workflow-phase:{phase}'} if isinstance(phase, str) else {}),
+        }
+
+    workflow_action = converted.get(WORKFLOW_MANAGER_ACTION_KEY)
+    if isinstance(workflow_action, dict):
+        return {'kind': WORKFLOW_MANAGER_ACTION_KEY, **workflow_action}
 
     info = converted.get('info')
     if isinstance(info, str):
@@ -67,6 +83,13 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
         changes.extend({'resource': 'workflow', 'uid': uid, 'project_id': run.project_id} for uid in workflow_uids)
         changes.extend({'resource': 'tool', 'uid': uid} for uid in tool_uids)
         changes.extend({'resource': 'database', 'id': value} for value in database_ids)
+        if values.get('samples_changed'):
+            changes.extend(
+                [
+                    {'resource': 'sample', 'project_id': run.project_id},
+                    {'resource': 'project_file_mapping', 'project_id': run.project_id},
+                ]
+            )
     elif run.agent_name == AgentName.TOOL_GENERATOR.value:
         if tool_uid := values.get('tool_uid'):
             uid = str(tool_uid)

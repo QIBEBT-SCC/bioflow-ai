@@ -1,9 +1,10 @@
+from pathlib import Path
 from typing import Any, NotRequired
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
@@ -28,7 +29,13 @@ async def ask_human_and_end(question: str, runtime: ToolRuntime[ProjectContext])
             },
         )
 
-    answer = interrupt({'question': question})
+    interrupt_payload = {'question': question}
+    if runtime.state.get('plan') and runtime.state.get('updated'):
+        interrupt_payload['kind'] = 'plan_approval'
+        plan_file = Path(runtime.context.workdir) / 'PLAN.md'
+        if plan_file.is_file():
+            interrupt_payload['plan'] = plan_file.read_text(encoding='utf-8')
+    answer = interrupt(interrupt_payload)
 
     if isinstance(answer, bool) and answer:
         return Command(
@@ -71,6 +78,29 @@ class AskAndEndMiddleware(AgentMiddleware):
     @hook_config(can_jump_to=['end'])
     async def abefore_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         return self.before_model(state, runtime)
+
+    @hook_config(can_jump_to=['model'])
+    def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+        last_message = state['messages'][-1]
+        if getattr(last_message, 'tool_calls', None):
+            return None
+        if state.get('updated') and not state.get('should_end', False):
+            return {
+                'jump_to': 'model',
+                'messages': [
+                    HumanMessage(
+                        content=(
+                            'The plan has been written but has not been confirmed. '
+                            'Before concluding, call `ask_human` and ask the user to review and confirm the plan.'
+                        )
+                    )
+                ],
+            }
+        return None
+
+    @hook_config(can_jump_to=['model'])
+    async def aafter_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+        return self.after_model(state, runtime)
 
 
 class EndLoopMiddleware(AgentMiddleware):

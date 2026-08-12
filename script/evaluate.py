@@ -304,7 +304,12 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
     async for chunk in agent.astream(
         agent_input,
         config,
-        context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
+        context=ProjectContext(
+            user_id=2,
+            project_id=project_id,
+            workdir=workdir,
+            auto_approve=True,
+        ),
         stream_mode=['updates', 'custom'],
         version='v2',
         subgraphs=True,
@@ -484,7 +489,12 @@ async def _generate_workflow(
         async for chunk in agent.astream(
             agent_input,
             config,
-            context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir),
+            context=ProjectContext(
+                user_id=2,
+                project_id=project_id,
+                workdir=workdir,
+                auto_approve=True,
+            ),
             stream_mode=['updates', 'custom'],
             version='v2',
             subgraphs=True,

@@ -268,6 +268,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                 run = agent_crud.get_run(session, run_uid)
                 if run is None:
                     return
+                agent_service.import_generated_workflows(session, run, execution.values)
                 if final_text:
                     agent_service.add_assistant_message(session, run, final_text)
                 result, changes = result_payload(run, execution.values)

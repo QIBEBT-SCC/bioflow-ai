@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import app.crud.agent as agent_crud
+import app.crud.project_workflow as project_workflow_crud
 from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentSession
 from app.models.project import Project
 from app.schemas.agent import (
@@ -19,6 +20,7 @@ from app.schemas.agent import (
     AgentSessionCreate,
     AgentSessionUpdate,
 )
+from app.services import project_workflow as project_workflow_service
 from app.services._transaction import committing
 from app.utils.identifiers import UUIDLike, as_uuid
 from app.utils.jsonable import to_json_object
@@ -321,6 +323,22 @@ def add_resume_message(session: Session, run: AgentRun, text: str) -> AgentMessa
         run.agent_session.update_time = utc_now()
     session.refresh(message)
     return message
+
+
+def import_generated_workflows(session: Session, run: AgentRun, values: dict[str, Any]) -> None:
+    """Import workflows produced by a workflow-builder run into its project."""
+    if run.agent_name != AgentName.WORKFLOW_BUILDER.value or run.project_id is None:
+        return
+
+    for value in values.get('workflow_uids') or []:
+        workflow_uid = as_uuid(value)
+        if project_workflow_crud.exists(session, run.project_id, workflow_uid):
+            continue
+        try:
+            project_workflow_service.add_workflow_to_project(session, run.project_id, workflow_uid)
+        except (project_workflow_service.ProjectWorkflowConflictError, IntegrityError):
+            # Another project-scoped run may have imported the same workflow concurrently.
+            continue
 
 
 def update_heartbeat(session: Session, run: AgentRun) -> bool:

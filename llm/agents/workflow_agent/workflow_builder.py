@@ -25,6 +25,7 @@ from llm.utils.middleware import (
     StatusBarMiddleware,
     TodoMiddleware,
     TokenStatisticMiddleware,
+    WorkflowBuilderProgressMiddleware,
 )
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
@@ -229,6 +230,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             system_prompt=BUILD_FLOW_SYSTEM,
             middleware=[
                 TodoMiddleware(),
+                WorkflowBuilderProgressMiddleware(),
                 SkillMiddleware('workflow_builder'),
                 CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
                 DisableParallelToolCallsMiddleware(
@@ -257,6 +259,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         system_prompt=BUILD_FLOW_SYSTEM,
         middleware=[
             TodoMiddleware(),
+            WorkflowBuilderProgressMiddleware(),
             SkillMiddleware('workflow_builder'),
             CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
             DisableParallelToolCallsMiddleware(
