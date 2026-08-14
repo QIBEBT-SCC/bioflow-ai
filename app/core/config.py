@@ -132,6 +132,7 @@ class KnowledgeBaseConfig(BaseSectionConfig):
     EMBEDDING_MODEL: str = 'Qwen/Qwen3-Embedding-4B'
     BASE_URL: str = 'https://api.siliconflow.cn/v1/'
     API_KEY: SecretStr = SecretStr('')
+    TIMEOUT: float = 60
 
 
 class DevelopConfig(BaseSectionConfig):

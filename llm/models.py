@@ -214,4 +214,5 @@ def qwen3_embedding() -> OpenAIEmbeddings:
         model=get_settings().knowledge_base.EMBEDDING_MODEL,
         base_url=get_settings().knowledge_base.BASE_URL,
         api_key=get_settings().knowledge_base.API_KEY,
+        request_timeout=get_settings().knowledge_base.TIMEOUT,
     )

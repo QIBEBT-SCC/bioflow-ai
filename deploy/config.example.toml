@@ -64,6 +64,7 @@ milvus_url = "http://localhost:19530"
 embedding_model = "Qwen/Qwen3-Embedding-4B"
 base_url = "https://api.siliconflow.cn/v1/"
 api_key = ""
+timeout = 60
 
 [pdf_parser]
 engine = "open_mineru"
