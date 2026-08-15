@@ -34,6 +34,16 @@ TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_S
 TOOL_TRAJECTORY_AGENTS = ('test_run', 'tool_generator')
 
 
+def _configure_langsmith_tracing(*, enabled: bool) -> None:
+    """Configure LangSmith tracing explicitly for an agent command."""
+    tracing_value = str(enabled).lower()
+    os.environ['LANGSMITH_TRACING'] = tracing_value
+    os.environ['LANGSMITH_TRACING_V2'] = tracing_value
+    os.environ['LANGCHAIN_TRACING_V2'] = tracing_value
+    os.environ['LANGSMITH_PROJECT'] = 'build-tool-node'
+    os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
+
+
 def _format_notification_duration(duration_ms: int) -> str:
     seconds = max(0, round(duration_ms / 1000))
     minutes, remainder = divmod(seconds, 60)
@@ -447,7 +457,7 @@ def search_tools(tool_name: str) -> None:
     con.close()
 
 
-async def init_tools(index: int | None = None) -> None:
+async def init_tools(index: int | None = None, *, langsmith_tracing: bool = False) -> None:
     """初始化工具节点."""
     import sys
 
@@ -463,8 +473,7 @@ async def init_tools(index: int | None = None) -> None:
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-    os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
+    _configure_langsmith_tracing(enabled=langsmith_tracing)
 
     skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
 
@@ -627,7 +636,15 @@ async def init_tools(index: int | None = None) -> None:
     con.close()
 
 
-async def create_tool_manually(name: str, help_command: str, function: str, thread_id: str, *, drop_old: bool) -> None:
+async def create_tool_manually(
+    name: str,
+    help_command: str,
+    function: str,
+    thread_id: str,
+    *,
+    drop_old: bool,
+    langsmith_tracing: bool = False,
+) -> None:
     """手动模拟工具生成."""
     import sys
 
@@ -641,8 +658,7 @@ async def create_tool_manually(name: str, help_command: str, function: str, thre
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-    os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
+    _configure_langsmith_tracing(enabled=langsmith_tracing)
 
     async with _tool_agent_session() as (checkpoint, agent):
         if drop_old:
@@ -716,7 +732,13 @@ async def read_interrupt(index: int) -> None:
         rich.print(response.interrupts)
 
 
-async def continue_run(index: int, message: str | None = None, *, approve: bool = False) -> None:
+async def continue_run(
+    index: int,
+    message: str | None = None,
+    *,
+    approve: bool = False,
+    langsmith_tracing: bool = False,
+) -> None:
     """响应中断信息."""
     import duckdb
     import rich
@@ -728,6 +750,8 @@ async def continue_run(index: int, message: str | None = None, *, approve: bool 
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
+
+    _configure_langsmith_tracing(enabled=langsmith_tracing)
 
     con = duckdb.connect(DB_PATH)
     tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
@@ -1125,6 +1149,7 @@ def search_cmd(name: str) -> None:
 @click.option('--function', '-f', help='需要生成的工具功能描述 (手动模式必填)')
 @click.option('--thread-id', '-t', help='检查点线程 ID (手动模式必填)')
 @click.option('--drop-old', is_flag=True, default=False, help='运行前删除该线程的旧检查点')
+@click.option('--langsmith-tracing', is_flag=True, default=False, help='开启 LangSmith 追踪 (默认关闭)')
 def create_tools_cmd(
     index: int | None,
     name: str | None,
@@ -1133,6 +1158,7 @@ def create_tools_cmd(
     thread_id: str | None,
     *,
     drop_old: bool,
+    langsmith_tracing: bool,
 ) -> None:
     """自动创建工具, 或使用 --name 手动创建单个工具."""
     manual_values = {
@@ -1157,6 +1183,7 @@ def create_tools_cmd(
                 cast('str', function),
                 cast('str', thread_id),
                 drop_old=drop_old,
+                langsmith_tracing=langsmith_tracing,
             )
         )
         return
@@ -1164,7 +1191,7 @@ def create_tools_cmd(
     if drop_old:
         message = '--drop-old 仅能用于手动创建模式'
         raise click.UsageError(message)
-    asyncio.run(init_tools(index))
+    asyncio.run(init_tools(index, langsmith_tracing=langsmith_tracing))
 
 
 @cli.command()
@@ -1178,9 +1205,10 @@ def read_interrupt_cmd(index: int) -> None:
 @click.argument('index', type=int)
 @click.option('--message', '-m', type=str, default=None, help='继续运行时发送的消息')
 @click.option('--approve', is_flag=True, default=False, help='批准标志')
-def continue_run_cmd(index: int, message: str | None, *, approve: bool) -> None:
+@click.option('--langsmith-tracing', is_flag=True, default=False, help='开启 LangSmith 追踪 (默认关闭)')
+def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmith_tracing: bool) -> None:
     """继续运行指定索引的工具创建任务."""
-    asyncio.run(continue_run(index, message, approve=approve))
+    asyncio.run(continue_run(index, message, approve=approve, langsmith_tracing=langsmith_tracing))
 
 
 @cli.command()
