@@ -48,8 +48,8 @@ def _format_notification_duration(duration_ms: int) -> str:
     seconds = max(0, round(duration_ms / 1000))
     minutes, remainder = divmod(seconds, 60)
     if minutes:
-        return f'{minutes} 分 {remainder} 秒'
-    return f'{remainder} 秒'
+        return f'{minutes} min {remainder} sec'
+    return f'{remainder} sec'
 
 
 async def _publish_tool_creation_event(event_type: str, message: str) -> None:
@@ -63,7 +63,7 @@ async def _publish_tool_creation_event(event_type: str, message: str) -> None:
             message=message,
         )
     except Exception:
-        logger.exception('工具创建状态已更新, 但通知事件发布失败。')
+        logger.exception('The tool creation status was updated, but the notification event could not be published.')
 
 
 def _default_trajectory_dataset_path() -> str:
@@ -128,15 +128,15 @@ def compact_trajectories(
     source_root = FilePath(input_dir).resolve()
     destination = FilePath(output_dir).resolve()
     if not source_root.is_dir():
-        msg = f'轨迹目录不存在: {source_root}'
+        msg = f'Trajectory directory does not exist: {source_root}'
         raise click.ClickException(msg)
     if destination.exists() and not overwrite:
-        msg = f'输出目录已存在: {destination}。如需替换, 请添加 --overwrite。'
+        msg = f'Output directory already exists: {destination}. Use --overwrite to replace it.'
         raise click.ClickException(msg)
 
     event_files = sorted(source_root.glob('agent=*/run=*/events/*.json'))
     if not event_files:
-        msg = f'没有找到轨迹事件: {source_root}'
+        msg = f'No trajectory events found: {source_root}'
         raise click.ClickException(msg)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -182,14 +182,14 @@ def compact_trajectories(
             except Exception as error:
                 invalid_files.append({'file': str(event_file), 'error': str(error)})
                 if not skip_invalid:
-                    msg = f'无效轨迹文件 {event_file}: {error}'
+                    msg = f'Invalid trajectory file {event_file}: {error}'
                     raise click.ClickException(msg) from error
         if batch:
             con.executemany(insert_sql, batch)
 
         if selected_count == 0:
             selected_agents = ', '.join(agents) if agents else '(all)'
-            msg = f'没有符合 agent 过滤条件的事件: {selected_agents}'
+            msg = f'No events match the agent filter: {selected_agents}'
             _raise_click_exception(msg)
 
         events_path = temp_output / 'events.parquet'
@@ -277,8 +277,8 @@ def compact_trajectories(
             shutil.rmtree(backup)
 
     logger.success(
-        f'轨迹整合完成: {selected_count} 个事件, {run_count} 个运行, '
-        f'{len(invalid_files)} 个无效文件; 输出目录: {destination}'
+        f'Trajectory compaction complete: {selected_count} events, {run_count} runs, '
+        f'{len(invalid_files)} invalid files; output directory: {destination}'
     )
 
 
@@ -385,23 +385,23 @@ async def _cleanup_threads(
                 if container_id:
                     try:
                         remove_container(container_id)
-                        logger.info('清理了残余容器')
+                        logger.info('Removed the leftover container')
                     except Exception as e:
                         logger.warning(e)
                 await delete_checkpoint(checkpoint, thread_id)
-                logger.info(f'删除了智能体 checkpoint: {thread_id}')
+                logger.info(f'Deleted agent checkpoint: {thread_id}')
 
         for thread_id in thread_ids:
             output_path = await Path(get_settings().persistent.storage.STORAGE_PATH).absolute() / 'testrun' / thread_id
             if await output_path.exists():
                 shutil.rmtree(output_path)
-                logger.info(f'清理了运行目录: {output_path}')
+                logger.info(f'Removed run directory: {output_path}')
 
             if delete_trajectories:
                 for agent_name in TOOL_TRAJECTORY_AGENTS:
                     run_id = f'{agent_name}:{thread_id}'
                     if delete_trajectory_run(agent_name, run_id):
-                        logger.info(f'删除了智能体轨迹: agent={agent_name}, thread_id={thread_id}')
+                        logger.info(f'Deleted agent trajectory: agent={agent_name}, thread_id={thread_id}')
 
     if indices:
         idx_placeholders = ','.join(['?' for _ in indices])
@@ -482,7 +482,7 @@ async def init_tools(index: int | None = None, *, langsmith_tracing: bool = Fals
     if index is not None:
         todo_rows = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
         if not todo_rows:
-            logger.error(f'未找到索引为 {index} 的数据')
+            logger.error(f'No data found for index {index}')
             con.close()
             return
     else:
@@ -574,11 +574,11 @@ async def init_tools(index: int | None = None, *, langsmith_tracing: bool = Fals
                 )
                 await _publish_tool_creation_event(
                     NotificationEventType.TOOL_CREATE_FAILED,
-                    '## BioFlow AI 工具创建异常退出\n'
-                    f'- 工具: **{tool_name}**\n'
-                    f'- 编号: {row_index}\n'
-                    f'- 耗时: {_format_notification_duration(duration_ms)}\n'
-                    f'> 异常: `{type(error).__name__}` {str(error)[:1000]}',
+                    '## BioFlow AI tool creation failed\n'
+                    f'- Tool: **{tool_name}**\n'
+                    f'- Index: {row_index}\n'
+                    f'- Duration: {_format_notification_duration(duration_ms)}\n'
+                    f'> Error: `{type(error).__name__}` {str(error)[:1000]}',
                 )
                 raise
 
@@ -594,11 +594,11 @@ async def init_tools(index: int | None = None, *, langsmith_tracing: bool = Fals
                 duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
                 await _publish_tool_creation_event(
                     NotificationEventType.TOOL_CREATE_INTERRUPTED,
-                    '## BioFlow AI 工具创建中断\n'
-                    f'- 工具: **{tool_name}**\n'
-                    f'- 编号: {row_index}\n'
-                    f'- 耗时: {_format_notification_duration(duration_ms)}\n'
-                    f'> 中断信息: {response.interrupts[0].value}',
+                    '## BioFlow AI tool creation interrupted\n'
+                    f'- Tool: **{tool_name}**\n'
+                    f'- Index: {row_index}\n'
+                    f'- Duration: {_format_notification_duration(duration_ms)}\n'
+                    f'> Interrupt: {response.interrupts[0].value}',
                 )
             else:
                 tool_uid = response.values['tool_uid']
@@ -617,20 +617,20 @@ async def init_tools(index: int | None = None, *, langsmith_tracing: bool = Fals
                 if node_name := response.values.get('name'):
                     await _publish_tool_creation_event(
                         NotificationEventType.TOOL_CREATE_SUCCEEDED,
-                        '## BioFlow AI 工具创建成功\n'
-                        f'- 工具: **{tool_name}**\n'
-                        f'- 编号: {row_index}\n'
-                        f'- 节点名称: `{node_name}`\n'
-                        f'- 耗时: {_format_notification_duration(duration_ms)}',
+                        '## BioFlow AI tool creation succeeded\n'
+                        f'- Tool: **{tool_name}**\n'
+                        f'- Index: {row_index}\n'
+                        f'- Node name: `{node_name}`\n'
+                        f'- Duration: {_format_notification_duration(duration_ms)}',
                     )
                 else:
                     await _publish_tool_creation_event(
                         NotificationEventType.TOOL_CREATE_SUCCEEDED,
-                        '## BioFlow AI 工具创建成功\n'
-                        f'- 工具: **{tool_name}**\n'
-                        f'- 编号: {row_index}\n'
-                        f'- 耗时: {_format_notification_duration(duration_ms)}\n'
-                        f'数据库中存在现有节点, 未新建',
+                        '## BioFlow AI tool creation succeeded\n'
+                        f'- Tool: **{tool_name}**\n'
+                        f'- Index: {row_index}\n'
+                        f'- Duration: {_format_notification_duration(duration_ms)}\n'
+                        'An existing node was found in the database; no new node was created.',
                     )
 
     con.close()
@@ -718,10 +718,10 @@ async def read_interrupt(index: int) -> None:
     con.close()
 
     if tool_info is None:
-        logger.error(f'未找到索引为 {index} 的数据')
+        logger.error(f'No data found for index {index}')
         return
     if tool_info['status'] != TOOL_STATUS_INTERRUPTED or not tool_info['thread_id']:
-        logger.error(f'索引 {index} 不是可读取的中断记录: status={tool_info["status"]}')
+        logger.error(f'Index {index} is not a readable interrupted record: status={tool_info["status"]}')
         return
 
     async with _tool_agent_session() as (_, agent):
@@ -757,11 +757,11 @@ async def continue_run(
     tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
 
     if tool_info is None:
-        logger.error(f'未找到索引为 {index} 的数据')
+        logger.error(f'No data found for index {index}')
         con.close()
         return
     if tool_info['status'] != TOOL_STATUS_INTERRUPTED or not tool_info['thread_id']:
-        logger.error(f'索引 {index} 不是可继续的中断记录: status={tool_info["status"]}')
+        logger.error(f'Index {index} is not a resumable interrupted record: status={tool_info["status"]}')
         con.close()
         return
 
@@ -860,16 +860,16 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
         for index in indices:
             tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
             if tool_info is None:
-                logger.warning(f'未找到索引为 {index} 的数据, 跳过')
+                logger.warning(f'No data found for index {index}; skipping')
                 continue
-            logger.info(f'要删除的数据 (index={index}): {tool_info}')
+            logger.info(f'Data to delete (index={index}): {tool_info}')
             valid_indices.append(index)
 
             if tool_uid := tool_info.get('tool_uid'):
                 with Session(engine) as session:
                     tool_crud.delete(session, tool_uid)
                     session.commit()
-                    logger.info(f'删除了一条数据库信息 (index={index})')
+                    logger.info(f'Deleted a database record (index={index})')
                 await vectorstore.adelete(
                     filter_expression='tool_uid == {uid}',
                     filter_params={'uid': tool_uid},
@@ -880,7 +880,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
     await _cleanup_threads(con, thread_ids_to_delete, valid_indices, delete_trajectories=True)
     con.close()
-    logger.info(f'成功删除 {len(valid_indices)} 个工具记录')
+    logger.info(f'Successfully deleted {len(valid_indices)} tool records')
 
 
 async def check_records(*, clean_incomplete: bool = False, dry_run: bool = False) -> None:
@@ -901,7 +901,10 @@ async def check_records(*, clean_incomplete: bool = False, dry_run: bool = False
                 indices_to_reset.append(row['index'])
                 if row['thread_id']:
                     thread_ids_to_delete.append(row['thread_id'])
-                logger.info(f'发现孤立记录 (index={row["index"]}): tool_uid={row["tool_uid"]} 在数据库中不存在')
+                logger.info(
+                    f'Found orphaned record (index={row["index"]}): '
+                    f'tool_uid={row["tool_uid"]} does not exist in the database'
+                )
 
     if clean_incomplete:
         placeholders = ','.join(['?' for _ in TOOL_INCOMPLETE_STATUSES])
@@ -915,24 +918,27 @@ async def check_records(*, clean_incomplete: bool = False, dry_run: bool = False
                 indices_to_reset.append(row['index'])
                 if row['thread_id']:
                     thread_ids_to_delete.append(row['thread_id'])
-                logger.info(f'发现未完成记录 (index={row["index"]}, status={row["status"]}): {row["tool_name"]}')
+                logger.info(
+                    f'Found incomplete record (index={row["index"]}, status={row["status"]}): {row["tool_name"]}'
+                )
 
     if not indices_to_reset:
-        logger.info('没有需要重置的记录')
+        logger.info('No records need to be reset')
         con.close()
         return
 
     if dry_run:
         logger.info(
-            f'[DRY RUN] 共发现 {len(indices_to_reset)} 条待重置记录, 涉及 {len(thread_ids_to_delete)} 条智能体记录'
+            f'[DRY RUN] Found {len(indices_to_reset)} records to reset across '
+            f'{len(thread_ids_to_delete)} agent records'
         )
-        logger.info(f'[DRY RUN] 待重置索引: {indices_to_reset}')
+        logger.info(f'[DRY RUN] Indices to reset: {indices_to_reset}')
         con.close()
         return
 
     await _cleanup_threads(con, thread_ids_to_delete, indices_to_reset)
     con.close()
-    logger.info(f'成功重置 {len(indices_to_reset)} 条记录')
+    logger.info(f'Successfully reset {len(indices_to_reset)} records')
 
 
 def export_images(*, upload: bool = False) -> None:
@@ -948,7 +954,7 @@ def export_images(*, upload: bool = False) -> None:
         uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
         engine='connectorx',
     ).sort('uid')
-    logger.info(f'共计导出了 {image_df.height} 条数据')
+    logger.info(f'Exported {image_df.height} records')
     image_df.write_parquet('presets/images.parquet', compression='snappy')
 
     if upload:
@@ -973,7 +979,7 @@ def export_docs(*, upload: bool = False) -> None:
         uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
         engine='connectorx',
     ).sort('uid')
-    logger.info(f'共计导出了 {doc_df.height} 条数据')
+    logger.info(f'Exported {doc_df.height} records')
 
     doc_df.write_parquet('presets/tool_docs.parquet', compression='snappy')
 
@@ -1008,7 +1014,7 @@ def export_tools(*, upload: bool = False) -> None:
         uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
         engine='connectorx',
     ).sort('uid')
-    logger.info(f'共计导出了 {tool_df.height} 条数据')
+    logger.info(f'Exported {tool_df.height} records')
 
     tool_df.write_parquet('presets/tools.parquet', compression='snappy')
 
@@ -1061,18 +1067,19 @@ def statistic() -> None:
 
     pct = (processed / total * 100) if total else 0
 
-    stats.add_row('总记录数', f'[cyan]{total:,}[/cyan]')
-    stats.add_row('已处理', f'[cyan]{processed:,}[/cyan] [dim]({pct:.1f}%)[/dim]')
-    stats.add_row('成功', f'[green]{success:,}[/green]  生成节点 [green]{unique_nodes:,}[/green] 个')
+    stats.add_row('Total records', f'[cyan]{total:,}[/cyan]')
+    stats.add_row('Processed', f'[cyan]{processed:,}[/cyan] [dim]({pct:.1f}%)[/dim]')
+    stats.add_row('Succeeded', f'[green]{success:,}[/green]  Nodes generated [green]{unique_nodes:,}[/green]')
     stats.add_row(
-        '未完成',
-        f'运行中 [cyan]{running:,}[/cyan]  中断 [yellow]{interrupted:,}[/yellow]  失败 [red]{failed:,}[/red]',
+        'Incomplete',
+        f'Running [cyan]{running:,}[/cyan]  Interrupted [yellow]{interrupted:,}[/yellow]  '
+        f'Failed [red]{failed:,}[/red]',
     )
 
     console.print(
         Panel(
             stats,
-            title='[bold]运行统计[/bold]',
+            title='[bold]Run Statistics[/bold]',
             border_style='blue',
             box=box.ROUNDED,
             padding=(1, 2),
@@ -1081,7 +1088,7 @@ def statistic() -> None:
 
     def _render_record_panel(row: dict | None, title: str, border_style: str = 'cyan') -> None:
         if not row:
-            console.print(Panel('[dim](暂无数据)[/dim]', title=title, border_style=border_style))
+            console.print(Panel('[dim](No data)[/dim]', title=title, border_style=border_style))
             return
 
         body = Table.grid(padding=(0, 2))
@@ -1115,41 +1122,41 @@ def statistic() -> None:
         'SELECT * FROM tool_functions WHERE status <> ? ORDER BY started_at DESC NULLS LAST LIMIT 1',
         [TOOL_STATUS_PENDING],
     )
-    _render_record_panel(latest, '[bold green]最新运行记录[/bold green]')
+    _render_record_panel(latest, '[bold green]Latest Run Record[/bold green]')
 
     latest_interrupt = _row_to_dict(
         con,
         'SELECT * FROM tool_functions WHERE status = ? ORDER BY finished_at DESC NULLS LAST LIMIT 1',
         [TOOL_STATUS_INTERRUPTED],
     )
-    _render_record_panel(latest_interrupt, '[bold yellow]最新中断记录[/bold yellow]')
+    _render_record_panel(latest_interrupt, '[bold yellow]Latest Interrupted Record[/bold yellow]')
 
     con.close()
 
 
 @click.group()
 def cli() -> None:
-    """开发人员使用工具."""
+    """Developer tools."""
     from app.utils.logger import init_logging
 
     init_logging()
 
 
 @cli.command()
-@click.option('--name', '-n', type=str, default=None, help='要搜索的工具名称')
+@click.option('--name', '-n', type=str, default=None, help='Tool name to search for.')
 def search_cmd(name: str) -> None:
-    """继续运行指定索引的工具创建任务."""
+    """Search for tools by name."""
     search_tools(tool_name=name)
 
 
 @cli.command()
-@click.option('--index', type=int, default=None, help='指定要处理的数据索引 (如果不指定则处理所有未完成的数据)')
-@click.option('--name', '-n', help='工具名称; 提供时切换到手动创建模式')
-@click.option('--help-command', '-c', help='获取工具帮助文档的命令 (手动模式必填)')
-@click.option('--function', '-f', help='需要生成的工具功能描述 (手动模式必填)')
-@click.option('--thread-id', '-t', help='检查点线程 ID (手动模式必填)')
-@click.option('--drop-old', is_flag=True, default=False, help='运行前删除该线程的旧检查点')
-@click.option('--langsmith-tracing', is_flag=True, default=False, help='开启 LangSmith 追踪 (默认关闭)')
+@click.option('--index', type=int, default=None, help='Data index to process (default: all incomplete records).')
+@click.option('--name', '-n', help='Tool name; switches to manual creation mode when provided.')
+@click.option('--help-command', '-c', help='Command used to retrieve tool help (required in manual mode).')
+@click.option('--function', '-f', help='Description of the tool function to generate (required in manual mode).')
+@click.option('--thread-id', '-t', help='Checkpoint thread ID (required in manual mode).')
+@click.option('--drop-old', is_flag=True, default=False, help='Delete the old checkpoint for this thread before running.')
+@click.option('--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).')
 def create_tools_cmd(
     index: int | None,
     name: str | None,
@@ -1160,7 +1167,7 @@ def create_tools_cmd(
     drop_old: bool,
     langsmith_tracing: bool,
 ) -> None:
-    """自动创建工具, 或使用 --name 手动创建单个工具."""
+    """Create tools automatically, or create one manually with --name."""
     manual_values = {
         '--name': name,
         '--help-command': help_command,
@@ -1170,10 +1177,10 @@ def create_tools_cmd(
     if any(value is not None for value in manual_values.values()):
         missing = [option for option, value in manual_values.items() if value is None]
         if missing:
-            message = f'手动创建模式缺少参数: {", ".join(missing)}'
+            message = f'Missing options for manual creation mode: {", ".join(missing)}'
             raise click.UsageError(message)
         if index is not None:
-            message = '--index 不能与手动创建参数同时使用'
+            message = '--index cannot be used with manual creation options'
             raise click.UsageError(message)
         # The completeness check above narrows these values at runtime.
         asyncio.run(
@@ -1189,7 +1196,7 @@ def create_tools_cmd(
         return
 
     if drop_old:
-        message = '--drop-old 仅能用于手动创建模式'
+        message = '--drop-old can only be used in manual creation mode'
         raise click.UsageError(message)
     asyncio.run(init_tools(index, langsmith_tracing=langsmith_tracing))
 
@@ -1197,24 +1204,24 @@ def create_tools_cmd(
 @cli.command()
 @click.argument('index', type=int)
 def read_interrupt_cmd(index: int) -> None:
-    """读取工具中断信息."""
+    """Read tool interruption details."""
     asyncio.run(read_interrupt(index))
 
 
 @cli.command()
 @click.argument('index', type=int)
-@click.option('--message', '-m', type=str, default=None, help='继续运行时发送的消息')
-@click.option('--approve', is_flag=True, default=False, help='批准标志')
-@click.option('--langsmith-tracing', is_flag=True, default=False, help='开启 LangSmith 追踪 (默认关闭)')
+@click.option('--message', '-m', type=str, default=None, help='Message to send when resuming the run.')
+@click.option('--approve', is_flag=True, default=False, help='Approve the interrupted action.')
+@click.option('--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).')
 def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmith_tracing: bool) -> None:
-    """继续运行指定索引的工具创建任务."""
+    """Resume the tool creation task at the specified index."""
     asyncio.run(continue_run(index, message, approve=approve, langsmith_tracing=langsmith_tracing))
 
 
 @cli.command()
 @click.argument('indices', type=int, nargs=-1, required=True)
 def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
-    """删除指定索引的预构建工具 (可一次删除多个, 例如: 61 62 63 65)."""
+    """Delete prebuilt tools by index (multiple indices are supported, e.g. 61 62 63 65)."""
     asyncio.run(delete_prebuild_tool(list(indices)))
 
 
@@ -1223,39 +1230,39 @@ def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
     '--clean-incomplete',
     is_flag=True,
     default=False,
-    help='同时清理 RUNNING、INTERRUPTED 和 FAILED 状态的未完成任务',
+    help='Also clean incomplete tasks with RUNNING, INTERRUPTED, or FAILED status.',
 )
-@click.option('--dry-run', is_flag=True, default=False, help='仅预览待处理记录, 不执行实际操作')
+@click.option('--dry-run', is_flag=True, default=False, help='Preview records without making changes.')
 def check_cmd(*, clean_incomplete: bool, dry_run: bool) -> None:
-    """检查并重置孤立的 DuckDB 记录."""
+    """Check and reset orphaned DuckDB records."""
     asyncio.run(check_records(clean_incomplete=clean_incomplete, dry_run=dry_run))
 
 
 @cli.command()
-@click.option('--upload', is_flag=True, default=False, help='是否同步到huggingface')
+@click.option('--upload', is_flag=True, default=False, help='Upload the exported data to Hugging Face.')
 @click.option(
     '--db',
     type=click.Choice(['images', 'docs', 'tools']),
     multiple=True,
     default=['images', 'docs', 'tools'],
     show_default=True,
-    help='选择要导出的数据库, 可多选',
+    help='Select one or more datasets to export.',
 )
 def export(*, upload: bool, db: tuple[str, ...]) -> None:
-    """导出数据库数据."""
+    """Export database data."""
     db_map = {
         'images': export_images,
         'docs': export_docs,
         'tools': export_tools,
     }
     for name in db:
-        logger.info(f'正在导出 {name}...')
+        logger.info(f'Exporting {name}...')
         db_map[name](upload=upload)
 
 
 @cli.command()
 def statistic_cmd() -> None:
-    """显示节点生成统计数据."""
+    """Show node generation statistics."""
     statistic()
 
 
@@ -1264,17 +1271,17 @@ def statistic_cmd() -> None:
     '--input-dir',
     type=click.Path(exists=True, file_okay=False, path_type=str),
     default=None,
-    help='不可变 JSON 轨迹根目录; 默认使用 persistent.storage.storage_path/agent_trajectories',
+    help='Immutable JSON trajectory root (default: persistent.storage.storage_path/agent_trajectories).',
 )
 @click.option(
     '--output-dir',
     type=click.Path(file_okay=False, path_type=str),
     default=None,
-    help='Parquet 输出目录; 默认使用 persistent.storage.storage_path/agent_datasets/trajectories',
+    help='Parquet output directory (default: persistent.storage.storage_path/agent_datasets/trajectories).',
 )
-@click.option('--agent', 'agents', multiple=True, help='只整合指定 agent; 可重复传入')
-@click.option('--skip-invalid', is_flag=True, help='跳过损坏或字段不完整的 JSON, 并记录到 metadata.json')
-@click.option('--overwrite', is_flag=True, help='原子替换已存在的输出目录')
+@click.option('--agent', 'agents', multiple=True, help='Include only the specified agent; may be repeated.')
+@click.option('--skip-invalid', is_flag=True, help='Skip invalid JSON files and record them in metadata.json.')
+@click.option('--overwrite', is_flag=True, help='Atomically replace an existing output directory.')
 def compact_trajectories_cmd(
     input_dir: str | None,
     output_dir: str | None,
@@ -1283,7 +1290,7 @@ def compact_trajectories_cmd(
     skip_invalid: bool,
     overwrite: bool,
 ) -> None:
-    """将原始智能体 JSON 事件整合为 events/runs Parquet 数据集."""
+    """Compact raw agent JSON events into events/runs Parquet datasets."""
     from llm.utils.trajectory_store import get_trajectory_root
 
     resolved_input = input_dir or str(get_trajectory_root())

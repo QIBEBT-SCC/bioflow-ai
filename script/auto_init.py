@@ -22,7 +22,7 @@ def run_auto_init() -> None:
     use_existing_config = False
     if config_path.exists():
         overwrite = tui.prompt_confirm(
-            f'{config_path} 已存在, 是否覆盖?',
+            f'{config_path} already exists. Overwrite it?',
             default=False,
         )
         use_existing_config = not overwrite
@@ -30,7 +30,7 @@ def run_auto_init() -> None:
     if use_existing_config:
         from app.core.config import get_settings
 
-        tui.render_notice('保留现有配置, 将继续执行系统初始化步骤。', style='#94a3b8')
+        tui.render_notice('Keeping the existing configuration and continuing system initialization.', style='#94a3b8')
         settings = get_settings()
         update_port = None
     else:
@@ -50,6 +50,6 @@ def run_auto_init() -> None:
         provider_ready = initialize_llm_providers()
 
     if any(result is False for result in (test_data_ready, container_ready, database_ready, provider_ready)):
-        tui.render_notice('系统初始化流程已结束, 但存在未完成的初始化步骤。', style='#f59e0b')
+        tui.render_notice('System initialization finished with incomplete steps.', style='#f59e0b')
     else:
         tui.render_system_success()

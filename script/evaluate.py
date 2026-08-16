@@ -518,18 +518,18 @@ async def _generate_workflow(
                     rich.print(interrupt)
                     sys.exit(-1)
 
-    logger.success(f'工作流已生成: {result.workflow_uids}')
+    logger.success(f'Workflows generated: {result.workflow_uids}')
     if result.new_tool_uids:
-        logger.success(f'本次构建新增工具: {result.new_tool_uids}')
+        logger.success(f'Tools created during this build: {result.new_tool_uids}')
     if result.new_db_ids:
-        logger.success(f'本次构建新增数据库: {result.new_db_ids}')
+        logger.success(f'Databases created during this build: {result.new_db_ids}')
 
     return result
 
 
 def _log_created_records(result: WorkflowGenerationResult) -> None:
     if not result.new_tool_uids and not result.new_db_ids:
-        logger.info('本次构建未新增工具或数据库。')
+        logger.info('No tools or databases were created during this build.')
         return
 
     import app.crud.resource.bio_db as db_crud
@@ -542,7 +542,7 @@ def _log_created_records(result: WorkflowGenerationResult) -> None:
             for tool_uid in result.new_tool_uids:
                 tool = tool_crud.get(session, tool_uid)
                 tool_labels.append(f'{tool.name}({tool_uid})' if tool else tool_uid)
-            logger.success(f'新增工具已记录: {", ".join(tool_labels)}')
+            logger.success(f'Created tools recorded: {", ".join(tool_labels)}')
 
         if result.new_db_ids:
             db_labels = []
@@ -552,7 +552,7 @@ def _log_created_records(result: WorkflowGenerationResult) -> None:
                     db_labels.append(str(db_id))
                 else:
                     db_labels.append(f'{db.name}({db_id})')
-            logger.success(f'新增数据库已记录: {", ".join(db_labels)}')
+            logger.success(f'Created databases recorded: {", ".join(db_labels)}')
 
 
 def _send_run_task(
