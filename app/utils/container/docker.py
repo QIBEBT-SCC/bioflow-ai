@@ -1,6 +1,7 @@
 import datetime
 import time
 from collections.abc import Generator
+from functools import lru_cache
 from typing import Any, Optional
 
 import docker
@@ -11,11 +12,22 @@ from loguru import logger
 
 from app.core.config import get_settings
 from app.schemas.tool_config import ImageConfig
-from app.utils.container._general import _strip_ansi_escape_sequences
-from app.utils.system import get_current_user_identity
+from app.utils.container._general import (
+    CONTAINER_ROOT_USER,
+    _strip_ansi_escape_sequences,
+)
 
 client = docker.from_env()
 settings = get_settings().docker
+
+
+@lru_cache
+def _check_runtime_mode() -> None:
+    """Return whether Docker reports that the connected daemon is rootless."""
+    security_options = client.info().get('SecurityOptions') or []
+    rootless = any(str(option).split(',', maxsplit=1)[0] == 'name=rootless' for option in security_options)
+    if not rootless:
+        logger.warning('Docker daemon mode: rootful; bind-mount outputs created by container root may be root-owned')
 
 
 def _check_image(image_cfg: ImageConfig) -> None:
@@ -44,7 +56,7 @@ def run_docker(
     workdir: Optional[str] = None,
     *,
     ensure_ascii: bool = True,
-    user: str | None = None,
+    user: str | None = CONTAINER_ROOT_USER,
     **kwargs,
 ) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果.
@@ -58,7 +70,7 @@ def run_docker(
         mounts (list[Mount]): 文件挂载列表
         workdir: 命令运行的工作目录
         ensure_ascii: 是否过滤命令行富文本格式
-        user: 传递给 Docker 的用户身份, 通常为 ``UID:GID``
+        user: 容器内的用户身份。默认使用容器 root, 由 rootless Docker 映射到 daemon 所属宿主机用户
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -70,6 +82,7 @@ def run_docker(
         docker.errors.ContainerError: 容器运行失败时抛出
         docker.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
     """
+    _check_runtime_mode()
     _check_image(image_cfg)
 
     # 处理 GPU 配置
@@ -116,7 +129,7 @@ def run_docker_background(
     working_dir: str,
     interval: float = 1.0,
     *,
-    user: str | None = None,
+    user: str | None = CONTAINER_ROOT_USER,
     **kwargs: Any,
 ) -> Generator[dict[str, Any] | None, None, None]:
     """后台运行docker容器, 并实时返回容器资源占用信息.
@@ -139,6 +152,7 @@ def run_docker_background(
         docker.errors.ContainerError: 容器运行失败时抛出
         docker.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
     """
+    _check_runtime_mode()
     _check_image(image_cfg)
     container = None
 
@@ -202,6 +216,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     Raises:
         RuntimeError: 容器启动失败时抛出
     """
+    _check_runtime_mode()
     _check_image(image_cfg)
 
     # 处理 GPU 配置
@@ -219,7 +234,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
         mounts=mounts,
         entrypoint=['/bin/sh', '-c'],
         detach=True,
-        user=get_current_user_identity(),
+        user=CONTAINER_ROOT_USER,
         device_requests=device_requests,
         # pyrefly: ignore [bad-argument-type]
         **kwargs,

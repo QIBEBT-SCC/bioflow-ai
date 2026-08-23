@@ -34,20 +34,9 @@ def get_file_size(file_path: str | Path) -> int:
 
 def get_folder_size_du(path: str) -> str:
     """Get folder size."""
-    result = subprocess.run(['/usr/bin/du', '-sb', path], check=False, stdout=subprocess.PIPE, text=True)  # noqa: S603
+    result = subprocess.run(['/usr/bin/du', '-sb', path], check=False, stdout=subprocess.PIPE, text=True)
     size_in_bytes = int(result.stdout.split()[0])
     return _format_size(size_in_bytes)
-
-
-def get_current_user_identity() -> str:
-    """获取当前用户的UID:GID.
-
-    Returns:
-        str: 格式为 "UID:GID" 的字符串
-    """
-    uid = os.getuid()
-    gid = os.getgid()
-    return f'{uid}:{gid}'
 
 
 def random_uid() -> uuid.UUID:

@@ -35,7 +35,20 @@ mkdir -p ./volumes/rustfs
 chown -R 10001:10001 ./volumes/rustfs
 ```
 
-### 4. Start Docker Services
+### 4. Configure Rootless Docker and Start Services
+
+BioFlow runs tool processes as root inside their containers. Use a
+[rootless Docker daemon](https://docs.docker.com/engine/security/rootless/) so that files written through bind mounts
+remain owned by the host user running Docker. Point both the Docker CLI and BioFlow processes at the user socket:
+
+```bash
+export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
+docker info --format '{{json .SecurityOptions}}'
+```
+
+The reported security options include `name=rootless` when the user daemon is active. BioFlow logs whether the
+connected daemon is rootless or rootful when it first runs a container. Rootful mode remains supported, but files
+created through writable bind mounts may then be owned by host root.
 
 Launch the database and other dependencies via Docker Compose:
 
@@ -83,10 +96,10 @@ uv sync --extra podman
 podman system service --time=0 unix:///run/user/$(id -u)/podman/podman.sock > /dev/null 2>&1 &
 ```
 
+BioFlow reports whether this service is rootless or rootful when it first runs a container.
+
 **Start the containers:**
 
 ```bash
 podman-compose up -d
 ```
-
-

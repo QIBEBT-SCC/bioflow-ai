@@ -1,6 +1,7 @@
 import datetime
 import time
 from collections.abc import Generator
+from functools import lru_cache
 from typing import Any, Optional
 
 import psutil
@@ -10,8 +11,23 @@ from podman.errors import ImageNotFound
 
 from app.core.config import get_settings
 from app.schemas.tool_config import ImageConfig
-from app.utils.container._general import _strip_ansi_escape_sequences
+from app.utils.container._general import (
+    CONTAINER_ROOT_USER,
+    _strip_ansi_escape_sequences,
+)
 from app.utils.system import get_cpu_cores
+
+
+@lru_cache
+def _check_runtime_mode() -> None:
+    """Warn when the connected Podman service is not rootless."""
+    with PodmanClient() as client:
+        host = client.info().get('host') or {}
+        security = host.get('security') or {}
+        if security.get('rootless') is not True:
+            logger.warning(
+                'Podman service mode: rootful; bind-mount outputs created by container root may be root-owned'
+            )
 
 
 def _check_image(client: PodmanClient, image_cfg: ImageConfig) -> None:
@@ -49,7 +65,7 @@ def run_podman(
     mounts: list[dict],
     workdir: Optional[str] = None,
     *,
-    user: str | None = None,
+    user: str | None = CONTAINER_ROOT_USER,
     **kwargs: Any,
 ) -> tuple[int, str]:
     """在podman容器中运行命令并返回执行结果.
@@ -62,7 +78,7 @@ def run_podman(
         command: 容器内执行的命令
         mounts: 文件挂载列表
         workdir: 命令运行的工作目录
-        user: 传递给 Podman 的用户身份, 通常为 ``UID:GID``
+        user: 容器内的用户身份。默认使用容器 root, 由 rootless Podman 映射到 service 所属宿主机用户
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -79,6 +95,7 @@ def run_podman(
         if not client.ping():
             raise RuntimeError
 
+        _check_runtime_mode()
         _check_image(client, image_cfg)
 
         # 处理 GPU 配置
@@ -120,7 +137,7 @@ def run_podman_background(
     interval: float = 1.0,
     workdir: Optional[str] = None,
     *,
-    user: str | None = None,
+    user: str | None = CONTAINER_ROOT_USER,
     **kwargs: Any,
 ) -> Generator[dict[str, Any], None, None]:
     """后台运行podman容器, 并实时返回容器资源占用信息.
@@ -147,6 +164,7 @@ def run_podman_background(
         if not client.ping():
             raise RuntimeError
 
+        _check_runtime_mode()
         _check_image(client, image_cfg)
         container = None
 
@@ -222,6 +240,7 @@ def create_container(
         if not client.ping():
             raise RuntimeError
 
+        _check_runtime_mode()
         _check_image(client, image_cfg)
 
         # 处理 GPU 配置
@@ -240,6 +259,7 @@ def create_container(
             entrypoint=['/bin/sh', '-c'],
             remove=False,
             detach=True,
+            user=CONTAINER_ROOT_USER,
             device=device,
             **kwargs,
         )

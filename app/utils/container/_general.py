@@ -1,5 +1,7 @@
 import re
 
+CONTAINER_ROOT_USER = '0:0'
+
 
 def _strip_ansi_escape_sequences(text: str) -> str:
     """Remove ANSI escape sequences from text.

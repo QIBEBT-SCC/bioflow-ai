@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.schemas.tool_config import ImageConfig
+from app.utils.container._general import CONTAINER_ROOT_USER
 
 
 class ContainerMount(BaseModel):
@@ -43,7 +44,7 @@ def run_command(
     workdir: str | None = None,
     *,
     ensure_ascii: bool = True,
-    user: str | None = None,
+    user: str | None = CONTAINER_ROOT_USER,
 ) -> tuple[int, str]:
     """Execute shell commands within a specified container environment.
 
@@ -53,7 +54,7 @@ def run_command(
         command: The full command string to be executed inside the container.
         workdir: The working directory of command execution.
         ensure_ascii: Whether to ensure the output is ASCII-encoded. Defaults to True.
-        user: User identity passed to the container runtime, typically ``UID:GID``.
+        user: User identity inside the container. Defaults to container root; the rootless runtime maps it to the host user that owns the daemon.
 
     Returns:
         A tuple containing two elements:
@@ -86,7 +87,7 @@ def run_command_background(  # noqa: ANN201
     working_dir: str,
     interval: float = 1.0,
     *,
-    user: str | None = None,
+    user: str | None = CONTAINER_ROOT_USER,
 ):
     """后台运行容器命令, 实时 yield 资源占用统计, 自动分发到 podman 或 docker."""
     if get_settings().docker.CONTAINER == 'podman':
@@ -140,6 +141,7 @@ def remove_container(container_id: str) -> None:
 
 
 __all__ = [
+    'CONTAINER_ROOT_USER',
     'ContainerMount',
     'create_container',
     'remove_container',

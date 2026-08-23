@@ -14,10 +14,10 @@ from app.schemas.tool_config import ImageConfig
 from app.schemas.workflow_config import ToolOutput
 from app.services.resource import bio_db as db_service
 from app.tasks.base.base_task import BaseBioTask, update_task
-from app.utils.container import ContainerMount, run_command
+from app.utils.container import CONTAINER_ROOT_USER, ContainerMount, run_command
 from app.utils.input_format import to_safe_path_segment
 from app.utils.redis import decode_redis_value, get_bio_db_download_task_key
-from app.utils.system import get_current_user_identity, utc_now
+from app.utils.system import utc_now
 from script.worker import celery_app, monitor_redis_client
 
 BIO_DB_CONTAINER_PATH = '/data/db'
@@ -91,14 +91,14 @@ def _run_bio_db_download(
         image_cfg = ImageConfig.from_str(bio_db.download_image) if bio_db.download_image else DEFAULT_DOWNLOAD_IMAGE
         mounts = [
             ContainerMount(source=str(target_dir), target=BIO_DB_CONTAINER_PATH, read_only=False),
-            ContainerMount(source='/tmp', target='/tmp', read_only=False),  # noqa: S108
         ]
         command = bio_db.download_command
         if task_instance_uid is not None:
             update_task(
                 task_instance_uid,
                 TaskUpdate(
-                    commands=f'docker run --rm -v {target_dir}:{BIO_DB_CONTAINER_PATH}:rw '
+                    commands=f'docker run --rm --user {CONTAINER_ROOT_USER} '
+                    f'-v {target_dir}:{BIO_DB_CONTAINER_PATH}:rw '
                     f'{image_cfg.get_image()} /bin/sh -c "{command}"'
                 ),
             )
@@ -109,7 +109,6 @@ def _run_bio_db_download(
             command,
             workdir=BIO_DB_CONTAINER_PATH,
             ensure_ascii=False,
-            user=get_current_user_identity(),
         )
         if status != 0:
             logger.error(output)
