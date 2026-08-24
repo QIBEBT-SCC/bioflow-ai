@@ -282,7 +282,7 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
     from uuid_extensions import uuid7str
 
     from app.core.config import get_settings
-    from llm.agents.fs_agent.sample_manager import build_create_sample_agent
+    from llm.agents.fs_agent.sample_manager import build_evaluate_sample_agent
     from llm.context import ProjectContext
     from llm.utils.render import print_stream_chunk
 
@@ -296,7 +296,7 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
 
     thread_id = uuid7str()
     logger.info(f'Generating sample info for project {project_id}; checkpoint thread_id={thread_id}.')
-    agent = build_create_sample_agent(checkpointer=checkpoint)
+    agent = build_evaluate_sample_agent(checkpointer=checkpoint)
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': [user_input]}
 
@@ -308,7 +308,6 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
             user_id=2,
             project_id=project_id,
             workdir=workdir,
-            auto_approve=True,
         ),
         stream_mode=['updates', 'custom'],
         version='v2',
@@ -405,7 +404,7 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
     from uuid_extensions import uuid7str
 
     from app.core.config import get_settings
-    from llm.agents.workflow_agent.workflow_designer_v2 import build_workflow_planner
+    from llm.agents.workflow_agent.workflow_designer_v2 import build_evaluate_workflow_planner
     from llm.context import ProjectContext
     from llm.utils.render import print_stream_chunk
 
@@ -419,7 +418,7 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
 
     thread_id = uuid7str()
     logger.info(f'Generating plan for project {project_id}; checkpoint thread_id={thread_id}.')
-    agent = build_workflow_planner(checkpointer=checkpoint)
+    agent = build_evaluate_workflow_planner(checkpointer=checkpoint)
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': human_input}
 

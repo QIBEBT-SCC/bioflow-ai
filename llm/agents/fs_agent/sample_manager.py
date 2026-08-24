@@ -1,14 +1,14 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
-from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph.state import CompiledStateGraph
 
 from llm.agents.fs_agent.analysis_reporter import AGENT_LLM
 from llm.context import ProjectContext
 from llm.models import get_agent_model
 from llm.states import SampleState
-from llm.tools.human import ask_human
+from llm.tools.human import ask_human_with_choices
 from llm.tools.sample import (
     add_project_file,
     add_sample_file,
@@ -18,10 +18,20 @@ from llm.tools.sample import (
     set_base_dir,
     write_conclusion,
 )
-from llm.utils.middleware import SampleManagerProgressMiddleware, StatusBarMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import (
+    DisableParallelToolCallsMiddleware,
+    EndLoopMiddleware,
+    SampleManagerProgressMiddleware,
+    StatusBarMiddleware,
+    TokenStatisticMiddleware,
+)
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
+    from langchain.agents.middleware import AgentMiddleware
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.graph.state import CompiledStateGraph
+
     from llm.llm_client import LLMMetadata
 
 MANAGER_LLM = get_agent_model()
@@ -44,7 +54,6 @@ Your task is to explore raw data paths provided by the user, identify the file s
 2. **Explore** — Call `set_base_dir`, then use `run_command` to map the directory structure.
    - `base_dir` is mounted as `/app/data` inside the container; use `/app/data` as the working path in all shell commands.
    - Drill into subdirectories as needed to build a complete file inventory.
-   - If the path is inaccessible, call `ask_human` — this is the **only** situation to use it.
 3. **Infer** — Determine the workflow execution unit first, then decide how each file should be registered.
    - A system `Sample` is the complete set of inputs that one sample-level workflow run must be able to access. It is not necessarily the same as one biological library, one filename prefix, or one input subdirectory.
    - Read the task description and distinguish independent samples from files with complementary roles. If treatment/control, tumor/normal, case/reference, before/after, or other paired libraries must be compared or supplied together to one downstream command, register them in a same sample.
@@ -141,56 +150,73 @@ The following are tag/keyword selections for some common scenarios:
 - Tags must be **unique within a sample**. Project keywords must be **unique within the project**. Both should be semantically descriptive.
 """
 
+FRONTEND_INTERACTION_PROMPT = """
+## Human interaction
 
-def build_create_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
-    """Create smaple agent."""
-    if checkpointer:
-        # pyrefly: ignore [no-matching-overload]
-        return create_agent(
-            MANAGER_LLM,
-            [
-                set_base_dir,
-                run_command_tool,
-                list_project_samples,
-                add_samples,
-                add_sample_file,
-                add_project_file,
-                write_conclusion,
-                ask_human,
-            ],
-            system_prompt=SYSTEM_PROMPT,
-            middleware=[
-                SampleManagerProgressMiddleware(),
-                StatusBarMiddleware(),
-                CheckStateExistMiddleware('summary', 'write_conclusion'),
-                TokenStatisticMiddleware('sample_manager', **metadata),
-            ],
-            state_schema=SampleState,
-            context_schema=ProjectContext,
-            checkpointer=checkpointer,
-        )
-    # pyrefly: ignore [no-matching-overload]
-    return create_agent(
-        MANAGER_LLM,
+- Do not ask the user again for information that can be obtained directly from the file metadata.
+- When you determine that additional information is needed from the user, call the `ask_human` tool. Ask only one clear question at a time, and whenever possible, provide one or two specific, mutually exclusive suggested answers; the user interface also supports custom responses.
+- For other issues that cannot be handled, you may also call this tool to provide feedback to the user.
+"""
+
+
+def _build_sample_agent(
+    *,
+    system_prompt: str,
+    allow_human_input: bool,
+    checkpointer: BaseCheckpointSaver | None,
+) -> CompiledStateGraph:
+    tools = [
+        set_base_dir,
+        run_command_tool,
+        list_project_samples,
+        add_samples,
+        add_sample_file,
+        add_project_file,
+        write_conclusion,
+    ]
+    if allow_human_input:
+        tools.append(ask_human_with_choices)
+
+    middleware: list[AgentMiddleware] = [SampleManagerProgressMiddleware()]
+    if allow_human_input:
+        middleware.append(DisableParallelToolCallsMiddleware(disabled_tools={'ask_human'}))
+    middleware.extend(
         [
-            set_base_dir,
-            run_command_tool,
-            list_project_samples,
-            add_samples,
-            add_sample_file,
-            add_project_file,
-            write_conclusion,
-            ask_human,
-        ],
-        system_prompt=SYSTEM_PROMPT,
-        middleware=[
-            SampleManagerProgressMiddleware(),
+            EndLoopMiddleware(),
             StatusBarMiddleware(),
             CheckStateExistMiddleware('summary', 'write_conclusion'),
             TokenStatisticMiddleware('sample_manager', **metadata),
-        ],
+        ]
+    )
+
+    kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
+    # pyrefly: ignore [no-matching-overload]
+    return create_agent(
+        MANAGER_LLM,
+        tools,
+        system_prompt=system_prompt,
+        middleware=middleware,
         state_schema=SampleState,
         context_schema=ProjectContext,
+        **kwargs,
+    )
+
+
+def build_create_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+    """Build the interactive frontend sample manager."""
+    return _build_sample_agent(
+        system_prompt=f'{SYSTEM_PROMPT}\n{FRONTEND_INTERACTION_PROMPT}',
+        allow_human_input=True,
+        checkpointer=checkpointer,
+    )
+
+
+def build_evaluate_sample_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+    """Build the autonomous evaluation sample manager without human-interaction tools."""
+    return _build_sample_agent(
+        system_prompt=SYSTEM_PROMPT,
+        allow_human_input=False,
+        checkpointer=checkpointer,
     )
 
 

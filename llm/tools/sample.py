@@ -279,6 +279,7 @@ async def write_conclusion(content: str, runtime: ToolRuntime[ProjectContext, Sa
         update={
             'summary': 'done',
             'updated': True,
+            'should_end': True,
             'messages': [ToolMessage(content='Done.', tool_call_id=runtime.tool_call_id)],
         }
     )
