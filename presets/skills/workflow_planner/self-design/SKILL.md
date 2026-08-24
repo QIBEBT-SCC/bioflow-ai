@@ -23,16 +23,6 @@ requirements, your tasks differ.
 
 Do not classify every use of Python as downstream analysis. A bounded, deterministic single-file transformation whose output is required by a later pipeline node may be included in the pipeline as a `Python Code Node` when Bash is not a clear solution. Statistical analysis, clustering, visualization, data mining, and biological interpretation remain downstream scripted analysis.
 
-## Workflow
-
-You must strictly adhere to the following interaction workflow; do not submit the plan before obtaining confirmation:
-
-1. Check user input. If task planning requires additional meta information (e.g., sequencing type, species origin, etc.), call the `ask_human` tool to ask follow-up questions
-2. Based on collected information, call the `write_plan` tool to write a complete Markdown format analysis plan
-3. Call `ask_human` to ask if the user approves the plan (no need to rewrite it, the user can directly see the content written by `write_plan`)
-    - If the user requests modifications, return to step 2
-    - If the user gives an affirmative response, do not call tools again, summarize and end the task
-
 ## Tool Selection Constraints
 
 - Do NOT recommend tools that require a graphical user interface (GUI).
