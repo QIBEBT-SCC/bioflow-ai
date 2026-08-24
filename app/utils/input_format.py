@@ -10,12 +10,12 @@ from app.schemas.tool_config import FileMount, ParamDefine
 
 
 class PartialFormatter(string.Formatter):
-    def get_value(self, key: str, args, kwargs) -> str:  # noqa: ANN001
+    def get_value(self, key: int | str, args, kwargs) -> str:  # noqa: ANN001
         """允许缺省的模板填充."""
         try:
             return super().get_value(key, args, kwargs)
         except (KeyError, IndexError):
-            return '{' + key + '}'
+            return f'{{{key}}}'
 
 
 def build_command_template(
