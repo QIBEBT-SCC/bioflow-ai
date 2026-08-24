@@ -14,6 +14,7 @@ import app.crud.tools.tool as tool_crud
 from app.core.session import engine
 from app.schemas.tools import ToolNodePublic
 from app.utils.input_format import build_command_template
+from app.utils.redis import open_catalog_generation_guard
 from llm.agents.tool_agent import CreateToolAgent
 from llm.context import CreateToolContext, ProjectContext
 from llm.prebuild.chains import check_update_args
@@ -24,6 +25,7 @@ from llm.utils.formatters import (
     node_formatter,
     search_nodes_formatter,
 )
+from llm.utils.session import workflow_thread_id
 from llm.utils.uid_mapper import BidirectionalMapper, HasUid, generate_char_index, merge_mappers
 from llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 
@@ -112,7 +114,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            return _search_tool(validate_param.name, runtime)
+            return await _search_tool(validate_param.name, runtime)
 
         case 'add':
             try:
@@ -187,19 +189,33 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
     writer = get_stream_writer()
     writer({'info': f'Creating new tool: {request}'})
 
-    sub_agent = CreateToolAgent().build()
-    agent_input: CreateToolState = {
-        'messages': [HumanMessage(content=f'Create a new tool node named `{name}`\n<Require>\n{request}\n</Require>')]
-    }
-    run_id = nanoid.generate(size=8)
-    context = CreateToolContext(
-        user_id=runtime.context.user_id,
-        auto_save=True,
-        skip_search=True,
-        test_run_id=run_id,
-    )
-    # pyrefly: ignore [no-matching-overload]
-    response = await sub_agent.ainvoke(agent_input, context=context)
+    thread_id = workflow_thread_id(runtime.config)
+    async with (
+        open_catalog_generation_guard(
+            'tool',
+            thread_id,
+            on_wait=lambda: writer({'info': 'Waiting for another tool node generation task to finish...'}),
+        ) as guard,
+        guard.creation() as permit,
+    ):
+        if not permit.allowed:
+            return _stale_tool_search_command(permit.reason, runtime)
+
+        sub_agent = CreateToolAgent().build()
+        agent_input: CreateToolState = {
+            'messages': [
+                HumanMessage(content=f'Create a new tool node named `{name}`\n<Require>\n{request}\n</Require>')
+            ]
+        }
+        run_id = nanoid.generate(size=8)
+        context = CreateToolContext(
+            user_id=runtime.context.user_id,
+            auto_save=True,
+            skip_search=True,
+            test_run_id=run_id,
+        )
+        # pyrefly: ignore [no-matching-overload]
+        response = await sub_agent.ainvoke(agent_input, context=context)
 
     new_mapper = response['id_mapper']
     exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
@@ -230,10 +246,40 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
     )
 
 
-def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
-    with Session(engine) as session:
-        exist_tools = tool_crud.get_by_name_fuzzy(session, name, 15, 0)
-        new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
+def _stale_tool_search_command(reason: str | None, runtime: ToolRuntime[ProjectContext]) -> Command:
+    detail = 'No catalog search has been recorded for this workflow.' if reason == 'missing_search' else (
+        'The tool catalog changed after the previous search.'
+    )
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=(
+                        f'{detail} Call `tool_node_manager` with `action="search"` again before creating a tool node.'
+                    ),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ]
+        }
+    )
+
+
+async def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+    writer = get_stream_writer()
+    thread_id = workflow_thread_id(runtime.config)
+    async with (
+        open_catalog_generation_guard(
+            'tool',
+            thread_id,
+            on_wait=lambda: writer(
+                {'info': 'Waiting for another tool node generation task to finish before searching...'}
+            ),
+        ) as guard,
+        guard.search(),
+    ):
+        with Session(engine) as session:
+            exist_tools = tool_crud.get_by_name_fuzzy(session, name, 15, 0)
+            new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
 
     if exist_tools:
         exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))

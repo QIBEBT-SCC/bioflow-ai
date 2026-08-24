@@ -62,6 +62,10 @@ class CacheConfig(BaseSectionConfig):
     MONITOR_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
     API_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
     NOTIFICATION_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
+    CATALOG_GENERATION_KEY_PREFIX: str = 'bioflow:catalog-generation'
+    CATALOG_GENERATION_LOCK_TIMEOUT_SECONDS: int = 900
+    CATALOG_GENERATION_LOCK_RENEW_INTERVAL_SECONDS: int = 300
+    CATALOG_GENERATION_SEARCH_EPOCH_TTL_SECONDS: int = 24 * 60 * 60
 
 
 class S3StorageConfig(BaseSectionConfig):

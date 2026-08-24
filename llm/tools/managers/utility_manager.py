@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.config import get_stream_writer
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from loguru import logger
@@ -15,6 +16,7 @@ from app.schemas.code import CodeCreate, CodeNodeType
 from app.schemas.tools import Handle
 from app.services import code_catalog
 from app.services.code_catalog import CODE_NODE_KIND
+from app.utils.redis import open_catalog_generation_guard
 from llm.context import ProjectContext
 from llm.prebuild.code_node import (
     build_code_inputs,
@@ -25,6 +27,7 @@ from llm.states import BuildEdge, BuildNode
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import PROCESSORS
 from llm.utils.retrievers import retrieve_auxiliary_nodes
+from llm.utils.session import workflow_thread_id
 from llm.utils.uid_mapper import generate_char_index
 from llm.workflow_builder.validation import (
     check_code_node_edges,
@@ -284,7 +287,19 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
 
 
 async def _search_nodes(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
-    results = await retrieve_auxiliary_nodes(query)
+    writer = get_stream_writer()
+    thread_id = workflow_thread_id(runtime.config)
+    async with (
+        open_catalog_generation_guard(
+            'code',
+            thread_id,
+            on_wait=lambda: writer(
+                {'info': 'Waiting for another CODE node generation task to finish before searching...'}
+            ),
+        ) as guard,
+        guard.search(),
+    ):
+        results = await retrieve_auxiliary_nodes(query)
 
     if not results:
         return Command(
@@ -591,6 +606,25 @@ async def _add_new_code(
     return await _add_generated_python_code(request, input_edges, runtime)
 
 
+def _stale_code_search_command(reason: str | None, runtime: ToolRuntime[ProjectContext]) -> Command:
+    detail = 'No catalog search has been recorded for this workflow.' if reason == 'missing_search' else (
+        'The CODE catalog changed after the previous search.'
+    )
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=(
+                        f'{detail} Call `utility_node_manager` with `action="search"` again before generating '
+                        'a CODE node.'
+                    ),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ]
+        }
+    )
+
+
 async def _add_generated_bash_code(
     request: str,
     input_edges: list[BuildEdge],
@@ -607,54 +641,81 @@ async def _add_generated_bash_code(
 
     try:
         code_inputs = build_code_inputs(input_edges, exist_nodes, runtime.state.get('exist_edges', []))
-        generated = await generate_bash_code(request, code_inputs, runtime.context.user_id)
     except Exception as error:
-        logger.exception('Bash code-node generation failed')
+        logger.exception('Unable to build Bash code-node input contract')
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content=f'Error: Bash code generation failed: {error}',
+                        content=f'Error: Invalid Bash code inputs: {error}',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ]
             }
         )
 
-    if generated.reject:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=(
-                            'This request is not the responsibility of the Bash code node. '
-                            'Read the relevant documentation and use a Python code node or tool node to implement the requirements.'
-                        ),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
+    writer = get_stream_writer()
+    thread_id = workflow_thread_id(runtime.config)
+    async with (
+        open_catalog_generation_guard(
+            'code',
+            thread_id,
+            on_wait=lambda: writer({'info': 'Waiting for another CODE node generation task to finish...'}),
+        ) as guard,
+        guard.creation() as permit,
+    ):
+        if not permit.allowed:
+            return _stale_code_search_command(permit.reason, runtime)
 
-    try:
-        await _store_generated_code(
-            name=generated.name,
-            description=request,
-            node_type=CodeNodeType.BASH,
-            code=generated.code,
-        )
-    except Exception as error:
-        logger.exception('Failed to persist generated Bash code node')
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f'Error: Bash code was generated but could not be saved and indexed: {error}',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
+        try:
+            generated = await generate_bash_code(request, code_inputs, runtime.context.user_id)
+        except Exception as error:
+            logger.exception('Bash code-node generation failed')
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'Error: Bash code generation failed: {error}',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
+
+        if generated.reject:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=(
+                                'This request is not the responsibility of the Bash code node. '
+                                'Read the relevant documentation and use a Python code node or tool node to implement the requirements.'
+                            ),
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
+
+        try:
+            await _store_generated_code(
+                name=generated.name,
+                description=request,
+                node_type=CodeNodeType.BASH,
+                code=generated.code,
+            )
+        except Exception as error:
+            logger.exception('Failed to persist generated Bash code node')
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'Error: Bash code was generated but could not be saved and indexed: {error}',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
 
     node_id = generate_char_index(len(exist_nodes) + 1)
     new_node = BuildNode(
@@ -702,40 +763,67 @@ async def _add_generated_python_code(
 
     try:
         code_inputs = build_code_inputs(input_edges, exist_nodes, runtime.state.get('exist_edges', []))
-        generated = await generate_python_code(request, code_inputs, runtime.context.user_id)
     except Exception as error:
-        logger.exception('Python code-node generation failed')
+        logger.exception('Unable to build Python code-node input contract')
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content=f'Error: Python code generation failed: {error}',
+                        content=f'Error: Invalid Python code inputs: {error}',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ]
             }
         )
 
-    try:
-        await _store_generated_code(
-            name=generated.name,
-            description=request,
-            node_type=CodeNodeType.PYTHON,
-            code=generated.code,
-            dependencies=generated.dependencies,
-        )
-    except Exception as error:
-        logger.exception('Failed to persist generated Python code node')
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f'Error: Python code was generated but could not be saved and indexed: {error}',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
+    writer = get_stream_writer()
+    thread_id = workflow_thread_id(runtime.config)
+    async with (
+        open_catalog_generation_guard(
+            'code',
+            thread_id,
+            on_wait=lambda: writer({'info': 'Waiting for another CODE node generation task to finish...'}),
+        ) as guard,
+        guard.creation() as permit,
+    ):
+        if not permit.allowed:
+            return _stale_code_search_command(permit.reason, runtime)
+
+        try:
+            generated = await generate_python_code(request, code_inputs, runtime.context.user_id)
+        except Exception as error:
+            logger.exception('Python code-node generation failed')
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'Error: Python code generation failed: {error}',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
+
+        try:
+            await _store_generated_code(
+                name=generated.name,
+                description=request,
+                node_type=CodeNodeType.PYTHON,
+                code=generated.code,
+                dependencies=generated.dependencies,
+            )
+        except Exception as error:
+            logger.exception('Failed to persist generated Python code node')
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'Error: Python code was generated but could not be saved and indexed: {error}',
+                            tool_call_id=runtime.tool_call_id,
+                        )
+                    ]
+                }
+            )
 
     node_id = generate_char_index(len(exist_nodes) + 1)
     new_node = BuildNode(

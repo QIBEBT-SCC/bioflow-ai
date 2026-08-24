@@ -28,6 +28,10 @@ db_url = "postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
 llm_cache = "redis://localhost:6379/0"
 monitor_cache = "redis://localhost:6379/2"
 api_cache = "redis://localhost:6379/2"
+catalog_generation_key_prefix = "bioflow:catalog-generation"
+catalog_generation_lock_timeout_seconds = 900
+catalog_generation_lock_renew_interval_seconds = 300
+catalog_generation_search_epoch_ttl_seconds = 86400
 
 [persistent.storage]
 storage_path = "./storage"
