@@ -32,7 +32,7 @@ class SearchToolArgsSchema(BaseModel):
     query: str = Field(description='Briefly describe the tool or function to be searched for in ENGLISH')
 
 
-@tool(description=TOOL_DESCRIPTION, args_schema=SearchToolArgsSchema)
+@tool('search_tools', description=TOOL_DESCRIPTION, args_schema=SearchToolArgsSchema)
 async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
     """Search existing tools from the vector database based on functionality."""
     embedding = qwen3_embedding()
