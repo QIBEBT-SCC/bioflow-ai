@@ -30,7 +30,7 @@ async def create_workflow(session: Session, workflow: Workflow) -> Workflow:
     with committing(session):
         workflow_crud.insert(session, workflow)
     session.refresh(workflow)
-    await _index_workflows([workflow])
+    # await _index_workflows([workflow])
     return workflow
 
 
@@ -40,7 +40,7 @@ async def create_workflows(session: Session, workflows: Sequence[Workflow]) -> l
         saved_workflows = [workflow_crud.insert(session, workflow) for workflow in workflows]
     for workflow in saved_workflows:
         session.refresh(workflow)
-    await _index_workflows(saved_workflows)
+    # await _index_workflows(saved_workflows)
     return saved_workflows
 
 
