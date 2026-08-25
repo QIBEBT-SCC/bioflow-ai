@@ -1,6 +1,7 @@
 import json
 import re
 import uuid
+from glob import has_magic
 from pathlib import Path
 
 from celery import Task
@@ -65,10 +66,16 @@ def select_file_task(
         raise ValueError
     parent_dir, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
 
-    selected_file = Path(parent_dir) / file_name
-
-    if not Path(selected_file).exists():
-        raise FileNotFoundError(parent_dir)
+    parent_path = Path(parent_dir)
+    if has_magic(file_name):
+        matched_files = sorted(parent_path.glob(file_name))
+        if not matched_files:
+            raise FileNotFoundError(parent_dir)
+        selected_file = matched_files[0]
+    else:
+        selected_file = parent_path / file_name
+        if not selected_file.exists():
+            raise FileNotFoundError(parent_dir)
 
     return ToolOutput(result={'file_path': selected_file}, sample_name=sample_name)
 
