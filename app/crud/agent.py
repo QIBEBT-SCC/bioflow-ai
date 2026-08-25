@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentSession
+from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from app.schemas.agent import ACTIVE_AGENT_RUN_STATUSES
 
 
@@ -33,6 +33,10 @@ def get_sessions_page(
 
 def get_run(session: Session, run_uid: uuid.UUID) -> AgentRun | None:
     return session.get(AgentRun, run_uid)
+
+
+def get_run_target(session: Session, run_uid: uuid.UUID) -> AgentRunTarget | None:
+    return session.get(AgentRunTarget, run_uid)
 
 
 def get_latest_run(session: Session, session_uid: uuid.UUID) -> AgentRun | None:

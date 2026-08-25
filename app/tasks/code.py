@@ -185,6 +185,11 @@ def bash_task(
         text=True,
         check=False,
     )
+    log_path = output_path / '11_run.log'
+    log_path.write_text(
+        f'[stdout]\n{result.stdout}\n[stderr]\n{result.stderr}',
+        encoding='utf-8',
+    )
 
     if result.returncode != 0:
         err_msg = f'bash script failed (exit {result.returncode}):\n{result.stderr}'
@@ -192,9 +197,9 @@ def bash_task(
 
     if input_sample_names:
         common_sample_name = get_prefix(input_sample_names)
-        return ToolOutput(result={'output_folder': output_path}, sample_name=common_sample_name)
+        return ToolOutput(result={'output_folder': output_path}, log=log_path, sample_name=common_sample_name)
 
-    return ToolOutput(result={'output_folder': output_path})
+    return ToolOutput(result={'output_folder': output_path}, log=log_path)
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
@@ -232,6 +237,8 @@ def python_task(
             workdir='/data/output',
             ensure_ascii=False,
         )
+    log_path = output_path / '11_run.log'
+    log_path.write_text(console_output, encoding='utf-8')
 
     if status != 0:
         err_msg = f'Python script failed (exit {status}):\n{console_output}'
@@ -239,5 +246,6 @@ def python_task(
 
     return ToolOutput(
         result={'output_folder': output_path},
+        log=log_path,
         sample_name=get_prefix(sample_names),
     )

@@ -80,6 +80,7 @@ class BaseBioTask(celery.Task):
 
     def on_failure(self, exc, task_id, args, kwargs, einfo) -> None:  # noqa: ANN001
         """任务失败后的钩子 - 落盘任务终态并 flush 监控日志."""
+        failure_base_dir: str | None = None
         try:
             with Session(engine) as session:
                 task = workflow_runtime.update_task(
@@ -90,10 +91,17 @@ class BaseBioTask(celery.Task):
                 logger.error(f'Task {task.name}({task_id}) ERROR')
 
                 instance_uid = str(task.instance_uid)
+                failure_base_dir = task.base_dir
 
             _mark_run_instance_error(instance_uid)
         except Exception as e:
             logger.error(f'更新任务 {task_id} 失败状态失败: {e}')
+
+        if failure_base_dir:
+            try:
+                _append_failure_log(failure_base_dir, exc, einfo)
+            except Exception as e:
+                logger.warning(f'写入任务 {task_id} 失败日志失败: {e}')
 
         try:
             _flush_monitor_to_db(task_id)
@@ -106,6 +114,17 @@ class BaseBioTask(celery.Task):
 # ---------------------------------------------------------------------------
 
 _TASK_NOT_FOUND = 'Task not found'
+
+
+def _append_failure_log(base_dir: str, exc: object, einfo: object) -> None:
+    """Persist a durable error snapshot beside task outputs for later diagnosis."""
+    output_dir = Path(base_dir).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_path = output_dir / '11_run.log'
+    prefix = '\n' if log_path.exists() and log_path.stat().st_size else ''
+    traceback_text = getattr(einfo, 'traceback', None) or str(einfo)
+    with log_path.open('a', encoding='utf-8') as log_file:
+        log_file.write(f'{prefix}[celery failure]\n{type(exc).__name__}: {exc}\n{traceback_text}\n')
 
 
 def _get_redis() -> Redis:

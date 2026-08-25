@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 import app.crud.agent as agent_crud
 import app.crud.project_workflow as project_workflow_crud
-from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentSession
+import app.crud.run_instance as run_instance_crud
+from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from app.models.project import Project
 from app.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
@@ -30,6 +31,9 @@ STALE_HEARTBEAT_AFTER = timedelta(seconds=60)
 ACTIVE_DELETE_ERROR = 'An active run must be cancelled before deleting the session.'
 GLOBAL_SCOPE_ERROR = 'Global sessions only support tool-generator.'
 ACTIVE_RUN_ERROR = 'This session already has an active run.'
+ACTIVE_RUN_CONSTRAINT = 'uq_agent_runs_one_active_per_session'
+DIAGNOSIS_TARGET_REQUIRED_ERROR = 'workflow-diagnoser requires source_run_uid.'
+DIAGNOSIS_TARGET_NOT_ALLOWED_ERROR = 'source_run_uid is only valid for workflow-diagnoser.'
 
 ALLOWED_RUN_TRANSITIONS = {
     AgentRunStatus.QUEUED: {
@@ -84,6 +88,24 @@ class AgentRunTransitionError(AgentServiceError):
 
 class AgentScopeError(AgentServiceError):
     pass
+
+
+def _is_active_run_integrity_error(error: IntegrityError) -> bool:
+    diagnostic = getattr(error.orig, 'diag', None)
+    return getattr(diagnostic, 'constraint_name', None) == ACTIVE_RUN_CONSTRAINT
+
+
+def _stage_run_records(
+    session: Session,
+    run: AgentRun,
+    message: AgentMessage,
+    event: AgentEvent,
+    target: AgentRunTarget | None,
+) -> None:
+    """Flush the parent run before staging records that reference it."""
+    session.add(run)
+    session.flush()
+    session.add_all([message, event, *([target] if target is not None else [])])
 
 
 def _require_owned_project(session: Session, project_id: int, owner_id: int) -> Project:
@@ -163,9 +185,22 @@ def create_run(
     text: str,
     *,
     retry_of_uid: uuid.UUID | None = None,
+    source_run_uid: uuid.UUID | None = None,
 ) -> AgentRun:
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
         raise AgentScopeError(GLOBAL_SCOPE_ERROR)
+    if agent_name == AgentName.WORKFLOW_DIAGNOSER:
+        if source_run_uid is None:
+            raise AgentScopeError(DIAGNOSIS_TARGET_REQUIRED_ERROR)
+        source_run = run_instance_crud.get(session, source_run_uid)
+        if (
+            source_run is None
+            or source_run.owner_id != agent_session.owner_id
+            or source_run.project_id != agent_session.project_id
+        ):
+            raise AgentProjectAccessError
+    elif source_run_uid is not None:
+        raise AgentScopeError(DIAGNOSIS_TARGET_NOT_ALLOWED_ERROR)
 
     active = agent_crud.get_active_run(session, agent_session.uid)
     if active is not None:
@@ -199,14 +234,19 @@ def create_run(
         payload={'agent_name': agent_name.value},
         create_time=now,
     )
+    target = (
+        AgentRunTarget(agent_run_uid=run_uid, source_run_uid=source_run_uid) if source_run_uid is not None else None
+    )
     try:
         with committing(session):
-            session.add_all([run, message, event])
+            _stage_run_records(session, run, message, event, target)
             if not agent_session.title:
                 agent_session.title = text[:80]
             agent_session.update_time = now
     except IntegrityError as error:
-        raise AgentRunConflictError(ACTIVE_RUN_ERROR) from error
+        if _is_active_run_integrity_error(error):
+            raise AgentRunConflictError(ACTIVE_RUN_ERROR) from error
+        raise
     session.refresh(run)
     return run
 

@@ -46,9 +46,7 @@ class AgentRun(Base):
             'uq_agent_runs_one_active_per_session',
             'session_uid',
             unique=True,
-            postgresql_where=text(
-                "status IN ('queued', 'running', 'waiting_input', 'cancel_requested')"
-            ),
+            postgresql_where=text("status IN ('queued', 'running', 'waiting_input', 'cancel_requested')"),
         ),
     )
 
@@ -87,6 +85,21 @@ class AgentRun(Base):
         back_populates='run',
         cascade='all, delete-orphan',
         passive_deletes=True,
+    )
+
+
+class AgentRunTarget(Base):
+    """The workflow execution inspected by a diagnosis agent run."""
+
+    __tablename__ = 'agent_run_targets'
+
+    agent_run_uid: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(AgentRun.uid, ondelete='CASCADE'),
+        primary_key=True,
+    )
+    source_run_uid: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey('run_instances.uid', ondelete='CASCADE'),
+        index=True,
     )
 
 

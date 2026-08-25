@@ -1,4 +1,4 @@
-from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentSession
+from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from app.models.base import Base
 from app.models.code import CodeDefine
 from app.models.document import ParentDocument
@@ -14,6 +14,7 @@ __all__ = [
     'AgentEvent',
     'AgentMessage',
     'AgentRun',
+    'AgentRunTarget',
     'AgentSession',
     'Base',
     'BioDb',

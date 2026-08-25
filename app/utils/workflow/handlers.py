@@ -495,11 +495,13 @@ class BashCodeTaskHandler(BaseTaskHandler):
     """Bash 脚本执行任务处理器."""
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_bash'
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
             instance_uid=context.run_uid,
             owner_id=context.owner.id,
             name='code_bash',
+            base_dir=output_dir,
             status=Status.WAITING,
         )
 

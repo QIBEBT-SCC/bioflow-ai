@@ -36,5 +36,12 @@ class ProjectContext(BaseContext):
     save_message: bool = True
 
 
+class WorkflowDiagnosisContext(ProjectContext):
+    agent_run_uid: str
+    source_run_uid: str
+    workflow_uid: str | None = None
+    run_base_dir: str | None = None
+
+
 class FolderContext(BaseContext):
     output_path: str

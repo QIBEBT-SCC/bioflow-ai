@@ -7,9 +7,10 @@ from langgraph.graph.state import CompiledStateGraph
 
 from llm.agents.fs_agent.sample_manager import build_create_sample_agent
 from llm.agents.tool_agent import CreateToolAgent
+from llm.agents.workflow_agent.workflow_diagnoser import build_workflow_diagnoser
 from llm.agents.workflow_agent.workflow_generation import build_workflow_generation
 
-RouteTask = Literal['workflow-builder', 'sample-manager', 'tool-generator']
+RouteTask = Literal['workflow-builder', 'workflow-diagnoser', 'sample-manager', 'tool-generator']
 
 AgentFactory = Callable[[Optional[BaseCheckpointSaver]], CompiledStateGraph]
 
@@ -31,6 +32,10 @@ AGENTS: dict[RouteTask, AgentSpec] = {
     'workflow-builder': AgentSpec(
         description='Prepare project samples and an approved plan, then build the node workflow on the canvas.',
         factory=build_workflow_generation,
+    ),
+    'workflow-diagnoser': AgentSpec(
+        description='Diagnose one workflow execution from its snapshot, task states, logs, and output files.',
+        factory=build_workflow_diagnoser,
     ),
     'sample-manager': AgentSpec(
         description="Explore raw data paths and register samples/files into the project's index.",

@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 import app.crud.agent as agent_crud
+import app.crud.run_instance as run_instance_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.agent import AgentMessage, AgentRun
@@ -28,13 +29,15 @@ from app.services import agent as agent_service
 from app.services.agent_executor import execute_agent_graph
 from app.services.agent_progress import event_payload, result_payload
 from app.utils.system import utc_now
-from llm.context import CreateToolContext, ProjectContext
+from llm.context import CreateToolContext, ProjectContext, WorkflowDiagnosisContext
 from llm.prebuild.dispatch import AGENTS, RouteTask
 from script.worker import celery_app
 
 HEARTBEAT_INTERVAL_SECONDS = 10
 AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
+MISSING_DIAGNOSIS_TARGET_ERROR = 'Workflow diagnosis target is missing.'
+MISSING_DIAGNOSIS_SOURCE_ERROR = 'Workflow diagnosis source run no longer exists.'
 
 
 def _checkpoint_serializer() -> JsonPlusRedisSerializer:
@@ -166,6 +169,19 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
             checkpoint_thread_id = run.checkpoint_thread_id
             resume_payload = (run.result_payload or {}).get('resume')
             history, current_message = _load_langchain_messages(session, run)
+            source_run_uid: uuid.UUID | None = None
+            source_run_base_dir: str | None = None
+            source_workflow_uid: uuid.UUID | None = None
+            if agent_name == AgentName.WORKFLOW_DIAGNOSER:
+                target = agent_crud.get_run_target(session, run.uid)
+                if target is None:
+                    raise ValueError(MISSING_DIAGNOSIS_TARGET_ERROR)  # noqa: TRY301
+                source_run = run_instance_crud.get(session, target.source_run_uid)
+                if source_run is None:
+                    raise ValueError(MISSING_DIAGNOSIS_SOURCE_ERROR)  # noqa: TRY301
+                source_run_uid = source_run.uid
+                source_run_base_dir = source_run.base_dir
+                source_workflow_uid = source_run.workflow_uid
 
         started = await _transition(
             redis,
@@ -201,11 +217,14 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                         )
                     ]
                 }
+            elif agent_name == AgentName.WORKFLOW_DIAGNOSER:
+                agent_input = {'messages': [current_message]}
             else:
                 agent_input = {'messages': history}
 
+            project_path: Path | None = None
             if agent_name == AgentName.TOOL_GENERATOR:
-                context: CreateToolContext | ProjectContext = CreateToolContext(
+                context: CreateToolContext | ProjectContext | WorkflowDiagnosisContext = CreateToolContext(
                     user_id=owner_id,
                     skip_search=True,
                     auto_save=True,
@@ -216,11 +235,25 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                     error_message = f'{agent_name.value} requires a project.'
                     raise ValueError(error_message)  # noqa: TRY301
                 project_path = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / str(project_id)
-                context = ProjectContext(
-                    user_id=owner_id,
-                    project_id=project_id,
-                    workdir=str(project_path.resolve().expanduser()),
-                )
+                resolved_project_path = str(project_path.resolve().expanduser())
+                if agent_name == AgentName.WORKFLOW_DIAGNOSER:
+                    if source_run_uid is None:
+                        raise ValueError(MISSING_DIAGNOSIS_TARGET_ERROR)  # noqa: TRY301
+                    context = WorkflowDiagnosisContext(
+                        user_id=owner_id,
+                        project_id=project_id,
+                        workdir=resolved_project_path,
+                        agent_run_uid=str(run_uid),
+                        source_run_uid=str(source_run_uid),
+                        workflow_uid=str(source_workflow_uid) if source_workflow_uid else None,
+                        run_base_dir=source_run_base_dir,
+                    )
+                else:
+                    context = ProjectContext(
+                        user_id=owner_id,
+                        project_id=project_id,
+                        workdir=resolved_project_path,
+                    )
 
             async def on_progress(payload: object) -> None:
                 await _append_event(

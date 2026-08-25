@@ -1,3 +1,4 @@
+import json
 import math
 import uuid
 from collections.abc import Mapping, Sequence
@@ -64,3 +65,8 @@ def to_json_object(value: object) -> dict[str, Any]:
     if isinstance(converted, dict):
         return converted
     return {'value': converted}
+
+
+def dumps_jsonable(value: Any, *, indent: int | None = None, sort_keys: bool = False) -> str:
+    """Serialize a value after converting it to safe JSON primitives."""
+    return json.dumps(to_jsonable(value), ensure_ascii=False, indent=indent, sort_keys=sort_keys)

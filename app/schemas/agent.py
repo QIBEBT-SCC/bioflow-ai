@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class AgentName(StrEnum):
     WORKFLOW_BUILDER = 'workflow-builder'
+    WORKFLOW_DIAGNOSER = 'workflow-diagnoser'
     SAMPLE_MANAGER = 'sample-manager'
     TOOL_GENERATOR = 'tool-generator'
 
@@ -113,6 +114,7 @@ class AgentSessionUpdate(BaseModel):
 class AgentRunCreate(BaseModel):
     agent_name: AgentName
     text: str = Field(min_length=1, max_length=100_000)
+    source_run_uid: uuid.UUID | None = None
 
 
 class AgentRunResume(BaseModel):

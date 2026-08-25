@@ -77,6 +77,15 @@ class SampleState(AgentState, total=False):
     summary: str
 
 
+# =====================workflow diagnosis state==========================
+class WorkflowDiagnosisState(AgentState, total=False):
+    diagnosis_path: str
+    diagnosis_written: bool
+    source_run_uid: str
+    workflow_uid: str | None
+    updated: bool
+
+
 # =====================unified planner state==========================
 class PlannerState(AgentState, total=False):
     """聚合三种规划场景 (自主设计/工具扩展/文献复现) 所需的全部可选状态字段.

@@ -196,7 +196,13 @@ def create_agent_run(
 ) -> AgentRunPublic:
     try:
         agent_session = agent_service.get_owned_session(session, session_uid, current_user.id)
-        run = agent_service.create_run(session, agent_session, data.agent_name, data.text)
+        run = agent_service.create_run(
+            session,
+            agent_session,
+            data.agent_name,
+            data.text,
+            source_run_uid=data.source_run_uid,
+        )
         run = _dispatch_run(session, run)
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
@@ -313,12 +319,14 @@ def retry_agent_run(
             raise agent_service.AgentRunTransitionError(RETRY_INPUT_ERROR)
         text = next(str(part['text']) for part in messages[0].parts if part.get('type') == 'text' and part.get('text'))
         agent_session = agent_service.get_owned_session(session, old_run.session_uid, current_user.id)
+        target = agent_crud.get_run_target(session, old_run.uid)
         run = agent_service.create_run(
             session,
             agent_session,
             AgentName(old_run.agent_name),
             text,
             retry_of_uid=old_run.uid,
+            source_run_uid=target.source_run_uid if target is not None else None,
         )
         run = _dispatch_run(session, run)
     except agent_service.AgentServiceError as error:
