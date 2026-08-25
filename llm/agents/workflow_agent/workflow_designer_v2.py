@@ -104,6 +104,9 @@ A workflow includes all command-line tools and simple “glue” steps executed 
 - If the purpose is to provide usable input for a subsequent CLI tool and no dedicated tool exists, specify the intermediate bridging step in the workflow. The downstream agent will independently decide whether to implement this step using BASH, Python, or built-in system functionality. (For example, extracting chromosome names and lengths from a `.fai` index to generate a `chrom.sizes` file.)
 - Statistical analysis, clustering, visualization, data mining, biological interpretation, and other systematic R/Python analyses belong to Scripted Analysis. Even if they can technically be written as scripts, they must not be placed in the workflow.
 - R script analyses always belong to Scripted Analysis; the current system does not support running R scripts within workflows.
+- Generally speaking, unless the user specifically requests it, there is no need to add validation for files or results. Workflows are run once, so this kind of additional debugging information is meaningless. In fact, all that is needed is:
+    - Directly add preprocessing or filtering for files whose usability is questionable
+    - Tools that can output summary information (such as samtools stats)
 
 
 #### When are multiple workflows needed?

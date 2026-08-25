@@ -26,6 +26,7 @@ local image exists, you MUST make at least three sequential search attempts with
 2. Search for a different recognized identifier, such as the executable, package/repository name, common alias, or
    expanded name.
 3. Search using the relevant subcommand or a broader functional keyword.
+4. Search for a higher-level image name (e.g., search for `qiiem2` when dada2 is needed).
 
 Removing or adding punctuation, changing only letter case, or repeating essentially the same phrase does not count as a
 different strategy. If a search returns results but none is suitable, that attempt also counts as unsuccessful and you
