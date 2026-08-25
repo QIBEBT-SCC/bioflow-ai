@@ -72,6 +72,8 @@ Outputs:
 - `collection_manifest`: a frozen JSON manifest containing sample, producer workflow/run, tag, path, and missing entries
 
 Connect `mount_collection` directly to directory-scanning tools such as MultiQC. Files are mounted without copying.
+When a downstream tool needs both a generated manifest and a separate folder containing the collected files, also
+load the `adapt-sample-mark-collections` skill and follow its two-output connection example.
 
 ## Lifecycle Rules
 

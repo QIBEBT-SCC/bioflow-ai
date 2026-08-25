@@ -80,7 +80,7 @@ The interaction targets and available actions for each tool are as follows:
   - `update_args`: update editable parameters of an existing tool node on the panel
   - `create`: create a new tool node when no existing node meets the requirement
 - `resource_node_manager` — resource nodes, including files, databases, genomes, and variables
-  - Valid `resource_type` values are `db`, `genome`, `sequence`, `file`, `text_file`, and `value_string`
+  - Valid `resource_type` values are `db`, `genome`, `sequence`, `file`, `sample_mark_collection`, `text_file`, and `value_string`
   - `view`: view details of a specific resource node type, including inputs, outputs, and parameter format
   - `search_db`: search for a biological database before adding a database resource node
   - `create_db`: create a missing biological database record with an automatic download command

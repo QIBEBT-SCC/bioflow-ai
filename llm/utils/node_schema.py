@@ -239,12 +239,26 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'sample_mark_collection': {
         'name': 'Sample Mark Collection',
-        'description': 'Project-level resource that freezes current dynamic sample marks into a provenance-preserving JSON manifest and a virtual mounted collection organized by sample and mark. Connect `mount_collection` directly to directory-scanning tools such as MultiQC.',
+        'description': 'Collects files saved by `sample_mark` across all samples in a project. It returns a JSON file that lists the collected files and a read-only folder input for Docker tools. If the next tool needs both a generated manifest and the collected files, use the `adapt-sample-mark-collections` skill.',
         'args': SampleMarkCollectionSchema,
         'input_handles': [],
         'output_handles': [
-            Handle(name='mount_collection', description='Virtual root containing collected sample artifacts'),
-            Handle(name='collection_manifest', description='Frozen JSON manifest with sample and run provenance'),
+            Handle(
+                name='mount_collection',
+                description=(
+                    'Special read-only folder containing the collected files. Each file is located at the relative '
+                    'path stored in its JSON entry `mount_name`. Connect this output directly to a Docker tool folder '
+                    'input; do not connect it to CODE or file processors'
+                ),
+            ),
+            Handle(
+                name='collection_manifest',
+                description=(
+                    'JSON file listing the collected items. Each entry includes `sample_name`, `mark_name`, '
+                    '`mount_name`, `source_path`, and `kind`. Python CODE should use `mount_name` when writing paths '
+                    'for the next tool and must not try to open or copy `source_path`'
+                ),
+            ),
         ],
     },
     'text_file': {
