@@ -157,3 +157,16 @@ class BuildState(AgentState, total=False):
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
     new_tools: Annotated[list[uuid.UUID], operator.add]
     new_dbs: Annotated[list[int], operator.add]
+
+
+class WorkflowFixState(BuildState, total=False):
+    diagnosis_run_uid: str
+    target_workflow_uid: str
+    diagnosis_report: str
+    diagnosis_classification: str
+    recommended_action: str
+    original_workflow: dict[str, Any]
+    fix_completed: bool
+    workflow_changed: bool
+    update_path: str | None
+    updated: bool

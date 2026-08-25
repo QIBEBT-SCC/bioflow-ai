@@ -48,6 +48,10 @@ class FixEdgeSchema(BaseModel):
     """Replace ALL orphan edges with the provided complete edge list in one call."""
 
     edges: list[FixEdgeItem] = Field(description='Complete list of edges to install in place of the orphan edges')
+    replace_all: bool = Field(
+        default=False,
+        description='Set true only when replacing the active workflow complete edge set, including valid edges.',
+    )
 
 
 class CreateWorkflowDraftSchema(BaseModel):
@@ -698,8 +702,8 @@ def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Co
             }
         )
 
-    cleaned_edges = [e for e in exist_edges if e.target_node is not None]
-    removed = len(exist_edges) - len(cleaned_edges)
+    cleaned_edges = [] if params.replace_all else [e for e in exist_edges if e.target_node is not None]
+    removed = len(exist_edges) if params.replace_all else len(exist_edges) - len(cleaned_edges)
     new_edges = [
         BuildEdge(
             source_node=item.source_node,
@@ -715,7 +719,8 @@ def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Co
         f'  + {item.source_node}[{item.source_handle}] -> {item.target_node}[{item.target_handle}]'
         for item in params.edges
     )
-    msg = f'Removed {removed} orphan edge(s). Added {len(new_edges)} new edge(s):\n{added_lines}'
+    removed_kind = 'existing' if params.replace_all else 'orphan'
+    msg = f'Removed {removed} {removed_kind} edge(s). Added {len(new_edges)} new edge(s):\n{added_lines}'
 
     return Command(
         update={

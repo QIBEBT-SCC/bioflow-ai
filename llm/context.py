@@ -43,5 +43,12 @@ class WorkflowDiagnosisContext(ProjectContext):
     run_base_dir: str | None = None
 
 
+class WorkflowFixContext(ProjectContext):
+    agent_run_uid: str
+    source_run_uid: str
+    workflow_uid: str
+    diagnosis_run_uid: str
+
+
 class FolderContext(BaseContext):
     output_path: str

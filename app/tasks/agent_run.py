@@ -26,18 +26,19 @@ from app.schemas.agent import (
     AgentRunStatus,
 )
 from app.services import agent as agent_service
+from app.services import workflow_fix as workflow_fix_service
 from app.services.agent_executor import execute_agent_graph
 from app.services.agent_progress import event_payload, result_payload
 from app.utils.system import utc_now
-from llm.context import CreateToolContext, ProjectContext, WorkflowDiagnosisContext
+from llm.context import CreateToolContext, ProjectContext, WorkflowDiagnosisContext, WorkflowFixContext
 from llm.prebuild.dispatch import AGENTS, RouteTask
 from script.worker import celery_app
 
 HEARTBEAT_INTERVAL_SECONDS = 10
 AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
-MISSING_DIAGNOSIS_TARGET_ERROR = 'Workflow diagnosis target is missing.'
-MISSING_DIAGNOSIS_SOURCE_ERROR = 'Workflow diagnosis source run no longer exists.'
+MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow diagnosis or fix target is missing.'
+MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow diagnosis or fix source run no longer exists.'
 
 
 def _checkpoint_serializer() -> JsonPlusRedisSerializer:
@@ -172,13 +173,13 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
             source_run_uid: uuid.UUID | None = None
             source_run_base_dir: str | None = None
             source_workflow_uid: uuid.UUID | None = None
-            if agent_name == AgentName.WORKFLOW_DIAGNOSER:
+            if agent_name in {AgentName.WORKFLOW_DIAGNOSER, AgentName.WORKFLOW_FIXER}:
                 target = agent_crud.get_run_target(session, run.uid)
                 if target is None:
-                    raise ValueError(MISSING_DIAGNOSIS_TARGET_ERROR)  # noqa: TRY301
+                    raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
                 source_run = run_instance_crud.get(session, target.source_run_uid)
                 if source_run is None:
-                    raise ValueError(MISSING_DIAGNOSIS_SOURCE_ERROR)  # noqa: TRY301
+                    raise ValueError(MISSING_WORKFLOW_RUN_SOURCE_ERROR)  # noqa: TRY301
                 source_run_uid = source_run.uid
                 source_run_base_dir = source_run.base_dir
                 source_workflow_uid = source_run.workflow_uid
@@ -206,7 +207,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
 
             if resume_payload:
                 if resume_payload.get('approved'):
-                    agent_input: Command | dict[str, list[BaseMessage]] = Command(resume=True)
+                    agent_input: Command | dict[str, Any] = Command(resume=True)
                 else:
                     agent_input = Command(resume=str(resume_payload.get('feedback', '')))
             elif agent_name == AgentName.TOOL_GENERATOR:
@@ -224,11 +225,13 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
 
             project_path: Path | None = None
             if agent_name == AgentName.TOOL_GENERATOR:
-                context: CreateToolContext | ProjectContext | WorkflowDiagnosisContext = CreateToolContext(
-                    user_id=owner_id,
-                    skip_search=True,
-                    auto_save=True,
-                    test_run_id=str(run_uid),
+                context: CreateToolContext | ProjectContext | WorkflowDiagnosisContext | WorkflowFixContext = (
+                    CreateToolContext(
+                        user_id=owner_id,
+                        skip_search=True,
+                        auto_save=True,
+                        test_run_id=str(run_uid),
+                    )
                 )
             else:
                 if project_id is None:
@@ -238,7 +241,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                 resolved_project_path = str(project_path.resolve().expanduser())
                 if agent_name == AgentName.WORKFLOW_DIAGNOSER:
                     if source_run_uid is None:
-                        raise ValueError(MISSING_DIAGNOSIS_TARGET_ERROR)  # noqa: TRY301
+                        raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
                     context = WorkflowDiagnosisContext(
                         user_id=owner_id,
                         project_id=project_id,
@@ -248,6 +251,43 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                         workflow_uid=str(source_workflow_uid) if source_workflow_uid else None,
                         run_base_dir=source_run_base_dir,
                     )
+                elif agent_name == AgentName.WORKFLOW_FIXER:
+                    if source_run_uid is None:
+                        raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
+                    with Session(engine) as session:
+                        fix_run = agent_crud.get_run(session, run_uid)
+                        source_run = run_instance_crud.get(session, source_run_uid)
+                        if fix_run is None or source_run is None:
+                            raise ValueError(MISSING_WORKFLOW_RUN_SOURCE_ERROR)  # noqa: TRY301
+                        prepared = workflow_fix_service.prepare_workflow_fix(
+                            session,
+                            fix_run=fix_run,
+                            source_run=source_run,
+                            project_root=project_path.resolve().expanduser(),
+                        )
+                    context = WorkflowFixContext(
+                        user_id=owner_id,
+                        project_id=project_id,
+                        workdir=resolved_project_path,
+                        agent_run_uid=str(run_uid),
+                        source_run_uid=str(source_run_uid),
+                        workflow_uid=str(prepared.workflow_uid),
+                        diagnosis_run_uid=str(prepared.diagnosis_run_uid),
+                    )
+                    if not resume_payload:
+                        diagnosis_message = HumanMessage(
+                            content=(
+                                '<workflow_diagnosis_report>\n'
+                                f'{prepared.diagnosis_report}\n'
+                                '</workflow_diagnosis_report>\n'
+                                'Treat this report as guidance. Inspect the currently loaded workflow before deciding '
+                                'which changes, if any, remain necessary.'
+                            )
+                        )
+                        agent_input = {
+                            **prepared.state,
+                            'messages': [*history[:-1], diagnosis_message, current_message],
+                        }
                 else:
                     context = ProjectContext(
                         user_id=owner_id,

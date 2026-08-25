@@ -39,6 +39,27 @@ def get_run_target(session: Session, run_uid: uuid.UUID) -> AgentRunTarget | Non
     return session.get(AgentRunTarget, run_uid)
 
 
+def get_latest_completed_diagnosis(
+    session: Session,
+    session_uid: uuid.UUID,
+    source_run_uid: uuid.UUID,
+) -> AgentRun | None:
+    """Return the newest completed diagnosis for this conversation and source run."""
+    statement = (
+        select(AgentRun)
+        .join(AgentRunTarget, AgentRunTarget.agent_run_uid == AgentRun.uid)
+        .where(
+            AgentRun.session_uid == session_uid,
+            AgentRun.agent_name == 'workflow-diagnoser',
+            AgentRun.status == 'completed',
+            AgentRunTarget.source_run_uid == source_run_uid,
+        )
+        .order_by(AgentRun.end_time.desc().nullslast(), AgentRun.create_time.desc(), AgentRun.uid.desc())
+        .limit(1)
+    )
+    return session.scalar(statement)
+
+
 def get_latest_run(session: Session, session_uid: uuid.UUID) -> AgentRun | None:
     statement = (
         select(AgentRun).where(AgentRun.session_uid == session_uid).order_by(AgentRun.create_time.desc()).limit(1)

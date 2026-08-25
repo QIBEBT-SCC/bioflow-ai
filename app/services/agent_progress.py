@@ -115,4 +115,15 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
             source_run_uid=values.get('source_run_uid'),
             workflow_uid=values.get('workflow_uid'),
         )
+    elif run.agent_name == AgentName.WORKFLOW_FIXER.value:
+        workflow_uid = values.get('target_workflow_uid')
+        changed = bool(values.get('workflow_changed'))
+        result.update(
+            workflow_uid=workflow_uid,
+            workflow_changed=changed,
+            diagnosis_run_uid=values.get('diagnosis_run_uid'),
+            update_path=values.get('update_path'),
+        )
+        if changed and workflow_uid:
+            changes.append({'resource': 'workflow', 'uid': str(workflow_uid), 'project_id': run.project_id})
     return result, changes

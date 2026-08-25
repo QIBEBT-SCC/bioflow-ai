@@ -32,8 +32,8 @@ ACTIVE_DELETE_ERROR = 'An active run must be cancelled before deleting the sessi
 GLOBAL_SCOPE_ERROR = 'Global sessions only support tool-generator.'
 ACTIVE_RUN_ERROR = 'This session already has an active run.'
 ACTIVE_RUN_CONSTRAINT = 'uq_agent_runs_one_active_per_session'
-DIAGNOSIS_TARGET_REQUIRED_ERROR = 'workflow-diagnoser requires source_run_uid.'
-DIAGNOSIS_TARGET_NOT_ALLOWED_ERROR = 'source_run_uid is only valid for workflow-diagnoser.'
+WORKFLOW_RUN_TARGET_REQUIRED_ERROR = 'workflow-diagnoser and workflow-fixer require source_run_uid.'
+WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR = 'source_run_uid is only valid for workflow-diagnoser and workflow-fixer.'
 
 ALLOWED_RUN_TRANSITIONS = {
     AgentRunStatus.QUEUED: {
@@ -189,9 +189,9 @@ def create_run(
 ) -> AgentRun:
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
         raise AgentScopeError(GLOBAL_SCOPE_ERROR)
-    if agent_name == AgentName.WORKFLOW_DIAGNOSER:
+    if agent_name in {AgentName.WORKFLOW_DIAGNOSER, AgentName.WORKFLOW_FIXER}:
         if source_run_uid is None:
-            raise AgentScopeError(DIAGNOSIS_TARGET_REQUIRED_ERROR)
+            raise AgentScopeError(WORKFLOW_RUN_TARGET_REQUIRED_ERROR)
         source_run = run_instance_crud.get(session, source_run_uid)
         if (
             source_run is None
@@ -200,7 +200,7 @@ def create_run(
         ):
             raise AgentProjectAccessError
     elif source_run_uid is not None:
-        raise AgentScopeError(DIAGNOSIS_TARGET_NOT_ALLOWED_ERROR)
+        raise AgentScopeError(WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR)
 
     active = agent_crud.get_active_run(session, agent_session.uid)
     if active is not None:

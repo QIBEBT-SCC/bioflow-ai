@@ -10,6 +10,7 @@ from llm.utils.middleware.skill import SkillMiddleware
 from llm.utils.middleware.statistic import TokenStatisticMiddleware
 from llm.utils.middleware.statusbar import StatusBarMiddleware
 from llm.utils.middleware.todo import InitedTodoMiddleware, TodoMiddleware
+from llm.utils.middleware.workflow_fix import WorkflowFixGuardMiddleware
 
 __all__ = [
     'AskAndEndMiddleware',
@@ -27,4 +28,5 @@ __all__ = [
     'TokenLimitMiddleware',
     'TokenStatisticMiddleware',
     'WorkflowBuilderProgressMiddleware',
+    'WorkflowFixGuardMiddleware',
 ]

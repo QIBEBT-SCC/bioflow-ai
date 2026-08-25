@@ -89,7 +89,7 @@ class AgentRun(Base):
 
 
 class AgentRunTarget(Base):
-    """The workflow execution inspected by a diagnosis agent run."""
+    """The workflow execution inspected or fixed by a targeted agent run."""
 
     __tablename__ = 'agent_run_targets'
 
