@@ -85,12 +85,12 @@ The interaction targets and available actions for each tool are as follows:
   - `search_db`: search for a biological database before adding a database resource node
   - `create_db`: create a missing biological database record with an automatic download command
   - `add`: add a resource node to the workflow panel
-- `utility_node_manager` — processor, reusable/generated CODE, note, and downstream-summary nodes
-  - `search`: search processors and reusable CODE definitions together by function
+- `utility_node_manager` — processor, curated reusable CODE, workflow-local generated CODE, note, and downstream-summary nodes
+  - `search`: search processors and manually curated reusable CODE definitions together by function
   - `view`: view a processor by name or reusable CODE definition by UID; CODE results show the complete source code and the relevant CODE-node skill
   - `add_processor`: add a processor node to the workflow panel
   - `add_exist_code`: add a reusable CODE definition returned by `search`; the complete code is copied into the node
-  - `add_new_code`: describe and add a new CODE node, selecting `bash` or `python` with `code_type`
+  - `add_new_code`: describe and add a workflow-local CODE node, selecting `bash` or `python` with `code_type`
   - `add_note`: add a note node; set `anchor_node_id` to an existing non-note node ID when the note explains that node, or omit it for a global workflow note
   - `add_downstream_summary`: add a downstream summary node for later downstream analysis
 - `workflow_manager` — workflow draft and panel operations

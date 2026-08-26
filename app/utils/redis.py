@@ -16,19 +16,19 @@ from app.core.config import get_settings
 
 @dataclass(frozen=True)
 class CreationPermit:
-    """Whether a workflow may create a catalog entry from its last search."""
+    """Whether a workflow may create a tool catalog entry from its last search."""
 
     allowed: bool
     reason: Literal['missing_search', 'stale_search'] | None = None
 
 
 class CatalogGenerationGuard:
-    """Coordinate catalog searches and workflow-initiated generation through Redis."""
+    """Coordinate tool catalog searches and workflow-initiated generation through Redis."""
 
     def __init__(
         self,
         redis: Redis,
-        kind: Literal['tool', 'code'],
+        kind: Literal['tool'],
         thread_id: str,
         *,
         on_wait: Callable[[], None] | None = None,
@@ -146,7 +146,7 @@ class CatalogGenerationGuard:
 
 @asynccontextmanager
 async def open_catalog_generation_guard(
-    kind: Literal['tool', 'code'],
+    kind: Literal['tool'],
     thread_id: str,
     *,
     on_wait: Callable[[], None] | None = None,
