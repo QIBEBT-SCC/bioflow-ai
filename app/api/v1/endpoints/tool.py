@@ -111,7 +111,7 @@ def get_images_by_name(
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[ToolImagePublic]:
-    """Search Docker images by name (fuzzy match)."""
+    """Search Docker images by name or alias (fuzzy match)."""
     images, total = image_crud.get_page_by_name_fuzzy(session, name, limit, offset)
     return Paginated(
         total=total,

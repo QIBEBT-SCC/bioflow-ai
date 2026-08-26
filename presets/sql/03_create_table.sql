@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS images
 (
     uid         uuid    NOT NULL,
     name        VARCHAR NOT NULL,
+    aliases     VARCHAR[] NOT NULL DEFAULT ARRAY[]::VARCHAR[],
     version     VARCHAR NOT NULL,
     description VARCHAR NOT NULL,
     homepage    VARCHAR,

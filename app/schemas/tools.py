@@ -48,6 +48,7 @@ class ToolImageData(BaseModel):
     """Shared persisted properties of a tool image."""
 
     name: str
+    aliases: list[str] = Field(default_factory=list)
     version: str
     description: str
     homepage: str | None = None
@@ -83,6 +84,7 @@ class ImageUpdate(BaseModel):
     """Editable tool image properties."""
 
     name: str | None = None
+    aliases: list[str] = Field(default_factory=list)
     version: str | None = None
     description: str | None = None
     homepage: str | None = None

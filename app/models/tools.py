@@ -1,6 +1,7 @@
 import uuid
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, String
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -44,6 +45,7 @@ class ToolImage(Base):
 
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     name: Mapped[str]
+    aliases: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     version: Mapped[str]
     description: Mapped[str]
     homepage: Mapped[str | None] = mapped_column(default=None)

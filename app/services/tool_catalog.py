@@ -101,6 +101,7 @@ def create_image(session: Session, image_data: ImageCreate) -> ToolImage:
     """Create a tool image."""
     image = ToolImage(
         name=image_data.name,
+        aliases=image_data.aliases,
         version=image_data.version,
         description=image_data.description,
         homepage=image_data.homepage,

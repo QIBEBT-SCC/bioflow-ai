@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select, text, type_coerce
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.tools import ToolDefine, ToolImage
 from app.schemas.tool_config import ImageConfig
@@ -80,11 +81,12 @@ def get_page(session: Session, limit: int, offset: int) -> tuple[Sequence[ToolIm
 
 
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> Sequence[ToolImage]:
-    """Return tool images whose names are similar to the given string, ordered by similarity."""
+    """Return tool images whose names or aliases fuzzy-match the query."""
+    similarity = _name_or_alias_similarity(name)
     stmt = (
         select(ToolImage)
-        .where(func.similarity(ToolImage.name, name) > _FUZZY_SIMILARITY_THRESHOLD)
-        .order_by(func.similarity(ToolImage.name, name).desc())
+        .where(similarity > _FUZZY_SIMILARITY_THRESHOLD)
+        .order_by(similarity.desc(), ToolImage.name)
         .offset(offset)
         .limit(limit)
     )
@@ -164,12 +166,19 @@ def _split_image_tag(image_ref: str) -> tuple[str, str | None]:
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolImage], int]:
     """Return a page of fuzzy-matched tool images together with the total match count."""
-    stmt = (
-        select(func.count())
-        .select_from(ToolImage)
-        .where(func.similarity(ToolImage.name, name) > _FUZZY_SIMILARITY_THRESHOLD)
-    )
+    similarity = _name_or_alias_similarity(name)
+    stmt = select(func.count()).select_from(ToolImage).where(similarity > _FUZZY_SIMILARITY_THRESHOLD)
     return get_by_name_fuzzy(session, name, limit, offset), session.scalar(stmt) or 0
+
+
+def _name_or_alias_similarity(name: str) -> ColumnElement[float]:
+    """Return the best equally weighted similarity across an image name and each alias."""
+    alias_rows = func.unnest(ToolImage.aliases).alias('image_alias')
+    alias_similarity = select(func.max(func.similarity(alias_rows.column, name))).correlate(ToolImage).scalar_subquery()
+    return func.greatest(
+        func.similarity(ToolImage.name, name),
+        func.coalesce(alias_similarity, 0.0),
+    )
 
 
 def get(session: Session, image_uid: UUIDLike) -> ToolImage | None:
