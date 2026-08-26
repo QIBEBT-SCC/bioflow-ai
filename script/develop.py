@@ -1,5 +1,4 @@
 import asyncio
-import os
 import shutil
 import time
 import uuid
@@ -14,6 +13,8 @@ import orjson
 from anyio import Path
 from loguru import logger
 from sqlalchemy.orm import Session
+
+from llm.utils.lc.tracing import configure_langsmith_tracing
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
@@ -32,16 +33,6 @@ TOOL_STATUS_FAILED = 'FAILED'
 TOOL_STATUS_COMPLETED = 'COMPLETED'
 TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_STATUS_FAILED)
 TOOL_TRAJECTORY_AGENTS = ('test_run', 'tool_generator')
-
-
-def _configure_langsmith_tracing(*, enabled: bool) -> None:
-    """Configure LangSmith tracing explicitly for an agent command."""
-    tracing_value = str(enabled).lower()
-    os.environ['LANGSMITH_TRACING'] = tracing_value
-    os.environ['LANGSMITH_TRACING_V2'] = tracing_value
-    os.environ['LANGCHAIN_TRACING_V2'] = tracing_value
-    os.environ['LANGSMITH_PROJECT'] = 'build-tool-node'
-    os.environ['LANGCHAIN_PROJECT'] = 'build-tool-node'
 
 
 def _format_notification_duration(duration_ms: int) -> str:
@@ -473,7 +464,7 @@ async def init_tools(index: int | None = None, *, langsmith_tracing: bool = Fals
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    _configure_langsmith_tracing(enabled=langsmith_tracing)
+    configure_langsmith_tracing('build-tool-node', enabled=langsmith_tracing)
 
     skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
 
@@ -658,7 +649,7 @@ async def create_tool_manually(
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    _configure_langsmith_tracing(enabled=langsmith_tracing)
+    configure_langsmith_tracing('build-tool-node', enabled=langsmith_tracing)
 
     async with _tool_agent_session() as (checkpoint, agent):
         if drop_old:
@@ -751,7 +742,7 @@ async def continue_run(
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
 
-    _configure_langsmith_tracing(enabled=langsmith_tracing)
+    configure_langsmith_tracing('build-tool-node', enabled=langsmith_tracing)
 
     con = duckdb.connect(DB_PATH)
     tool_info = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])

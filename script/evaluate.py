@@ -14,6 +14,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from llm.utils.lc.tracing import configure_langsmith_tracing
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
 
@@ -599,15 +600,13 @@ async def wf_eval(
     clean_checkpoint: bool = False,
     clean_all: bool = False,
     db_index: int | None = None,
+    langsmith_tracing: bool = False,
 ) -> None:
     """运行bioflow ai 测试."""
-    import os
-
     from langgraph.checkpoint.redis import AsyncRedisSaver
     from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 
-    os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-    os.environ['LANGCHAIN_PROJECT'] = 'bioflow-ai-eval'
+    configure_langsmith_tracing('bioflow-ai-eval', enabled=langsmith_tracing)
 
     if db_index is not None:
         logger.warning('--db-index is ignored because evaluate records now use a single SQLite database.')
@@ -694,6 +693,9 @@ def cli() -> None:
     default=False,
     help='Clear plans, samples, workflows, runs, and project files while retaining the existing project ID.',
 )
+@click.option(
+    '--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).'
+)
 def wf_cmd(
     task_file: str,
     paper_file: str | None,
@@ -702,6 +704,7 @@ def wf_cmd(
     drop_old: bool,  # noqa: FBT001
     clean_checkpoint: bool,  # noqa: FBT001
     clean_all: bool,  # noqa: FBT001
+    langsmith_tracing: bool,  # noqa: FBT001
 ) -> None:
     """Run the workflow design evaluation on TASK_FILE."""
     asyncio.run(
@@ -713,6 +716,7 @@ def wf_cmd(
             clean_checkpoint=clean_checkpoint,
             clean_all=clean_all,
             db_index=db_index,
+            langsmith_tracing=langsmith_tracing,
         )
     )
 
