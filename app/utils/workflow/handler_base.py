@@ -127,6 +127,8 @@ def register_alias(alias: str, original_type: str) -> None:
 class BaseTaskHandler(ABC):
     """任务处理器基类."""
 
+    track_progress = True
+
     @abstractmethod
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:
         """创建 TaskInstance 数据库记录."""
@@ -143,6 +145,7 @@ class BaseTaskHandler(ABC):
         """
         # 创建数据库记录
         task_instance = self.create_task_instance(task_node, context)
+        task_instance.track_progress = self.track_progress
         workflow_runtime.create_task(context.session, task_instance)
 
         # 创建 Celery 任务

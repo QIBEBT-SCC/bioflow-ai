@@ -163,7 +163,7 @@ def _mark_run_instance_success_if_complete(run_uid: str) -> None:
     """Mark a run instance as success when all tasks have succeeded."""
     try:
         with Session(engine) as session:
-            stats = run_crud.get_run_task_stats(session, run_uid)
+            stats = run_crud.get_execution_task_stats(session, run_uid)
             if 0 < stats.total == stats.success:
                 workflow_runtime.update_run(
                     session,

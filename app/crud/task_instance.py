@@ -37,7 +37,7 @@ def get_all(session: Session, limit: int, offset: int, user_id: int) -> Sequence
     statement = (
         select(TaskInstance)
         .where(TaskInstance.owner_id == user_id)
-        .where(TaskInstance.name != 'read_file')
+        .where(TaskInstance.track_progress.is_(True))
         .options(joinedload(TaskInstance.owner), joinedload(TaskInstance.run_instance))
         .order_by(TaskInstance.uid.desc())
         .limit(limit)
@@ -67,7 +67,7 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequenc
                 ),
             ),
         )
-        .where(TaskInstance.name != 'read_file')
+        .where(TaskInstance.track_progress.is_(True))
         .options(joinedload(TaskInstance.owner))
     )
     return session.scalars(statement).all()
@@ -75,7 +75,11 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequenc
 
 def get_count(session: Session, user_id: int) -> int:
     """Get the total count of task instances for a specific user."""
-    statement = select(func.count()).select_from(TaskInstance).where(TaskInstance.owner_id == user_id)
+    statement = (
+        select(func.count())
+        .select_from(TaskInstance)
+        .where(TaskInstance.owner_id == user_id, TaskInstance.track_progress.is_(True))
+    )
     return session.scalar(statement) or 0
 
 

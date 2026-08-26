@@ -89,6 +89,8 @@ class ToolTaskHandler(BaseTaskHandler):
 class ResourceFileTaskHandler(BaseTaskHandler):
     """文件资源任务处理器."""
 
+    track_progress = False
+
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
@@ -111,6 +113,8 @@ class ResourceFileTaskHandler(BaseTaskHandler):
 @register_handler('resource_text_file')
 class ResourceTextFileTaskHandler(BaseTaskHandler):
     """内联文本文件资源任务处理器."""
+
+    track_progress = False
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         output_dir = f'{context.output_base}/{context.task_index}_text_file'
@@ -141,6 +145,8 @@ class ResourceTextFileTaskHandler(BaseTaskHandler):
 class ResourceSequenceTaskHandler(BaseTaskHandler):
     """测序数据资源任务处理器."""
 
+    track_progress = False
+
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
@@ -166,6 +172,8 @@ class ResourceSequenceTaskHandler(BaseTaskHandler):
 @register_handler('resource_db')
 class ResourceDbTaskHandler(BaseTaskHandler):
     """数据库资源任务处理器."""
+
+    track_progress = False
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
@@ -242,6 +250,8 @@ class ResourceMM39TaskHandler(BaseTaskHandler):
 class ValueStringTaskHandler(BaseTaskHandler):
     """字符串值任务处理器."""
 
+    track_progress = False
+
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
@@ -258,6 +268,8 @@ class ValueStringTaskHandler(BaseTaskHandler):
 @register_handler('bind_param')
 class BindParamTaskHandler(BaseTaskHandler):
     """绑定参数名任务处理器."""
+
+    track_progress = False
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
@@ -297,6 +309,8 @@ class ProcessCopy2FolderTaskHandler(BaseTaskHandler):
 class ProjectMarkTaskHandler(BaseTaskHandler):
     """Project-scoped dynamic mapping registrar."""
 
+    track_progress = False
+
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
@@ -319,6 +333,8 @@ class ProjectMarkTaskHandler(BaseTaskHandler):
 class SampleMarkTaskHandler(BaseTaskHandler):
     """Sample-scoped dynamic mapping registrar."""
 
+    track_progress = False
+
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
@@ -340,6 +356,8 @@ class SampleMarkTaskHandler(BaseTaskHandler):
 @register_handler('resource_sample_mark_collection')
 class SampleMarkCollectionTaskHandler(BaseTaskHandler):
     """Project-level resource that freezes current dynamic sample artifacts."""
+
+    track_progress = False
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         output_dir = f'{context.output_base}/{context.task_index}_sample_mark_collection'
@@ -372,6 +390,8 @@ class SampleMarkCollectionTaskHandler(BaseTaskHandler):
 class CollectMountDirsTaskHandler(BaseTaskHandler):
     """收集多个工具目录, 生成可展开挂载的目录清单."""
 
+    track_progress = False
+
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(
             uid=uuid.UUID(task_node.id),
@@ -390,6 +410,8 @@ class CollectMountDirsTaskHandler(BaseTaskHandler):
 @register_handler('select_file_in_folder')
 class SelectTaskHandler(BaseTaskHandler):
     """提取文件任务处理器."""
+
+    track_progress = False
 
     def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
         return TaskInstance(

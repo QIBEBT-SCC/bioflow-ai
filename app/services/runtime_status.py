@@ -53,19 +53,20 @@ def refresh_task_statuses(tasks: Iterable[TaskInstance]) -> dict[str, Status]:
 
 
 def refresh_run_status(run: RunInstance) -> Statistics:
-    """Apply a run's effective runtime status in memory and return task statistics."""
+    """Refresh a run and return statistics for user-visible progress tasks."""
     refresh_task_statuses(run.tasks)
-    stats = build_task_statistics(run.tasks)
+    execution_stats = build_execution_statistics(run.tasks)
+    progress_stats = build_progress_statistics(run.tasks)
 
     normalized_run_status = _normalize_status(run.status)
     if not isinstance(run.status, Status):
         run.status = normalized_run_status
 
     if normalized_run_status not in TERMINAL_STATUSES:
-        effective_run_status = _get_run_status_from_stats(stats)
+        effective_run_status = _get_run_status_from_stats(execution_stats)
         run.status = effective_run_status
 
-    return stats
+    return progress_stats
 
 
 def apply_effective_nonterminal_run_stats(stats: Statistics, runs: Iterable[RunInstance]) -> Statistics:
@@ -85,8 +86,17 @@ def apply_effective_nonterminal_run_stats(stats: Statistics, runs: Iterable[RunI
     return result
 
 
-def build_task_statistics(tasks: Iterable[TaskInstance]) -> Statistics:
-    """Build task statistics from effective in-memory task statuses."""
+def build_progress_statistics(tasks: Iterable[TaskInstance]) -> Statistics:
+    """Build user-visible progress statistics from tracked tasks."""
+    return _build_task_statistics(task for task in tasks if task.track_progress)
+
+
+def build_execution_statistics(tasks: Iterable[TaskInstance]) -> Statistics:
+    """Build lifecycle statistics from every execution task."""
+    return _build_task_statistics(tasks)
+
+
+def _build_task_statistics(tasks: Iterable[TaskInstance]) -> Statistics:
     task_list = list(tasks)
     return Statistics(
         total=len(task_list),

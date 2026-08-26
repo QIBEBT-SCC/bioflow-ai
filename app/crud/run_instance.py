@@ -104,8 +104,8 @@ def get(session: Session, uid: UUIDLike) -> RunInstance | None:
     return session.scalar(statement)
 
 
-def get_run_task_stats(session: Session, uid: UUIDLike) -> Statistics:
-    """Get task statistics for a specific run instance."""
+def get_execution_task_stats(session: Session, uid: UUIDLike) -> Statistics:
+    """Get statistics for every execution task in a run instance."""
     statement = (
         select(
             func.count().label('total'),

@@ -22,6 +22,7 @@ class TaskInfo4Run(BaseModel):
 
     uid: uuid.UUID
     name: str
+    track_progress: bool = Field(default=True, exclude=True)
 
     status: Status
 
@@ -56,17 +57,22 @@ class RunPublic(SimpleRunPublic):
     @model_validator(mode='after')
     def _get_task_stats(self) -> Self:
         if self.task_statistics is None:
-            total = len(self.tasks)
-            success = sum(1 for task in self.tasks if task.status == Status.SUCCESS)
-            error = sum(1 for task in self.tasks if task.status == Status.ERROR)
-            running = sum(1 for task in self.tasks if task.status == Status.RUNNING)
-            waiting = sum(1 for task in self.tasks if task.status == Status.WAITING)
+            progress_tasks = [task for task in self.tasks if task.track_progress]
+            total = len(progress_tasks)
+            success = sum(1 for task in progress_tasks if task.status == Status.SUCCESS)
+            error = sum(1 for task in progress_tasks if task.status == Status.ERROR)
+            running = sum(1 for task in progress_tasks if task.status == Status.RUNNING)
+            waiting = sum(1 for task in progress_tasks if task.status == Status.WAITING)
 
-            if error > 0:
+            execution_error = any(task.status == Status.ERROR for task in self.tasks)
+            execution_running = any(task.status == Status.RUNNING for task in self.tasks)
+            execution_success = bool(self.tasks) and all(task.status == Status.SUCCESS for task in self.tasks)
+
+            if execution_error:
                 self.status = Status.ERROR
-            elif 0 < total == success:
+            elif execution_success:
                 self.status = Status.SUCCESS
-            elif running > 0:
+            elif execution_running:
                 self.status = Status.RUNNING
             else:
                 self.status = Status.WAITING
@@ -110,17 +116,22 @@ class RunDetailPublic(SimpleRunPublic):
 
         # 从 tasks 中直接读取以计算统计信息
         if self.task_statistics is None:
-            total = len(self.tasks)
-            success = sum(1 for task in self.tasks if task.status == Status.SUCCESS)
-            error = sum(1 for task in self.tasks if task.status == Status.ERROR)
-            running = sum(1 for task in self.tasks if task.status == Status.RUNNING)
-            waiting = sum(1 for task in self.tasks if task.status == Status.WAITING)
+            progress_tasks = [task for task in self.tasks if task.track_progress]
+            total = len(progress_tasks)
+            success = sum(1 for task in progress_tasks if task.status == Status.SUCCESS)
+            error = sum(1 for task in progress_tasks if task.status == Status.ERROR)
+            running = sum(1 for task in progress_tasks if task.status == Status.RUNNING)
+            waiting = sum(1 for task in progress_tasks if task.status == Status.WAITING)
 
-            if error > 0:
+            execution_error = any(task.status == Status.ERROR for task in self.tasks)
+            execution_running = any(task.status == Status.RUNNING for task in self.tasks)
+            execution_success = bool(self.tasks) and all(task.status == Status.SUCCESS for task in self.tasks)
+
+            if execution_error:
                 self.status = Status.ERROR
-            elif 0 < total == success:
+            elif execution_success:
                 self.status = Status.SUCCESS
-            elif running > 0:
+            elif execution_running:
                 self.status = Status.RUNNING
 
             self.task_statistics = Statistics(

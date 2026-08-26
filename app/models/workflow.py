@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -99,6 +99,7 @@ class TaskInstance(Base):
     name: Mapped[str]
     instance_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(RunInstance.uid, ondelete='CASCADE'))
     owner_id: Mapped[int] = mapped_column(ForeignKey(User.id))
+    track_progress: Mapped[bool] = mapped_column(default=True, server_default=true(), nullable=False)
 
     # 工具任务才有
     tool_uid: Mapped[Optional[uuid.UUID]] = mapped_column(
