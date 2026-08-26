@@ -1,5 +1,6 @@
 import json
 import re
+import shutil
 import uuid
 from glob import has_magic
 from pathlib import Path
@@ -129,7 +130,7 @@ def collect_files_task(
     inputs: dict[str, TaskInput | list[TaskInput]],
     output_dir: str,
 ) -> ToolOutput:
-    """从文件夹中提取指定文件."""
+    """Copy upstream files into one output folder."""
     input_files = inputs.get('files', [])
     kwargs = input_files if isinstance(input_files, list) else [input_files]
 
@@ -140,9 +141,9 @@ def collect_files_task(
         origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k)[0])
         if origin_file.exists():
             new_file = output_folder / origin_file.name
-            if new_file.exists():
+            if new_file.exists() or new_file.is_symlink():
                 new_file.unlink()
-            new_file.symlink_to(origin_file)
+            shutil.copy2(origin_file, new_file)
         else:
             logger.warning(f'file {origin_file} did not exist!')
 
