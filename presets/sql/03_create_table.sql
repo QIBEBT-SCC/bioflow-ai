@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS projects
     name        VARCHAR                  NOT NULL,
     description VARCHAR                  NOT NULL,
     public      BOOLEAN                  NOT NULL,
-    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    update_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    create_time TIMESTAMP NOT NULL,
+    update_time TIMESTAMP NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (owner_id) REFERENCES users
 );
@@ -117,8 +117,8 @@ CREATE TABLE IF NOT EXISTS agent_runs
     status               VARCHAR(32)              NOT NULL DEFAULT 'queued',
     checkpoint_thread_id VARCHAR(64)              NOT NULL,
     celery_task_id       VARCHAR(64),
-    interrupt_payload    jsonb,
-    result_payload       jsonb,
+    interrupt_payload    json,
+    result_payload       json,
     error_code           VARCHAR(64),
     error_message        TEXT,
     cancel_requested     BOOLEAN                  NOT NULL DEFAULT FALSE,
@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS agent_messages
     session_uid uuid                     NOT NULL,
     run_uid     uuid                     NOT NULL,
     role        VARCHAR(16)              NOT NULL,
-    parts       jsonb                    NOT NULL DEFAULT '[]'::jsonb,
+    parts       json                     NOT NULL DEFAULT '[]'::json,
     create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (session_uid) REFERENCES agent_sessions ON DELETE CASCADE,
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS agent_events
     id          BIGSERIAL,
     run_uid     uuid                     NOT NULL,
     event_type  VARCHAR(64)              NOT NULL,
-    payload     jsonb                    NOT NULL DEFAULT '{}'::jsonb,
+    payload     json                     NOT NULL DEFAULT '{}'::json,
     create_time TIMESTAMP WITH TIME ZONE NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (run_uid) REFERENCES agent_runs ON DELETE CASCADE
@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS samples
     project_id  INTEGER                  NOT NULL,
     sample_name VARCHAR                  NOT NULL,
     meta_data   jsonb,
-    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    create_time TIMESTAMP                NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
@@ -237,8 +237,8 @@ CREATE TABLE IF NOT EXISTS samples
 CREATE TABLE IF NOT EXISTS sample_files
 (
     uid                   uuid                     NOT NULL,
-    sample_uid            uuid,
-    tag                   VARCHAR(50),
+    sample_uid            uuid                     NOT NULL,
+    tag                   VARCHAR(50)              NOT NULL,
     file_path             VARCHAR                  NOT NULL,
     file_format           VARCHAR,
     file_size             BIGINT                   NOT NULL,
@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS sample_files
     is_dynamic            BOOLEAN                  NOT NULL DEFAULT FALSE,
     producer_workflow_uid uuid,
     producer_run_uid      uuid,
-    uploaded_time         TIMESTAMP WITH TIME ZONE NOT NULL,
+    uploaded_time         TIMESTAMP                NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (sample_uid) REFERENCES samples ON DELETE CASCADE,
     CONSTRAINT uq_sample_file_tag UNIQUE (sample_uid, tag)
@@ -263,8 +263,8 @@ CREATE TABLE IF NOT EXISTS project_file_mappings
     is_dynamic            BOOLEAN                  NOT NULL DEFAULT FALSE,
     producer_workflow_uid uuid,
     producer_run_uid      uuid,
-    create_time           TIMESTAMP WITH TIME ZONE NOT NULL,
-    update_time           TIMESTAMP WITH TIME ZONE NOT NULL,
+    create_time           TIMESTAMP                NOT NULL,
+    update_time           TIMESTAMP                NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
     CONSTRAINT uq_project_file_mapping UNIQUE (project_id, keyword)
@@ -343,6 +343,18 @@ CREATE TABLE IF NOT EXISTS tool_tag_link
     FOREIGN KEY (tag_id) REFERENCES tool_tags
 );
 
+-- 可复用代码节点
+CREATE TABLE IF NOT EXISTS codes
+(
+    uid          uuid    NOT NULL,
+    name         VARCHAR NOT NULL,
+    description  TEXT    NOT NULL,
+    node_type    VARCHAR NOT NULL,
+    code         TEXT    NOT NULL,
+    dependencies jsonb   NOT NULL DEFAULT '[]'::jsonb,
+    PRIMARY KEY (uid)
+);
+
 -- 工作流相关
 CREATE TABLE IF NOT EXISTS workflows
 (
@@ -364,7 +376,7 @@ CREATE TABLE IF NOT EXISTS project_workflows
 (
     project_id   INTEGER                  NOT NULL,
     workflow_uid uuid                     NOT NULL,
-    import_time  TIMESTAMP WITH TIME ZONE NOT NULL,
+    import_time  TIMESTAMP                NOT NULL,
     enabled      BOOLEAN                  NOT NULL,
     PRIMARY KEY (project_id, workflow_uid),
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
@@ -382,13 +394,23 @@ CREATE TABLE IF NOT EXISTS run_instances
     base_dir     VARCHAR,
     workflow     jsonb,
     status       INTEGER NOT NULL,
-    create_time  TIMESTAMP WITH TIME ZONE,
-    start_time   TIMESTAMP WITH TIME ZONE,
-    end_time     TIMESTAMP WITH TIME ZONE,
+    create_time  TIMESTAMP,
+    start_time   TIMESTAMP,
+    end_time     TIMESTAMP,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
     FOREIGN KEY (sample_uid) REFERENCES samples ON DELETE SET NULL
+);
+
+-- 智能体运行所关联的工作流执行
+CREATE TABLE IF NOT EXISTS agent_run_targets
+(
+    agent_run_uid  uuid NOT NULL,
+    source_run_uid uuid NOT NULL,
+    PRIMARY KEY (agent_run_uid),
+    FOREIGN KEY (agent_run_uid) REFERENCES agent_runs ON DELETE CASCADE,
+    FOREIGN KEY (source_run_uid) REFERENCES run_instances ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS task_instances
@@ -404,9 +426,9 @@ CREATE TABLE IF NOT EXISTS task_instances
     system       VARCHAR,
     hostname     VARCHAR,
     status       INTEGER NOT NULL,
-    create_time  TIMESTAMP WITH TIME ZONE,
-    start_time   TIMESTAMP WITH TIME ZONE,
-    end_time     TIMESTAMP WITH TIME ZONE,
+    create_time  TIMESTAMP,
+    start_time   TIMESTAMP,
+    end_time     TIMESTAMP,
     PRIMARY KEY (uid),
     FOREIGN KEY (instance_uid) REFERENCES run_instances ON DELETE CASCADE,
     FOREIGN KEY (owner_id) REFERENCES users,
@@ -416,7 +438,7 @@ CREATE TABLE IF NOT EXISTS task_instances
 CREATE TABLE IF NOT EXISTS task_monitor_logs
 (
     id        SERIAL,
-    task_uid  uuid,
+    task_uid  uuid             NOT NULL,
     cpu_usage DOUBLE PRECISION NOT NULL,
     mem_usage DOUBLE PRECISION NOT NULL,
     mem_used  DOUBLE PRECISION NOT NULL,
@@ -445,7 +467,7 @@ CREATE TABLE IF NOT EXISTS files
     sha256      VARCHAR                  NOT NULL,
     file_name   VARCHAR                  NOT NULL,
     s3_path     VARCHAR                  NOT NULL,
-    upload_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    upload_time TIMESTAMP                NOT NULL,
     PRIMARY KEY (id),
     UNIQUE (sha256)
 );
@@ -457,13 +479,13 @@ CREATE TABLE IF NOT EXISTS notification_channels
     name              VARCHAR(120)             NOT NULL,
     provider          VARCHAR(32)              NOT NULL,
     enabled           BOOLEAN                  NOT NULL DEFAULT TRUE,
-    config            jsonb                    NOT NULL DEFAULT '{}'::jsonb,
+    config            json                     NOT NULL DEFAULT '{}'::json,
     secret_ciphertext TEXT                     NOT NULL,
-    last_attempt_at   TIMESTAMP WITH TIME ZONE,
-    last_success_at   TIMESTAMP WITH TIME ZONE,
+    last_attempt_at   TIMESTAMP,
+    last_success_at   TIMESTAMP,
     last_error        TEXT,
-    created_at        TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at        TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at        TIMESTAMP                 NOT NULL,
+    updated_at        TIMESTAMP                 NOT NULL,
     PRIMARY KEY (id),
     UNIQUE (name)
 );
