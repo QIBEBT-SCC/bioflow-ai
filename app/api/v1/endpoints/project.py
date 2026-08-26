@@ -1,8 +1,8 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from loguru import logger
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
@@ -16,6 +16,7 @@ from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample, SampleFiles
+from app.schemas.agent_file import AgentFilePublic, AgentFileUpdate
 from app.schemas.common import Paginated, Statistics
 from app.schemas.project import (
     ProjectCreateProp,
@@ -47,11 +48,13 @@ from app.schemas.resource import (
 )
 from app.schemas.run_instance import SimpleRunPublic
 from app.schemas.workflow_config import ExecutionScope
+from app.services import agent_file as agent_file_service
 from app.services import project as project_service
 from app.services import project_file_mapping as project_file_mapping_service
 from app.services import project_workflow as project_workflow_service
 from app.services import runtime_status
 from app.services import sample as sample_service
+from app.utils.file_browser import serve_file
 from app.utils.workflow import create_project_level_run, create_runs_from_samples
 
 router = APIRouter()
@@ -160,6 +163,79 @@ def get_project(
     if project is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
     return project
+
+
+def _raise_agent_file_error(error: Exception) -> NoReturn:
+    if isinstance(error, agent_file_service.AgentFileNotFoundError):
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Agent file not found') from error
+    if isinstance(error, agent_file_service.AgentFileReadOnlyError):
+        raise HTTPException(HTTP_403_FORBIDDEN, str(error)) from error
+    if isinstance(error, agent_file_service.AgentFileConflictError):
+        raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
+    if isinstance(error, agent_file_service.AgentFileValidationError):
+        raise HTTPException(HTTP_400_BAD_REQUEST, str(error)) from error
+    raise error
+
+
+@router.get('/{project_id}/agent-files')
+def get_project_agent_files(
+    project_id: int,
+    session: SessionDep,
+    current_user: UserDep,
+) -> list[AgentFilePublic]:
+    """List current project documents and immutable reports produced by agents."""
+    try:
+        return agent_file_service.list_project_files(session, project_id, current_user.id)
+    except agent_file_service.AgentFileError as error:
+        _raise_agent_file_error(error)
+
+
+@router.get('/{project_id}/agent-files/{file_id}')
+async def get_project_agent_file(
+    project_id: int,
+    file_id: str,
+    session: SessionDep,
+    current_user: UserDep,
+    *,
+    download: Annotated[bool, Query()] = False,
+) -> Response:
+    """Preview or download one controlled agent file by logical ID."""
+    try:
+        path, metadata = agent_file_service.get_file(session, project_id, current_user.id, file_id)
+    except agent_file_service.AgentFileError as error:
+        _raise_agent_file_error(error)
+    if download:
+        return FileResponse(
+            path,
+            media_type='text/markdown',
+            filename=metadata.name,
+            headers={'Cache-Control': 'private, no-store'},
+        )
+    response = await serve_file(path)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@router.patch('/{project_id}/agent-files/{file_id}')
+def update_project_agent_plan(
+    project_id: int,
+    file_id: str,
+    data: AgentFileUpdate,
+    session: SessionDep,
+    current_user: UserDep,
+) -> AgentFilePublic:
+    """Update the current project plan when no agent run is active."""
+    try:
+        return agent_file_service.update_file(
+            session,
+            project_id,
+            current_user.id,
+            file_id,
+            data.content,
+            data.expected_revision,
+        )
+    except agent_file_service.AgentFileError as error:
+        _raise_agent_file_error(error)
 
 
 @router.put('/{project_id}')

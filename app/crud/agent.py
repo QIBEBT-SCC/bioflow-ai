@@ -89,6 +89,33 @@ def get_active_run(session: Session, session_uid: uuid.UUID) -> AgentRun | None:
     return session.scalar(statement)
 
 
+def has_active_project_run(session: Session, project_id: int) -> bool:
+    statement = (
+        select(AgentRun.uid)
+        .where(
+            AgentRun.project_id == project_id,
+            AgentRun.status.in_([status.value for status in ACTIVE_AGENT_RUN_STATUSES]),
+        )
+        .limit(1)
+    )
+    return session.scalar(statement) is not None
+
+
+def list_project_artifact_runs(session: Session, project_id: int, owner_id: int) -> Sequence[AgentRun]:
+    statement = (
+        select(AgentRun)
+        .join(AgentSession, AgentSession.uid == AgentRun.session_uid)
+        .where(
+            AgentRun.project_id == project_id,
+            AgentSession.owner_id == owner_id,
+            AgentRun.status == 'completed',
+            AgentRun.agent_name.in_(['workflow-diagnoser', 'workflow-fixer']),
+        )
+        .order_by(AgentRun.end_time.desc().nullslast(), AgentRun.create_time.desc(), AgentRun.uid.desc())
+    )
+    return session.scalars(statement).all()
+
+
 def list_messages(session: Session, session_uid: uuid.UUID) -> Sequence[AgentMessage]:
     statement = (
         select(AgentMessage)

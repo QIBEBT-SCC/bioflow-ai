@@ -32,7 +32,9 @@ from app.schemas.agent import (
     AgentSessionPublic,
     AgentSessionUpdate,
 )
+from app.schemas.agent_file import AgentFilePublic
 from app.services import agent as agent_service
+from app.services import agent_file as agent_file_service
 
 session_router = APIRouter()
 run_router = APIRouter()
@@ -220,6 +222,20 @@ def get_agent_run(
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
     return AgentRunPublic.model_validate(run)
+
+
+@run_router.get('/{run_uid}/artifacts')
+def get_agent_run_artifacts(
+    run_uid: uuid.UUID,
+    session: SessionDep,
+    current_user: UserDep,
+) -> list[AgentFilePublic]:
+    """List controlled files relevant to a completed project agent run."""
+    try:
+        run = agent_service.get_owned_run(session, run_uid, current_user.id)
+        return agent_file_service.list_run_artifacts(session, run, current_user.id)
+    except (agent_service.AgentServiceError, agent_file_service.AgentFileError) as error:
+        raise HTTPException(status_code=404, detail='Agent resource not found.') from error
 
 
 @run_router.get('/{run_uid}/events')
