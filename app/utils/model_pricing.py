@@ -35,7 +35,7 @@ MODEL_PRICE_RULES: tuple[ModelPriceRule, ...] = (
     ModelPriceRule(r'gpt-5\.4(?:-\d{4}-\d{2}-\d{2})?', _price('2.5', '15', '0.25')),
     ModelPriceRule(r'gpt-5-nano(?:-\d{4}-\d{2}-\d{2})?', _price('0.05', '0.4', '0.005')),
     ModelPriceRule(r'gpt-5\.5(?:-\d{4}-\d{2}-\d{2})?', _price('5', '30', '0.5')),
-    ModelPriceRule(r'gpt-5\.6-sol(?:-\d{4}-\d{2}-\d{2})?', _price('5', '30', '0.5')),
+    ModelPriceRule(r'gpt-5\.6-sol(?:-\d{4}-\d{2}-\d{2})?', _price('4', '20', '0.4')),
     ModelPriceRule(r'gpt-5\.6-terra(?:-\d{4}-\d{2}-\d{2})?', _price('2', '12', '0.2')),
     ModelPriceRule(r'gpt-5\.6-luna(?:-\d{4}-\d{2}-\d{2})?', _price('0.2', '1.2', '0.02')),
     ModelPriceRule(r'claude-opus-4[.-]6', _price('5', '25', '0.5')),
@@ -47,8 +47,8 @@ MODEL_PRICE_RULES: tuple[ModelPriceRule, ...] = (
     ModelPriceRule(r'gemini-3\.5-flash-lite', _price('0.3', '2.5', '0.03')),
     ModelPriceRule(r'gemini-3\.5-flash', _price('1.5', '9', '0.15')),
     ModelPriceRule(r'gemini-3\.6-flash', _price('1.5', '7.5', '0.15')),
-    ModelPriceRule(r'deepseek-v4-pro', _price('0.66', '1.98', '0.022')),
-    ModelPriceRule(r'deepseek-v4-flash', _price('0.22', '0.66', '0.007')),
+    ModelPriceRule(r'deepseek-v4-pro', _price('1.32', '3.96', '0.044')),
+    ModelPriceRule(r'deepseek-v4-flash', _price('0.44', '1.32', '0.014')),
 )
 
 
