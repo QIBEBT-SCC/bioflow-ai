@@ -34,6 +34,10 @@ class WorkflowResumeUnavailableError(RuntimeError):
     """Raised when no interrupted workflow builder checkpoint can be resumed."""
 
 
+class WorkflowResumeRequiredError(RuntimeError):
+    """Raised when a paused workflow checkpoint requires an explicit resume value."""
+
+
 def _prepare_workflow_resume_input(state: Any, resume_message: str | None) -> Any:
     """Build the LangGraph input required to continue an incomplete checkpoint."""
     from langgraph.types import Command
@@ -53,6 +57,38 @@ def _prepare_workflow_resume_input(state: Any, resume_message: str | None) -> An
         'Run without --resume/--resume-message to start normally, or use --clean-checkpoint to rebuild it.'
     )
     raise WorkflowResumeUnavailableError(message)
+
+
+def _prepare_workflow_stream_input(
+    state: Any,
+    agent_input: dict[str, Any],
+    *,
+    resume: bool,
+    resume_message: str | None,
+) -> Any:
+    """Choose a safe input for a new workflow-builder stream.
+
+    LangGraph checkpoints the model response before executing its tool calls. If a process
+    stops at that boundary, appending fresh human messages leaves the old tool call without a
+    matching ToolMessage and OpenAI rejects the resulting history. Resume ordinary pending
+    graph work in place, while requiring an explicit value for human interrupts.
+    """
+    if resume or resume_message is not None:
+        return _prepare_workflow_resume_input(state, resume_message)
+
+    if state.interrupts:
+        message = (
+            f'The workflow builder checkpoint is paused at {len(state.interrupts)} interrupt(s) and cannot accept '
+            'new input safely. Use --resume to approve the pending interrupt, --resume-message to respond to it, '
+            'or --clean-checkpoint to discard the checkpoint and rebuild the workflow.'
+        )
+        raise WorkflowResumeRequiredError(message)
+
+    if state.next:
+        logger.info(f'Automatically resuming incomplete workflow builder checkpoint at: {", ".join(state.next)}.')
+        return None
+
+    return agent_input
 
 
 def _resolve_thread_id(task_file: str, thread_id: str | None) -> str:
@@ -513,10 +549,13 @@ async def _generate_workflow(
             logger.warning(f'Unable to persist generated records from the old checkpoint: {exc}')
         await delete_checkpoint(checkpoint, thread_id)
 
-    stream_input = agent_input
-    if resume or resume_message is not None:
-        saved_state = await agent.aget_state(config)
-        stream_input = _prepare_workflow_resume_input(saved_state, resume_message)
+    saved_state = await agent.aget_state(config)
+    stream_input = _prepare_workflow_stream_input(
+        saved_state,
+        agent_input,
+        resume=resume,
+        resume_message=resume_message,
+    )
 
     state = None
     result = WorkflowGenerationResult([], [], [])
@@ -775,7 +814,7 @@ def wf_cmd(
                 langsmith_tracing=langsmith_tracing,
             )
         )
-    except WorkflowResumeUnavailableError as exc:
+    except (WorkflowResumeRequiredError, WorkflowResumeUnavailableError) as exc:
         raise click.ClickException(str(exc)) from exc
 
 
