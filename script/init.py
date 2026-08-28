@@ -25,9 +25,7 @@ def _log_admin_result(result: AdminInitResult) -> None:
         logger.info('Default admin account already exists, skipped.')
         return
 
-    logger.info('Default admin account created')
-    logger.info('Email: admin@email.com')
-    logger.info('Password: admin')
+    logger.info('Administrator account created with the credentials supplied in the prompt.')
 
 
 def _log_import_result(result: PresetImportResult) -> None:
@@ -186,7 +184,7 @@ def system_init_cmd() -> None:
 
 @cli.command()
 def create_admin_cmd() -> None:
-    """Create a default admin account."""
+    """Interactively create the initial administrator account."""
     _log_admin_result(asyncio.run(init_admin()))
 
 

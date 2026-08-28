@@ -57,12 +57,13 @@ def update_project(
     data: ProjectUpdate,
     *,
     current_user_id: int,
+    is_admin: bool = False,
 ) -> Project:
     """Authorize, update, and commit project metadata."""
     project = session.get(Project, project_id)
     if project is None:
         raise ProjectNotFoundError
-    if project.owner_id != current_user_id:
+    if project.owner_id != current_user_id and not is_admin:
         raise ProjectPermissionError
     with committing(session):
         updated = project_crud.update(session, project_id, data)

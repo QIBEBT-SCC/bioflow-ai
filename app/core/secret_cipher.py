@@ -2,11 +2,14 @@ import base64
 import hashlib
 
 import bcrypt
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import get_settings
 
 SECRET_CIPHERTEXT_PREFIX = 'bioflow:v1:'  # noqa: S105
+_password_hasher = PasswordHasher()
 
 
 class SecretDecryptionError(ValueError):
@@ -14,13 +17,31 @@ class SecretDecryptionError(ValueError):
 
 
 def hash_password(password: str) -> str:
-    """Generate a one-way bcrypt password hash."""
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    """Generate an Argon2id password hash."""
+    return _password_hasher.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against a bcrypt hash."""
-    return bcrypt.checkpw(password.encode(), password_hash.encode())
+    """Verify Argon2id hashes and legacy bcrypt hashes."""
+    valid, _replacement = verify_and_update_password(password, password_hash)
+    return valid
+
+
+def verify_and_update_password(password: str, password_hash: str) -> tuple[bool, str | None]:
+    """Verify a password and return a modern replacement for legacy hashes."""
+    if password_hash.startswith('$argon2'):
+        try:
+            valid = _password_hasher.verify(password_hash, password)
+        except (InvalidHashError, VerificationError, VerifyMismatchError):
+            return False, None
+        replacement = _password_hasher.hash(password) if _password_hasher.check_needs_rehash(password_hash) else None
+        return valid, replacement
+
+    try:
+        valid = bcrypt.checkpw(password.encode(), password_hash.encode())
+    except (ValueError, TypeError):
+        return False, None
+    return valid, hash_password(password) if valid else None
 
 
 def _cipher(purpose: str) -> Fernet:

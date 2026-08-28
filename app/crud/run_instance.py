@@ -52,7 +52,7 @@ def update(session: Session, uid: UUIDLike, run_update: RunUpdate) -> RunInstanc
     return db_run
 
 
-def get_run_status(session: Session, user_id: int) -> Statistics:
+def get_run_status(session: Session, user_id: int | None) -> Statistics:
     """Get statistics of run instances by their status."""
     stats = (
         select(
@@ -63,26 +63,29 @@ def get_run_status(session: Session, user_id: int) -> Statistics:
             func.coalesce(func.sum(case((RunInstance.status == Status.WAITING, 1), else_=0)), 0).label('waiting'),
         )
         .select_from(RunInstance)
-        .where(RunInstance.owner_id == user_id)
     )
+    if user_id is not None:
+        stats = stats.where(RunInstance.owner_id == user_id)
 
     # pyrefly: ignore [no-matching-overload]
     total, success, error, running, waiting = session.execute(stats).one()
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
-def get_runs_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[Sequence[RunInstance], int]:
+def get_runs_page(session: Session, limit: int, offset: int, user_id: int | None) -> tuple[Sequence[RunInstance], int]:
     """Return a page of a user's run instances together with the total count."""
     page_stmt = (
         select(RunInstance)
-        .where(RunInstance.owner_id == user_id)
         # pyrefly: ignore [bad-argument-type]
         .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))
         .order_by(RunInstance.create_time.desc())
         .limit(limit)
         .offset(offset)
     )
-    count_stmt = select(func.count()).select_from(RunInstance).where(RunInstance.owner_id == user_id)
+    count_stmt = select(func.count()).select_from(RunInstance)
+    if user_id is not None:
+        page_stmt = page_stmt.where(RunInstance.owner_id == user_id)
+        count_stmt = count_stmt.where(RunInstance.owner_id == user_id)
     return session.scalars(page_stmt).all(), session.scalar(count_stmt) or 0
 
 
@@ -123,11 +126,20 @@ def get_execution_task_stats(session: Session, uid: UUIDLike) -> Statistics:
     return Statistics(total=total, success=success, error=error, running=running, waiting=waiting)
 
 
-def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offset: int = 0) -> Sequence[RunInstance]:
+def get_runs_by_project(
+    session: Session,
+    project_id: int,
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    owner_id: int | None = None,
+) -> Sequence[RunInstance]:
     """Get all run instances for a specific project."""
+    statement = select(RunInstance).where(RunInstance.project_id == project_id)
+    if owner_id is not None:
+        statement = statement.where(RunInstance.owner_id == owner_id)
     statement = (
-        select(RunInstance)
-        .where(RunInstance.project_id == project_id)
+        statement
         .options(selectinload(RunInstance.owner), selectinload(RunInstance.tasks))
         .order_by(RunInstance.create_time.desc())
         .limit(limit)
@@ -137,18 +149,21 @@ def get_runs_by_project(session: Session, project_id: int, limit: int = 20, offs
     return session.scalars(statement).all()
 
 
-def get_nonterminal_runs_by_user(session: Session, user_id: int) -> Sequence[RunInstance]:
+def get_nonterminal_runs_by_user(session: Session, user_id: int | None) -> Sequence[RunInstance]:
     """Get all non-terminal run instances for a user."""
     statement = (
         select(RunInstance)
-        .where(RunInstance.owner_id == user_id)
         .where(RunInstance.status.not_in([Status.SUCCESS, Status.ERROR]))
         .options(selectinload(RunInstance.tasks))
     )
+    if user_id is not None:
+        statement = statement.where(RunInstance.owner_id == user_id)
     return session.scalars(statement).all()
 
 
-def get_nonterminal_runs_by_project(session: Session, project_id: int) -> Sequence[RunInstance]:
+def get_nonterminal_runs_by_project(
+    session: Session, project_id: int, *, owner_id: int | None = None
+) -> Sequence[RunInstance]:
     """Get all non-terminal run instances for a project."""
     statement = (
         select(RunInstance)
@@ -156,19 +171,35 @@ def get_nonterminal_runs_by_project(session: Session, project_id: int) -> Sequen
         .where(RunInstance.status.not_in([Status.SUCCESS, Status.ERROR]))
         .options(selectinload(RunInstance.tasks))
     )
+    if owner_id is not None:
+        statement = statement.where(RunInstance.owner_id == owner_id)
     return session.scalars(statement).all()
 
 
 def get_runs_by_project_page(
-    session: Session, project_id: int, limit: int = 20, offset: int = 0
+    session: Session,
+    project_id: int,
+    limit: int = 20,
+    offset: int = 0,
+    *,
+    owner_id: int | None = None,
 ) -> tuple[Sequence[RunInstance], int]:
     """Return a page of a project's run instances together with the total count."""
     count_stmt = select(func.count()).select_from(RunInstance).where(RunInstance.project_id == project_id)
-    return get_runs_by_project(session, project_id, limit, offset), session.scalar(count_stmt) or 0
+    if owner_id is not None:
+        count_stmt = count_stmt.where(RunInstance.owner_id == owner_id)
+    return (
+        get_runs_by_project(session, project_id, limit, offset, owner_id=owner_id),
+        session.scalar(count_stmt) or 0,
+    )
 
 
 def get_runs_by_project_and_workflow(
-    session: Session, project_id: int, workflow_uid: uuid.UUID
+    session: Session,
+    project_id: int,
+    workflow_uid: uuid.UUID,
+    *,
+    owner_id: int | None = None,
 ) -> Sequence[RunInstance]:
     """Get all run instances for a specific project and workflow combination.
 
@@ -186,6 +217,8 @@ def get_runs_by_project_and_workflow(
         .where(RunInstance.workflow_uid == workflow_uid)
         .order_by(RunInstance.create_time.desc())
     )
+    if owner_id is not None:
+        statement = statement.where(RunInstance.owner_id == owner_id)
 
     return session.scalars(statement).all()
 
@@ -219,7 +252,7 @@ def get_runs_by_sample(
     return session.scalars(statement).all()
 
 
-def get_project_run_stats(session: Session, project_id: int) -> Statistics:
+def get_project_run_stats(session: Session, project_id: int, *, owner_id: int | None = None) -> Statistics:
     """Get statistics of run instances by status for a project.
 
     Args:
@@ -240,6 +273,8 @@ def get_project_run_stats(session: Session, project_id: int) -> Statistics:
         .select_from(RunInstance)
         .where(RunInstance.project_id == project_id)
     )
+    if owner_id is not None:
+        stats = stats.where(RunInstance.owner_id == owner_id)
 
     # pyrefly: ignore [no-matching-overload]
     total, success, error, running, waiting = session.execute(stats).one()

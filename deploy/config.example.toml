@@ -1,7 +1,12 @@
 [security]
-algorithm = "HS256"
-secret_key = "Your key"
-access_token_expire_minutes = 1440
+secret_key = "Replace this key; it encrypts stored application secrets"
+session_idle_timeout_hours = 24
+session_absolute_timeout_days = 7
+login_max_failures = 10
+login_failure_window_minutes = 15
+user_cache_ttl_seconds = 300
+cookie_secure = false # Local HTTP only; production HTTPS must use true.
+cookie_samesite = "lax"
 
 [logger]
 level = "INFO"

@@ -1,9 +1,9 @@
+import secrets
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any, TypeAlias
+from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.security import OAuth2PasswordBearer
-from jwt import InvalidTokenError
 from starlette import status
 
 from app.core.config import get_settings
@@ -14,52 +14,70 @@ from app.schemas.user import CurrentUser
 from app.schemas.user_config import UserRole
 from app.services import auth as auth_service
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/api/v1/auth/token', auto_error=False)
+_UNSAFE_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
 
 
-async def get_token_from_header_or_cookie(
-    request: Request,
-    header_token: Annotated[str | None, Depends(oauth2_scheme)] = None,
-) -> str | None:
-    """Extract JWT from Authorization header first, then fall back to access_token cookie."""
-    if header_token:
-        return header_token
-    return request.cookies.get('access_token')
+def validate_request_origin(request: Request) -> None:
+    """Reject unsafe browser requests from origins outside the configured allowlist."""
+    if request.method not in _UNSAFE_METHODS:
+        return
+    source = request.headers.get('origin')
+    if source is None:
+        referer = request.headers.get('referer')
+        if referer:
+            parsed = urlsplit(referer)
+            source = f'{parsed.scheme}://{parsed.netloc}'
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Missing request origin')
+
+    own_origin = f'{request.url.scheme}://{request.url.netloc}'
+    allowed = {origin.rstrip('/') for origin in get_settings().network.CORS_ORIGINS}
+    allowed.add(own_origin.rstrip('/'))
+    if source.rstrip('/') not in allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Invalid request origin')
+
+
+async def get_current_session(request: Request, redis: RedisDep) -> auth_service.AuthSession:
+    """Resolve an opaque browser session and enforce CSRF on unsafe requests."""
+    session_id = request.cookies.get(auth_service.SESSION_COOKIE)
+    if not session_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Authentication required')
+    auth_session = await auth_service.get_session(redis, session_id)
+    if auth_session is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid or expired session')
+
+    if request.method in _UNSAFE_METHODS:
+        validate_request_origin(request)
+        cookie_token = request.cookies.get(auth_service.CSRF_COOKIE)
+        header_token = request.headers.get('X-CSRF-Token')
+        expected = auth_session.record.csrf_token
+        if not (
+            cookie_token
+            and header_token
+            and secrets.compare_digest(cookie_token, header_token)
+            and secrets.compare_digest(cookie_token, expected)
+        ):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Invalid CSRF token')
+    request.state.auth_session = auth_session
+    return auth_session
 
 
 async def get_current_user(
-    token: Annotated[str | None, Depends(get_token_from_header_or_cookie)],
+    auth_session: Annotated[auth_service.AuthSession, Depends(get_current_session)],
     session: SessionDep,
     redis: RedisDep,
 ) -> CurrentUser:
-    """Validate an access token and return its user projection."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail='Could not validate credentials',
-        headers={'WWW-Authenticate': 'Bearer'},
-    )
-    if not token:
-        raise credentials_exception
-    try:
-        payload = auth_service.decode_token(token, expected_type='access')
-    except InvalidTokenError as error:
-        raise credentials_exception from error
-
-    if await auth_service.is_access_token_revoked(redis, payload.jti):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Token has been revoked',
-            headers={'WWW-Authenticate': 'Bearer'},
-        )
-
-    cache_key = f'user-cache:{payload.sub}'
+    """Return the database-backed user projection for an authenticated session."""
+    user_id = auth_session.record.user_id
+    cache_key = f'user-cache:{user_id}'
     cached = await redis.get(cache_key)
     if cached:
         return CurrentUser.model_validate_json(cached)
 
-    user = user_crud.get(session, payload.sub)
+    user = user_crud.get_by_id(session, user_id)
     if user is None:
-        raise credentials_exception
+        await auth_service.delete_session_by_digest(redis, user_id, auth_session.digest)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid session user')
     projection = CurrentUser.model_validate(user)
     await redis.set(
         cache_key,
@@ -72,7 +90,7 @@ async def get_current_user(
 async def get_current_active_user(current_user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
     """Ensure the current user is active."""
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail='Inactive user')
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Inactive user')
     return current_user
 
 
@@ -90,6 +108,7 @@ def require_role(required_role: UserRole) -> Callable[..., Coroutine[Any, Any, C
     return role_checker
 
 
+AuthSessionDep: TypeAlias = Annotated[auth_service.AuthSession, Depends(get_current_session)]
 UserDep: TypeAlias = Annotated[CurrentUser, Depends(get_current_active_user)]
 MemberDep: TypeAlias = Annotated[CurrentUser, Depends(require_role(UserRole.MEMBER))]
 AdminDep: TypeAlias = Annotated[CurrentUser, Depends(require_role(UserRole.ADMIN))]

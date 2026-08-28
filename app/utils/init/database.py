@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.utils.init import tui
 
+MAX_PASSWORD_BYTES = 128
+
 PREBUILD_REPO = 'Aye10032/bioflow-ai-prebuild'
 BATCH_SIZE = 50
 
@@ -63,7 +65,7 @@ async def init_preset_database_records(
 
 
 async def init_admin() -> AdminInitResult:
-    """当 User 表为空时, 创建默认管理员账户."""
+    """Prompt for and create an administrator when the user table is empty."""
     from pydantic import SecretStr
     from sqlalchemy import select
 
@@ -78,13 +80,20 @@ async def init_admin() -> AdminInitResult:
         if existing is not None:
             return AdminInitResult(created=False)
 
+        def required(value: str) -> bool | str:
+            return True if value.strip() else '此项不能为空'
+
+        email = tui.prompt_text('管理员邮箱', validate=required).strip().casefold()
+        username = tui.prompt_text('管理员用户名', default='admin', validate=required).strip()
+        password = tui.prompt_password(
+            '管理员密码 (不限制强度, 不能为空且最多 128 UTF-8 字节)',
+            validate=lambda value: required(value)
+            if len(value.encode()) <= MAX_PASSWORD_BYTES
+            else '密码不能超过 128 UTF-8 字节',
+        )
         user_service.create_user(
             session,
-            UserCreate(
-                username='admin',
-                email='admin@email.com',
-                password=SecretStr('admin'),
-            ),
+            UserCreate(username=username, email=email, password=SecretStr(password)),
             role=UserRole.ADMIN,
         )
         return AdminInitResult(created=True)

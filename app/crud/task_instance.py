@@ -32,28 +32,28 @@ def update(session: Session, uid: UUIDLike, task_update: TaskUpdate) -> TaskInst
     return db_task
 
 
-def get_all(session: Session, limit: int, offset: int, user_id: int) -> Sequence[TaskInstance]:
+def get_all(session: Session, limit: int, offset: int, user_id: int | None) -> Sequence[TaskInstance]:
     """Get a paginated list of task instances for a specific user."""
     statement = (
         select(TaskInstance)
-        .where(TaskInstance.owner_id == user_id)
         .where(TaskInstance.track_progress.is_(True))
         .options(joinedload(TaskInstance.owner), joinedload(TaskInstance.run_instance))
         .order_by(TaskInstance.uid.desc())
         .limit(limit)
         .offset(offset)
     )
+    if user_id is not None:
+        statement = statement.where(TaskInstance.owner_id == user_id)
     return session.scalars(statement).all()
 
 
-def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequence[TaskInstance]:
+def get_all_by_time(session: Session, user_id: int | None, delta: timedelta) -> Sequence[TaskInstance]:
     """Get task instances for a user within a recent time window."""
     now = datetime.now(UTC)
     since_time = now - delta
     statement = (
         select(TaskInstance)
         .where(
-            TaskInstance.owner_id == user_id,
             or_(
                 and_(
                     TaskInstance.start_time.is_not(None),
@@ -70,16 +70,20 @@ def get_all_by_time(session: Session, user_id: int, delta: timedelta) -> Sequenc
         .where(TaskInstance.track_progress.is_(True))
         .options(joinedload(TaskInstance.owner))
     )
+    if user_id is not None:
+        statement = statement.where(TaskInstance.owner_id == user_id)
     return session.scalars(statement).all()
 
 
-def get_count(session: Session, user_id: int) -> int:
+def get_count(session: Session, user_id: int | None) -> int:
     """Get the total count of task instances for a specific user."""
     statement = (
         select(func.count())
         .select_from(TaskInstance)
-        .where(TaskInstance.owner_id == user_id, TaskInstance.track_progress.is_(True))
+        .where(TaskInstance.track_progress.is_(True))
     )
+    if user_id is not None:
+        statement = statement.where(TaskInstance.owner_id == user_id)
     return session.scalar(statement) or 0
 
 

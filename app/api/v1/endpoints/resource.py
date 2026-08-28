@@ -23,6 +23,7 @@ from app.schemas.resource import (
     BioDbSimple,
     SampleListItem,
 )
+from app.schemas.user_config import UserRole
 from app.services.resource import bio_db as db_service
 
 db_router = APIRouter()
@@ -190,7 +191,14 @@ async def get_all_user_samples(
     limit: Annotated[int, Query(le=100)] = 20,
 ) -> Paginated[SampleListItem]:
     """Get all samples owned by the current user (across all projects)."""
-    samples, total = sample_crud.get_page_by_user(session, current_user.id, limit, offset)
+    owner_id = current_user.id if current_user.role == UserRole.MEMBER else None
+    samples, total = sample_crud.get_page_by_user(
+        session,
+        owner_id,
+        limit,
+        offset,
+        public_only=current_user.role == UserRole.VISITOR,
+    )
     return Paginated(
         total=total,
         offset=offset,

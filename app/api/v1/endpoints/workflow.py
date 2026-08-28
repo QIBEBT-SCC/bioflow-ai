@@ -6,13 +6,14 @@ from starlette import status
 from uuid_extensions import uuid7
 
 import app.crud.workflow as wf_crud
-from app.core.auth import UserDep
+from app.core.auth import MemberDep, UserDep
 from app.core.config import get_settings
 from app.core.session import SessionDep
 from app.models.workflow import RunInstance, Workflow
 from app.schemas.common import Paginated
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.run_instance import RunRecord
+from app.schemas.user_config import UserRole
 from app.schemas.workflow import WorkflowCreateProp, WorkflowPublic, WorkflowSimple, WorkflowUpdate
 from app.schemas.workflow_config import Status
 from app.services import workflow_catalog, workflow_runtime
@@ -32,7 +33,14 @@ async def get_workflows(
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[WorkflowSimple]:
     """Get a paginated list of workflows for the current user."""
-    workflows, total = wf_crud.get_page(session, limit, offset, current_user.id)
+    workflows, total = wf_crud.get_page(
+        session,
+        limit,
+        offset,
+        current_user.id,
+        include_private=current_user.role == UserRole.ADMIN,
+        include_owned=current_user.role >= UserRole.MEMBER,
+    )
     return Paginated(
         total=total,
         offset=offset,
@@ -46,7 +54,7 @@ async def get_workflows(
 async def run_workflow(
     workflow: WorkflowDefinition,
     session: SessionDep,
-    current_user: UserDep,
+    current_user: MemberDep,
     template_name: str | None = None,
 ) -> RunRecord:
     """Create a new workflow run instance from the editor."""
@@ -102,7 +110,7 @@ async def get_workflow(uid: str, session: SessionDep, _current_user: UserDep) ->
 async def save_workflow(
     workflow_prop: WorkflowCreateProp,
     session: SessionDep,
-    current_user: UserDep,
+    current_user: MemberDep,
 ) -> str:
     """Save a new workflow template."""
     if wf_crud.workflow_name_exists(session, workflow_prop.name):

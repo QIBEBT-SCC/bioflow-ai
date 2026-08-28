@@ -1,117 +1,158 @@
+import hashlib
+import secrets
+import time
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Literal
 
-import jwt
-from jwt import InvalidTokenError
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
-from uuid_extensions import uuid7str
 
 from app.core.config import get_settings
 
-TokenType = Literal['access', 'refresh']
+SESSION_COOKIE = 'session_id'
+CSRF_COOKIE = 'csrf_token'
+LEGACY_AUTH_COOKIES = ('access_token', 'refresh_token')
 
 
-class TokenPayload(BaseModel):
-    """Validated claims shared by access and refresh tokens."""
+class SessionRecord(BaseModel):
+    """Server-side browser session stored in Redis."""
 
-    sub: str
-    exp: int
-    jti: str
-    type: TokenType
+    user_id: int
+    csrf_token: str
+    issued_at: int
+    absolute_expires_at: int
 
 
 @dataclass(frozen=True, slots=True)
-class IssuedToken:
-    """Encoded token plus claims needed by server-side token storage."""
-
-    value: str
-    subject: str
-    jti: str
-    expires_at: datetime
-    type: TokenType
+class IssuedSession:
+    session_id: str
+    csrf_token: str
+    absolute_expires_at: int
 
 
-class AuthServiceError(ValueError):
-    """Base error for authentication-state operations."""
+@dataclass(frozen=True, slots=True)
+class AuthSession:
+    digest: str
+    record: SessionRecord
 
 
-class InvalidRefreshTokenError(AuthServiceError):
-    """Raised when a refresh token is invalid, expired, revoked, or already consumed."""
+def _session_digest(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode()).hexdigest()
 
 
-def _issue_token(subject: str, token_type: TokenType, expires_at: datetime) -> IssuedToken:
-    config = get_settings().security
-    jti = uuid7str()
-    payload = {'sub': subject, 'exp': expires_at, 'jti': jti, 'type': token_type}
-    value = jwt.encode(payload, config.SECRET_KEY.get_secret_value(), algorithm=config.ALGORITHM)
-    return IssuedToken(value=value, subject=subject, jti=jti, expires_at=expires_at, type=token_type)
+def _session_key(digest: str) -> str:
+    return f'auth-session:{digest}'
 
 
-def issue_access_token(subject: str) -> IssuedToken:
-    """Issue an access token using the configured lifetime."""
-    config = get_settings().security
-    expires_at = datetime.now(UTC) + timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
-    return _issue_token(subject, 'access', expires_at)
+def _user_sessions_key(user_id: int) -> str:
+    return f'user-sessions:{user_id}'
 
 
-def issue_refresh_token(subject: str) -> IssuedToken:
-    """Issue a refresh token using the configured lifetime."""
-    config = get_settings().security
-    expires_at = datetime.now(UTC) + timedelta(days=config.REFRESH_TOKEN_EXPIRE_DAYS)
-    return _issue_token(subject, 'refresh', expires_at)
+def _idle_ttl() -> int:
+    return get_settings().security.SESSION_IDLE_TIMEOUT_HOURS * 3600
 
 
-def decode_token(token: str, *, expected_type: TokenType | None = None) -> TokenPayload:
-    """Verify a JWT signature and return validated claims."""
-    config = get_settings().security
+def _absolute_ttl() -> int:
+    return get_settings().security.SESSION_ABSOLUTE_TIMEOUT_DAYS * 86400
+
+
+async def create_session(redis: Redis, user_id: int) -> IssuedSession:
+    """Create an opaque, revocable browser session."""
+    now = int(time.time())
+    session_id = secrets.token_urlsafe(32)
+    csrf_token = secrets.token_urlsafe(32)
+    digest = _session_digest(session_id)
+    absolute_expires_at = now + _absolute_ttl()
+    record = SessionRecord(
+        user_id=user_id,
+        csrf_token=csrf_token,
+        issued_at=now,
+        absolute_expires_at=absolute_expires_at,
+    )
+    async with redis.pipeline(transaction=True) as pipeline:
+        pipeline.set(_session_key(digest), record.model_dump_json(), ex=min(_idle_ttl(), _absolute_ttl()))
+        pipeline.sadd(_user_sessions_key(user_id), digest)
+        pipeline.expire(_user_sessions_key(user_id), _absolute_ttl())
+        await pipeline.execute()
+    return IssuedSession(
+        session_id=session_id,
+        csrf_token=csrf_token,
+        absolute_expires_at=absolute_expires_at,
+    )
+
+
+async def get_session(redis: Redis, session_id: str, *, touch: bool = True) -> AuthSession | None:
+    """Load a session and apply idle sliding expiration within its absolute lifetime."""
+    digest = _session_digest(session_id)
+    key = _session_key(digest)
+    raw = await redis.get(key)
+    if not raw:
+        return None
     try:
-        raw_payload = jwt.decode(
-            token,
-            config.SECRET_KEY.get_secret_value(),
-            algorithms=[config.ALGORITHM],
-        )
-        payload = TokenPayload.model_validate(raw_payload)
-    except (InvalidTokenError, ValidationError) as error:
-        message = 'Invalid token payload.'
-        raise InvalidTokenError(message) from error
-    if expected_type is not None and payload.type != expected_type:
-        message = f'Expected a {expected_type} token.'
-        raise InvalidTokenError(message)
-    return payload
+        record = SessionRecord.model_validate_json(raw)
+    except ValidationError:
+        await redis.delete(key)
+        return None
+
+    now = int(time.time())
+    remaining = record.absolute_expires_at - now
+    if remaining <= 0:
+        await delete_session_by_digest(redis, record.user_id, digest)
+        return None
+    if touch:
+        await redis.expire(key, min(_idle_ttl(), remaining))
+    return AuthSession(digest=digest, record=record)
 
 
-async def store_refresh_token(redis: Redis, jti: str, subject: str) -> None:
-    """Store a refresh-token grant until its configured expiration."""
-    ttl = get_settings().security.REFRESH_TOKEN_EXPIRE_DAYS * 86400
-    await redis.set(f'refresh-token:{jti}', subject, ex=ttl)
+async def delete_session_by_digest(redis: Redis, user_id: int, digest: str) -> None:
+    """Delete one session and remove it from the user's session index."""
+    async with redis.pipeline(transaction=True) as pipeline:
+        pipeline.delete(_session_key(digest))
+        pipeline.srem(_user_sessions_key(user_id), digest)
+        await pipeline.execute()
 
 
-async def consume_refresh_token(redis: Redis, token: str) -> str:
-    """Validate and atomically consume one refresh-token grant."""
-    try:
-        payload = decode_token(token, expected_type='refresh')
-    except InvalidTokenError as error:
-        raise InvalidRefreshTokenError from error
-
-    key = f'refresh-token:{payload.jti}'
-    stored_subject = await redis.getdel(key)
-    if stored_subject != payload.sub:
-        raise InvalidRefreshTokenError
-    return payload.sub
+async def delete_session(redis: Redis, session_id: str) -> None:
+    """Delete an opaque session by its browser value when it exists."""
+    session = await get_session(redis, session_id, touch=False)
+    if session is not None:
+        await delete_session_by_digest(redis, session.record.user_id, session.digest)
 
 
-async def revoke_access_token(redis: Redis, jti: str, expire_seconds: int) -> None:
-    """Add an access-token ID to the revocation list."""
-    await redis.set(f'token-blacklist:{jti}', '1', ex=expire_seconds)
+async def revoke_user_sessions(redis: Redis, user_id: int, *, keep_digest: str | None = None) -> None:
+    """Revoke all sessions for a user, optionally preserving one current session."""
+    index_key = _user_sessions_key(user_id)
+    digests = set(await redis.smembers(index_key))
+    to_delete = digests - ({keep_digest} if keep_digest else set())
+    async with redis.pipeline(transaction=True) as pipeline:
+        if to_delete:
+            pipeline.delete(*(_session_key(digest) for digest in to_delete))
+            pipeline.srem(index_key, *to_delete)
+        if keep_digest:
+            pipeline.expire(index_key, _absolute_ttl())
+        else:
+            pipeline.delete(index_key)
+        await pipeline.execute()
 
 
-async def is_access_token_revoked(redis: Redis, jti: str) -> bool:
-    """Return whether an access-token ID has been revoked."""
-    return bool(await redis.exists(f'token-blacklist:{jti}'))
+def _login_failure_key(email: str) -> str:
+    digest = hashlib.sha256(email.strip().casefold().encode()).hexdigest()
+    return f'login-failures:{digest}'
 
 
-async def delete_refresh_token(redis: Redis, jti: str) -> None:
-    """Delete one server-side refresh-token grant."""
-    await redis.delete(f'refresh-token:{jti}')
+async def login_is_rate_limited(redis: Redis, email: str) -> bool:
+    """Return whether the normalized account exceeded failed-login limits."""
+    count = await redis.get(_login_failure_key(email))
+    return bool(count and int(count) >= get_settings().security.LOGIN_MAX_FAILURES)
+
+
+async def record_login_failure(redis: Redis, email: str) -> None:
+    """Record one failed login in the fixed rate-limit window."""
+    key = _login_failure_key(email)
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, get_settings().security.LOGIN_FAILURE_WINDOW_MINUTES * 60)
+
+
+async def clear_login_failures(redis: Redis, email: str) -> None:
+    """Clear an account's failed-login counter after successful login."""
+    await redis.delete(_login_failure_key(email))

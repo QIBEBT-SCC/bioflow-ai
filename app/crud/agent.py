@@ -17,15 +17,14 @@ def get_session(session: Session, session_uid: uuid.UUID) -> AgentSession | None
 
 def get_sessions_page(
     session: Session,
-    owner_id: int,
+    owner_id: int | None,
     project_id: int | None,
     cursor: datetime | None,
     limit: int,
 ) -> Sequence[AgentSession]:
-    statement = select(AgentSession).where(
-        AgentSession.owner_id == owner_id,
-        AgentSession.project_id == project_id,
-    )
+    statement = select(AgentSession).where(AgentSession.project_id == project_id)
+    if owner_id is not None:
+        statement = statement.where(AgentSession.owner_id == owner_id)
     if cursor is not None:
         statement = statement.where(AgentSession.update_time < cursor)
     return session.scalars(statement.order_by(AgentSession.update_time.desc()).limit(limit + 1)).all()
@@ -101,18 +100,19 @@ def has_active_project_run(session: Session, project_id: int) -> bool:
     return session.scalar(statement) is not None
 
 
-def list_project_artifact_runs(session: Session, project_id: int, owner_id: int) -> Sequence[AgentRun]:
+def list_project_artifact_runs(session: Session, project_id: int, owner_id: int | None) -> Sequence[AgentRun]:
     statement = (
         select(AgentRun)
         .join(AgentSession, AgentSession.uid == AgentRun.session_uid)
         .where(
             AgentRun.project_id == project_id,
-            AgentSession.owner_id == owner_id,
             AgentRun.status == 'completed',
             AgentRun.agent_name.in_(['workflow-diagnoser', 'workflow-fixer']),
         )
         .order_by(AgentRun.end_time.desc().nullslast(), AgentRun.create_time.desc(), AgentRun.uid.desc())
     )
+    if owner_id is not None:
+        statement = statement.where(AgentSession.owner_id == owner_id)
     return session.scalars(statement).all()
 
 

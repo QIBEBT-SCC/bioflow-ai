@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from loguru import logger
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
-from app.core.auth import UserDep
+from app.core.auth import AdminDep, MemberDep, UserDep
 from app.core.session import SessionDep
 from app.crud import project as project_crud
 from app.crud import project_file_mapping as project_file_mapping_crud
@@ -47,6 +47,7 @@ from app.schemas.resource import (
     SampleUpdate,
 )
 from app.schemas.run_instance import SimpleRunPublic
+from app.schemas.user_config import UserRole
 from app.schemas.workflow_config import ExecutionScope
 from app.services import agent_file as agent_file_service
 from app.services import project as project_service
@@ -66,7 +67,7 @@ workflow_router = APIRouter()
 def new_tag(
     tag_prop: TagProp,
     session: SessionDep,
-    _current_user: UserDep,
+    _current_user: AdminDep,
 ) -> ProjectTagPublic:
     """Create a new project tag."""
     return ProjectTagPublic.model_validate(project_service.create_tag(session, tag_prop))
@@ -82,7 +83,7 @@ def get_tag_list(session: SessionDep, _current_user: UserDep) -> list[TagWithCou
 def new_project(
     project_prop: ProjectCreateProp,
     session: SessionDep,
-    current_user: UserDep,
+    current_user: MemberDep,
 ) -> ProjectCreateResult:
     """Create a new project."""
     project = project_service.create_project(session, project_prop, current_user.id)
@@ -131,11 +132,36 @@ def get_project_list(
     """
     match filter_type:
         case 'starred':
-            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id, sort, search, tag_id)
+            projects, total = project_crud.get_page_star(
+                session,
+                limit,
+                offset,
+                current_user.id,
+                sort,
+                search,
+                tag_id,
+                include_private=current_user.role == UserRole.ADMIN,
+                include_owned=current_user.role >= UserRole.MEMBER,
+            )
         case 'my':
-            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id, sort, search, tag_id)
+            if current_user.role >= UserRole.MEMBER:
+                projects, total = project_crud.get_page_my(
+                    session, limit, offset, current_user.id, sort, search, tag_id
+                )
+            else:
+                projects, total = [], 0
         case 'all':
-            projects, total = project_crud.get_page(session, limit, offset, current_user.id, sort, search, tag_id)
+            projects, total = project_crud.get_page(
+                session,
+                limit,
+                offset,
+                current_user.id,
+                sort,
+                search,
+                tag_id,
+                include_private=current_user.role == UserRole.ADMIN,
+                include_owned=current_user.role >= UserRole.MEMBER,
+            )
         case _:
             projects, total = [], 0
 
@@ -151,7 +177,11 @@ def get_project_list(
 @router.get('/recent')
 def get_recent_project(session: SessionDep, current_user: UserDep) -> ProjectPublic:
     """Get user's recently updated projects."""
-    project = project_crud.get_recent(session, current_user.id)
+    project = project_crud.get_recent(
+        session,
+        current_user.id,
+        include_owned=current_user.role >= UserRole.MEMBER,
+    )
     if project is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
     return project
@@ -257,6 +287,7 @@ def update_project(
             project_id,
             project_update,
             current_user_id=current_user.id,
+            is_admin=current_user.role == UserRole.ADMIN,
         )
     except project_service.ProjectNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found') from error
@@ -496,7 +527,7 @@ async def add_workflow_to_project(
     project_id: int,
     workflow_add: ProjectWorkflowAdd,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: UserDep,
 ) -> ProjectWorkflowPublic:
     """Add a workflow template to the project.
 
@@ -507,6 +538,11 @@ async def add_workflow_to_project(
     Returns:
         ProjectWorkflowPublic: The added workflow information.
     """
+    workflow = wf_crud.get(session, workflow_add.workflow_uid)
+    if workflow is None or not (
+        workflow.public or workflow.owner_id == current_user.id or current_user.role == UserRole.ADMIN
+    ):
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
     try:
         return project_workflow_service.add_workflow_to_project(
             session,
@@ -636,7 +672,7 @@ async def package_workflow_runs(
     project_id: int,
     workflow_uid: uuid.UUID,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: UserDep,
 ) -> StreamingResponse:
     """Download all run instance output directories for a workflow as a zip archive.
 
@@ -648,7 +684,13 @@ async def package_workflow_runs(
         StreamingResponse: A zip file containing all run output directories.
     """
     try:
-        return await project_workflow_service.package_workflow_runs(session, project_id, workflow_uid)
+        owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+        return await project_workflow_service.package_workflow_runs(
+            session,
+            project_id,
+            workflow_uid,
+            owner_id=owner_id,
+        )
     except project_workflow_service.ProjectWorkflowNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
 
@@ -657,7 +699,7 @@ async def package_workflow_runs(
 async def get_project_runs(
     project_id: int,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: UserDep,
     offset: int = 0,
     limit: Annotated[int, Query(le=100)] = 20,
 ) -> Paginated[SimpleRunPublic]:
@@ -671,7 +713,14 @@ async def get_project_runs(
     Returns:
         Paginated[SimpleRunPublic]: Page of run instances with refreshed runtime task statistics.
     """
-    runs, total = run_crud.get_runs_by_project_page(session, project_id, limit, offset)
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    runs, total = run_crud.get_runs_by_project_page(
+        session,
+        project_id,
+        limit,
+        offset,
+        owner_id=owner_id,
+    )
 
     result = []
     for run in runs:
@@ -693,7 +742,7 @@ async def get_project_runs(
 async def get_project_run_stats(
     project_id: int,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: UserDep,
 ) -> Statistics:
     """Get run instance statistics by status for a project.
 
@@ -703,10 +752,11 @@ async def get_project_run_stats(
     Returns:
         Statistics: Counts of total, success, error, running, waiting run instances.
     """
-    stats = run_crud.get_project_run_stats(session, project_id)
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    stats = run_crud.get_project_run_stats(session, project_id, owner_id=owner_id)
     return runtime_status.apply_effective_nonterminal_run_stats(
         stats,
-        run_crud.get_nonterminal_runs_by_project(session, project_id),
+        run_crud.get_nonterminal_runs_by_project(session, project_id, owner_id=owner_id),
     )
 
 
@@ -715,7 +765,7 @@ async def get_project_run(
     project_id: int,
     run_uid: uuid.UUID,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: UserDep,
 ) -> SimpleRunPublic:
     """Get the details of the specified run instance in the project.
 
@@ -727,7 +777,9 @@ async def get_project_run(
         SimpleRunPublic: Details of the run instance with refreshed runtime task statistics.
     """
     run = run_crud.get(session, str(run_uid))
-    if not run or run.project_id != project_id:
+    if not run or run.project_id != project_id or (
+        run.owner_id != current_user.id and current_user.role != UserRole.ADMIN
+    ):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
 
     stats = runtime_status.refresh_run_status(run)

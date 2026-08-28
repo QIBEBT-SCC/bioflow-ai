@@ -13,6 +13,7 @@ import app.crud.project_workflow as project_workflow_crud
 import app.crud.run_instance as run_instance_crud
 from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from app.models.project import Project
+from app.models.user import User
 from app.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
     AgentEventType,
@@ -21,6 +22,7 @@ from app.schemas.agent import (
     AgentSessionCreate,
     AgentSessionUpdate,
 )
+from app.schemas.user_config import UserRole
 from app.services import project_workflow as project_workflow_service
 from app.services._transaction import committing
 from app.utils.identifiers import UUIDLike, as_uuid
@@ -108,16 +110,23 @@ def _stage_run_records(
     session.add_all([message, event, *([target] if target is not None else [])])
 
 
+def _is_admin_actor(session: Session, user_id: int) -> bool:
+    user = session.get(User, user_id)
+    return user is not None and user.role == UserRole.ADMIN
+
+
 def _require_owned_project(session: Session, project_id: int, owner_id: int) -> Project:
     project = session.get(Project, project_id)
-    if project is None or project.owner_id != owner_id:
+    if project is None or (project.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
         raise AgentProjectAccessError
     return project
 
 
 def get_owned_session(session: Session, session_uid: UUIDLike, owner_id: int) -> AgentSession:
     agent_session = agent_crud.get_session(session, as_uuid(session_uid))
-    if agent_session is None or agent_session.owner_id != owner_id:
+    if agent_session is None or (
+        agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id)
+    ):
         raise AgentSessionNotFoundError
     return agent_session
 
@@ -143,7 +152,7 @@ def create_session(session: Session, owner_id: int, data: AgentSessionCreate) ->
 
 def list_sessions(
     session: Session,
-    owner_id: int,
+    owner_id: int | None,
     project_id: int | None,
     cursor: datetime | None,
     limit: int,
@@ -195,7 +204,10 @@ def create_run(
         source_run = run_instance_crud.get(session, source_run_uid)
         if (
             source_run is None
-            or source_run.owner_id != agent_session.owner_id
+            or (
+                source_run.owner_id != agent_session.owner_id
+                and not _is_admin_actor(session, agent_session.owner_id)
+            )
             or source_run.project_id != agent_session.project_id
         ):
             raise AgentProjectAccessError

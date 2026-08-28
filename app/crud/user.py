@@ -8,6 +8,7 @@ from app.models.setting import LLMStatistic
 from app.models.user import User
 from app.models.workflow import RunInstance
 from app.schemas.user import UserDetail, UserUpdate
+from app.schemas.user_config import UserRole
 
 
 def insert(session: Session, user: User) -> User:
@@ -20,12 +21,22 @@ def insert(session: Session, user: User) -> User:
 
 def get(session: Session, email: str) -> User | None:
     """Return a user by email address."""
-    return session.scalar(select(User).where(User.email == email))
+    return session.scalar(select(User).where(func.lower(User.email) == email.strip().casefold()))
 
 
 def get_by_id(session: Session, user_id: int) -> User | None:
     """Return a user by primary key."""
     return session.get(User, user_id)
+
+
+def count_active_admins(session: Session, *, lock: bool = False) -> int:
+    """Return the number of active administrator accounts."""
+    if lock:
+        statement = select(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True)).with_for_update()
+        return len(session.scalars(statement).all())
+    return session.scalar(
+        select(func.count()).select_from(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True))
+    ) or 0
 
 
 def update(session: Session, user_id: int, data: UserUpdate) -> User | None:

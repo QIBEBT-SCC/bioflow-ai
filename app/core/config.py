@@ -6,8 +6,10 @@ from typing import Literal
 
 import tomli_w
 from loguru import logger
-from pydantic import AmqpDsn, BaseModel, ConfigDict, PostgresDsn, RedisDsn, SecretStr
+from pydantic import AmqpDsn, BaseModel, ConfigDict, Field, PostgresDsn, RedisDsn, SecretStr, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
+
+INSECURE_NONE_COOKIE_ERROR = 'SameSite=None cookies require cookie_secure=true'
 
 
 class BaseSectionConfig(BaseModel):
@@ -20,13 +22,21 @@ class BaseSectionConfig(BaseModel):
 
 class SecurityConfig(BaseSectionConfig):
     SECRET_KEY: SecretStr = SecretStr(secrets.token_urlsafe(32))
-    ALGORITHM: str = 'HS256'
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    USER_CACHE_TTL_SECONDS: int = 300
+    SESSION_IDLE_TIMEOUT_HOURS: int = Field(default=24, gt=0)
+    SESSION_ABSOLUTE_TIMEOUT_DAYS: int = Field(default=7, gt=0)
+    LOGIN_MAX_FAILURES: int = Field(default=10, gt=0)
+    LOGIN_FAILURE_WINDOW_MINUTES: int = Field(default=15, gt=0)
+    USER_CACHE_TTL_SECONDS: int = Field(default=300, gt=0)
     COOKIE_SECURE: bool = False
     COOKIE_DOMAIN: str | None = None
     COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = 'lax'
+
+    @model_validator(mode='after')
+    def validate_cookie_transport(self) -> 'SecurityConfig':
+        """Require encrypted transport for cross-site cookies."""
+        if self.COOKIE_SAMESITE == 'none' and not self.COOKIE_SECURE:
+            raise ValueError(INSECURE_NONE_COOKIE_ERROR)
+        return self
 
 
 class LogConfig(BaseSectionConfig):

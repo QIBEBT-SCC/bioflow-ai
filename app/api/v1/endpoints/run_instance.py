@@ -22,6 +22,7 @@ from app.schemas.run_instance import (
     RunRecord,
     RunUpdate,
 )
+from app.schemas.user_config import UserRole
 from app.schemas.workflow_config import Status
 from app.services import runtime_status, workflow_runtime
 from app.utils.file_browser import build_file_tree, serve_file
@@ -37,7 +38,8 @@ async def get_all_runs(
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[RunPublic]:
     """获取所有运行实例, 并用 Celery 后端刷新非终态任务状态."""
-    runs, total = run_crud.get_runs_page(session, limit, offset, current_user.id)
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    runs, total = run_crud.get_runs_page(session, limit, offset, owner_id)
 
     result = []
     for run in runs:
@@ -59,10 +61,11 @@ async def get_all_runs(
 def get_run_stats(session: SessionDep, current_user: UserDep) -> Statistics:
     """Get aggregated run status statistics for the current user."""
     # pyrefly: ignore [bad-argument-type]
-    stats = run_crud.get_run_status(session, current_user.id)
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    stats = run_crud.get_run_status(session, owner_id)
     return runtime_status.apply_effective_nonterminal_run_stats(
         stats,
-        run_crud.get_nonterminal_runs_by_user(session, current_user.id),
+        run_crud.get_nonterminal_runs_by_user(session, owner_id),
     )
 
 

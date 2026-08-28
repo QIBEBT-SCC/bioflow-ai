@@ -125,7 +125,13 @@ def _delete_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.
     session.execute(delete(RunInstance).where(RunInstance.uid.in_(run_instance_uids)))
 
 
-async def package_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.UUID) -> StreamingResponse:
+async def package_workflow_runs(
+    session: Session,
+    project_id: int,
+    workflow_uid: uuid.UUID,
+    *,
+    owner_id: int | None = None,
+) -> StreamingResponse:
     """Build a zip response for all run outputs of a project workflow."""
     if not project_workflow_crud.exists(session, project_id, workflow_uid):
         raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
@@ -133,7 +139,12 @@ async def package_workflow_runs(session: Session, project_id: int, workflow_uid:
     workflow = wf_crud.get(session, workflow_uid)
     if workflow is None:
         raise ProjectWorkflowNotFoundError(_WORKFLOW_NOT_FOUND)
-    runs = run_crud.get_runs_by_project_and_workflow(session, project_id, workflow_uid)
+    runs = run_crud.get_runs_by_project_and_workflow(
+        session,
+        project_id,
+        workflow_uid,
+        owner_id=owner_id,
+    )
 
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
         if not runs:

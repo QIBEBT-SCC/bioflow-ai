@@ -178,7 +178,7 @@ async def get_doc(session: SessionDep, uid: str) -> ToolHelpDocPublic:
 
 
 @doc_router.post('/{uid}/refresh')
-async def refresh_doc(session: SessionDep, uid: str) -> ToolHelpDocPublic:
+async def refresh_doc(session: SessionDep, uid: str, _current_user: AdminDep) -> ToolHelpDocPublic:
     """Refresh a tool help document by re-running its help command."""
     try:
         return tool_catalog.refresh_help_document(session, uid)  # type: ignore[return-value]

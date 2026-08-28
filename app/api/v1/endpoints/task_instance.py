@@ -17,6 +17,7 @@ from app.core.auth import UserDep
 from app.core.redis_client import monitor_redis_client
 from app.core.session import SessionDep
 from app.schemas.task_instance import MonitorPublic, SimpleTaskPublic, TaskPublic
+from app.schemas.user_config import UserRole
 from app.schemas.workflow_config import Status, ToolOutput
 from app.services import runtime_status
 
@@ -34,7 +35,8 @@ def get_all_tasks(
 ) -> list[SimpleTaskPublic]:
     """Get a paginated list of task instances for the current user."""
     # pyrefly: ignore [bad-argument-type, bad-return]
-    tasks = task_crud.get_all(session, limit, offset, current_user.id)
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    tasks = task_crud.get_all(session, limit, offset, owner_id)
     runtime_status.refresh_task_statuses(tasks)
     return [SimpleTaskPublic.model_validate(task) for task in tasks]
 
@@ -43,14 +45,16 @@ def get_all_tasks(
 def get_task_count(session: SessionDep, current_user: UserDep) -> int:
     """Get the total count of task instances for the current user."""
     # pyrefly: ignore [bad-argument-type]
-    return task_crud.get_count(session, current_user.id)
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    return task_crud.get_count(session, owner_id)
 
 
 @router.get('/recent/{hour}')
 def get_by_time(hour: int, session: SessionDep, current_user: UserDep) -> list[SimpleTaskPublic]:
     """Get task instances created within the last N hours."""
     # pyrefly: ignore [bad-argument-type, bad-return]
-    tasks = task_crud.get_all_by_time(session, current_user.id, timedelta(hours=hour))
+    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
+    tasks = task_crud.get_all_by_time(session, owner_id, timedelta(hours=hour))
     runtime_status.refresh_task_statuses(tasks)
     return [SimpleTaskPublic.model_validate(task) for task in tasks]
 

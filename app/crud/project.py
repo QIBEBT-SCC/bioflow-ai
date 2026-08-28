@@ -154,13 +154,16 @@ def get_all(
     sort: ProjectSort = 'recent',
     search: str | None = None,
     tag_id: int | None = None,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
 ) -> list[ProjectPublic]:
     """Return a paginated list of public and owned projects."""
-    statement = _with_project_filters(
-        select(Project).where(or_(Project.public, Project.owner_id == user_id)),
-        search,
-        tag_id,
-    )
+    statement = select(Project)
+    if not include_private:
+        visibility = or_(Project.public, Project.owner_id == user_id) if include_owned else Project.public
+        statement = statement.where(visibility)
+    statement = _with_project_filters(statement, search, tag_id)
     statement = (
         statement
         .options(selectinload(Project.tags), selectinload(Project.owner))
@@ -179,13 +182,16 @@ def get_all_star(
     sort: ProjectSort = 'recent',
     search: str | None = None,
     tag_id: int | None = None,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
 ) -> list[ProjectPublic]:
     """Return a paginated list of projects starred by the user."""
-    statement = _with_project_filters(
-        select(Project).join(ProjectStar, ProjectStar.project_id == Project.id).where(ProjectStar.user_id == user_id),
-        search,
-        tag_id,
-    )
+    statement = select(Project).join(ProjectStar, ProjectStar.project_id == Project.id).where(ProjectStar.user_id == user_id)
+    if not include_private:
+        visibility = or_(Project.public, Project.owner_id == user_id) if include_owned else Project.public
+        statement = statement.where(visibility)
+    statement = _with_project_filters(statement, search, tag_id)
     statement = (
         statement
         .options(selectinload(Project.tags), selectinload(Project.owner))
@@ -229,11 +235,28 @@ def get_page(
     sort: ProjectSort = 'recent',
     search: str | None = None,
     tag_id: int | None = None,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
 ) -> tuple[list[ProjectPublic], int]:
     """Return a page of public and owned projects together with the total count."""
-    count_statement = select(func.count()).select_from(Project).where(or_(Project.public, Project.owner_id == user_id))
+    count_statement = select(func.count()).select_from(Project)
+    if not include_private:
+        visibility = or_(Project.public, Project.owner_id == user_id) if include_owned else Project.public
+        count_statement = count_statement.where(visibility)
     count_statement = _with_project_filters(count_statement, search, tag_id)
-    return get_all(session, limit, offset, user_id, sort, search, tag_id), session.scalar(count_statement) or 0
+    projects = get_all(
+        session,
+        limit,
+        offset,
+        user_id,
+        sort,
+        search,
+        tag_id,
+        include_private=include_private,
+        include_owned=include_owned,
+    )
+    return projects, session.scalar(count_statement) or 0
 
 
 def get_page_star(
@@ -244,6 +267,9 @@ def get_page_star(
     sort: ProjectSort = 'recent',
     search: str | None = None,
     tag_id: int | None = None,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
 ) -> tuple[list[ProjectPublic], int]:
     """Return a page of the user's starred projects together with the total count."""
     count_statement = (
@@ -252,8 +278,22 @@ def get_page_star(
         .join(ProjectStar, ProjectStar.project_id == Project.id)
         .where(ProjectStar.user_id == user_id)
     )
+    if not include_private:
+        visibility = or_(Project.public, Project.owner_id == user_id) if include_owned else Project.public
+        count_statement = count_statement.where(visibility)
     count_statement = _with_project_filters(count_statement, search, tag_id)
-    return get_all_star(session, limit, offset, user_id, sort, search, tag_id), session.scalar(count_statement) or 0
+    projects = get_all_star(
+        session,
+        limit,
+        offset,
+        user_id,
+        sort,
+        search,
+        tag_id,
+        include_private=include_private,
+        include_owned=include_owned,
+    )
+    return projects, session.scalar(count_statement) or 0
 
 
 def get_page_my(
@@ -286,11 +326,11 @@ def get(session: Session, user_id: int, project_id: int) -> ProjectPublic | None
     return _to_project_public(project, starred=session.scalar(starred_statement) is not None)
 
 
-def get_recent(session: Session, user_id: int) -> ProjectPublic | None:
+def get_recent(session: Session, user_id: int, *, include_owned: bool = True) -> ProjectPublic | None:
     """Return the most recently updated project owned by the user."""
     statement = (
         select(Project)
-        .where(Project.owner_id == user_id)
+        .where(Project.owner_id == user_id if include_owned else Project.public)
         .order_by(Project.update_time.desc())
         .options(selectinload(Project.tags), selectinload(Project.owner))
     )

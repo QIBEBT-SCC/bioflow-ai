@@ -5,6 +5,7 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
 
+from app.models.project import Project
 from app.models.resource import Sample, SampleFiles
 from app.schemas.resource import SampleGroupSummary, SampleListItem, SampleUpdate
 from app.utils.identifiers import UUIDLike, as_uuid
@@ -106,20 +107,22 @@ def _list_items(session: Session, statement: Select) -> list[SampleListItem]:
 
 def get_page_by_user(
     session: Session,
-    user_id: int,
+    user_id: int | None,
     limit: int = 20,
     offset: int = 0,
+    *,
+    public_only: bool = False,
 ) -> tuple[list[SampleListItem], int]:
     """Return a page of samples owned by a user."""
-    statement = (
-        _sample_list_statement()
-        .where(Sample.owner_id == user_id)
-        .group_by(Sample.uid)
-        .order_by(Sample.create_time.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    count_statement = select(func.count()).select_from(Sample).where(Sample.owner_id == user_id)
+    statement = _sample_list_statement()
+    count_statement = select(func.count()).select_from(Sample)
+    if public_only:
+        statement = statement.join(Project, Sample.project_id == Project.id).where(Project.public.is_(True))
+        count_statement = count_statement.join(Project, Sample.project_id == Project.id).where(Project.public.is_(True))
+    if user_id is not None:
+        statement = statement.where(Sample.owner_id == user_id)
+        count_statement = count_statement.where(Sample.owner_id == user_id)
+    statement = statement.group_by(Sample.uid).order_by(Sample.create_time.desc()).offset(offset).limit(limit)
     return _list_items(session, statement), session.scalar(count_statement) or 0
 
 

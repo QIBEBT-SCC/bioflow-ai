@@ -1,16 +1,14 @@
+import secrets
 import time
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.security import OAuth2PasswordRequestForm
-from jwt import InvalidTokenError
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
-from app.core.auth import UserDep, get_current_active_user, get_token_from_header_or_cookie
+from app.core.auth import AuthSessionDep, UserDep, validate_request_origin
 from app.core.config import get_settings
 from app.core.redis_client import RedisDep
 from app.core.session import SessionDep
-from app.schemas.auth import Token
-from app.schemas.user import CurrentUser, PasswordUpdate, UserPublic
+from app.schemas.auth import LoginRequest
+from app.schemas.user import PasswordUpdate, UserPublic
 from app.services import auth as auth_service
 from app.services import user as user_service
 
@@ -19,10 +17,10 @@ router = APIRouter()
 _COOKIE_PATH = '/'
 
 
-def _cookie_kwargs() -> dict:
+def _cookie_kwargs(*, httponly: bool) -> dict:
     config = get_settings().security
     return {
-        'httponly': True,
+        'httponly': httponly,
         'secure': config.COOKIE_SECURE,
         'samesite': config.COOKIE_SAMESITE,
         'domain': config.COOKIE_DOMAIN,
@@ -30,119 +28,105 @@ def _cookie_kwargs() -> dict:
     }
 
 
-def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+def _set_auth_cookies(response: Response, issued: auth_service.IssuedSession) -> None:
+    max_age = max(0, issued.absolute_expires_at - int(time.time()))
+    response.set_cookie(
+        auth_service.SESSION_COOKIE,
+        issued.session_id,
+        max_age=max_age,
+        **_cookie_kwargs(httponly=True),
+    )
+    response.set_cookie(
+        auth_service.CSRF_COOKIE,
+        issued.csrf_token,
+        max_age=max_age,
+        **_cookie_kwargs(httponly=False),
+    )
+    _delete_legacy_cookies(response)
+
+
+def _delete_legacy_cookies(response: Response) -> None:
     config = get_settings().security
-    cookie_options = _cookie_kwargs()
-    response.set_cookie(
-        'access_token',
-        access_token,
-        max_age=config.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        **cookie_options,
-    )
-    response.set_cookie(
-        'refresh_token',
-        refresh_token,
-        max_age=config.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        **cookie_options,
-    )
+    for name in auth_service.LEGACY_AUTH_COOKIES:
+        response.delete_cookie(name, path=_COOKIE_PATH, domain=config.COOKIE_DOMAIN)
 
 
-@router.post('/token')
-async def login_for_access_token(
+def _clear_auth_cookies(response: Response) -> None:
+    config = get_settings().security
+    response.delete_cookie(auth_service.SESSION_COOKIE, path=_COOKIE_PATH, domain=config.COOKIE_DOMAIN)
+    response.delete_cookie(auth_service.CSRF_COOKIE, path=_COOKIE_PATH, domain=config.COOKIE_DOMAIN)
+    _delete_legacy_cookies(response)
+
+
+@router.post('/login')
+async def login(
+    body: LoginRequest,
+    request: Request,
     response: Response,
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: SessionDep,
     redis: RedisDep,
-) -> Token:
-    """Authenticate a user and issue an access/refresh token pair."""
-    user = user_service.authenticate_user(session, form_data.username, form_data.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Incorrect email or password',
-            headers={'WWW-Authenticate': 'Bearer'},
-        )
+) -> UserPublic:
+    """Authenticate credentials and create an opaque Redis-backed session."""
+    validate_request_origin(request)
+    if await auth_service.login_is_rate_limited(redis, body.email):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many login attempts')
 
-    access_token = auth_service.issue_access_token(user.email)
-    refresh_token = auth_service.issue_refresh_token(user.email)
-    await auth_service.store_refresh_token(redis, refresh_token.jti, refresh_token.subject)
+    user = user_service.authenticate_user(session, body.email, body.password.get_secret_value())
+    if user is None or not user.is_active:
+        await auth_service.record_login_failure(redis, body.email)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Incorrect email or password')
 
-    _set_auth_cookies(response, access_token.value, refresh_token.value)
-    return Token(access_token=access_token.value, token_type='bearer', refresh_token=refresh_token.value)  # noqa: S106
-
-
-@router.post('/refresh')
-async def refresh_access_token(request: Request, response: Response, redis: RedisDep) -> Token:
-    """Consume a refresh token and rotate the token pair."""
-    refresh_token_value = request.cookies.get('refresh_token')
-    if not refresh_token_value:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing refresh token')
-
-    try:
-        subject = await auth_service.consume_refresh_token(redis, refresh_token_value)
-    except auth_service.InvalidRefreshTokenError as error:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Invalid or expired refresh token',
-            headers={'WWW-Authenticate': 'Bearer'},
-        ) from error
-
-    access_token = auth_service.issue_access_token(subject)
-    refresh_token = auth_service.issue_refresh_token(subject)
-    await auth_service.store_refresh_token(redis, refresh_token.jti, refresh_token.subject)
-
-    _set_auth_cookies(response, access_token.value, refresh_token.value)
-    return Token(access_token=access_token.value, token_type='bearer', refresh_token=refresh_token.value)  # noqa: S106
+    await auth_service.clear_login_failures(redis, body.email)
+    if old_session_id := request.cookies.get(auth_service.SESSION_COOKIE):
+        await auth_service.delete_session(redis, old_session_id)
+    issued = await auth_service.create_session(redis, user.id)
+    _set_auth_cookies(response, issued)
+    return UserPublic.model_validate(user)
 
 
 @router.get('/me')
-async def read_users_me(current_user: Annotated[CurrentUser, Depends(get_current_active_user)]) -> UserPublic:
+async def read_users_me(current_user: UserDep) -> UserPublic:
     """Return the current authenticated user's information."""
     return UserPublic.model_validate(current_user)
 
 
-@router.post('/logout')
-async def logout(
-    request: Request,
-    response: Response,
-    token: Annotated[str | None, Depends(get_token_from_header_or_cookie)],
-    redis: RedisDep,
-) -> dict[str, str]:
-    """Revoke the current token pair and clear authentication cookies."""
-    config = get_settings().security
+@router.post('/logout', status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: Request, response: Response, redis: RedisDep) -> None:
+    """Idempotently revoke the current session and clear authentication cookies."""
+    validate_request_origin(request)
+    session_id = request.cookies.get(auth_service.SESSION_COOKIE)
+    if session_id:
+        auth_session = await auth_service.get_session(redis, session_id, touch=False)
+        if auth_session is not None:
+            cookie_token = request.cookies.get(auth_service.CSRF_COOKIE)
+            header_token = request.headers.get('X-CSRF-Token')
+            if not (
+                cookie_token
+                and header_token
+                and secrets.compare_digest(cookie_token, header_token)
+                and secrets.compare_digest(cookie_token, auth_session.record.csrf_token)
+            ):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Invalid CSRF token')
+            await auth_service.delete_session_by_digest(redis, auth_session.record.user_id, auth_session.digest)
+    _clear_auth_cookies(response)
 
-    if token:
-        try:
-            payload = auth_service.decode_token(token, expected_type='access')
-            remaining = payload.exp - int(time.time())
-            if remaining > 0:
-                await auth_service.revoke_access_token(redis, payload.jti, remaining)
-            await redis.delete(f'user-cache:{payload.sub}')
-        except InvalidTokenError:
-            pass
 
-    refresh_token = request.cookies.get('refresh_token')
-    if refresh_token:
-        try:
-            payload = auth_service.decode_token(refresh_token, expected_type='refresh')
-            await auth_service.delete_refresh_token(redis, payload.jti)
-        except InvalidTokenError:
-            pass
-
-    response.delete_cookie('access_token', path=_COOKIE_PATH, domain=config.COOKIE_DOMAIN)
-    response.delete_cookie('refresh_token', path=_COOKIE_PATH, domain=config.COOKIE_DOMAIN)
-    response.delete_cookie('csrf_token', path=_COOKIE_PATH, domain=config.COOKIE_DOMAIN)
-    return {'message': 'Successfully logged out'}
+@router.post('/sessions/revoke-others', status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_other_sessions(current_user: UserDep, auth_session: AuthSessionDep, redis: RedisDep) -> None:
+    """Revoke every session for the user except the current browser session."""
+    await auth_service.revoke_user_sessions(redis, current_user.id, keep_digest=auth_session.digest)
 
 
 @router.put('/password', status_code=status.HTTP_204_NO_CONTENT)
 async def update_password(
     body: PasswordUpdate,
+    response: Response,
     session: SessionDep,
     redis: RedisDep,
     current_user: UserDep,
+    _auth_session: AuthSessionDep,
 ) -> None:
-    """Update the current user's password."""
+    """Change the current user's password and rotate the current session."""
     try:
         user = user_service.change_password(
             session,
@@ -154,4 +138,8 @@ async def update_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Current password is incorrect') from error
     except user_service.UserNotFoundError as error:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found') from error
-    await user_service.invalidate_user_cache(redis, user.email)
+
+    await user_service.invalidate_user_cache(redis, user.id)
+    await auth_service.revoke_user_sessions(redis, user.id)
+    issued = await auth_service.create_session(redis, user.id)
+    _set_auth_cookies(response, issued)

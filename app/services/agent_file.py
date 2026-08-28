@@ -11,7 +11,9 @@ from app.core.config import get_settings
 from app.crud import agent as agent_crud
 from app.models.agent import AgentRun
 from app.models.project import Project
+from app.models.user import User
 from app.schemas.agent_file import AgentFileKind, AgentFilePublic
+from app.schemas.user_config import UserRole
 
 MAX_EDIT_BYTES: Final = 1024 * 1024
 READ_ONLY_MESSAGE: Final = 'This agent file is read-only.'
@@ -49,6 +51,11 @@ class AgentFileValidationError(AgentFileError):
     """Raised when proposed file content is invalid."""
 
 
+def _is_admin_actor(session: Session, owner_id: int) -> bool:
+    actor = session.get(User, owner_id)
+    return actor is not None and actor.role == UserRole.ADMIN
+
+
 def get_project_root(project_id: int) -> Path:
     """Return the canonical persistent directory for a project."""
     storage_root = Path(get_settings().persistent.storage.STORAGE_PATH).expanduser().resolve()
@@ -57,7 +64,7 @@ def get_project_root(project_id: int) -> Path:
 
 def _get_owned_project(session: Session, project_id: int, owner_id: int) -> Project:
     project = session.get(Project, project_id)
-    if project is None or project.owner_id != owner_id:
+    if project is None or (project.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
         raise AgentFileNotFoundError
     return project
 
@@ -133,7 +140,7 @@ def _resolve_file(
     if (
         run is None
         or run.project_id != project_id
-        or run.agent_session.owner_id != owner_id
+        or (run.agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id))
     ):
         raise AgentFileNotFoundError
     relative = _run_relative_path(run, kind)
@@ -189,7 +196,8 @@ def list_project_files(session: Session, project_id: int, owner_id: int) -> list
             continue
         files.append(_metadata(session, project_id, path, kind, None, active_run=active_run))
 
-    for run in agent_crud.list_project_artifact_runs(session, project_id, owner_id):
+    run_owner_id = None if _is_admin_actor(session, owner_id) else owner_id
+    for run in agent_crud.list_project_artifact_runs(session, project_id, run_owner_id):
         kind = (
             AgentFileKind.DIAGNOSIS
             if run.agent_name == 'workflow-diagnoser'
@@ -209,7 +217,7 @@ def list_run_artifacts(session: Session, run: AgentRun, owner_id: int) -> list[A
     if run.project_id is None:
         return []
     _get_owned_project(session, run.project_id, owner_id)
-    if run.agent_session.owner_id != owner_id:
+    if run.agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id):
         raise AgentFileNotFoundError
     root = get_project_root(run.project_id)
     if run.agent_name == 'workflow-builder':

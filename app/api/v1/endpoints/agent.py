@@ -33,6 +33,7 @@ from app.schemas.agent import (
     AgentSessionUpdate,
 )
 from app.schemas.agent_file import AgentFilePublic
+from app.schemas.user_config import UserRole
 from app.services import agent as agent_service
 from app.services import agent_file as agent_file_service
 
@@ -104,7 +105,7 @@ def list_agent_sessions(
         raise HTTPException(status_code=422, detail='project_id is not valid for global scope.')
     sessions = agent_service.list_sessions(
         session,
-        current_user.id,
+        None if current_user.role == UserRole.ADMIN else current_user.id,
         project_id if scope == 'project' else None,
         cursor,
         limit,
@@ -371,6 +372,7 @@ async def stream_agent_events(
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
     owner_id = current_user.id
+    is_admin = current_user.role == UserRole.ADMIN
     session.close()
 
     header_id = request.headers.get('last-event-id')
@@ -395,7 +397,7 @@ async def stream_agent_events(
             while not await request.is_disconnected():
                 with Session(engine) as event_session:
                     run = agent_crud.get_run(event_session, run_uid)
-                    if run is None or run.agent_session.owner_id != owner_id:
+                    if run is None or (run.agent_session.owner_id != owner_id and not is_admin):
                         return
                     events = agent_crud.list_events(event_session, run_uid, cursor)
                     status_value = AgentRunStatus(run.status)

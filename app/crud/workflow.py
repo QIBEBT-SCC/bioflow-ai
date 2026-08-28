@@ -46,9 +46,22 @@ def workflow_name_exists(session: Session, name: str) -> bool:
     return session.scalar(statement) is not None
 
 
-def get_page(session: Session, limit: int, offset: int, user_id: int) -> tuple[list[dict], int]:
+def get_page(
+    session: Session,
+    limit: int,
+    offset: int,
+    user_id: int,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
+) -> tuple[list[dict], int]:
     """Return a page of workflows accessible to a user together with the total count."""
-    condition = or_(Workflow.public, Workflow.owner_id == user_id)
+    if include_private:
+        condition = True
+    elif include_owned:
+        condition = or_(Workflow.public, Workflow.owner_id == user_id)
+    else:
+        condition = Workflow.public
     page_stmt = (
         select(Workflow.uid, Workflow.name, Workflow.description, Workflow.execution_scope)
         .where(condition)
