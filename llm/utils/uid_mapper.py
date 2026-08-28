@@ -1,6 +1,6 @@
 import uuid
-from collections.abc import Sequence
-from typing import Optional, Protocol, Self, runtime_checkable
+from collections.abc import Mapping, Sequence
+from typing import Any, Optional, Protocol, Self, runtime_checkable
 
 from langchain_core.documents import Document
 from pydantic import BaseModel, Field
@@ -19,10 +19,15 @@ class BidirectionalMapper(BaseModel):
         self,
         datas: Sequence[HasUid | Document] | None = None,
         *,
+        uid_to_idx: dict[str, int] | None = None,
+        idx_to_uid: dict[int, str] | None = None,
         use_metadata: bool = False,
         metadata_field: Optional[str] = None,
     ):
-        super().__init__()
+        super().__init__(
+            uid_to_idx=uid_to_idx or {},
+            idx_to_uid=idx_to_uid or {},
+        )
 
         if not datas:
             return
@@ -44,10 +49,7 @@ class BidirectionalMapper(BaseModel):
     @classmethod
     def from_dicts(cls, uid_to_idx: dict[str, int], idx_to_uid: dict[int, str]) -> Self:
         """Return the mapping object from existing data."""
-        instance = cls()
-        instance.uid_to_idx = uid_to_idx
-        instance.idx_to_uid = idx_to_uid
-        return instance
+        return cls(uid_to_idx=uid_to_idx, idx_to_uid=idx_to_uid)
 
     def get_index_by_uid(self, uid: str) -> int:
         """Get the index of a UID."""
@@ -58,20 +60,35 @@ class BidirectionalMapper(BaseModel):
         return self.idx_to_uid.get(index, '')
 
 
-def merge_mappers(existing: BidirectionalMapper, new: BidirectionalMapper) -> BidirectionalMapper:
+MapperState = BidirectionalMapper | Mapping[str, Any] | None
+
+
+def restore_mapper(value: MapperState) -> BidirectionalMapper:
+    """Restore a mapper serialized as a plain checkpoint dictionary."""
+    if value is None:
+        return BidirectionalMapper()
+    if isinstance(value, BidirectionalMapper):
+        return value
+    return BidirectionalMapper.model_validate(dict(value))
+
+
+def merge_mappers(existing: MapperState, new: MapperState) -> BidirectionalMapper:
     """LangGraph reducer: merges new search results into the existing mapper.
 
     New UIDs get indices continuing from the current max. Duplicate UIDs keep their existing index.
     """
     if existing is None:
-        return new
+        return restore_mapper(new)
 
-    uid_to_idx = dict(existing.uid_to_idx)
-    idx_to_uid = dict(existing.idx_to_uid)
+    existing_mapper = restore_mapper(existing)
+    new_mapper = restore_mapper(new)
+
+    uid_to_idx = dict(existing_mapper.uid_to_idx)
+    idx_to_uid = dict(existing_mapper.idx_to_uid)
 
     next_index = max(idx_to_uid.keys()) + 1 if idx_to_uid else 0
 
-    for uid in new.uid_to_idx:
+    for uid in new_mapper.uid_to_idx:
         if uid not in uid_to_idx:
             uid_to_idx[uid] = next_index
             idx_to_uid[next_index] = uid
