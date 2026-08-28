@@ -46,10 +46,18 @@ def _project_search_condition(search: str | None) -> ColumnElement[bool] | None:
     return Project.name.icontains(keyword, autoescape=True)
 
 
-def _with_project_search(statement: Select[Any], search: str | None) -> Select[Any]:
-    """Apply project search before ordering and pagination."""
+def _with_project_filters(
+    statement: Select[Any],
+    search: str | None,
+    tag_id: int | None,
+) -> Select[Any]:
+    """Apply project name and tag filters before ordering and pagination."""
     condition = _project_search_condition(search)
-    return statement.where(condition) if condition is not None else statement
+    if condition is not None:
+        statement = statement.where(condition)
+    if tag_id is not None:
+        statement = statement.where(Project.tags.any(ProjectTag.id == tag_id))
+    return statement
 
 
 def insert(session: Session, project: Project) -> Project:
@@ -145,11 +153,13 @@ def get_all(
     user_id: int,
     sort: ProjectSort = 'recent',
     search: str | None = None,
+    tag_id: int | None = None,
 ) -> list[ProjectPublic]:
     """Return a paginated list of public and owned projects."""
-    statement = _with_project_search(
+    statement = _with_project_filters(
         select(Project).where(or_(Project.public, Project.owner_id == user_id)),
         search,
+        tag_id,
     )
     statement = (
         statement
@@ -168,11 +178,13 @@ def get_all_star(
     user_id: int,
     sort: ProjectSort = 'recent',
     search: str | None = None,
+    tag_id: int | None = None,
 ) -> list[ProjectPublic]:
     """Return a paginated list of projects starred by the user."""
-    statement = _with_project_search(
+    statement = _with_project_filters(
         select(Project).join(ProjectStar, ProjectStar.project_id == Project.id).where(ProjectStar.user_id == user_id),
         search,
+        tag_id,
     )
     statement = (
         statement
@@ -191,11 +203,13 @@ def get_all_my(
     user_id: int,
     sort: ProjectSort = 'recent',
     search: str | None = None,
+    tag_id: int | None = None,
 ) -> list[ProjectPublic]:
     """Return a paginated list of projects owned by the user."""
-    statement = _with_project_search(
+    statement = _with_project_filters(
         select(Project).where(Project.owner_id == user_id),
         search,
+        tag_id,
     )
     statement = (
         statement
@@ -214,11 +228,12 @@ def get_page(
     user_id: int,
     sort: ProjectSort = 'recent',
     search: str | None = None,
+    tag_id: int | None = None,
 ) -> tuple[list[ProjectPublic], int]:
     """Return a page of public and owned projects together with the total count."""
     count_statement = select(func.count()).select_from(Project).where(or_(Project.public, Project.owner_id == user_id))
-    count_statement = _with_project_search(count_statement, search)
-    return get_all(session, limit, offset, user_id, sort, search), session.scalar(count_statement) or 0
+    count_statement = _with_project_filters(count_statement, search, tag_id)
+    return get_all(session, limit, offset, user_id, sort, search, tag_id), session.scalar(count_statement) or 0
 
 
 def get_page_star(
@@ -228,6 +243,7 @@ def get_page_star(
     user_id: int,
     sort: ProjectSort = 'recent',
     search: str | None = None,
+    tag_id: int | None = None,
 ) -> tuple[list[ProjectPublic], int]:
     """Return a page of the user's starred projects together with the total count."""
     count_statement = (
@@ -236,8 +252,8 @@ def get_page_star(
         .join(ProjectStar, ProjectStar.project_id == Project.id)
         .where(ProjectStar.user_id == user_id)
     )
-    count_statement = _with_project_search(count_statement, search)
-    return get_all_star(session, limit, offset, user_id, sort, search), session.scalar(count_statement) or 0
+    count_statement = _with_project_filters(count_statement, search, tag_id)
+    return get_all_star(session, limit, offset, user_id, sort, search, tag_id), session.scalar(count_statement) or 0
 
 
 def get_page_my(
@@ -247,11 +263,12 @@ def get_page_my(
     user_id: int,
     sort: ProjectSort = 'recent',
     search: str | None = None,
+    tag_id: int | None = None,
 ) -> tuple[list[ProjectPublic], int]:
     """Return a page of the user's owned projects together with the total count."""
     count_statement = select(func.count()).select_from(Project).where(Project.owner_id == user_id)
-    count_statement = _with_project_search(count_statement, search)
-    return get_all_my(session, limit, offset, user_id, sort, search), session.scalar(count_statement) or 0
+    count_statement = _with_project_filters(count_statement, search, tag_id)
+    return get_all_my(session, limit, offset, user_id, sort, search, tag_id), session.scalar(count_statement) or 0
 
 
 def get(session: Session, user_id: int, project_id: int) -> ProjectPublic | None:

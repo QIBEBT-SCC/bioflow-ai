@@ -119,6 +119,7 @@ def get_project_list(
         str | None,
         Query(max_length=200, description='Search project names by text fragment'),
     ] = None,
+    tag_id: Annotated[int | None, Query(gt=0, description='Filter projects by tag ID')] = None,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[ProjectPublic]:
@@ -130,11 +131,11 @@ def get_project_list(
     """
     match filter_type:
         case 'starred':
-            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id, sort, search)
+            projects, total = project_crud.get_page_star(session, limit, offset, current_user.id, sort, search, tag_id)
         case 'my':
-            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id, sort, search)
+            projects, total = project_crud.get_page_my(session, limit, offset, current_user.id, sort, search, tag_id)
         case 'all':
-            projects, total = project_crud.get_page(session, limit, offset, current_user.id, sort, search)
+            projects, total = project_crud.get_page(session, limit, offset, current_user.id, sort, search, tag_id)
         case _:
             projects, total = [], 0
 
