@@ -7,6 +7,7 @@ from langchain_core.tools import tool
 from langgraph.config import get_stream_writer
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
+from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,7 @@ from llm.utils.formatters import (
     node_formatter,
     search_nodes_formatter,
 )
+from llm.utils.middleware.limit import MaxRetriesError
 from llm.utils.session import workflow_thread_id
 from llm.utils.uid_mapper import BidirectionalMapper, HasUid, generate_char_index, merge_mappers
 from llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
@@ -214,8 +216,12 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
             skip_search=True,
             test_run_id=run_id,
         )
-        # pyrefly: ignore [no-matching-overload]
-        response = await sub_agent.ainvoke(agent_input, context=context)
+        try:
+            # pyrefly: ignore [no-matching-overload]
+            response = await sub_agent.ainvoke(agent_input, context=context)
+        except MaxRetriesError:
+            logger.warning('Tool node creation exceeded the validation retry limit: {}', name)
+            return _tool_creation_failed_command(name, request, runtime)
 
     new_mapper = response['id_mapper']
     exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
@@ -238,6 +244,26 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
                     content=(
                         'New tool node has been saved to the database for addition to the workflow:\n'
                         f'{search_nodes_formatter([tool_node], merged_mapper)}'
+                    ),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+def _tool_creation_failed_command(name: str, request: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+    warning = (
+        f'Tool node `{name}` could not be created because its generated configuration did not pass automated '
+        f'validation within the allowed attempts. The unmet requirement was: {request}'
+    )
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=(
+                        'TOOL_NODE_CREATION_FAILED (non-fatal)\n'
+                        f'{warning}\n'
                     ),
                     tool_call_id=runtime.tool_call_id,
                 )
