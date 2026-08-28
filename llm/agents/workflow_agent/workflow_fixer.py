@@ -56,7 +56,7 @@ SYSTEM_PROMPT = """你是 BioFlow AI 的工作流修复智能体。系统已经�
 
 FIX_DISABLED_TOOLS = {'finalize_workflow_fix'}
 FIX_DISABLED_TOOL_ACTIONS = {
-    'tool_node_manager': {'add', 'update_args', 'create'},
+    'tool_node_manager': {'add', 'search', 'update_args', 'create'},
     'resource_node_manager': {'create_db', 'add'},
     'utility_node_manager': {
         'add_processor',
