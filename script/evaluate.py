@@ -297,7 +297,7 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
     )
 
 
-def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
+def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, str]:
     import app.services.project as project_service
     from app.core.session import engine
     from app.models.project import Project
@@ -312,10 +312,11 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
         project_id = row[0]
         with Session(engine) as session:
             project = session.get(Project, project_id)
-        if project is not None:
+            project_name = project.name if project is not None else None
+        if project_name is not None:
             project_path = _get_project_path(project_id)
             project_path.mkdir(parents=True, exist_ok=True)
-            return project_id, f'{project_path}'
+            return project_id, project_name, f'{project_path}'
         logger.warning(f'Evaluate record points to missing project {project_id}; creating a new project.')
 
     with Session(engine) as session:
@@ -324,6 +325,8 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
             ProjectCreateProp(name=f'wf_{thread_id}', public=False),
             owner_id=2,
         )
+        task_project_id = task_project.id
+        task_project_name = task_project.name
 
     con.execute(
         """
@@ -332,13 +335,13 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
         ON CONFLICT (thread_id) DO UPDATE SET
             project_id = EXCLUDED.project_id
         """,
-        {'thread_id': thread_id, 'project_id': task_project.id},
+        {'thread_id': thread_id, 'project_id': task_project_id},
     )
 
-    project_path = _get_project_path(task_project.id)
+    project_path = _get_project_path(task_project_id)
     project_path.mkdir(parents=True, exist_ok=True)
 
-    return task_project.id, f'{project_path}'
+    return task_project_id, task_project_name, f'{project_path}'
 
 
 async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: str, checkpoint: Any) -> str:
@@ -694,13 +697,15 @@ async def wf_eval(
 
     thread_id = _resolve_thread_id(task_file, thread_id)
     con = _check_db()
+    project_id: int | None = None
+    project_name: str | None = None
     try:
         if drop_old:
             logger.warning('--drop-old is deprecated; use --clean-checkpoint instead.')
         reset_checkpoint = drop_old or clean_checkpoint or clean_all
 
         user_input = await _build_input(con, task_file, paper_file, thread_id)
-        project_id, workdir = _init_project(con, thread_id)
+        project_id, project_name, workdir = _init_project(con, thread_id)
         if clean_all:
             await _clean_project_contents(con, thread_id, project_id)
         elif reset_checkpoint:
@@ -747,6 +752,8 @@ async def wf_eval(
             )
         _send_run_task(con, thread_id, project_id, workflow_result, '')
     finally:
+        if project_id is not None and project_name is not None:
+            logger.info(f'Evaluate project: {project_name} (ID: {project_id}).')
         con.close()
 
 
