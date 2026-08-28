@@ -30,6 +30,31 @@ class WorkflowStateUnavailableError(RuntimeError):
     """Raised when the workflow builder checkpoint cannot be read after execution."""
 
 
+class WorkflowResumeUnavailableError(RuntimeError):
+    """Raised when no interrupted workflow builder checkpoint can be resumed."""
+
+
+def _prepare_workflow_resume_input(state: Any, resume_message: str | None) -> Any:
+    """Build the LangGraph input required to continue an incomplete checkpoint."""
+    from langgraph.types import Command
+
+    interrupts = state.interrupts
+    if interrupts:
+        resume_value = resume_message if resume_message is not None else True
+        logger.info(f'Resuming workflow builder from {len(interrupts)} interrupt(s).')
+        return Command(resume=resume_value)
+
+    if state.next:
+        logger.info(f'Resuming incomplete workflow builder checkpoint at: {", ".join(state.next)}.')
+        return None
+
+    message = (
+        'The workflow builder checkpoint has no pending work to resume. '
+        'Run without --resume/--resume-message to start normally, or use --clean-checkpoint to rebuild it.'
+    )
+    raise WorkflowResumeUnavailableError(message)
+
+
 def _resolve_thread_id(task_file: str, thread_id: str | None) -> str:
     if thread_id:
         return thread_id
@@ -237,9 +262,10 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
 
 
 def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
-    import app.crud.project as proj_crud
+    import app.services.project as project_service
     from app.core.session import engine
     from app.models.project import Project
+    from app.schemas.project import ProjectCreateProp
 
     cursor = con.execute(
         'SELECT project_id FROM evaluate_results WHERE thread_id = :thread_id',
@@ -257,8 +283,11 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str]:
         logger.warning(f'Evaluate record points to missing project {project_id}; creating a new project.')
 
     with Session(engine) as session:
-        task_project = Project(name=f'wf_{thread_id}', owner_id=2, public=False)
-        task_project = proj_crud.insert(session, task_project)
+        task_project = project_service.create_project(
+            session,
+            ProjectCreateProp(name=f'wf_{thread_id}', public=False),
+            owner_id=2,
+        )
 
     con.execute(
         """
@@ -448,6 +477,8 @@ async def _generate_workflow(
     checkpoint: Any,
     *,
     reset_checkpoint: bool = False,
+    resume: bool = False,
+    resume_message: str | None = None,
 ) -> WorkflowGenerationResult:
     import rich
     from langchain_core.runnables import RunnableConfig
@@ -482,12 +513,17 @@ async def _generate_workflow(
             logger.warning(f'Unable to persist generated records from the old checkpoint: {exc}')
         await delete_checkpoint(checkpoint, thread_id)
 
+    stream_input = agent_input
+    if resume or resume_message is not None:
+        saved_state = await agent.aget_state(config)
+        stream_input = _prepare_workflow_resume_input(saved_state, resume_message)
+
     state = None
     result = WorkflowGenerationResult([], [], [])
     try:
         # pyrefly: ignore [no-matching-overload]
         async for chunk in agent.astream(
-            agent_input,
+            stream_input,
             config,
             context=ProjectContext(
                 user_id=2,
@@ -599,6 +635,8 @@ async def wf_eval(
     drop_old: bool,
     clean_checkpoint: bool = False,
     clean_all: bool = False,
+    resume: bool = False,
+    resume_message: str | None = None,
     db_index: int | None = None,
     langsmith_tracing: bool = False,
 ) -> None:
@@ -610,6 +648,10 @@ async def wf_eval(
 
     if db_index is not None:
         logger.warning('--db-index is ignored because evaluate records now use a single SQLite database.')
+
+    if (resume or resume_message is not None) and (drop_old or clean_checkpoint or clean_all):
+        message = '--resume/--resume-message cannot be combined with checkpoint cleanup options.'
+        raise click.UsageError(message)
 
     thread_id = _resolve_thread_id(task_file, thread_id)
     con = _check_db()
@@ -661,6 +703,8 @@ async def wf_eval(
                 workdir,
                 checkpoint,
                 reset_checkpoint=reset_checkpoint,
+                resume=resume,
+                resume_message=resume_message,
             )
         _send_run_task(con, thread_id, project_id, workflow_result, '')
     finally:
@@ -696,6 +740,13 @@ def cli() -> None:
 @click.option(
     '--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).'
 )
+@click.option(
+    '--resume',
+    is_flag=True,
+    default=False,
+    help='Continue an incomplete workflow builder checkpoint and approve any pending interrupt.',
+)
+@click.option('--resume-message', type=str, default=None, help='Continue a pending interrupt with this response.')
 def wf_cmd(
     task_file: str,
     paper_file: str | None,
@@ -705,20 +756,27 @@ def wf_cmd(
     clean_checkpoint: bool,  # noqa: FBT001
     clean_all: bool,  # noqa: FBT001
     langsmith_tracing: bool,  # noqa: FBT001
+    resume: bool,  # noqa: FBT001
+    resume_message: str | None,
 ) -> None:
     """Run the workflow design evaluation on TASK_FILE."""
-    asyncio.run(
-        wf_eval(
-            task_file,
-            paper_file,
-            thread_id,
-            drop_old=drop_old,
-            clean_checkpoint=clean_checkpoint,
-            clean_all=clean_all,
-            db_index=db_index,
-            langsmith_tracing=langsmith_tracing,
+    try:
+        asyncio.run(
+            wf_eval(
+                task_file,
+                paper_file,
+                thread_id,
+                drop_old=drop_old,
+                clean_checkpoint=clean_checkpoint,
+                clean_all=clean_all,
+                resume=resume,
+                resume_message=resume_message,
+                db_index=db_index,
+                langsmith_tracing=langsmith_tracing,
+            )
         )
-    )
+    except WorkflowResumeUnavailableError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 if __name__ == '__main__':
