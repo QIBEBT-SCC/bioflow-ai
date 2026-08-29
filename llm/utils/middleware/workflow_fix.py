@@ -15,6 +15,7 @@ MUTATING_ACTIONS = {
         'add_processor',
         'add_exist_code',
         'add_new_code',
+        'update_code',
         'add_note',
         'add_downstream_summary',
     },
