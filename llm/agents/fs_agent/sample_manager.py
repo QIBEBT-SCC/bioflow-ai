@@ -67,6 +67,15 @@ Your task is to explore raw data paths provided by the user, identify the file s
    - If the dataset spans multiple subdirectories with different data types or metadata, call `set_base_dir` again for each and repeat steps 1-3.
 5. **Write conclusion** — Call `write_conclusion` with a structured Markdown summary (see template below).
 
+## Runtime Environment
+The `run_command` tool uses a default Linux image. In addition to basic system commands, the image also includes:
+- fd: a faster, more user-friendly file-finding tool
+- rg: ripgrep, a high-performance text search tool
+- jq: for querying, filtering, formatting, and transforming JSON data
+- yq: for querying, filtering, modifying, and transforming YAML data
+- mlr: Miller, a tool for processing structured text data.
+- seqkit: for quickly checking sequence data.
+
 ## Conclusion template
 
 ```markdown

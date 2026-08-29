@@ -7,7 +7,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from llm.agents.fs_agent.sample_manager import build_create_sample_agent
 from llm.agents.tool_agent import CreateToolAgent
-from llm.agents.workflow_agent.workflow_diagnoser import build_workflow_diagnoser
+from llm.agents.workflow_agent.workflow_diagnoser_v2 import build_workflow_diagnoser_v2
 from llm.agents.workflow_agent.workflow_fixer import build_workflow_fixer
 from llm.agents.workflow_agent.workflow_generation import build_workflow_generation
 
@@ -35,8 +35,8 @@ AGENTS: dict[RouteTask, AgentSpec] = {
         factory=build_workflow_generation,
     ),
     'workflow-diagnoser': AgentSpec(
-        description='Diagnose one workflow execution from its snapshot, task states, logs, and output files.',
-        factory=build_workflow_diagnoser,
+        description='Diagnose one workflow execution from its snapshot, task states, run artifacts, and registered inputs.',
+        factory=build_workflow_diagnoser_v2,
     ),
     'workflow-fixer': AgentSpec(
         description='Apply the latest diagnosis to the current workflow template and record the update.',
