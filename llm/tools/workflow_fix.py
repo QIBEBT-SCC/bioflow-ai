@@ -17,6 +17,7 @@ from app.services import workflow_catalog
 from app.utils.system import utc_now
 from llm.context import WorkflowFixContext
 from llm.states import BuildEdge, BuildNode, WorkflowFixState
+from llm.workflow_builder.node_ids import canonicalize_build_graph, compose_node_id_mappings
 from llm.workflow_builder.serialization import build_workflow_definition
 from llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 
@@ -53,11 +54,13 @@ def _validation_errors(nodes: list[BuildNode], edges: list[BuildEdge]) -> list[s
 def _preserve_canvas_metadata(
     definition: WorkflowDefinition,
     original: WorkflowDefinition,
+    saved_to_original_ids: dict[str, str],
 ) -> WorkflowDefinition:
     original_nodes = {node.id: node for node in original.nodes}
     nodes = []
     for node in definition.nodes:
-        previous = original_nodes.get(node.id)
+        original_id = saved_to_original_ids.get(node.id)
+        previous = original_nodes.get(original_id) if original_id is not None else None
         if previous is None:
             nodes.append(node)
             continue
@@ -175,7 +178,16 @@ def finalize_workflow_fix(
         )
 
     original = WorkflowDefinition.model_validate(runtime.state['original_workflow'])
-    definition = _preserve_canvas_metadata(build_workflow_definition(nodes, edges), original)
+    canonical_nodes, canonical_edges, editing_to_saved = canonicalize_build_graph(nodes, edges)
+    original_to_editing = runtime.state.get('original_node_id_mapping')
+    if original_to_editing is None:
+        original_to_editing = {node.id: node.id for node in original.nodes}
+    saved_to_original = compose_node_id_mappings(original_to_editing, editing_to_saved)
+    definition = _preserve_canvas_metadata(
+        build_workflow_definition(canonical_nodes, canonical_edges),
+        original,
+        saved_to_original,
+    )
     if definition.model_dump(mode='json') == original.model_dump(mode='json'):
         return Command(
             update={

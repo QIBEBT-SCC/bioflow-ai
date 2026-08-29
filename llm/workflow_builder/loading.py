@@ -1,5 +1,7 @@
 """Load a persisted workflow template into workflow-builder editing state."""
 
+from dataclasses import dataclass
+
 from sqlalchemy.orm import Session
 
 from app.crud.tools import tool as tool_crud
@@ -9,10 +11,19 @@ from app.schemas.workflow_config import ExecutionScope
 from app.utils.input_format import build_command_template
 from llm.states import BuildEdge, BuildNode, WorkflowDraft
 from llm.utils.node_schema import PROCESSORS, RESOURCES
+from llm.workflow_builder.node_ids import canonicalize_build_graph, has_canonical_node_ids
 
 
 class WorkflowLoadError(ValueError):
     """A persisted workflow cannot be represented by the builder managers."""
+
+
+@dataclass(frozen=True)
+class LoadedWorkflowDraft:
+    """Canonical editing draft plus its persisted-to-editing node ID mapping."""
+
+    draft: WorkflowDraft
+    node_id_mapping: dict[str, str]
 
 
 def _handle_name(handle: str, node_id: str, direction: str) -> str:
@@ -106,7 +117,7 @@ def load_workflow_draft(
     description: str,
     execution_scope: ExecutionScope,
     session: Session,
-) -> WorkflowDraft:
+) -> LoadedWorkflowDraft:
     """Restore a persisted definition as the single active Fix draft."""
     nodes: list[BuildNode] = []
     for node in workflow.nodes:
@@ -128,12 +139,24 @@ def load_workflow_draft(
         )
         for edge in workflow.edges
     ]
+    if has_canonical_node_ids(nodes):
+        id_mapping = {node.id: node.id for node in nodes}
+    else:
+        try:
+            nodes, edges, id_mapping = canonicalize_build_graph(nodes, edges)
+        except ValueError as error:
+            raise WorkflowLoadError(str(error)) from error
+
     scope = 'project_level' if execution_scope == ExecutionScope.PROJECT_LEVEL else 'sample_level'
-    return WorkflowDraft(
-        draft_id='fix_target',
-        name=name,
-        description=description,
-        execution_scope=scope,
-        nodes=nodes,
-        edges=edges,
+    return LoadedWorkflowDraft(
+        draft=WorkflowDraft(
+            draft_id='fix_target',
+            name=name,
+            description=description,
+            execution_scope=scope,
+            nodes=nodes,
+            edges=edges,
+            next_node_index=len(nodes) + 1,
+        ),
+        node_id_mapping=id_mapping,
     )

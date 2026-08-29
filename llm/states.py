@@ -140,6 +140,7 @@ class WorkflowDraft(BaseModel):
     execution_scope: Literal['sample_level', 'project_level'] = 'sample_level'
     nodes: list[BuildNode] = Field(default_factory=list)
     edges: list[BuildEdge] = Field(default_factory=list)
+    next_node_index: int = Field(default=1, ge=1)
 
 
 class BuildState(AgentState, total=False):
@@ -150,6 +151,7 @@ class BuildState(AgentState, total=False):
     id_mapper: BidirectionalMapper
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
+    next_node_index: int
 
     active_workflow_id: str | None
     workflow_drafts: dict[str, WorkflowDraft]
@@ -166,6 +168,7 @@ class WorkflowFixState(BuildState, total=False):
     diagnosis_classification: str
     recommended_action: str
     original_workflow: dict[str, Any]
+    original_node_id_mapping: dict[str, str]
     fix_completed: bool
     workflow_changed: bool
     update_path: str | None

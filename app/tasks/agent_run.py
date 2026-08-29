@@ -275,11 +275,31 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                         diagnosis_run_uid=str(prepared.diagnosis_run_uid),
                     )
                     if not resume_payload:
+                        changed_node_ids = {
+                            original_id: editing_id
+                            for original_id, editing_id in prepared.node_id_mapping.items()
+                            if original_id != editing_id
+                        }
+                        node_id_mapping_message = ''
+                        if changed_node_ids:
+                            mapping_lines = '\n'.join(
+                                f'{original_id} -> {editing_id}'
+                                for original_id, editing_id in sorted(changed_node_ids.items())
+                            )
+                            node_id_mapping_message = (
+                                '<workflow_node_id_mapping>\n'
+                                'The loaded workflow had non-canonical node IDs and was normalized for this editing '
+                                'session. Diagnosis report IDs on the left must be translated to the current panel IDs '
+                                'on the right:\n'
+                                f'{mapping_lines}\n'
+                                '</workflow_node_id_mapping>\n'
+                            )
                         diagnosis_message = HumanMessage(
                             content=(
                                 '<workflow_diagnosis_report>\n'
                                 f'{prepared.diagnosis_report}\n'
                                 '</workflow_diagnosis_report>\n'
+                                f'{node_id_mapping_message}'
                                 'Treat this report as guidance. Inspect the currently loaded workflow before deciding '
                                 'which changes, if any, remain necessary.'
                             )

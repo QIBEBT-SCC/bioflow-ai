@@ -28,7 +28,8 @@ from llm.utils.formatters import (
 )
 from llm.utils.middleware.limit import MaxRetriesError
 from llm.utils.session import workflow_thread_id
-from llm.utils.uid_mapper import BidirectionalMapper, HasUid, generate_char_index, merge_mappers
+from llm.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
+from llm.workflow_builder.node_ids import allocate_node_id
 from llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 
 
@@ -404,7 +405,7 @@ def _add_tool_node(
     if error := check_tool_node_edges(input_edges, db_node.input_handles):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
         name=db_node.name,
@@ -422,6 +423,7 @@ def _add_tool_node(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add new tool node:\n{node_formatter(new_node)}',

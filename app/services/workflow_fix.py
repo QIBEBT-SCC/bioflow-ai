@@ -29,6 +29,7 @@ class WorkflowFixPreparation:
     diagnosis_report: str
     diagnosis_run_uid: uuid.UUID
     workflow_uid: uuid.UUID
+    node_id_mapping: dict[str, str]
 
 
 def _summary_value(report: str, key: str, default: str) -> str:
@@ -74,13 +75,14 @@ def prepare_workflow_fix(
     if workflow.owner_id != fix_run.agent_session.owner_id:
         raise ValueError(TEMPLATE_NOT_FOUND_ERROR)
 
-    draft = load_workflow_draft(
+    loaded = load_workflow_draft(
         workflow.workflow,
         name=workflow.name,
         description=workflow.description,
         execution_scope=workflow.execution_scope,
         session=session,
     )
+    draft = loaded.draft
     classification = _summary_value(diagnosis_report, 'classification', 'unknown')
     recommended_action = _summary_value(diagnosis_report, 'recommended_action', 'need_more_evidence')
     state: dict[str, Any] = {
@@ -90,10 +92,12 @@ def prepare_workflow_fix(
         'diagnosis_classification': classification,
         'recommended_action': recommended_action,
         'original_workflow': workflow.workflow.model_dump(mode='json'),
+        'original_node_id_mapping': loaded.node_id_mapping,
         'active_workflow_id': draft.draft_id,
         'workflow_drafts': {draft.draft_id: draft},
         'exist_nodes': draft.nodes,
         'exist_edges': draft.edges,
+        'next_node_index': draft.next_node_index,
         'fix_completed': False,
         'workflow_changed': False,
         'update_path': None,
@@ -104,4 +108,5 @@ def prepare_workflow_fix(
         diagnosis_report=diagnosis_report,
         diagnosis_run_uid=diagnosis.uid,
         workflow_uid=workflow.uid,
+        node_id_mapping=loaded.node_id_mapping,
     )

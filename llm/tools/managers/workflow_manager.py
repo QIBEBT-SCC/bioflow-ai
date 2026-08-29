@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field, ValidationError
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
-from llm.utils.uid_mapper import generate_char_index
 from llm.workflow_builder.drafts import (
     WorkflowScope,
     build_workflow_draft,
@@ -21,6 +20,7 @@ from llm.workflow_builder.messages import (
     format_saved_workflows,
     format_workflow_drafts,
 )
+from llm.workflow_builder.node_ids import remove_node_from_build_graph
 from llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
 from llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 
@@ -324,6 +324,7 @@ def _create_workflow_draft(
             execution_scope=execution_scope,
             nodes=current_nodes,
             edges=current_edges,
+            next_node_index=runtime.state.get('next_node_index'),
         )
         drafts[draft_id] = new_draft
         msg = (
@@ -334,6 +335,7 @@ def _create_workflow_draft(
             update={
                 'active_workflow_id': draft_id,
                 'workflow_drafts': drafts,
+                'next_node_index': new_draft.next_node_index,
                 'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
             }
         )
@@ -355,6 +357,7 @@ def _create_workflow_draft(
             'workflow_drafts': drafts,
             'exist_nodes': Overwrite([]),
             'exist_edges': Overwrite([]),
+            'next_node_index': new_draft.next_node_index,
             'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
         }
     )
@@ -402,6 +405,7 @@ def _switch_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) 
             'workflow_drafts': drafts,
             'exist_nodes': Overwrite(target.nodes),
             'exist_edges': Overwrite(target.edges),
+            'next_node_index': target.next_node_index,
             'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
         }
     )
@@ -443,6 +447,7 @@ def _delete_workflow_draft(draft_id: str, runtime: ToolRuntime[ProjectContext]) 
                 'active_workflow_id': None,
                 'exist_nodes': Overwrite([]),
                 'exist_edges': Overwrite([]),
+                'next_node_index': 1,
             }
         )
     return Command(update=update)
@@ -601,33 +606,11 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
             }
         )
 
-    removed_edges = [e for e in exist_edges if node_id in (e.source_node, e.target_node)]
-    remaining_edges = [e for e in exist_edges if node_id not in (e.source_node, e.target_node)]
-    remaining_nodes = [n for n in exist_nodes if n.id != node_id]
-
-    # Reassign IDs sequentially and build remapping table
-    id_map: dict[str, str] = {}
-    for i, node in enumerate(remaining_nodes):
-        new_id = generate_char_index(i + 1)
-        if node.id != new_id:
-            id_map[node.id] = new_id
-            node.id = new_id
-
-    # Update edge references with new IDs
-    for edge in remaining_edges:
-        if edge.source_node in id_map:
-            edge.source_node = id_map[edge.source_node]
-        if edge.target_node in id_map:
-            edge.target_node = id_map[edge.target_node]
-
-    for node in remaining_nodes:
-        if node.type != 'note':
-            continue
-        anchor_node_id = node.data.get('anchor_node_id')
-        if anchor_node_id == node_id:
-            node.data['anchor_node_id'] = None
-        elif isinstance(anchor_node_id, str) and anchor_node_id in id_map:
-            node.data['anchor_node_id'] = id_map[anchor_node_id]
+    remaining_nodes, remaining_edges, removed_edges = remove_node_from_build_graph(
+        exist_nodes,
+        exist_edges,
+        node_id,
+    )
 
     # Build deletion report
     if removed_edges:
@@ -645,12 +628,10 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     else:
         edge_summary = 'No edges were connected to this node.'
 
-    id_remap_summary = ', '.join(f'{old}→{new}' for old, new in id_map.items()) if id_map else 'no changes'
-
     msg = (
         f'Deleted node {node_id} ("{target_node.name}", type={target_node.type}).\n'
         f'{edge_summary}\n'
-        f'Node ID reassignment: {id_remap_summary}.'
+        'Remaining node IDs were preserved.'
     )
 
     return Command(
@@ -786,6 +767,10 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
 
     validation_errors = []
     for draft in drafts.values():
+        node_ids = [node.id for node in draft.nodes]
+        if len(node_ids) != len(set(node_ids)):
+            validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has duplicate node IDs.')
+
         orphans = check_orphan_edges(draft.edges)
         if orphans:
             validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has {len(orphans)} orphan edge(s).')
@@ -860,6 +845,7 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
             'exist_edges': Overwrite([]),
             'active_workflow_id': None,
             'workflow_drafts': {},
+            'next_node_index': 1,
             'workflow_uids': Overwrite(workflow_uids(saved_workflows)),
             'updated': True,
         }

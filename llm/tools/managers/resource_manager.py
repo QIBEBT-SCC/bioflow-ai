@@ -17,8 +17,8 @@ from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
 from llm.utils.formatters import format_marker_registry, format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import RESOURCES
-from llm.utils.uid_mapper import generate_char_index
 from llm.workflow_builder.drafts import snapshot_active_workflow
+from llm.workflow_builder.node_ids import allocate_node_id
 from llm.workflow_builder.validation import check_edge_handles, validate_node_addition
 
 
@@ -304,7 +304,7 @@ def _add_resource(
     arguments: Optional[dict[str, Any]] = None,
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
 
     if resource_type not in RESOURCES:
         return Command(
@@ -374,6 +374,7 @@ def _add_resource(
             return Command(
                 update={
                     'exist_nodes': [new_node],
+                    'next_node_index': next_node_index,
                     'messages': [
                         ToolMessage(
                             content=f'add new resource node:\n{node_formatter(new_node)}',
@@ -431,6 +432,7 @@ def _add_resource(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add new resource node:\n{node_formatter(new_node)}',

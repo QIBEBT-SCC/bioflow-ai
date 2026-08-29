@@ -12,10 +12,14 @@ WorkflowScope = Literal['sample_level', 'project_level']
 def get_workflow_drafts(state: Mapping[str, Any]) -> dict[str, WorkflowDraft]:
     """Return workflow drafts from state, normalizing serialized dictionaries."""
     drafts = state.get('workflow_drafts', {})
-    return {
-        draft_id: draft if isinstance(draft, WorkflowDraft) else WorkflowDraft.model_validate(draft)
-        for draft_id, draft in drafts.items()
-    }
+    normalized = {}
+    for draft_id, value in drafts.items():
+        draft = value if isinstance(value, WorkflowDraft) else WorkflowDraft.model_validate(value)
+        minimum_next_index = len(draft.nodes) + 1
+        if draft.next_node_index < minimum_next_index:
+            draft = draft.model_copy(update={'next_node_index': minimum_next_index}, deep=True)
+        normalized[draft_id] = draft
+    return normalized
 
 
 def next_draft_id(drafts: Mapping[str, WorkflowDraft]) -> str:
@@ -43,6 +47,10 @@ def snapshot_active_workflow(state: Mapping[str, Any]) -> dict[str, WorkflowDraf
         update={
             'nodes': state.get('exist_nodes', []),
             'edges': state.get('exist_edges', []),
+            'next_node_index': max(
+                int(state.get('next_node_index', draft.next_node_index)),
+                len(state.get('exist_nodes', [])) + 1,
+            ),
         },
         deep=True,
     )
@@ -57,13 +65,16 @@ def build_workflow_draft(
     execution_scope: WorkflowScope,
     nodes: list[BuildNode] | None = None,
     edges: list[BuildEdge] | None = None,
+    next_node_index: int | None = None,
 ) -> WorkflowDraft:
     """Create a WorkflowDraft with optional panel contents."""
+    draft_nodes = nodes or []
     return WorkflowDraft(
         draft_id=draft_id,
         name=name,
         description=description,
         execution_scope=execution_scope,
-        nodes=nodes or [],
+        nodes=draft_nodes,
         edges=edges or [],
+        next_node_index=max(next_node_index or 1, len(draft_nodes) + 1),
     )

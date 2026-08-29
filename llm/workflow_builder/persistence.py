@@ -10,6 +10,7 @@ from app.models.workflow import Workflow
 from app.schemas.workflow_config import WorkflowType
 from app.services import workflow_catalog
 from llm.states import WorkflowDraft
+from llm.workflow_builder.node_ids import canonicalize_build_graph, has_canonical_node_ids
 from llm.workflow_builder.serialization import build_workflow_definition, to_execution_scope
 
 
@@ -19,7 +20,12 @@ async def save_workflow_drafts(drafts: list[WorkflowDraft], user_id: int) -> lis
     workflows = []
     with Session(engine) as session:
         for draft in drafts:
-            workflow_define = build_workflow_definition(draft.nodes, draft.edges)
+            if has_canonical_node_ids(draft.nodes):
+                nodes = draft.nodes
+                edges = draft.edges
+            else:
+                nodes, edges, _ = canonicalize_build_graph(draft.nodes, draft.edges)
+            workflow_define = build_workflow_definition(nodes, edges)
             workflow = Workflow(
                 name=f'{now.strftime("%y%m%d")}_{draft.name}(AI)',
                 description=draft.description,

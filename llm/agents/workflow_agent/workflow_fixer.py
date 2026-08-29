@@ -51,7 +51,7 @@ SYSTEM_PROMPT = """你是 BioFlow AI 的工作流修复智能体。系统已经�
 - `workflow_manager`: 只使用 `view_workflow`、`view_node`、`delete_node`、`fix_edge`。对修改 action 先用 `help` 查看参数。
 - `finalize_workflow_fix`: 最终保存或无修改结论。
 
-节点 ID 是当前模板 ID。删除节点可能触发后续 ID 重排，之后必须重新查看工作流。添加节点前先确认来源节点和 handle；修复必须保持工作流可执行，不添加占位节点。完成最终工具调用后，在聊天中简要说明是否修改、主要内容和如何验证；no_change 时明确说明人工处理建议。
+节点 ID 是当前编辑会话 ID；若系统提供了诊断报告 ID 到当前面板 ID 的映射，必须使用映射后的面板 ID。删除节点不会改变其他节点 ID。添加节点前先确认来源节点和 handle；修复必须保持工作流可执行，不添加占位节点。完成最终工具调用后，在聊天中简要说明是否修改、主要内容和如何验证；no_change 时明确说明人工处理建议。
 """
 
 FIX_DISABLED_TOOLS = {'finalize_workflow_fix'}

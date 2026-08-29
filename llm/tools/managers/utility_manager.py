@@ -24,7 +24,7 @@ from llm.states import BuildEdge, BuildNode
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from llm.utils.node_schema import PROCESSORS
 from llm.utils.retrievers import retrieve_auxiliary_nodes
-from llm.utils.uid_mapper import generate_char_index
+from llm.workflow_builder.node_ids import allocate_node_id
 from llm.workflow_builder.validation import (
     check_code_node_edges,
     check_edge_handles,
@@ -390,7 +390,7 @@ def _add_processor(
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
 
     if processor_name not in PROCESSORS:
         return Command(
@@ -463,6 +463,7 @@ def _add_processor(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add new processor node:\n{node_formatter(new_node)}',
@@ -521,7 +522,7 @@ def _add_existing_code(
         code_content = code.code
         dependencies = list(code.dependencies)
 
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     code_name = 'Bash Code' if node_type is CodeNodeType.BASH else 'Python Code'
     node_data: dict[str, Any] = {
         'code': code_content,
@@ -546,6 +547,7 @@ def _add_existing_code(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add reusable code node:\n{node_formatter(new_node)}',
@@ -627,7 +629,7 @@ async def _add_generated_bash_code(
             }
         )
 
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
         name='Bash Code',
@@ -647,6 +649,7 @@ async def _add_generated_bash_code(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add new code node:\n{node_formatter(new_node)}',
@@ -701,7 +704,7 @@ async def _add_generated_python_code(
             }
         )
 
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
         name='Python Code',
@@ -722,6 +725,7 @@ async def _add_generated_python_code(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add new Python code node:\n{node_formatter(new_node)}',
@@ -742,7 +746,7 @@ def _add_note_node(
     if error := validate_note_anchor(anchor_node_id, exist_nodes):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
         name='note',
@@ -755,6 +759,7 @@ def _add_note_node(
     return Command(
         update={
             'exist_nodes': [new_node],
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'add new note:\n{node_formatter(new_node)}',
@@ -788,7 +793,7 @@ def _add_downstream_node(
             }
         )
 
-    node_id = generate_char_index(len(exist_nodes) + 1)
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
         name='downstream_summary',
@@ -804,6 +809,7 @@ def _add_downstream_node(
         update={
             'exist_nodes': [new_node],
             'exist_edges': input_edges,
+            'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
                     content=f'Add downstream node with these files:\n{"\n".join(used_files)}',
