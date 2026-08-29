@@ -1,7 +1,4 @@
 import gzip
-import random
-import re
-import secrets
 import shutil
 import tempfile
 import time
@@ -12,7 +9,7 @@ from typing import Any
 
 import httpx
 from loguru import logger
-from requests import HTTPError, ReadTimeout
+from requests import ReadTimeout
 from requests.exceptions import ChunkedEncodingError, SSLError
 from urllib3.exceptions import ResponseError
 
@@ -37,7 +34,7 @@ def retry(retries: int = 3, delay: float = 1) -> Callable:
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(*args, **kwargs) -> Any:  # noqa: ANN002, ANN003
+        def wrapper(*args, **kwargs) -> Any:
             for i in range(1, retries + 1):
                 try:
                     return func(*args, **kwargs)
