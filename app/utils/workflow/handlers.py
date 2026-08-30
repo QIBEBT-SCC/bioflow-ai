@@ -587,6 +587,12 @@ class SimpleCodeTaskHandler(BaseTaskHandler):
     只将代码信息添加到 context.downstream_files 中供后续使用
     """
 
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> None:  # noqa: D102
+        pass
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> None:  # noqa: D102
+        pass
+
     def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
         """不创建任务, 只记录下游代码信息."""
         node_inputs = task_node.kwarg['input_files']
