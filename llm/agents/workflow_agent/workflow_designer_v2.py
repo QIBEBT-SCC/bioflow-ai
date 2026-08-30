@@ -48,7 +48,7 @@ The content written through `write_plan` must be Markdown text with the followin
 
 ## 1. Description
 
-[Describe the analytical objective, biological background, and known data parameters]
+[Briefly describe the analytical objective and biological background.]
 
 ## 2. Analysis Workflow(s)
 
@@ -137,6 +137,8 @@ The specific workflow steps in the plan only need to state which tool should be 
 ```markdown
 - **Step 1: Raw data QC** Perform quality control on the raw data using FastP.
 ```
+
+**Do not** describe tool versions, specific parameters, etc. in detail.
 
 #### Key Output Files
 

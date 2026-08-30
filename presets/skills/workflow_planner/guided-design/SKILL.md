@@ -27,5 +27,6 @@ When any of the following situations applies, you may replace or modify the tool
 
 - Tools requiring a graphical user interface (GUI) must not be used.
 - Tools that depend on a specific directory structure or file-naming convention to run (e.g., CellRanger, HiC-Pro) must not be used.
+- Do not directly use the R, Python, Bash, or Perl scripts from third-party pipelines. For the relevant functions, choose suitable tools or rewrite the scripts yourself.
 
 If the paper/plan uses such a tool, replace it with the most functionally similar command-line-compatible alternative, and document this change in the **Workflow Guide**.
