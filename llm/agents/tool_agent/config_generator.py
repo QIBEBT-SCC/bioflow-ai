@@ -31,9 +31,9 @@ SYSTEM_PROMPT = """You are a bioinformatics engineer. You will be shown a real e
 This system does not directly store a `docker run` command containing real host paths. Instead, it separately stores the image, file mount definitions, command template, and parameter definitions. Each time a node runs, the executor reconstructs the command inside the container and the mounts in the following order:
 
 1. Resolve the actual inputs and outputs for the current task according to `file_mounts`:
-   - For inputs, mount the host directory containing the input file read-only to the corresponding `mount_path`, and resolve the variable with the same name (such as `{r1}`) to the actual file path inside the container.
-   - For outputs, use `{output_dir}` and `{sample_name}` in `file_path` to construct the expected output path for the current task, and mount the host output directory to the root output mount directory in the container.
-   - The `name` in `file_mounts` is both the node's input/output handle name and the variable name used in the command.
+    - For inputs, mount the host directory containing the input file read-only to the corresponding `mount_path`, and resolve the variable with the same name (such as `{r1}`) to the actual file path inside the container.
+    - For outputs, use `{output_dir}` and `{sample_name}` in `file_path` to construct the expected output path for the current task, and mount the host output directory to the root output mount directory in the container.
+    - The `name` in `file_mounts` is both the node's input/output handle name and the variable name used in the command.
 2. Select the entries in `dynamic_params` where `is_position=true`, sort them by `index` in ascending order, join their `command` values with spaces, and insert the result into `{position_params}`.
 3. Select the entries in `dynamic_params` where `is_position=false`, preserving their definition order, and place them in the optional parameter list. Then sequentially merge `immutable_static_params` and the `modifiable_static_params` used in the current run into the same list, join everything with spaces, and insert the result into `{optional_params}`.
 4. Expand `command_template` using the two parameter groups above, then replace `{<file_mount.name>}`, `{output_dir}`, and `{sample_name}` in the command with the container paths or actual values for the current run. `{log}` is also a variable for an output handle named `log`, and is typically used for redirecting standard error.
@@ -82,19 +82,19 @@ In a visual workflow, a bioinformatics tool is packaged as a node similar to the
 Nodes are stored in the database in a specific format. The core fields are as follows:
 
 - `file_mounts: list[FileMount]`: Defines both the files mounted at Docker runtime and the node's input and output handles.
-  - `name: str`: A globally unique handle name and template variable name.
-  - `description: str`: Description of the purpose of the file or value.
-  - `file_type: "INPUT" | "OUTPUT"`: Whether this is an input or output file.
-  - `file_path: str`: A host-side file, directory, or path-prefix template.
-  - `mount_path: str`: The root directory of the bind mount inside the container.
-  - `is_report: bool`: Whether this is a read-only, display-oriented report.
-  - `is_log: bool`: Whether this is the node's sole log.
+    - `name: str`: A globally unique handle name and template variable name.
+    - `description: str`: Description of the purpose of the file or value.
+    - `file_type: "INPUT" | "OUTPUT"`: Whether this is an input or output file.
+    - `file_path: str`: A host-side file, directory, or path-prefix template.
+    - `mount_path: str`: The root directory of the bind mount inside the container.
+    - `is_report: bool`: Whether this is a read-only, display-oriented report.
+    - `is_log: bool`: Whether this is the node's sole log.
 - `command_template: str`: The command skeleton. The template's parameter set consists only of `{position_params}` and `{optional_params}`; when necessary, it may directly reference `{<file_mount.name>}`, such as `{log}`.
 - `dynamic_params: list[ParamDefine]`: Stores parameter fragments containing runtime variables.
-  - `description: str`: Description of the parameter's purpose.
-  - `command: str`: The complete parameter fragment, such as `-i {r1}` or `{reference}`.
-  - `is_position: bool`: Whether this is a positional variable.
-  - `index: int | None`: The zero-based order of the positional parameter among all positional parameters; must be `None` for non-positional parameters.
+    - `description: str`: Description of the parameter's purpose.
+    - `command: str`: The complete parameter fragment, such as `-i {r1}` or `{reference}`.
+    - `is_position: bool`: Whether this is a positional variable.
+    - `index: int | None`: The zero-based order of the positional parameter among all positional parameters; must be `None` for non-positional parameters.
 - `immutable_static_params: str | None`: Literal parameters that users cannot modify.
 - `modifiable_static_params: str | None`: Default literal parameters that users may modify.
 
@@ -103,14 +103,14 @@ Nodes are stored in the database in a specific format. The core fields are as fo
 Distinguish between “how parameters are arranged in the command template” and “how parameters are stored in the database”; these are two different dimensions:
 
 1. **The template layer has only two categories**
-   - `position_params`: Positional parameters without option names, whose semantics are expressed through a fixed order.
-   - `optional_params`: Key-value parameters with option names, Boolean flags, and other non-positional parameters. All static parameters are also merged into this category.
+    - `position_params`: Positional parameters without option names, whose semantics are expressed through a fixed order.
+    - `optional_params`: Key-value parameters with option names, Boolean flags, and other non-positional parameters. All static parameters are also merged into this category.
 2. **The storage layer first divides parameters into dynamic and static**
-   - `dynamic_params`: Parameter fragments containing variables that must be replaced at runtime, such as input files, reference databases, output files, output directories, output prefixes, or sample names. This is not equivalent to the template layer's `optional_params`.
-   - Static parameters: Parameter fragments containing no runtime variables, only fixed option names, literal numbers, literal strings, or flags, such as `-w 32`, `--min-length 50`, or `--verbose`.
+    - `dynamic_params`: Parameter fragments containing variables that must be replaced at runtime, such as input files, reference databases, output files, output directories, output prefixes, or sample names. This is not equivalent to the template layer's `optional_params`.
+    - Static parameters: Parameter fragments containing no runtime variables, only fixed option names, literal numbers, literal strings, or flags, such as `-w 32`, `--min-length 50`, or `--verbose`.
 3. **Static parameters in the storage layer are further divided into two types**
-   - `immutable_static_params`: Cannot be modified by the user. If deleting or modifying a parameter would affect the tool's core execution mode, change the output format, output type, output count, file naming, or directory layout, break the downstream workflow contract, or prevent an output declared in `file_mounts` from being generated, it must belong to this category.
-   - `modifiable_static_params`: Default values that users may modify, such as the thread count, memory limit, general quality thresholds, or algorithm parameters that do not change the declared output contract.
+    - `immutable_static_params`: Parameters that users are not allowed to modify. If deleting or modifying a parameter would affect the tool's output format, directory layout, etc., it belongs in this category.
+    - `modifiable_static_params`: Default values that users are allowed to modify, such as the number of threads, quality thresholds, or other algorithm parameters that do not change the output format.
 
 The correspondence is as follows:
 
@@ -127,13 +127,13 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 
 1. **Read the configuration skill**: Load the `tool-configuration` skill, determine the tool's output behavior from the test report, and read only one configuration pattern reference matching the current tool. Do not load unrelated patterns.
 2. **Design file mounts**: Based on the actual inputs, outputs, and downstream workflow requirements in the test report, construct `file_mounts`, then call `set_file_mounts`.
-   - If the tool generates only a small number of files, declare all meaningful outputs.
-   - If the outputs are complex and contain many temporary files, intermediate files, or nested directories, declare only the files, directories, or path prefixes genuinely needed for subsequent analysis.
+    - If the tool generates only a small number of files, declare all meaningful outputs.
+    - If the outputs are complex and contain many temporary files, intermediate files, or nested directories, declare only the files, directories, or path prefixes genuinely needed for subsequent analysis.
 3. **Design the command**: Using only the test run command and its actual outputs as the abstraction basis, split the command into `dynamic_params`, `immutable_static_params`, `modifiable_static_params`, and `command_template`, then call `set_command_detail`.
 4. **Complete tool information**: Generate an accurate node name and a brief description, then call `set_tool_info`.
 5. **Validate the configuration**: After all the configuration above has been set, you must call `validate_tool_config`.
-   - If validation fails, correct the corresponding configuration according to the complete command, mount information, execution errors, or missing outputs returned, and validate again.
-   - The task is complete only after `validate_tool_config` succeeds; never end before successful validation.
+    - If validation fails, correct the corresponding configuration according to the complete command, mount information, execution errors, or missing outputs returned, and validate again.
+    - The task is complete only after `validate_tool_config` succeeds; never end before successful validation.
 
 ## Notes
 
@@ -163,7 +163,10 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 4. Positional parameters must have `is_position=true`, and `index` must start at 0 and accurately reflect the required order in the tool syntax. Non-positional parameters must have `is_position=false` and `index=None`.
 5. `command_template` should, whenever possible, consist only of the tool command itself, `{position_params}`, and `{optional_params}`, arranged in the syntax order required by the tool. It should also use `{log}` at the end for log redirection.
 6. When a tool parameter has special requirements that cannot be handled through the above template mechanism, a `{<file_mount.name>}` may also be referenced directly in `command_template`:
-   - Even if it is no longer used there, the parameter must still be defined in `dynamic_params`, because its purpose must still be documented.
+    - Even if it is no longer used there, the parameter must still be defined in `dynamic_params`, because its purpose must still be documented.
+7. For static parameters, the sole criterion for determining whether users can modify them is whether doing so changes the files or structures corresponding to the node's input and output handles.
+    - Example: When using `diamond blast`, setting different `--outfmt` parameters results in different output files, so it needs to be set as an `immutable_static_params`.
+    - In practice, most tools do not need to set `immutable_static_params`.
 
 ### Other
 
