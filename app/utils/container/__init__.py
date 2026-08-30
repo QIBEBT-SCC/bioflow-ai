@@ -32,7 +32,7 @@ def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
     else:
         from app.utils.container.docker import create_container
 
-        container_id = create_container(image, _convert_to_docker_mount(mounts))
+        container_id = create_container(image, _convert_to_docker_mount(mounts))  # pyrefly: ignore [bad-argument-type]
 
     return container_id
 

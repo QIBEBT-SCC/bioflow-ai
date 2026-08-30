@@ -6,8 +6,8 @@ from typing import Any, Optional
 
 import psutil
 from loguru import logger
-from podman import PodmanClient
-from podman.errors import ImageNotFound
+from podman import PodmanClient  # pyrefly: ignore [missing-import]
+from podman.errors import ImageNotFound  # pyrefly: ignore [missing-import]
 
 from app.core.config import get_settings
 from app.schemas.tool_config import ImageConfig
@@ -202,7 +202,7 @@ def run_podman_background(
                     break
 
                 stat = container.stats(stream=False, decode=True)
-                yield calculate_podman_stats(stat, start_time, pid)
+                yield calculate_podman_stats(stat, start_time, pid)  # pyrefly: ignore [invalid-yield]
                 time.sleep(interval)
         finally:
             timestamp = datetime.datetime.now(datetime.UTC)

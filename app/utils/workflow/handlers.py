@@ -52,6 +52,10 @@ class ToolTaskHandler(BaseTaskHandler):
         if tool_uid := task_node.data.get('tool_uid'):
             tool_data = tool_crud.get(context.session, tool_uid)
 
+            if not tool_data:
+                msg = f'Failed to read tool data for UID: {tool_uid}'
+                raise MissingReadError(msg)
+
             return TaskInstance(
                 uid=uuid.UUID(task_node.id),
                 instance_uid=context.run_uid,
@@ -67,6 +71,10 @@ class ToolTaskHandler(BaseTaskHandler):
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
         if tool_uid := task_node.data.get('tool_uid'):
             tool_data = tool_crud.get(context.session, tool_uid)
+
+            if not tool_data:
+                msg = f'Failed to read tool data for UID: {tool_uid}'
+                raise MissingReadError(msg)
 
             tool_args = task_node.data.get('modifiable_params')
             return docker_task.s(
@@ -185,7 +193,7 @@ class ResourceDbTaskHandler(BaseTaskHandler):
         )
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
-        return load_bio_db_task.s(db_id=int(task_node.data.get('db_id'))).set(task_id=task_node.id)
+        return load_bio_db_task.s(db_id=int(task_node.data.get('db_id'))).set(task_id=task_node.id)  # pyrefly: ignore [bad-argument-type]
 
 
 @register_handler('resource_ncbi_genome')
@@ -579,18 +587,12 @@ class SimpleCodeTaskHandler(BaseTaskHandler):
     只将代码信息添加到 context.downstream_files 中供后续使用
     """
 
-    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
-        pass
-
-    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
-        pass
-
     def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
         """不创建任务, 只记录下游代码信息."""
         node_inputs = task_node.kwarg['input_files']
         input_files = node_inputs if isinstance(node_inputs, list) else [node_inputs]
 
-        context.downstream_files.extend(input_files)
+        context.downstream_files.extend(input_files)  # pyrefly: ignore [bad-argument-type]
 
         return None, context.task_index
 

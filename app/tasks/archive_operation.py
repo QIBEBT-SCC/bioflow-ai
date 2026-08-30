@@ -8,6 +8,7 @@ import stat
 import tarfile
 import zipfile
 from pathlib import Path
+from typing import Literal
 
 from celery import Task
 
@@ -20,6 +21,8 @@ from app.schemas.react_flow import TaskInput
 from app.schemas.workflow_config import ToolOutput
 from app.tasks.base.base_task import BaseBioTask, get_tool_output
 from script.worker import celery_app
+
+TarWriteMode = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
 
 
 def _copy_stream(source: Path, destination: Path, suffix: str) -> None:
@@ -41,7 +44,7 @@ def _write_zip(source: Path, destination: Path) -> None:
 
 def _write_tar(source: Path, destination: Path, suffix: str) -> None:
     """Create a tar archive containing the source path."""
-    modes = {
+    modes: dict[str, TarWriteMode] = {
         '.tar': 'w',
         '.tar.gz': 'w:gz',
         '.tgz': 'w:gz',

@@ -1,4 +1,4 @@
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.models.workflow import Workflow
@@ -57,7 +57,7 @@ def get_page(
 ) -> tuple[list[dict], int]:
     """Return a page of workflows accessible to a user together with the total count."""
     if include_private:
-        condition = True
+        condition = true()
     elif include_owned:
         condition = or_(Workflow.public, Workflow.owner_id == user_id)
     else:

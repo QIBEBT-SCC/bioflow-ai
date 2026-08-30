@@ -19,9 +19,9 @@ def set_value_task(
     match value_type:
         case 'string':
             return ToolOutput(result={'value': value})
-        case 'number':
-            if '.' in value:
-                return ToolOutput(result={'value': float(value)})
-            return ToolOutput(result={'value': int(value)})
+        # case 'number':
+        #     if '.' in value:
+        #         return ToolOutput(result={'value': float(value)})
+        #     return ToolOutput(result={'value': int(value)})
         case _:
             raise ValueError

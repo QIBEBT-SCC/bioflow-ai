@@ -4,10 +4,10 @@ from collections.abc import Generator
 from functools import lru_cache
 from typing import Any, Optional
 
-import docker
+import docker  # pyrefly: ignore [missing-import]
 import requests
-from docker.errors import ImageNotFound
-from docker.types import DeviceRequest, Mount
+from docker.errors import ImageNotFound, NotFound  # pyrefly: ignore [missing-import]
+from docker.types import DeviceRequest, Mount  # pyrefly: ignore [missing-import]
 from loguru import logger
 
 from app.core.config import get_settings
@@ -185,7 +185,7 @@ def run_docker_background(
             if container.status == 'exited':
                 break
             stats = container.stats(stream=False)
-            yield calculate_docker_stats(stats)
+            yield calculate_docker_stats(stats)  # pyrefly: ignore [bad-argument-type]
             time.sleep(interval)
 
     finally:
@@ -293,7 +293,7 @@ def remove_container(container_id: str) -> None:
     try:
         container = client.containers.get(container_id)
         container.remove(force=True)
-    except docker.errors.NotFound:
+    except NotFound:
         pass
     except requests.exceptions.ReadTimeout:
         pass
