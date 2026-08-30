@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from llm.utils.lc.tracing import configure_langsmith_tracing
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
+MISSING_PROJECT_TAG = 'missing'
 
 
 @dataclass
@@ -36,6 +37,54 @@ class WorkflowResumeUnavailableError(RuntimeError):
 
 class WorkflowResumeRequiredError(RuntimeError):
     """Raised when a paused workflow checkpoint requires an explicit resume value."""
+
+
+def _get_interrupt_question(interrupt_value: Any) -> str:
+    """Return the question carried by a workflow-builder interrupt."""
+    if not isinstance(interrupt_value, dict):
+        message = f'Workflow interrupt payload must be an object, got {type(interrupt_value).__name__}.'
+        raise TypeError(message)
+
+    question = interrupt_value.get('question')
+    if not isinstance(question, str) or not question.strip():
+        message = 'Workflow interrupt payload does not contain a non-empty question.'
+        raise ValueError(message)
+    return question
+
+
+def _update_interrupted_project(session: Session, project_id: int, question: str) -> None:
+    """Mark an evaluate project as missing and replace its description with the interrupt question."""
+    from sqlalchemy import select
+
+    from app.models.project import Project, ProjectTag
+    from app.utils.system import utc_now
+
+    project = session.get(Project, project_id)
+    if project is None:
+        message = f'Evaluate project {project_id} no longer exists.'
+        raise RuntimeError(message)
+
+    missing_tag = session.scalar(select(ProjectTag).where(ProjectTag.name == MISSING_PROJECT_TAG))
+    if missing_tag is None:
+        message = f'Project tag {MISSING_PROJECT_TAG!r} is not configured.'
+        raise RuntimeError(message)
+
+    project.description = question
+    if all(tag.id != missing_tag.id for tag in project.tags):
+        project.tags.append(missing_tag)
+    project.update_time = utc_now()
+    session.commit()
+
+
+def _mark_project_interrupted(project_id: int, interrupt_value: Any) -> str:
+    """Persist workflow interrupt metadata on its evaluate project."""
+    from app.core.session import engine
+
+    question = _get_interrupt_question(interrupt_value)
+    with Session(engine) as session:
+        _update_interrupted_project(session, project_id, question)
+    logger.info(f'Marked evaluate project {project_id} with tag {MISSING_PROJECT_TAG!r}.')
+    return question
 
 
 def _prepare_workflow_resume_input(state: Any, resume_message: str | None) -> Any:
@@ -593,6 +642,7 @@ async def _generate_workflow(
         for task in state.tasks:
             if hasattr(task, 'interrupts'):
                 for interrupt in task.interrupts:
+                    _mark_project_interrupted(project_id, interrupt.value)
                     rich.print(interrupt)
                     sys.exit(-1)
 
