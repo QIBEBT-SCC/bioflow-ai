@@ -213,6 +213,7 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
         run_id = nanoid.generate(size=8)
         context = CreateToolContext(
             user_id=runtime.context.user_id,
+            language=runtime.context.language,
             auto_save=True,
             skip_search=True,
             test_run_id=run_id,

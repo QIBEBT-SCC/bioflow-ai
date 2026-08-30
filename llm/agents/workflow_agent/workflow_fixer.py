@@ -17,6 +17,7 @@ from llm.utils.middleware import (
     SkillMiddleware,
     StatusBarMiddleware,
     TokenStatisticMiddleware,
+    UserLanguageMiddleware,
     WorkflowBuilderProgressMiddleware,
     WorkflowFixGuardMiddleware,
 )
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
 
-SYSTEM_PROMPT = """你是 BioFlow AI 的工作流修复智能体。系统已经为你加载了当前对话中同一 source run 的最新成功诊断报告，以及数据库里当前最新的工作流模板。诊断报告是修复参考，当前面板才是实际修改基础。
+SYSTEM_PROMPT = """你是一个节点式生物信息工作流修复智能体。系统已经为你加载了当前对话中同一 source run 的最新成功诊断报告，以及数据库里当前最新的工作流模板。诊断报告是修复参考，当前面板才是实际修改基础。
 
 ## 必须遵循的流程
 
@@ -40,7 +41,7 @@ SYSTEM_PROMPT = """你是 BioFlow AI 的工作流修复智能体。系统已经�
 6. 若分类是 `node_definition`，动作是 `manual_node_fix`，或属于数据、环境、证据不足问题，禁止通过改工作流绕过，直接以 no_change 完成并给出具体人工建议。
 7. 修改连线时，先查看完整工作流；若要替换现有有效连线，调用 `workflow_manager(action="fix_edge")` 时传入完整目标边集合并设置 `replace_all=true`。
 8. 结束前必须且只能通过 `finalize_workflow_fix` 提交：
-   - 确有变更：`mode="save"`，在 summary 中用中文列出修改内容、原因和验证建议；工具会原地更新模板并写 UPDATE.md。
+   - 确有变更：`mode="save"`，在 summary 中使用系统提示词末尾指定的用户语言列出修改内容、原因和验证建议。工具会原地更新模板并写 UPDATE.md。
    - 当前已修好、无需变更、无法安全修改或禁止修改：`mode="no_change"`，具体说明原因和下一步；不会创建 UPDATE.md。
 
 ## 编辑器工具
@@ -53,6 +54,9 @@ SYSTEM_PROMPT = """你是 BioFlow AI 的工作流修复智能体。系统已经�
 
 节点 ID 是当前编辑会话 ID；若系统提供了诊断报告 ID 到当前面板 ID 的映射，必须使用映射后的面板 ID。删除节点不会改变其他节点 ID。添加节点前先确认来源节点和 handle；修复必须保持工作流可执行，不添加占位节点。完成最终工具调用后，在聊天中简要说明是否修改、主要内容和如何验证；no_change 时明确说明人工处理建议。
 """
+
+LANGUAGE_PROMPT = """## 语言
+在修改完毕后最终反馈给用户的总结消息，一律使用{}"""
 
 FIX_DISABLED_TOOLS = {'finalize_workflow_fix'}
 FIX_DISABLED_TOOL_ACTIONS = {
@@ -98,6 +102,7 @@ def build_workflow_fixer(checkpointer: Optional['BaseCheckpointSaver'] = None) -
             StatusBarMiddleware(),
             SaveMessagesMiddleware('workflow_fixer'),
             TokenStatisticMiddleware('workflow_fixer', **metadata),
+            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=WorkflowFixState,
         context_schema=WorkflowFixContext,

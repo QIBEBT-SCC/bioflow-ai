@@ -31,7 +31,8 @@ def write_diagnosis(content: str, runtime: ToolRuntime[WorkflowDiagnosisContext]
     """Write the completed workflow diagnosis to ``DIAGNOSIS.md``.
 
     Args:
-        content: Complete Chinese Markdown diagnosis report, including the machine-readable summary.
+        content: Complete Markdown diagnosis report in the language required by the system prompt, including the
+            machine-readable summary.
     """
     report = content.strip()
     if not report:

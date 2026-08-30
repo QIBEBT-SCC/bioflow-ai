@@ -20,6 +20,7 @@ from llm.utils.middleware import (
     SkillMiddleware,
     StatusBarMiddleware,
     TokenStatisticMiddleware,
+    UserLanguageMiddleware,
 )
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
@@ -178,6 +179,10 @@ FRONTEND_INTERACTION_PROMPT = """
   `ask_human` merely to confirm a plan; confirmation is owned by `write_plan`.
 """
 
+LANGUAGE_PROMPT = """## Language
+Write the plan and all messages shown to the user in {}."""
+
+
 PLANNER_LLM = get_high_performance_model()
 metadata = cast('LLMMetadata', PLANNER_LLM.metadata)
 
@@ -247,6 +252,7 @@ def _build_planner(
             StatusBarMiddleware(),
             CheckStateExistMiddleware('plan', 'write_plan'),
             TokenStatisticMiddleware('planner', **metadata),
+            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=PlannerState,
         context_schema=ProjectContext,

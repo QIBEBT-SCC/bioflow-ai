@@ -5,6 +5,7 @@ class BaseContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     user_id: int
+    language: str | None = None
     verbose: bool = False
 
 

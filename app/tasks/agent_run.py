@@ -153,7 +153,7 @@ async def _heartbeat(run_uid: uuid.UUID, agent_task: asyncio.Task[Any]) -> None:
                 return
 
 
-async def _run_agent(run_uid: uuid.UUID) -> None:
+async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
     redis = Redis.from_url(
         get_settings().persistent.cache.API_CACHE.unicode_string(),
         decode_responses=True,
@@ -228,6 +228,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                 context: CreateToolContext | ProjectContext | WorkflowDiagnosisContext | WorkflowFixContext = (
                     CreateToolContext(
                         user_id=owner_id,
+                        language=language,
                         skip_search=True,
                         auto_save=True,
                         test_run_id=str(run_uid),
@@ -244,6 +245,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                         raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
                     context = WorkflowDiagnosisContext(
                         user_id=owner_id,
+                        language=language,
                         project_id=project_id,
                         workdir=resolved_project_path,
                         agent_run_uid=str(run_uid),
@@ -267,6 +269,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                         )
                     context = WorkflowFixContext(
                         user_id=owner_id,
+                        language=language,
                         project_id=project_id,
                         workdir=resolved_project_path,
                         agent_run_uid=str(run_uid),
@@ -311,6 +314,7 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
                 else:
                     context = ProjectContext(
                         user_id=owner_id,
+                        language=language,
                         project_id=project_id,
                         workdir=resolved_project_path,
                     )
@@ -393,6 +397,6 @@ async def _run_agent(run_uid: uuid.UUID) -> None:
 
 
 @celery_app.task(bind=True, acks_late=False, name='app.tasks.agent_run.execute_agent_run')
-def execute_agent_run_task(self: Task, run_uid: str) -> None:  # noqa: ARG001
+def execute_agent_run_task(self: Task, run_uid: str, language: str | None = None) -> None:  # noqa: ARG001
     """Execute one durable web-agent run outside the HTTP request lifecycle."""
-    asyncio.run(_run_agent(uuid.UUID(run_uid)))
+    asyncio.run(_run_agent(uuid.UUID(run_uid), language))

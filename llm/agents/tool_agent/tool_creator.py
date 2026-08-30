@@ -120,6 +120,10 @@ class CreateToolAgent:
         )
 
     @staticmethod
+    def _user_message(language: str | None, *, zh: str, en: str) -> str:
+        return zh if language == 'zh' else en
+
+    @staticmethod
     async def select_image_node(state: CreateToolState) -> dict[str, Any]:
         """首先搜索得到此工具的对应镜像."""
         if state.get('image_uid'):
@@ -199,7 +203,11 @@ class CreateToolAgent:
                     'messages': [
                         (
                             'human',
-                            f'Found existing tools: \n\n {tool_info}',
+                            CreateToolAgent._user_message(
+                                runtime.context.language,
+                                zh=f'找到已有工具节点:\n\n{tool_info}',
+                                en=f'Found an existing tool node:\n\n{tool_info}',
+                            ),
                         )
                     ],
                 },
@@ -218,6 +226,7 @@ class CreateToolAgent:
             testrun_input,
             context=TestRunContext(
                 user_id=runtime.context.user_id,
+                language=runtime.context.language,
                 test_run_id=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
             ),
@@ -259,6 +268,7 @@ class CreateToolAgent:
             },
             context=ToolGeneratorContext(
                 user_id=runtime.context.user_id,
+                language=runtime.context.language,
                 test_run_id=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
             ),
@@ -394,7 +404,11 @@ class CreateToolAgent:
             'messages': [
                 (
                     'human',
-                    f'New tool node has been saved to the database for addition to the workflow: \n\n {tool_info}',
+                    self._user_message(
+                        runtime.context.language,
+                        zh=f'新的工具节点已保存到数据库, 可添加到工作流中:\n\n{tool_info}',
+                        en=f'The new tool node has been saved and is ready to add to a workflow:\n\n{tool_info}',
+                    ),
                 )
             ],
         }

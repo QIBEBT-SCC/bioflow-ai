@@ -26,6 +26,7 @@ from app.schemas.agent import (
     AgentRunCreate,
     AgentRunPublic,
     AgentRunResume,
+    AgentRunRetry,
     AgentRunStatus,
     AgentSessionCreate,
     AgentSessionPage,
@@ -66,11 +67,11 @@ def _session_public(session: SessionDep, agent_session: AgentSession) -> AgentSe
     return result
 
 
-def _dispatch_run(session: SessionDep, run: AgentRun) -> AgentRun:
+def _dispatch_run(session: SessionDep, run: AgentRun, language: str | None = None) -> AgentRun:
     from app.tasks.agent_run import execute_agent_run_task
 
     try:
-        task = execute_agent_run_task.apply_async(args=(str(run.uid),), queue='agent')
+        task = execute_agent_run_task.apply_async(args=(str(run.uid), language), queue='agent')
     except Exception as error:
         agent_service.mark_dispatch_failed(session, run, f'{type(error).__name__}: {error}')
         raise HTTPException(status_code=503, detail='Unable to dispatch agent run.') from error
@@ -206,7 +207,7 @@ def create_agent_run(
             data.text,
             source_run_uid=data.source_run_uid,
         )
-        run = _dispatch_run(session, run)
+        run = _dispatch_run(session, run, data.language.value if data.language else None)
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
     return AgentRunPublic.model_validate(run)
@@ -275,7 +276,7 @@ def resume_agent_run(
         )
         run.result_payload = {'resume': {'approved': data.approved, 'feedback': data.feedback}}
         session.commit()
-        run = _dispatch_run(session, run)
+        run = _dispatch_run(session, run, data.language.value if data.language else None)
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
     return AgentRunPublic.model_validate(run)
@@ -322,6 +323,7 @@ def retry_agent_run(
     run_uid: uuid.UUID,
     session: SessionDep,
     current_user: UserDep,
+    data: AgentRunRetry | None = None,
 ) -> AgentRunPublic:
     try:
         old_run = agent_service.get_owned_run(session, run_uid, current_user.id)
@@ -345,7 +347,8 @@ def retry_agent_run(
             retry_of_uid=old_run.uid,
             source_run_uid=target.source_run_uid if target is not None else None,
         )
-        run = _dispatch_run(session, run)
+        language = data.language.value if data and data.language else None
+        run = _dispatch_run(session, run, language)
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
     return AgentRunPublic.model_validate(run)

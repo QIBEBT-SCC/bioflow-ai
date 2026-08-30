@@ -24,6 +24,7 @@ from llm.utils.middleware import (
     SampleManagerProgressMiddleware,
     StatusBarMiddleware,
     TokenStatisticMiddleware,
+    UserLanguageMiddleware,
 )
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
 
@@ -167,6 +168,9 @@ FRONTEND_INTERACTION_PROMPT = """
 - For other issues that cannot be handled, you may also call this tool to provide feedback to the user.
 """
 
+LANGUAGE_PROMPT = """## Language
+Write the sample information, conclusion, and all messages shown to the user in {}."""
+
 
 def _build_sample_agent(
     *,
@@ -195,6 +199,7 @@ def _build_sample_agent(
             StatusBarMiddleware(),
             CheckStateExistMiddleware('summary', 'write_conclusion'),
             TokenStatisticMiddleware('sample_manager', **metadata),
+            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ]
     )
 

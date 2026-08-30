@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AgentName(StrEnum):
@@ -12,6 +12,11 @@ class AgentName(StrEnum):
     WORKFLOW_FIXER = 'workflow-fixer'
     SAMPLE_MANAGER = 'sample-manager'
     TOOL_GENERATOR = 'tool-generator'
+
+
+class UserLanguage(StrEnum):
+    ZH = 'zh'
+    EN = 'en'
 
 
 class AgentRunStatus(StrEnum):
@@ -112,13 +117,26 @@ class AgentSessionUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
-class AgentRunCreate(BaseModel):
+class AgentLanguagePreference(BaseModel):
+    language: UserLanguage | None = None
+
+    @field_validator('language', mode='before')
+    @classmethod
+    def normalize_empty_language(cls, value: Any) -> Any:
+        """Treat an omitted or blank language as no language preference."""
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+class AgentRunCreate(AgentLanguagePreference):
     agent_name: AgentName
     text: str = Field(min_length=1, max_length=100_000)
     source_run_uid: uuid.UUID | None = None
 
 
-class AgentRunResume(BaseModel):
+class AgentRunResume(AgentLanguagePreference):
     approved: bool = False
     feedback: str | None = Field(default=None, max_length=100_000)
 
@@ -129,6 +147,10 @@ class AgentRunResume(BaseModel):
             message = 'feedback is required when approved is false'
             raise ValueError(message)
         return self
+
+
+class AgentRunRetry(AgentLanguagePreference):
+    pass
 
 
 class AgentEventPublic(BaseModel):

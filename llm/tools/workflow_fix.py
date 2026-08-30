@@ -113,7 +113,8 @@ def finalize_workflow_fix(
 
     Args:
         mode: ``save`` for an actual workflow mutation, or ``no_change`` when no safe workflow edit is needed.
-        summary: Concrete Chinese explanation of changes, or the reason and manual recommendation for no change.
+        summary: Concrete explanation in the language required by the system prompt of changes, or the reason and
+            manual recommendation for no change.
     """
     if not summary.strip():
         return Command(

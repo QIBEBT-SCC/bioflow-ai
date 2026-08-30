@@ -10,7 +10,12 @@ from llm.models import get_high_performance_model
 from llm.states import WorkflowDiagnosisState
 from llm.tools.workflow_diagnosis import workflow_reader, write_diagnosis
 from llm.tools.workflow_diagnosis_v2 import run_evidence_command
-from llm.utils.middleware import CheckStateExistMiddleware, DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import (
+    CheckStateExistMiddleware,
+    DisableParallelToolCallsMiddleware,
+    TokenStatisticMiddleware,
+    UserLanguageMiddleware,
+)
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -65,7 +70,7 @@ SYSTEM_PROMPT = """你是一个生物信息分析运维专家。你的任务是�
 
 ## 报告提交
 
-调查完成后，调用 `write_diagnosis`，传入一份自包含的中文 Markdown 报告。报告必须包含：
+调查完成后，调用 `write_diagnosis`，传入一份自包含的 Markdown 报告。使用系统提示词末尾指定的用户语言；未指定时使用中文。报告必须包含：
 
 # 工作流故障诊断
 ## 诊断结论
@@ -89,6 +94,9 @@ confidence: high|medium|low
 `write_diagnosis` 完成后，只需在聊天中简短告知诊断完成，不要重复报告正文。
 """
 
+LANGUAGE_PROMPT = """## 语言
+诊断报告和最终反馈给用户的消息一律使用 {}。"""
+
 
 def build_workflow_diagnoser_v2(checkpointer: Optional['BaseCheckpointSaver'] = None) -> 'CompiledStateGraph':
     """Build the container-backed diagnosis graph."""
@@ -104,6 +112,7 @@ def build_workflow_diagnoser_v2(checkpointer: Optional['BaseCheckpointSaver'] = 
             CheckStateExistMiddleware('diagnosis_written', 'write_diagnosis'),
             DisableParallelToolCallsMiddleware(disabled_tools={'write_diagnosis'}),
             TokenStatisticMiddleware('workflow_diagnoser', **metadata),
+            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=WorkflowDiagnosisState,
         context_schema=WorkflowDiagnosisContext,

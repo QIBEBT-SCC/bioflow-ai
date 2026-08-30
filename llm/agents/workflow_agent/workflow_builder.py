@@ -25,6 +25,7 @@ from llm.utils.middleware import (
     StatusBarMiddleware,
     TodoMiddleware,
     TokenStatisticMiddleware,
+    UserLanguageMiddleware,
     WorkflowBuilderProgressMiddleware,
 )
 from llm.utils.middleware.final_check import CheckStateExistMiddleware
@@ -150,6 +151,9 @@ You will be given a prepared plan along with the user's original task requiremen
 
 """
 
+LANGUAGE_PROMPT = """## Language
+Use {} for notes added to the workflow and all messages shown to the user."""
+
 
 @tool
 async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
@@ -230,6 +234,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 StatusBarMiddleware(),
                 SaveMessagesMiddleware('workflow_builder'),
                 TokenStatisticMiddleware('workflow_builder', **metadata),
+                UserLanguageMiddleware(LANGUAGE_PROMPT),
             ],
             state_schema=BuildState,
             context_schema=ProjectContext,
@@ -259,6 +264,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             StatusBarMiddleware(),
             SaveMessagesMiddleware('workflow_builder'),
             TokenStatisticMiddleware('reproduction_agent', **metadata),
+            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=BuildState,
         context_schema=ProjectContext,
