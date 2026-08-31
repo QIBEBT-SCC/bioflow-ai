@@ -43,7 +43,7 @@ This editor includes the following types of nodes:
 - Resource nodes: include loading raw data, databases, reference genomes, input variables, and so on
 - Tool nodes: bioinformatics analysis tools or algorithms
 - Processor nodes: system operations unrelated to bioinformatics analysis, such as file copying, renaming, text extraction, and others
-- Code nodes: execute custom Bash scripts or simple single-file Python 3.13 transformations
+- Code nodes: execute custom Bash scripts or simple single-file Python 3.13 and R 4.4.3 transformations
 - Note nodes: do not participate in computation and are used to annotate certain nodes
 
 ### Node Data
@@ -91,7 +91,7 @@ The interaction targets and available actions for each tool are as follows:
   - `view`: view a processor by name or reusable CODE definition by UID; CODE results show the complete source code and the relevant CODE-node skill
   - `add_processor`: add a processor node to the workflow panel
   - `add_exist_code`: add a reusable CODE definition returned by `search`; the complete code is copied into the node
-  - `add_new_code`: describe and add a workflow-local CODE node, selecting `bash` or `python` with `code_type`
+  - `add_new_code`: describe and add a workflow-local CODE node, selecting `bash`, `python`, or `r` with `code_type`
   - `add_note`: add a note node; set `anchor_node_id` to an existing non-note node ID when the note explains that node, or omit it for a global workflow note
   - `add_downstream_summary`: add a downstream summary node for later downstream analysis
 - `workflow_manager` — workflow draft and panel operations
@@ -146,8 +146,8 @@ You will be given a prepared plan along with the user's original task requiremen
 - For tasks such as decompression, renaming, copying, and simple text filtering that **do not require specialized bioinformatics tools**, use PROCESSOR nodes and CODE nodes. The relevant tool is `utility_node_manager`; follow the rules below:
     - Prioritize using the `search` operation to search for existing PROCESSOR or CODE nodes, then use the `view` operation to inspect the details of nodes that you think may meet the requirements.
     - If a node meeting the requirements exists, use `add_processor` or `add_exist_code` to add the corresponding type of node that meets the requirements to the panel.
-    - If there is no suitable node, use `add_new_code` with `code_type="bash"` or `code_type="python"` to create a new code node that meets the requirements.
-- For Bash and Python code nodes, determine the input bindings and deterministic output file names, then describe the required behavior in the action's `request`. Do not write code yourself. After the manager returns the generated node, inspect its code before adding downstream selectors or tools.
+    - If there is no suitable node, use `add_new_code` with `code_type="bash"`, `code_type="python"`, or `code_type="r"` to create a new code node that meets the requirements.
+- For Bash, Python, and R code nodes, determine the input bindings and deterministic output file names, then describe the required behavior in the action's `request`. Do not write code yourself. After the manager returns the generated node, inspect its code before adding downstream selectors or tools.
 
 """
 

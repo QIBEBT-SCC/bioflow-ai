@@ -14,7 +14,7 @@ from app.models.workflow import TaskInstance
 from app.schemas.react_flow import TaskNode
 from app.schemas.workflow_config import Status
 from app.tasks.archive_operation import compress_task, decompress_task
-from app.tasks.code import bash_task, python_task
+from app.tasks.code import bash_task, python_task, r_task
 from app.tasks.file_operation import (
     bind_param_task,
     collect_files_task,
@@ -580,27 +580,33 @@ class PythonCodeTaskHandler(BaseTaskHandler):
 
 
 @register_handler('code_R')
-class SimpleCodeTaskHandler(BaseTaskHandler):
-    """处理下游分析代码节点.
+class RCodeTaskHandler(BaseTaskHandler):
+    """R 单文件脚本执行任务处理器."""
 
-    这个处理器不创建 Celery 任务和 TaskInstance
-    只将代码信息添加到 context.downstream_files 中供后续使用
-    """
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_r'
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='code_R',
+            base_dir=output_dir,
+            status=Status.WAITING,
+        )
 
-    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> None:  # noqa: D102
-        pass
-
-    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> None:  # noqa: D102
-        pass
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Signature:  # noqa: D102
+        output_dir = f'{context.output_base}/{context.task_index}_r'
+        return r_task.s(
+            inputs=task_node.kwarg,
+            code=task_node.data.get('code', ''),
+            dependencies=task_node.data.get('dependencies', []),
+            output_dir=output_dir,
+        ).set(task_id=task_node.id)
 
     def handle(self, task_node: TaskNode, context: TaskContext) -> tuple[Optional[Signature], int]:
-        """不创建任务, 只记录下游代码信息."""
-        node_inputs = task_node.kwarg['input_files']
-        input_files = node_inputs if isinstance(node_inputs, list) else [node_inputs]
-
-        context.downstream_files.extend(input_files)  # pyrefly: ignore [bad-argument-type]
-
-        return None, context.task_index
+        """R 任务产生独立输出目录, 需要递增 task_index."""
+        celery_task, _ = super().handle(task_node, context)
+        return celery_task, context.task_index + 1
 
 
 @register_handler('downstream_summary')

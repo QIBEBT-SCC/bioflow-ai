@@ -24,8 +24,8 @@ def read_code_node(nodes: Sequence[BuildNode], node_id: str) -> dict[str, Any]:
     if node is None:
         message = f'Node "{node_id}" does not exist on the current panel.'
         raise CodeEditingError(message)
-    if node.type not in {CodeNodeType.BASH.value, CodeNodeType.PYTHON.value}:
-        message = f'Node "{node_id}" is not a Bash or Python CODE node.'
+    if node.type not in {CodeNodeType.BASH.value, CodeNodeType.PYTHON.value, CodeNodeType.R.value}:
+        message = f'Node "{node_id}" is not a Bash, Python, or R CODE node.'
         raise CodeEditingError(message)
 
     code = node.data.get('code')
@@ -55,8 +55,8 @@ def update_code_node(
     if node is None:
         message = f'Node "{node_id}" does not exist on the current panel.'
         raise CodeEditingError(message)
-    if node.type not in {CodeNodeType.BASH.value, CodeNodeType.PYTHON.value}:
-        message = f'Node "{node_id}" is not a Bash or Python CODE node.'
+    if node.type not in {CodeNodeType.BASH.value, CodeNodeType.PYTHON.value, CodeNodeType.R.value}:
+        message = f'Node "{node_id}" is not a Bash, Python, or R CODE node.'
         raise CodeEditingError(message)
 
     current_code = node.data.get('code')

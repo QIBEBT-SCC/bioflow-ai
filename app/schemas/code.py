@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-BASH_DEPENDENCIES_ERROR = 'Bash CODE definitions cannot declare Python dependencies'
+BASH_DEPENDENCIES_ERROR = 'Bash CODE definitions cannot declare runtime dependencies'
 
 
 class CodeNodeType(StrEnum):
@@ -11,6 +11,7 @@ class CodeNodeType(StrEnum):
 
     BASH = 'code_bash'
     PYTHON = 'code_python'
+    R = 'code_R'
 
 
 class CodeData(BaseModel):
@@ -26,7 +27,7 @@ class CodeData(BaseModel):
 
     @model_validator(mode='after')
     def validate_dependencies(self) -> 'CodeData':
-        """Allow runtime dependencies only for Python CODE definitions."""
+        """Allow runtime dependencies for containerized Python and R definitions."""
         if self.node_type is CodeNodeType.BASH and self.dependencies:
             raise ValueError(BASH_DEPENDENCIES_ERROR)
         return self
@@ -47,7 +48,7 @@ class CodeMetadataRequest(BaseModel):
 
     @model_validator(mode='after')
     def validate_dependencies(self) -> 'CodeMetadataRequest':
-        """Allow runtime dependencies only for Python CODE definitions."""
+        """Allow runtime dependencies for containerized Python and R definitions."""
         if self.node_type is CodeNodeType.BASH and self.dependencies:
             raise ValueError(BASH_DEPENDENCIES_ERROR)
         return self

@@ -84,7 +84,11 @@ async def update_code(session: Session, code_uid: str, data: CodeUpdate) -> Code
     code = code_crud.get(session, code_uid)
     if code is None:
         return None
-    if code.node_type == CodeNodeType.BASH.value and 'dependencies' in data.model_fields_set and data.dependencies:
+    if (
+        code.node_type == CodeNodeType.BASH.value
+        and 'dependencies' in data.model_fields_set
+        and data.dependencies
+    ):
         raise CodeCatalogValidationError(BASH_DEPENDENCIES_ERROR)
 
     vector_projection_changed = ('name' in data.model_fields_set and data.name != code.name) or (

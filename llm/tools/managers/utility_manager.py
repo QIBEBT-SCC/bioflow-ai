@@ -19,6 +19,7 @@ from llm.prebuild.code_node import (
     build_code_inputs,
     generate_bash_code,
     generate_python_code,
+    generate_r_code,
 )
 from llm.states import BuildEdge, BuildNode
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
@@ -52,7 +53,7 @@ class ViewSchema(BaseModel):
 class ReadCodeSchema(BaseModel):
     """Read complete source from an existing panel CODE node during workflow repair."""
 
-    node_id: str = Field(description='Current panel ID of an existing Bash or Python CODE node')
+    node_id: str = Field(description='Current panel ID of an existing Bash, Python, or R CODE node')
 
 
 class UpdateCodeSchema(BaseModel):
@@ -92,14 +93,14 @@ class AddExistCodeSchema(BaseModel):
 
 
 class AddNewCodeSchema(BaseModel):
-    """Generate and add a workflow-local Bash or Python CODE node."""
+    """Generate and add a workflow-local Bash, Python, or R CODE node."""
 
-    code_type: Literal['bash', 'python'] = Field(description='CODE implementation language')
+    code_type: Literal['bash', 'python', 'r'] = Field(description='CODE implementation language')
     request: str = Field(
         min_length=1,
         description=(
             'Describe the exact deterministic transformation the CODE node must perform, including expected output '
-            'file names and, for Python, any required libraries. Do not write the code; a dedicated coding model '
+            'file names and, for Python or R, any required libraries. Do not write the code; a dedicated coding model '
             'generates it.'
         ),
     )
@@ -496,8 +497,16 @@ def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
                 }
             )
 
-        language = 'bash' if node_type is CodeNodeType.BASH else 'python'
-        skill_name = 'using-bash-node' if node_type is CodeNodeType.BASH else 'using-python-node'
+        language = {
+            CodeNodeType.BASH: 'bash',
+            CodeNodeType.PYTHON: 'python',
+            CodeNodeType.R: 'r',
+        }[node_type]
+        skill_name = {
+            CodeNodeType.BASH: 'using-bash-node',
+            CodeNodeType.PYTHON: 'using-python-node',
+            CodeNodeType.R: 'using-r-node',
+        }[node_type]
         code_content = code.code if code.code.endswith('\n') else f'{code.code}\n'
         content = (
             f'Code:\n\n'
@@ -647,12 +656,16 @@ def _add_existing_code(
         dependencies = list(code.dependencies)
 
     node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
-    code_name = 'Bash Code' if node_type is CodeNodeType.BASH else 'Python Code'
+    code_name = {
+        CodeNodeType.BASH: 'Bash Code',
+        CodeNodeType.PYTHON: 'Python Code',
+        CodeNodeType.R: 'R Code',
+    }[node_type]
     node_data: dict[str, Any] = {
         'code': code_content,
         'description': code_description,
     }
-    if node_type is CodeNodeType.PYTHON:
+    if node_type in {CodeNodeType.PYTHON, CodeNodeType.R}:
         node_data['dependencies'] = dependencies
 
     new_node = BuildNode(
@@ -683,7 +696,7 @@ def _add_existing_code(
 
 
 async def _add_new_code(
-    code_type: Literal['bash', 'python'],
+    code_type: Literal['bash', 'python', 'r'],
     request: str,
     input_edges: list[BuildEdge],
     runtime: ToolRuntime[ProjectContext],
@@ -691,7 +704,9 @@ async def _add_new_code(
     """Generate and add a CODE node in the requested language."""
     if code_type == 'bash':
         return await _add_generated_bash_code(request, input_edges, runtime)
-    return await _add_generated_python_code(request, input_edges, runtime)
+    if code_type == 'python':
+        return await _add_generated_python_code(request, input_edges, runtime)
+    return await _add_generated_r_code(request, input_edges, runtime)
 
 
 async def _add_generated_bash_code(
@@ -745,7 +760,8 @@ async def _add_generated_bash_code(
                     ToolMessage(
                         content=(
                             'This request is not the responsibility of the Bash code node. '
-                            'Read the relevant documentation and use a Python code node or tool node to implement the requirements.'
+                            'Read the relevant documentation and use a Python or R code node, or a tool node, '
+                            'to implement the requirements.'
                         ),
                         tool_call_id=runtime.tool_call_id,
                     )
@@ -853,6 +869,82 @@ async def _add_generated_python_code(
             'messages': [
                 ToolMessage(
                     content=f'add new Python code node:\n{node_formatter(new_node)}',
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+async def _add_generated_r_code(
+    request: str,
+    input_edges: list[BuildEdge],
+    runtime: ToolRuntime[ProjectContext],
+) -> Command:
+    """Generate and add one workflow-local R CODE node."""
+    exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
+    input_handles = [Handle(name='input_files', description='The files required by this R code')]
+
+    if error := check_code_node_edges(input_edges, exist_nodes):
+        return Command(update={'messages': [ToolMessage(content=error, tool_call_id=runtime.tool_call_id)]})
+    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
+        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
+
+    try:
+        code_inputs = build_code_inputs(input_edges, exist_nodes, runtime.state.get('exist_edges', []))
+    except Exception as error:
+        logger.exception('Unable to build R code-node input contract')
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content=f'Error: Invalid R code inputs: {error}',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    try:
+        generated = await generate_r_code(request, code_inputs, runtime.context.user_id)
+    except Exception as error:
+        logger.exception('R code-node generation failed')
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content=f'Error: R code generation failed: {error}',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+
+    node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
+    new_node = BuildNode(
+        id=node_id,
+        name='R Code',
+        type=CodeNodeType.R.value,
+        input_handles=input_handles,
+        output_handles=[Handle(name='output_folder', description='The files generated by this R code')],
+        data={
+            'code': generated.code,
+            'description': request,
+            'dependencies': generated.dependencies,
+        },
+    )
+
+    for edge in input_edges:
+        edge.target_node = node_id
+
+    return Command(
+        update={
+            'exist_nodes': [new_node],
+            'exist_edges': input_edges,
+            'next_node_index': next_node_index,
+            'messages': [
+                ToolMessage(
+                    content=f'add new R code node:\n{node_formatter(new_node)}',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],

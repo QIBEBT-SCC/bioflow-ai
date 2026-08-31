@@ -86,8 +86,8 @@ def _registered_node(node_id: str, node_type: str, data: dict) -> BuildNode | No
 
 
 def _fixed_node(node_id: str, node_type: str, data: dict) -> BuildNode | None:
-    if node_type in {'code_bash', 'code_python'}:
-        language = 'Bash' if node_type == 'code_bash' else 'Python'
+    if node_type in {'code_bash', 'code_python', 'code_R'}:
+        language = {'code_bash': 'Bash', 'code_python': 'Python', 'code_R': 'R'}[node_type]
         return BuildNode(
             id=node_id,
             name=f'{language} Code',

@@ -18,6 +18,11 @@ from app.utils.container import ContainerMount, run_command
 from script.worker import celery_app
 
 PYTHON_CODE_IMAGE = ImageConfig.from_str('ghcr.io/astral-sh/uv:python3.13-bookworm-slim')
+R_CODE_IMAGE = ImageConfig.from_str('r-base:4.4.3')
+R_CODE_CRAN_REPOSITORY = 'https://packagemanager.posit.co/cran/2025-02-28'
+R_CODE_MAX_DEPENDENCIES = 32
+R_CODE_MAX_DEPENDENCY_LENGTH = 100
+R_PACKAGE_NAME_PATTERN = re.compile(r'^[A-Za-z](?:[A-Za-z0-9.]*[A-Za-z0-9])?$')
 PYTHON_CODE_REQUIRES_PYTHON = '==3.13.*'
 PYTHON_CODE_CLI_DEPENDENCY = 'click>=8.1,<9'
 PYTHON_CODE_MAX_DEPENDENCIES = 32
@@ -94,8 +99,65 @@ def render_python_script(code: str, dependencies: Any) -> str:
     return f'# /// script\n{commented_metadata}\n# ///\n\n{code.rstrip()}\n'
 
 
-def _resolve_python_inputs(
+def normalize_r_dependencies(dependencies: Any) -> list[str]:
+    """Normalize R dependency data into distinct CRAN package names."""
+    if dependencies is None:
+        return []
+    if isinstance(dependencies, str):
+        raw_dependencies = dependencies.splitlines()
+    elif isinstance(dependencies, list):
+        raw_dependencies = dependencies
+    else:
+        msg = 'R code dependencies must be a list of package names or a newline-separated string'
+        raise TypeError(msg)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_dependency in raw_dependencies:
+        if not isinstance(raw_dependency, str):
+            msg = 'Each R code dependency must be a string'
+            raise TypeError(msg)
+        dependency = raw_dependency.strip()
+        if not dependency:
+            continue
+        if len(dependency) > R_CODE_MAX_DEPENDENCY_LENGTH:
+            msg = f'R code dependencies must not exceed {R_CODE_MAX_DEPENDENCY_LENGTH} characters each'
+            raise ValueError(msg)
+        if R_PACKAGE_NAME_PATTERN.fullmatch(dependency) is None:
+            msg = f'R code dependency must be a CRAN package name: {dependency}'
+            raise ValueError(msg)
+        if dependency not in seen:
+            normalized.append(dependency)
+            seen.add(dependency)
+
+    if len(normalized) > R_CODE_MAX_DEPENDENCIES:
+        msg = f'R code nodes support at most {R_CODE_MAX_DEPENDENCIES} direct dependencies'
+        raise ValueError(msg)
+    return normalized
+
+
+def render_r_dependency_script(dependencies: Any) -> str:
+    """Render a backend-controlled installer for R 4.4.3-compatible CRAN packages."""
+    packages = normalize_r_dependencies(dependencies)
+    package_vector = ', '.join(json.dumps(package) for package in packages)
+    return (
+        'library_dir <- Sys.getenv("R_LIBS_USER")\n'
+        'if (!nzchar(library_dir)) stop("R_LIBS_USER is not configured")\n'
+        'dir.create(library_dir, recursive = TRUE, showWarnings = FALSE)\n'
+        '.libPaths(c(library_dir, .libPaths()))\n'
+        f'options(repos = c(CRAN = "{R_CODE_CRAN_REPOSITORY}"))\n'
+        f'packages <- c({package_vector})\n'
+        'missing <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]\n'
+        'if (length(missing)) install.packages(missing, lib = library_dir, dependencies = NA)\n'
+        'unavailable <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]\n'
+        'if (length(unavailable)) stop(sprintf("Failed to install CRAN packages: %s", '
+        'paste(unavailable, collapse = ", ")))\n'
+    )
+
+
+def _resolve_container_code_inputs(
     inputs: dict[str, TaskInput | list[TaskInput]],
+    language: str,
 ) -> tuple[list[str], list[ContainerMount], list[str | None]]:
     """Resolve bind_param outputs into container arguments and read-only mounts."""
     raw_inputs = inputs.get('input_files', [])
@@ -110,18 +172,18 @@ def _resolve_python_inputs(
         json_str, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
         bound_input = json.loads(json_str)
         if not isinstance(bound_input, dict) or len(bound_input) != 1:
-            msg = 'Each Python code input must come from one bind_param node'
+            msg = f'Each {language} code input must come from one bind_param node'
             raise ValueError(msg)
 
         parameter, file_path_value = next(iter(bound_input.items()))
         if not isinstance(parameter, str) or not parameter.startswith('-'):
-            msg = f'Python code input parameter must start with "-": {parameter}'
+            msg = f'{language} code input parameter must start with "-": {parameter}'
             raise ValueError(msg)
         if parameter in seen_parameters:
-            msg = f'Duplicate Python code input parameter: {parameter}'
+            msg = f'Duplicate {language} code input parameter: {parameter}'
             raise ValueError(msg)
         if not isinstance(file_path_value, str):
-            msg = f'Python code input {parameter} must resolve to a file or directory path'
+            msg = f'{language} code input {parameter} must resolve to a file or directory path'
             raise TypeError(msg)
 
         host_path = Path(file_path_value).absolute()
@@ -216,7 +278,7 @@ def python_task(
     output_path = Path(output_dir).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
-    arguments, input_mounts, sample_names = _resolve_python_inputs(inputs)
+    arguments, input_mounts, sample_names = _resolve_container_code_inputs(inputs, 'Python')
     script_content = render_python_script(code, dependencies)
 
     with tempfile.TemporaryDirectory(prefix='bioflow-python-code-') as staging_dir:
@@ -242,6 +304,74 @@ def python_task(
 
     if status != 0:
         err_msg = f'Python script failed (exit {status}):\n{console_output}'
+        raise RuntimeError(err_msg)
+
+    return ToolOutput(
+        result={'output_folder': output_path},
+        log=log_path,
+        sample_name=get_prefix(sample_names),
+    )
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def r_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput | list[TaskInput]],
+    code: str,
+    dependencies: list[str] | str | None,
+    output_dir: str,
+) -> ToolOutput:
+    """Run a single-file R script in an isolated R 4.4.3 container."""
+    if not code.strip():
+        msg = 'R code must not be empty'
+        raise ValueError(msg)
+    if '\x00' in code:
+        msg = 'R code must not contain NUL bytes'
+        raise ValueError(msg)
+
+    output_path = Path(output_dir).absolute()
+    output_path.mkdir(parents=True, exist_ok=True)
+    arguments, input_mounts, sample_names = _resolve_container_code_inputs(inputs, 'R')
+    normalized_dependencies = normalize_r_dependencies(dependencies)
+
+    with tempfile.TemporaryDirectory(prefix='bioflow-r-code-') as staging_dir:
+        script_path = Path(staging_dir) / 'main.R'
+        script_path.write_text(f'{code.rstrip()}\n', encoding='utf-8')
+        if normalized_dependencies:
+            dependency_script = Path(staging_dir) / 'install_dependencies.R'
+            dependency_script.write_text(render_r_dependency_script(normalized_dependencies), encoding='utf-8')
+
+        mounts = [
+            ContainerMount(source=staging_dir, target='/app', read_only=True),
+            *input_mounts,
+            ContainerMount(source=str(output_path), target='/data/output', read_only=False),
+        ]
+        run_script_command = shlex.join(['Rscript', '--vanilla', '/app/main.R', *arguments])
+        if normalized_dependencies:
+            library_dir = '/data/r-library'
+            install_command = shlex.join(['Rscript', '--vanilla', '/app/install_dependencies.R'])
+            command = (
+                f'mkdir -p {shlex.quote(library_dir)} && '
+                f'export R_LIBS_USER={shlex.quote(library_dir)} && '
+                f'{install_command} && {run_script_command}'
+            )
+        else:
+            command = run_script_command
+        logger.debug(f'r_task: {command}')
+        status, console_output = run_command(
+            R_CODE_IMAGE,
+            mounts,
+            command,
+            workdir='/data/output',
+            ensure_ascii=False,
+        )
+
+    log_path = output_path / '11_run.log'
+    log_path.write_text(console_output, encoding='utf-8')
+    if status != 0:
+        err_msg = f'R script failed (exit {status}):\n{console_output}'
         raise RuntimeError(err_msg)
 
     return ToolOutput(
