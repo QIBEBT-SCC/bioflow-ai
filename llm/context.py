@@ -12,6 +12,7 @@ class BaseContext(BaseModel):
 
 class CreateToolContext(BaseContext):
     test_run_id: str
+    project_id: int | None = None
 
     auto_save: bool = True
     skip_search: bool = False
@@ -21,12 +22,14 @@ class CreateToolContext(BaseContext):
 
 class TestRunContext(BaseContext):
     test_run_id: str
+    project_id: int | None = None
 
     save_message: bool = True
 
 
 class ToolGeneratorContext(BaseContext):
     test_run_id: str
+    project_id: int | None = None
 
     save_message: bool = True
 

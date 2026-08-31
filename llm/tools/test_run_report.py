@@ -11,6 +11,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
+from app.utils.container.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
 from llm.context import TestRunContext
 
 
@@ -38,11 +39,41 @@ def resolve_test_run_path(container_path: str, test_run_id: str) -> Path:
     return host_path
 
 
+def resolve_test_run_input_path(container_path: str, test_run_id: str, project_id: int | None = None) -> Path:
+    """Resolve a test-run input from output storage or a managed project mount."""
+    path = PurePosixPath(container_path)
+    if not path.is_absolute() or '..' in path.parts:
+        err_msg = f'Path must be absolute and cannot contain parent traversal: {container_path}'
+        raise ValueError(err_msg)
+
+    try:
+        path.relative_to('/data/output')
+    except ValueError:
+        pass
+    else:
+        return resolve_test_run_path(container_path, test_run_id)
+
+    if project_id is not None and any(_is_same_or_child(path, PurePosixPath(root)) for root in PROJECT_DATA_ROOTS):
+        return build_project_data_mount_plan(project_id).resolve_input_path(container_path)
+
+    allowed_roots = ', '.join(('/data/output', *PROJECT_DATA_ROOTS))
+    err_msg = f'Input path must be located under one of the managed roots ({allowed_roots}): {container_path}'
+    raise ValueError(err_msg)
+
+
+def _is_same_or_child(path: PurePosixPath, root: PurePosixPath) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 class TestRunFile(BaseModel):
     """A concrete input or output observed during a successful test run."""
 
     name: str = Field(description='A short, unique logical name, such as r1, reference, result, or log.')
-    path: str = Field(description='Absolute path inside the container, under /data/output.')
+    path: str = Field(description='Absolute path inside the container, under a managed test-run input root.')
     file_type: Literal['file', 'folder'] = Field(description='Whether the path is a regular file or a directory.')
     description: str = Field(description='A concise English description of the file or directory.')
 
@@ -94,10 +125,19 @@ class TestRunReport(BaseModel):
         return '\n\n'.join(sections)
 
 
-def _validate_report_file(file: TestRunFile, test_run_id: str, label: str) -> tuple[Path | None, list[str]]:
+def _validate_report_file(
+    file: TestRunFile,
+    test_run_id: str,
+    label: str,
+    project_id: int | None,
+) -> tuple[Path | None, list[str]]:
     errors: list[str] = []
     try:
-        host_path = resolve_test_run_path(file.path, test_run_id)
+        host_path = (
+            resolve_test_run_input_path(file.path, test_run_id, project_id)
+            if label == 'Input file'
+            else resolve_test_run_path(file.path, test_run_id)
+        )
     except ValueError as error:
         return None, [f'{label} `{file.name}`: {error}']
 
@@ -114,7 +154,7 @@ def _validate_report_file(file: TestRunFile, test_run_id: str, label: str) -> tu
     return host_path, errors
 
 
-def validate_test_run_report(report: TestRunReport, test_run_id: str) -> list[str]:
+def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id: int | None = None) -> list[str]:
     """Return deterministic validation errors for a structured test-run report."""
     errors: list[str] = []
     try:
@@ -156,7 +196,7 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str) -> list[st
 
     bookkeeping_files = {'00_running_command.txt', 'task_log.txt'}
     for label, file in all_files:
-        host_path, file_errors = _validate_report_file(file, test_run_id, label)
+        host_path, file_errors = _validate_report_file(file, test_run_id, label, project_id)
         errors.extend(file_errors)
         if label == 'Output file' and PurePosixPath(file.path).name in bookkeeping_files:
             errors.append(f'Output file `{file.name}` must not include bookkeeping file {file.path}.')
@@ -173,12 +213,17 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str) -> list[st
 async def write_test_run_report(report: TestRunReport, runtime: ToolRuntime[TestRunContext]) -> Command:
     """Submit the final structured report after the tool command has run successfully.
 
-    Every path must be an absolute container path under ``/data/output``. Input files must be the concrete files or
-    directories consumed by ``running_command``. Output files must include every result produced by that command,
-    including the execution log. Do not include bookkeeping files such as ``00_running_command.txt`` or
-    ``task_log.txt``.
+    Every path must be an absolute managed container path. Inputs may be under ``/data/output`` or an available
+    fixed project-data mount. Working and output paths must remain under ``/data/output``. Input files must be the
+    concrete files or directories consumed by ``running_command``. Output files must include every result produced
+    by that command, including the execution log. Do not include bookkeeping files such as
+    ``00_running_command.txt`` or ``task_log.txt``.
     """
-    validation_errors = validate_test_run_report(report, runtime.context.test_run_id)
+    validation_errors = validate_test_run_report(
+        report,
+        runtime.context.test_run_id,
+        runtime.context.project_id,
+    )
     if validation_errors:
         error_list = '\n- '.join(validation_errors)
         return Command(

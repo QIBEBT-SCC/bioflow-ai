@@ -214,6 +214,7 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
         context = CreateToolContext(
             user_id=runtime.context.user_id,
             language=runtime.context.language,
+            project_id=runtime.context.project_id,
             auto_save=True,
             skip_search=True,
             test_run_id=run_id,

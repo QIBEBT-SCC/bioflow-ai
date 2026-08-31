@@ -242,6 +242,7 @@ class CreateToolAgent:
                 user_id=runtime.context.user_id,
                 language=runtime.context.language,
                 test_run_id=runtime.context.test_run_id,
+                project_id=runtime.context.project_id,
                 save_message=runtime.context.save_message,
                 delegate_human_requests=runtime.context.delegate_human_requests,
             ),
@@ -290,6 +291,7 @@ class CreateToolAgent:
                 user_id=runtime.context.user_id,
                 language=runtime.context.language,
                 test_run_id=runtime.context.test_run_id,
+                project_id=runtime.context.project_id,
                 save_message=runtime.context.save_message,
             ),
         )

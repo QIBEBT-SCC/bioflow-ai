@@ -1,4 +1,5 @@
 import re
+from pathlib import PurePosixPath
 from typing import Any
 
 from anyio import Path
@@ -13,6 +14,7 @@ from app.core.session import engine
 from app.schemas.tool_config import ImageConfig
 from app.services import tool_catalog
 from app.utils.container import ContainerMount, run_command
+from app.utils.container.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
 from llm.context import TestRunContext
 
 MAX_CHAR = 3000
@@ -89,9 +91,10 @@ async def _validate_extra_mounts(
     if mounts is None:
         return [], None
 
-    default_mounts = {'/data/testdata', '/data/output'}
+    managed_mounts = ('/data/testdata', '/data/output', *PROJECT_DATA_ROOTS)
     for mount in mounts:
-        if mount.target in default_mounts:
+        target = PurePosixPath(mount.target)
+        if any(_is_same_or_child(target, PurePosixPath(root)) for root in managed_mounts):
             return [], _blocked_command(
                 f'The container path `{mount.target}` is already managed and mounted by default, '
                 'so manual configuration is not required. '
@@ -106,6 +109,14 @@ async def _validate_extra_mounts(
             )
 
     return mounts, None
+
+
+def _is_same_or_child(path: PurePosixPath, root: PurePosixPath) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def _blocked_command(content: str, tool_call_id: str | None) -> Command:
@@ -158,6 +169,9 @@ async def advance_run_command_tool(
     await output_path.mkdir(parents=True, exist_ok=True)
 
     testdata_path = await (await Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser()).resolve()
+    project_mounts = []
+    if runtime.context.project_id is not None:
+        project_mounts = list(build_project_data_mount_plan(runtime.context.project_id).mounts)
 
     extra_mounts, invalid_mount = await _validate_extra_mounts(mounts, runtime.tool_call_id)
     if invalid_mount is not None:
@@ -166,6 +180,7 @@ async def advance_run_command_tool(
     all_mounts = [
         ContainerMount(target='/data/testdata', source=str(testdata_path), read_only=True),
         ContainerMount(target='/data/output', source=str(output_path), read_only=False),
+        *project_mounts,
         *extra_mounts,
     ]
 

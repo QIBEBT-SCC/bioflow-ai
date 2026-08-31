@@ -13,6 +13,7 @@ from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine
 from app.schemas.workflow_config import ToolOutput
 from app.services.output_validation import all_output_paths_exist, missing_output_paths
 from app.utils.container import ContainerMount, run_command, run_command_background
+from app.utils.container.mount_paths import resolve_mount_path
 from app.utils.input_format import PartialFormatter, build_command_template
 
 MOUNTLIST_PREFIX = 'mountlist:'
@@ -87,43 +88,6 @@ def execute_image_command(
     return ImageCommandResult(exit_code=exit_code, output=output)
 
 
-def _resolve_mount_path(
-    mount_paths: dict[str, Path],
-    param_inputs: dict[str, str],
-    conflicted_paths: set[str],
-    container_mount_path: str,
-    host_mount_path: Path,
-) -> str:
-    """Assign a unique container path when host directory mounts conflict."""
-    abs_host = host_mount_path.absolute()
-    existing = mount_paths.get(container_mount_path)
-
-    if existing is None and container_mount_path not in conflicted_paths:
-        return container_mount_path
-
-    if existing == abs_host:
-        return container_mount_path
-
-    if existing is not None and container_mount_path not in conflicted_paths:
-        conflicted_paths.add(container_mount_path)
-        old_host = mount_paths.pop(container_mount_path)
-        old_sub = f'{container_mount_path}/{old_host.name}'
-        mount_paths[old_sub] = old_host
-        for key, value in param_inputs.items():
-            if value == container_mount_path or value.startswith(container_mount_path + '/'):
-                relative = value[len(container_mount_path) :]
-                param_inputs[key] = old_sub + relative
-
-    candidate = f'{container_mount_path}/{host_mount_path.name}'
-    counter = 1
-    while candidate in mount_paths and mount_paths[candidate] != abs_host:
-        candidate = f'{container_mount_path}/{host_mount_path.name}_{counter}'
-        counter += 1
-
-    logger.warning(f'挂载冲突: {container_mount_path} 已分裂, 将 {abs_host} 映射到 {candidate}')
-    return candidate
-
-
 def _load_mountlist_manifest(manifest_ref: str) -> dict[str, Any]:
     """Load a mount-list manifest produced by a directory or artifact collection node."""
     manifest_path = Path(manifest_ref.removeprefix(MOUNTLIST_PREFIX)).absolute()
@@ -170,7 +134,7 @@ def _add_mountlist_mounts(
     host_root = Path(manifest['root_dir']).absolute()
     host_root.mkdir(parents=True, exist_ok=True)
 
-    container_root = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_root)
+    container_root = resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_root)
     if container_root not in mount_paths:
         mount_paths[container_root] = host_root
 
@@ -249,7 +213,7 @@ def build_tool_mounts(
 
         if host_file_path.is_dir():
             host_mount_path = host_file_path
-            actual = _resolve_mount_path(
+            actual = resolve_mount_path(
                 mount_paths,
                 param_inputs,
                 conflicted_paths,
@@ -259,7 +223,7 @@ def build_tool_mounts(
             container_file_path = actual
         else:
             host_mount_path = host_file_path.parent
-            actual = _resolve_mount_path(
+            actual = resolve_mount_path(
                 mount_paths,
                 param_inputs,
                 conflicted_paths,
@@ -285,7 +249,7 @@ def build_tool_mounts(
             raise ValueError(err_msg) from error
 
         host_mount_path = Path(host_output_dir)
-        actual = _resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
+        actual = resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
         container_file_path = f'{actual}/{host_file_path.name}'
         if actual not in mount_paths:
             mount_paths[actual] = host_mount_path.absolute()

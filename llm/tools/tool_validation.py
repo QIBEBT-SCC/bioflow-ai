@@ -20,7 +20,7 @@ from app.services.tool_execution import (
 )
 from app.utils.container import ContainerMount
 from llm.context import ToolGeneratorContext
-from llm.tools.test_run_report import TestRunReport, resolve_test_run_path
+from llm.tools.test_run_report import TestRunReport, resolve_test_run_input_path, resolve_test_run_path
 
 REQUIRED_CONFIG_FIELDS = (
     'image',
@@ -56,6 +56,7 @@ def _build_validation_inputs(
     report: TestRunReport,
     file_mounts: list[FileMount],
     test_run_id: str,
+    project_id: int | None,
 ) -> dict[str, ResolvedToolInput]:
     """确保输入报告中提到的每一个输入文件都定义了."""
     report_inputs = {file.name: file for file in report.input_files}
@@ -75,7 +76,7 @@ def _build_validation_inputs(
         raise ValueError(err_msg)
 
     return {
-        name: ResolvedToolInput(value=str(resolve_test_run_path(report_file.path, test_run_id)))
+        name: ResolvedToolInput(value=str(resolve_test_run_input_path(report_file.path, test_run_id, project_id)))
         for name, report_file in report_inputs.items()
     }
 
@@ -160,7 +161,12 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
     try:
         report = TestRunReport.model_validate(runtime.state['test_run_report'])
         file_mounts = runtime.state['file_mounts']
-        inputs = _build_validation_inputs(report, file_mounts, runtime.context.test_run_id)
+        inputs = _build_validation_inputs(
+            report,
+            file_mounts,
+            runtime.context.test_run_id,
+            runtime.context.project_id,
+        )
         config = DockerToolExecutionConfig(
             image=ImageConfig.model_validate(runtime.state['image']),
             command_template=runtime.state['command_template'],
