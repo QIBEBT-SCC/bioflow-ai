@@ -87,15 +87,14 @@ def _mark_project_interrupted(project_id: int, interrupt_value: Any) -> str:
     return question
 
 
-def _prepare_workflow_resume_input(state: Any, resume_message: str | None) -> Any:
+def _prepare_workflow_resume_input(state: Any, resume: str) -> Any:
     """Build the LangGraph input required to continue an incomplete checkpoint."""
     from langgraph.types import Command
 
     interrupts = state.interrupts
     if interrupts:
-        resume_value = resume_message if resume_message is not None else True
         logger.info(f'Resuming workflow builder from {len(interrupts)} interrupt(s).')
-        return Command(resume=resume_value)
+        return Command(resume=resume)
 
     if state.next:
         logger.info(f'Resuming incomplete workflow builder checkpoint at: {", ".join(state.next)}.')
@@ -103,7 +102,7 @@ def _prepare_workflow_resume_input(state: Any, resume_message: str | None) -> An
 
     message = (
         'The workflow builder checkpoint has no pending work to resume. '
-        'Run without --resume/--resume-message to start normally, or use --clean-checkpoint to rebuild it.'
+        'Run without --resume to start normally, or use --clean-checkpoint to rebuild it.'
     )
     raise WorkflowResumeUnavailableError(message)
 
@@ -112,8 +111,7 @@ def _prepare_workflow_stream_input(
     state: Any,
     agent_input: dict[str, Any],
     *,
-    resume: bool,
-    resume_message: str | None,
+    resume: str | None,
 ) -> Any:
     """Choose a safe input for a new workflow-builder stream.
 
@@ -122,14 +120,14 @@ def _prepare_workflow_stream_input(
     matching ToolMessage and OpenAI rejects the resulting history. Resume ordinary pending
     graph work in place, while requiring an explicit value for human interrupts.
     """
-    if resume or resume_message is not None:
-        return _prepare_workflow_resume_input(state, resume_message)
+    if resume is not None:
+        return _prepare_workflow_resume_input(state, resume)
 
     if state.interrupts:
         message = (
             f'The workflow builder checkpoint is paused at {len(state.interrupts)} interrupt(s) and cannot accept '
-            'new input safely. Use --resume to approve the pending interrupt, --resume-message to respond to it, '
-            'or --clean-checkpoint to discard the checkpoint and rebuild the workflow.'
+            'new input safely. Use --resume MESSAGE to respond to it, or --clean-checkpoint to discard the '
+            'checkpoint and rebuild the workflow.'
         )
         raise WorkflowResumeRequiredError(message)
 
@@ -565,8 +563,7 @@ async def _generate_workflow(
     checkpoint: Any,
     *,
     reset_checkpoint: bool = False,
-    resume: bool = False,
-    resume_message: str | None = None,
+    resume: str | None = None,
 ) -> WorkflowGenerationResult:
     import rich
     from langchain_core.runnables import RunnableConfig
@@ -606,7 +603,6 @@ async def _generate_workflow(
         saved_state,
         agent_input,
         resume=resume,
-        resume_message=resume_message,
     )
 
     state = None
@@ -727,8 +723,7 @@ async def wf_eval(
     drop_old: bool,
     clean_checkpoint: bool = False,
     clean_all: bool = False,
-    resume: bool = False,
-    resume_message: str | None = None,
+    resume: str | None = None,
     db_index: int | None = None,
     langsmith_tracing: bool = False,
 ) -> None:
@@ -741,8 +736,8 @@ async def wf_eval(
     if db_index is not None:
         logger.warning('--db-index is ignored because evaluate records now use a single SQLite database.')
 
-    if (resume or resume_message is not None) and (drop_old or clean_checkpoint or clean_all):
-        message = '--resume/--resume-message cannot be combined with checkpoint cleanup options.'
+    if resume is not None and (drop_old or clean_checkpoint or clean_all):
+        message = '--resume cannot be combined with checkpoint cleanup options.'
         raise click.UsageError(message)
 
     thread_id = _resolve_thread_id(task_file, thread_id)
@@ -798,7 +793,6 @@ async def wf_eval(
                 checkpoint,
                 reset_checkpoint=reset_checkpoint,
                 resume=resume,
-                resume_message=resume_message,
             )
         _send_run_task(con, thread_id, project_id, workflow_result, '')
     finally:
@@ -838,11 +832,11 @@ def cli() -> None:
 )
 @click.option(
     '--resume',
-    is_flag=True,
-    default=False,
-    help='Continue an incomplete workflow builder checkpoint and approve any pending interrupt.',
+    type=str,
+    default=None,
+    metavar='MESSAGE',
+    help='Continue the workflow builder checkpoint and respond to any pending interrupt with MESSAGE.',
 )
-@click.option('--resume-message', type=str, default=None, help='Continue a pending interrupt with this response.')
 def wf_cmd(
     task_file: str,
     paper_file: str | None,
@@ -852,8 +846,7 @@ def wf_cmd(
     clean_checkpoint: bool,  # noqa: FBT001
     clean_all: bool,  # noqa: FBT001
     langsmith_tracing: bool,  # noqa: FBT001
-    resume: bool,  # noqa: FBT001
-    resume_message: str | None,
+    resume: str | None,
 ) -> None:
     """Run the workflow design evaluation on TASK_FILE."""
     try:
@@ -866,7 +859,6 @@ def wf_cmd(
                 clean_checkpoint=clean_checkpoint,
                 clean_all=clean_all,
                 resume=resume,
-                resume_message=resume_message,
                 db_index=db_index,
                 langsmith_tracing=langsmith_tracing,
             )
