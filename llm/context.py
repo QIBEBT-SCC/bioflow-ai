@@ -7,6 +7,7 @@ class BaseContext(BaseModel):
     user_id: int
     language: str | None = None
     verbose: bool = False
+    delegate_human_requests: bool = False
 
 
 class CreateToolContext(BaseContext):

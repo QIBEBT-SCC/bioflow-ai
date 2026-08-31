@@ -45,6 +45,7 @@ from llm.tools.database import (
 from llm.tools.test_run_report import TestRunReport
 from llm.utils.formatters import handle_formatter, search_nodes_formatter
 from llm.utils.middleware import TokenStatisticMiddleware
+from llm.utils.tool_creation_routes import route_after_image_selection, route_after_tool_report
 from llm.utils.uid_mapper import BidirectionalMapper
 from llm.vectorstores import MilvusVectorStore
 
@@ -124,7 +125,7 @@ class CreateToolAgent:
         return zh if language == 'zh' else en
 
     @staticmethod
-    async def select_image_node(state: CreateToolState) -> dict[str, Any]:
+    async def select_image_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """首先搜索得到此工具的对应镜像."""
         if state.get('image_uid'):
             # 我们认为数据库中的镜像信息就是完全的
@@ -140,7 +141,20 @@ class CreateToolAgent:
             writer({'info': 'Searching for docker image...'})
 
             search_input = {'messages': state['messages']}
-            response = await search_image_agent.ainvoke(search_input)
+            response = await search_image_agent.ainvoke(
+                search_input,
+                context=BaseContext(
+                    user_id=runtime.context.user_id,
+                    language=runtime.context.language,
+                    delegate_human_requests=runtime.context.delegate_human_requests,
+                ),
+            )
+
+            if response.get('return_to_parent'):
+                return {
+                    'return_to_parent': True,
+                    'parent_request': response['parent_request'],
+                }
 
             logger.success(f'Select image {response["image"]}')
             return {
@@ -229,8 +243,14 @@ class CreateToolAgent:
                 language=runtime.context.language,
                 test_run_id=runtime.context.test_run_id,
                 save_message=runtime.context.save_message,
+                delegate_human_requests=runtime.context.delegate_human_requests,
             ),
         )
+        if response.get('return_to_parent'):
+            return {
+                'return_to_parent': True,
+                'parent_request': response['parent_request'],
+            }
         structured_report = TestRunReport.model_validate(response['test_run_report'])
 
         return {
@@ -417,12 +437,9 @@ class CreateToolAgent:
     def whether_local_search(
         state: CreateToolState,
         runtime: Runtime[CreateToolContext],
-    ) -> Literal['search_exist_tool', 'get_report']:
+    ) -> Literal['search_exist_tool', 'get_report', '__end__']:
         """如果是以智能体模式运行, 需要检查冗余."""
-        if runtime.context.skip_search:
-            return 'get_report'
-
-        return 'search_exist_tool'
+        return route_after_image_selection(state, skip_search=runtime.context.skip_search)
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, *, visualize: bool = False) -> CompiledStateGraph:
         """Create Tool Agent."""
@@ -443,9 +460,7 @@ class CreateToolAgent:
 
         graph.set_entry_point('select_image')
         graph.add_conditional_edges('select_image', self.whether_local_search)
-        graph.add_edge('get_report', 'choose_group')
-        graph.add_edge('get_report', 'generate_tool_config')
-        graph.add_edge('get_report', 'process_help_doc')
+        graph.add_conditional_edges('get_report', route_after_tool_report)
         graph.add_edge(['choose_group', 'generate_tool_config', 'process_help_doc'], 'save_tool')
         graph.add_edge('save_tool', END)
 

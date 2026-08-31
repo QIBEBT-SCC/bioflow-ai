@@ -217,6 +217,7 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
             auto_save=True,
             skip_search=True,
             test_run_id=run_id,
+            delegate_human_requests=True,
         )
         try:
             # pyrefly: ignore [no-matching-overload]
@@ -224,6 +225,9 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
         except MaxRetriesError:
             logger.warning('Tool node creation exceeded the validation retry limit: {}', name)
             return _tool_creation_failed_command(name, request, runtime)
+
+    if response.get('return_to_parent'):
+        return _tool_creation_handoff_command(name, response['parent_request'], runtime)
 
     new_mapper = response['id_mapper']
     exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
@@ -266,6 +270,29 @@ def _tool_creation_failed_command(name: str, request: str, runtime: ToolRuntime[
                     content=(
                         'TOOL_NODE_CREATION_FAILED (non-fatal)\n'
                         f'{warning}\n'
+                    ),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+def _tool_creation_handoff_command(
+    name: str,
+    parent_request: str,
+    runtime: ToolRuntime[ProjectContext],
+) -> Command:
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=(
+                        'TOOL_NODE_CREATION_REQUIRES_HUMAN (non-fatal)\n'
+                        f'Tool node `{name}` could not continue without user input.\n'
+                        f'<human_request>\n{parent_request}\n</human_request>\n'
+                        'Call `ask_human` with this request. After receiving the answer, retry tool creation and include '
+                        'the user feedback in the node requirements.'
                     ),
                     tool_call_id=runtime.tool_call_id,
                 )

@@ -13,6 +13,7 @@ from llm.tools.test_run_report import write_test_run_report
 from llm.utils.middleware import (
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
+    ParentHandoffMiddleware,
     SaveMessagesMiddleware,
     StatusBarMiddleware,
     TodoMiddleware,
@@ -171,7 +172,10 @@ test_run_agent = create_agent(
     ],
     system_prompt=TEST_RUN_SYSTEM,
     middleware=[
-        DisableParallelToolCallsMiddleware(disabled_tools={'add_todos', 'update_todo'}),
+        DisableParallelToolCallsMiddleware(
+            disabled_tools={'add_todos', 'update_todo', 'ask_human', 'return_to_parent'}
+        ),
+        ParentHandoffMiddleware(),
         StatusBarMiddleware(),
         CheckStateExistMiddleware('test_run_report', 'write_tool_report'),
         TodoMiddleware(),

@@ -7,6 +7,7 @@ from llm.utils.middleware.final_check import CheckStateExistMiddleware
 from llm.utils.middleware.frontend_progress import SampleManagerProgressMiddleware, WorkflowBuilderProgressMiddleware
 from llm.utils.middleware.language import UserLanguageMiddleware
 from llm.utils.middleware.limit import DisableParallelToolCallsMiddleware, MaxRetriesMiddleware, TokenLimitMiddleware
+from llm.utils.middleware.parent_handoff import ParentHandoffMiddleware
 from llm.utils.middleware.skill import SkillMiddleware
 from llm.utils.middleware.statistic import TokenStatisticMiddleware
 from llm.utils.middleware.statusbar import StatusBarMiddleware
@@ -21,6 +22,7 @@ __all__ = [
     'EndLoopMiddleware',
     'InitedTodoMiddleware',
     'MaxRetriesMiddleware',
+    'ParentHandoffMiddleware',
     'SampleManagerProgressMiddleware',
     'SaveMessagesMiddleware',
     'SkillMiddleware',

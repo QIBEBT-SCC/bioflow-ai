@@ -8,7 +8,7 @@ from llm.context import BaseContext
 from llm.models import get_agent_model
 from llm.tools.database import search_local_image, select_image
 from llm.tools.human import ask_human
-from llm.utils.middleware import DisableParallelToolCallsMiddleware, TokenStatisticMiddleware
+from llm.utils.middleware import DisableParallelToolCallsMiddleware, ParentHandoffMiddleware, TokenStatisticMiddleware
 from llm.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
@@ -61,6 +61,7 @@ search_image_agent = create_agent(
     system_prompt=SEARCH_IMAGE_SYSTEM,
     middleware=[
         DisableParallelToolCallsMiddleware(),
+        ParentHandoffMiddleware(),
         TokenStatisticMiddleware('search_image', **metadata),
     ],
     state_schema=SearchImageState,

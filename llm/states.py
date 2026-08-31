@@ -36,6 +36,9 @@ class CreateToolState(AgentState, total=False):
     tool_uid: str
     json_response: dict[str, Any]
 
+    return_to_parent: bool
+    parent_request: str
+
 
 class CreateToolOutput(BaseModel):
     messages: list[BaseMessage]
@@ -43,6 +46,8 @@ class CreateToolOutput(BaseModel):
     id_mapper: Optional[BidirectionalMapper]
     tool_uid: Optional[str] = None
     json_response: dict[str, Any]
+    return_to_parent: bool = False
+    parent_request: str | None = None
 
 
 # =====================test run agent state==========================

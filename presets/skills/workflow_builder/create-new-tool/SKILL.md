@@ -49,6 +49,7 @@ If a requirement contains multiple steps, split it into multiple simple nodes an
 # Handling Tool Creation Failures
 
 When tool creation fails, determine from the feedback whether the failure to generate the required node was caused by an inadequate description or by the tool itself.
+- If the manager returns `TOOL_NODE_CREATION_REQUIRES_HUMAN`, the tool-creation sub-agent has encountered a blocking issue and deliberately handed it back to you. Immediately call `ask_human` with the complete content inside `<human_request>`; do not silently skip the node or retry before receiving the answer. After the user responds, retry creation and include that feedback in the node requirements.
 - If creation fails or the returned node is unusable due to an inaccurate description, refine your description and try generating it again.
 - If the tool itself is unable to successfully package the node, report the situation to a human and ask for guidance on the next steps.
 - If the human feedback requests that the process end here, proceed directly to saving the draft after completing the other wrap-up tasks, and do not process any subsequent TODOs.
