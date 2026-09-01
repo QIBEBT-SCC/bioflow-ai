@@ -78,7 +78,7 @@ packages = ["app", "llm", "script"]
 [tool.uv]
 package = true
 override-dependencies = [
-    "hf-xet>=1.4.0", # 解除 langchain-redis 的限制
+    "hf-xet>=1.5.1", # 解除 langchain-redis 的限制, 同时满足 huggingface-hub 1.22+ 的 API 要求
 ]
 
 [tool.ruff]

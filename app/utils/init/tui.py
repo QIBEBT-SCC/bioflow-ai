@@ -32,9 +32,21 @@ PROMPT_STYLE = questionary.Style(
 def finish(question: questionary.Question) -> Any:
     """Submit a question and replace the leading question mark with a check mark."""
     answer = question.unsafe_ask()
+    _render_prompt_done()
+    return answer
+
+
+async def finish_async(question: questionary.Question) -> Any:
+    """Asynchronously submit a question and mark it as completed."""
+    answer = await question.unsafe_ask_async()
+    _render_prompt_done()
+    return answer
+
+
+def _render_prompt_done() -> None:
+    """Replace the leading question mark of the previous prompt with a check mark."""
     console.file.write(DONE_MARK)
     console.file.flush()
-    return answer
 
 
 def prompt_text(message: str, *, default: str = '', validate: Any = None) -> str:
@@ -47,9 +59,24 @@ def prompt_password(message: str, *, validate: Any = None) -> str:
     return finish(questionary.password(message, validate=validate, style=PROMPT_STYLE))
 
 
+async def prompt_text_async(message: str, *, default: str = '', validate: Any = None) -> str:
+    """Asynchronously prompt for text input with the shared style."""
+    return await finish_async(questionary.text(message, default=default, validate=validate, style=PROMPT_STYLE))
+
+
+async def prompt_password_async(message: str, *, validate: Any = None) -> str:
+    """Asynchronously prompt for password input with the shared style."""
+    return await finish_async(questionary.password(message, validate=validate, style=PROMPT_STYLE))
+
+
 def prompt_confirm(message: str, *, default: bool = False) -> bool:
     """Prompt for confirmation with the shared style."""
     return finish(questionary.confirm(message, default=default, style=PROMPT_STYLE))
+
+
+async def prompt_confirm_async(message: str, *, default: bool = False) -> bool:
+    """Asynchronously prompt for confirmation with the shared style."""
+    return await finish_async(questionary.confirm(message, default=default, style=PROMPT_STYLE))
 
 
 def prompt_select(message: str, *, choices: list[str], default: str) -> str:

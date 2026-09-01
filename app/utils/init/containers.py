@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -159,21 +160,80 @@ def load_compose_file(
     return ComposeFileResult(success=True, written=True, updated_port=updated_port)
 
 
-def check_exist_container(compose_command: list[str]) -> RunningServicesResult:
+def check_exist_container(compose_command: list[str], runtime: str) -> RunningServicesResult:
     """Check whether this compose project already has running services."""
-    result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--services', '--status', 'running'])
+    if runtime == 'docker':
+        result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--services', '--status', 'running'])
+        if result.returncode != 0:
+            return RunningServicesResult(
+                success=False, services=[], error=f'无法读取 compose 运行状态: {result.stderr.strip()}'
+            )
+        services = sorted(line.strip() for line in result.stdout.splitlines() if line.strip())
+        return RunningServicesResult(success=True, services=services)
+
+    result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--format', 'json'])
     if result.returncode != 0:
         return RunningServicesResult(
             success=False, services=[], error=f'无法读取 compose 运行状态: {result.stderr.strip()}'
         )
 
-    services = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    try:
+        records = _parse_podman_ps_json(result.stdout)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return RunningServicesResult(success=False, services=[], error=f'无法解析 compose 运行状态: {exc}')
+
+    services = sorted(
+        {
+            service
+            for record in records
+            if _podman_ps_state(record) == 'running' and (service := _podman_ps_service(record))
+        }
+    )
     return RunningServicesResult(success=True, services=services)
 
 
-def check_unready_services(compose_command: list[str]) -> list[str]:
+def _parse_podman_ps_json(output: str) -> list[dict[str, object]]:
+    """Parse JSON emitted by ``podman compose ps --format json``."""
+    content = output.strip()
+    if not content:
+        return []
+
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        parsed = [json.loads(line) for line in content.splitlines() if line.strip()]
+
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list) or any(not isinstance(record, dict) for record in parsed):
+        msg = f'预期 JSON 对象列表, 实际为 {type(parsed).__name__}'
+        raise TypeError(msg)
+    return parsed
+
+
+def _podman_ps_state(record: dict[str, object]) -> str:
+    """Return a normalized state from a Podman container record."""
+    state = record.get('State', record.get('state', ''))
+    return str(state).strip().lower()
+
+
+def _podman_ps_service(record: dict[str, object]) -> str:
+    """Return the podman-compose service label from a Podman container record."""
+    labels = record.get('Labels', record.get('labels', {}))
+    if isinstance(labels, dict):
+        if value := labels.get('io.podman.compose.service'):
+            return str(value).strip()
+    elif isinstance(labels, str):
+        for label in labels.split(','):
+            key, separator, value = label.partition('=')
+            if separator and key.strip() == 'io.podman.compose.service':
+                return value.strip()
+    return ''
+
+
+def check_unready_services(compose_command: list[str], runtime: str) -> list[str]:
     """Return missing, stopped, or unhealthy project services."""
-    running_result = check_exist_container(compose_command)
+    running_result = check_exist_container(compose_command, runtime)
     if not running_result.success:
         return sorted(REQUIRED_SERVICES)
 
@@ -187,6 +247,7 @@ def check_unready_services(compose_command: list[str]) -> list[str]:
 
 def wait_for_project_services(
     compose_command: list[str],
+    runtime: str,
     *,
     timeout: float = SERVICE_READY_TIMEOUT_SECONDS,
     poll_interval: float = SERVICE_READY_POLL_SECONDS,
@@ -194,7 +255,7 @@ def wait_for_project_services(
     """Wait until all compose services run and initialization dependencies report healthy."""
     deadline = time.monotonic() + timeout
     while True:
-        unready_services = check_unready_services(compose_command)
+        unready_services = check_unready_services(compose_command, runtime)
         if not unready_services:
             return OperationResult(success=True, message='项目依赖服务已就绪。')
         if time.monotonic() >= deadline:
@@ -203,18 +264,38 @@ def wait_for_project_services(
         time.sleep(poll_interval)
 
 
-def prepare_container_volumes() -> OperationResult:
+def prepare_container_volumes(runtime: str) -> OperationResult:
     """Prepare compose mount directories and their required ownership."""
-    rustfs_path = Path('volumes') / 'rustfs'
-    if not rustfs_path.exists():
-        rustfs_path.mkdir(parents=True, exist_ok=True)
-        os.chown(rustfs_path, 10001, 10001)
+    volume_owners = {
+        Path('volumes') / 'rustfs': (10001, 10001),
+        Path('volumes') / 'milvus': (999, 999),
+    }
+    for path, (uid, gid) in volume_owners.items():
+        path_existed = path.exists()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return OperationResult(success=False, error=f'无法创建容器数据目录 {path}: {exc}')
 
-    milvus_path = Path('volumes') / 'milvus'
-    if not milvus_path.exists():
-        milvus_path.mkdir(parents=True, exist_ok=True)
-        os.chown(milvus_path, 999, 999)
+        if runtime == 'podman':
+            # Rootless Podman must translate container IDs through its user namespace.
+            result = run_command(['podman', 'unshare', 'chown', f'{uid}:{gid}', str(path)])
+            if result.returncode != 0:
+                error = result.stderr.strip() or f'退出码 {result.returncode}'
+                return OperationResult(success=False, error=f'无法设置 Podman 数据目录 {path} 的所有者: {error}')
+            continue
 
+        if path_existed:
+            continue
+        try:
+            os.chown(path, uid, gid)
+        except OSError as exc:
+            return OperationResult(
+                success=False,
+                error=f'无法设置容器数据目录 {path} 的所有者为 {uid}:{gid}: {exc}',
+            )
+
+    rustfs_path, milvus_path = volume_owners
     return OperationResult(success=True, message=f'初始化 RustFS 和 Milvus 数据目录: {rustfs_path}, {milvus_path}')
 
 
@@ -254,7 +335,7 @@ def initialize_project_containers(
     for message in compose_file_result.updated_port:
         tui.render_notice(f'已同步 {message}', style='#10b981')
 
-    running_result = check_exist_container(compose_command)
+    running_result = check_exist_container(compose_command, runtime)
     if not running_result.success:
         tui.render_notice(running_result.error or '无法读取 compose 运行状态。', style='#f59e0b')
     running_services = set(running_result.services)
@@ -262,14 +343,14 @@ def initialize_project_containers(
         tui.console.print(f'[bold #10b981]检测到已运行服务:[/bold #10b981] {", ".join(running_result.services)}')
     if running_services >= REQUIRED_SERVICES:
         tui.render_notice('项目容器已在运行, 正在检查服务状态。', style='#94a3b8')
-        ready_result = wait_for_project_services(compose_command)
+        ready_result = wait_for_project_services(compose_command, runtime)
         if ready_result.success:
             tui.render_notice(ready_result.message or '项目依赖服务已就绪。', style='#10b981')
             return True
         tui.render_notice(ready_result.error or '项目依赖服务未就绪。', style='#ef4444')
         return False
 
-    volume_result = prepare_container_volumes()
+    volume_result = prepare_container_volumes(runtime)
     if not volume_result.success:
         tui.render_notice(volume_result.error or '准备 compose 挂载目录失败。', style='#ef4444')
         return False
@@ -285,7 +366,7 @@ def initialize_project_containers(
         return False
 
     tui.render_notice('项目容器启动命令已执行, 正在等待依赖服务就绪。', style='#10b981')
-    ready_result = wait_for_project_services(compose_command)
+    ready_result = wait_for_project_services(compose_command, runtime)
     if not ready_result.success:
         tui.render_notice(ready_result.error or '项目依赖服务未就绪。', style='#ef4444')
         return False

@@ -13,6 +13,11 @@ def _confirm(message: str, *, default: bool) -> bool:
     return tui.prompt_confirm(message, default=default)
 
 
+async def _confirm_async(message: str, *, default: bool) -> bool:
+    """统一异步初始化业务步骤中的确认回调."""
+    return await tui.prompt_confirm_async(message, default=default)
+
+
 def run_auto_init() -> None:
     """系统自动初始化主流程入口."""
     config_path = Path('config.toml')
@@ -40,7 +45,7 @@ def run_auto_init() -> None:
     container_ready = initialize_project_containers(settings, _confirm, update_port=update_port)
     database_ready = None
     if container_ready is not False:
-        database_ready = asyncio.run(initialize_preset_database(_confirm))
+        database_ready = asyncio.run(initialize_preset_database(_confirm_async))
 
     provider_ready = None
     if container_ready is not False and database_ready is not False:

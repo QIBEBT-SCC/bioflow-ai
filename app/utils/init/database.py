@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from anyio import Path
@@ -83,13 +83,13 @@ async def init_admin() -> AdminInitResult:
         def required(value: str) -> bool | str:
             return True if value.strip() else '此项不能为空'
 
-        email = tui.prompt_text('管理员邮箱', validate=required).strip().casefold()
-        username = tui.prompt_text('管理员用户名', default='admin', validate=required).strip()
-        password = tui.prompt_password(
+        email = (await tui.prompt_text_async('管理员邮箱', validate=required)).strip().casefold()
+        username = (await tui.prompt_text_async('管理员用户名', default='admin', validate=required)).strip()
+        password = await tui.prompt_password_async(
             '管理员密码 (不限制强度, 不能为空且最多 128 UTF-8 字节)',
-            validate=lambda value: required(value)
-            if len(value.encode()) <= MAX_PASSWORD_BYTES
-            else '密码不能超过 128 UTF-8 字节',
+            validate=lambda value: (
+                required(value) if len(value.encode()) <= MAX_PASSWORD_BYTES else '密码不能超过 128 UTF-8 字节'
+            ),
         )
         user_service.create_user(
             session,
@@ -378,10 +378,10 @@ async def rebuild_auxiliary_node_index(*, show_progress: bool = True) -> None:
             await vectorstore.aadd_documents(documents[index : index + BATCH_SIZE])
 
 
-async def initialize_preset_database(confirm: Callable[..., bool]) -> bool | None:
+async def initialize_preset_database(confirm: Callable[..., Awaitable[bool]]) -> bool | None:
     """Prompt for and initialize preset SQL records and vector collections."""
     tui.render_section('系统预置数据', '初始化管理员账户、工具数据库以及工具/镜像/辅助节点向量索引。')
-    if not confirm('是否初始化系统预置数据和向量索引?', default=True):
+    if not await confirm('是否初始化系统预置数据和向量索引?', default=True):
         tui.render_notice('已跳过预置数据初始化。', style='#94a3b8')
         return None
 
