@@ -15,7 +15,7 @@ from app.models.resource import Sample, SampleFiles
 from app.schemas.tool_config import ImageConfig
 from app.services import project_file_mapping as project_file_mapping_service
 from app.services import sample as sample_service
-from app.utils.container import ContainerMount, run_command
+from app.utils.container import ContainerMount, run_command_async
 from llm.context import ProjectContext
 from llm.states import SampleState
 
@@ -67,7 +67,7 @@ async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext, Sa
 
     run_image = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
     file_mount = ContainerMount(source=base_dir, target='/app/data', read_only=True)
-    code, result = run_command(run_image, [file_mount], command)
+    code, result = await run_command_async(run_image, [file_mount], command)
 
     run_status = 'successfully' if code == 0 else 'failed'
     if clean_out := result.strip():

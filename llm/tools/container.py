@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.session import engine
 from app.schemas.tool_config import ImageConfig
 from app.services import tool_catalog
-from app.utils.container import ContainerMount, run_command
+from app.utils.container import ContainerMount, run_command, run_command_async
 from app.utils.container.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
 from llm.context import TestRunContext
 
@@ -184,7 +184,7 @@ async def advance_run_command_tool(
         *extra_mounts,
     ]
 
-    code, output = run_command(image, all_mounts, command, workdir)
+    code, output = await run_command_async(image, all_mounts, command, workdir)
     status = 'successfully' if code == 0 else 'failed'
 
     image_name = image_ref or 'linux_default'

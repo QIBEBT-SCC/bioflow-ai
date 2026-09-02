@@ -27,7 +27,7 @@ from app.core.session import engine
 from app.models.tools import ToolDefine, ToolHelpDoc
 from app.schemas.tool_config import ToolType
 from app.schemas.tools import ToolNodePublic
-from app.utils.container import run_command
+from app.utils.container import run_command_async
 from llm.agents.tool_agent.config_generator import config_generate_agent
 from llm.agents.tool_agent.report_generator_v2 import test_run_agent
 from llm.agents.tool_agent.searcher import search_image_agent
@@ -326,7 +326,7 @@ class CreateToolAgent:
             if tool_doc is not None:
                 return {'doc_uid': tool_doc.uid}
 
-        _code, content = run_command(state['image'], [], help_command)
+        _code, content = await run_command_async(state['image'], [], help_command)
 
         with Session(engine) as session:
             tool_doc = ToolHelpDoc(

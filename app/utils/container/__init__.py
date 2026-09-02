@@ -1,3 +1,5 @@
+import asyncio
+
 from docker.types import Mount
 from pydantic import BaseModel, Field
 
@@ -80,6 +82,49 @@ def run_command(
     return status, output
 
 
+async def run_command_async(
+    image_cfg: ImageConfig,
+    mounts: list[ContainerMount],
+    command: str,
+    workdir: str | None = None,
+    *,
+    ensure_ascii: bool = True,
+    user: str | None = CONTAINER_ROOT_USER,
+) -> tuple[int, str]:
+    """Run a blocking container command without blocking the asyncio event loop.
+
+    Docker and Podman SDK calls are synchronous, including image pulls and the
+    wait for command completion. Running them in a worker thread keeps unrelated
+    tasks such as Redis lock renewal and agent heartbeats schedulable.
+
+    Cancellation waits for the worker to finish so the runtime-specific
+    ``finally`` block can remove the container before cancellation propagates.
+    """
+    worker = asyncio.create_task(
+        asyncio.to_thread(
+            run_command,
+            image_cfg,
+            mounts,
+            command,
+            workdir,
+            ensure_ascii=ensure_ascii,
+            user=user,
+        ),
+        name='container-command',
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+        if not worker.cancelled():
+            worker.exception()
+        raise
+
+
 def run_command_background(  # noqa: ANN201
     image_cfg: ImageConfig,
     command: str,
@@ -146,6 +191,7 @@ __all__ = [
     'create_container',
     'remove_container',
     'run_command',
+    'run_command_async',
     'run_command_background',
     'run_command_in_container',
 ]
