@@ -64,6 +64,14 @@ password = ""
 enable_gpu = false
 gpu_devices = "all"  # "all" 表示所有GPU，或指定设备如 "0,1" 或 "0"
 
+[code]
+# Official PyPI: https://pypi.org/simple
+# Tsinghua TUNA: https://pypi.tuna.tsinghua.edu.cn/simple
+python_index_url = "https://pypi.org/simple"
+# Official CRAN: https://cloud.r-project.org
+# Tsinghua TUNA: https://mirrors.tuna.tsinghua.edu.cn/CRAN
+cran_repository = "https://cloud.r-project.org"
+
 [celery]
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/1"

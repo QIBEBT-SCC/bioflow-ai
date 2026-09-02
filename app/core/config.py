@@ -6,10 +6,22 @@ from typing import Literal
 
 import tomli_w
 from loguru import logger
-from pydantic import AmqpDsn, BaseModel, ConfigDict, Field, PostgresDsn, RedisDsn, SecretStr, model_validator
+from pydantic import (
+    AmqpDsn,
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PostgresDsn,
+    RedisDsn,
+    SecretStr,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 INSECURE_NONE_COOKIE_ERROR = 'SameSite=None cookies require cookie_secure=true'
+DEFAULT_CRAN_REPOSITORY = 'https://cloud.r-project.org'
+DEFAULT_PYTHON_INDEX_URL = 'https://pypi.org/simple'
 
 
 class BaseSectionConfig(BaseModel):
@@ -116,6 +128,11 @@ class DockerConfig(BaseSectionConfig):
     GPU_DEVICES: str = 'all'  # 'all' 或指定设备如 '0,1' 或 '0'
 
 
+class CodeConfig(BaseSectionConfig):
+    CRAN_REPOSITORY: AnyHttpUrl = AnyHttpUrl(DEFAULT_CRAN_REPOSITORY)
+    PYTHON_INDEX_URL: AnyHttpUrl = AnyHttpUrl(DEFAULT_PYTHON_INDEX_URL)
+
+
 class CeleryConfig(BaseSectionConfig):
     BROKER: AmqpDsn = AmqpDsn('amqp://bioflow_ai:123456@localhost:5672//')
     BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
@@ -167,6 +184,7 @@ class Settings(BaseSettings):
     network: NetworkConfig = NetworkConfig()
     persistent: PersistenceConfig = PersistenceConfig()
     docker: DockerConfig = DockerConfig()
+    code: CodeConfig = CodeConfig()
     celery: CeleryConfig = CeleryConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
     pdf_parser: PDFParserConfig = PDFParserConfig()

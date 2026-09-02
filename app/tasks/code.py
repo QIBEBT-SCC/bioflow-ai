@@ -10,6 +10,7 @@ import tomli_w
 from celery import Task
 from loguru import logger
 
+from app.core.config import DEFAULT_CRAN_REPOSITORY, DEFAULT_PYTHON_INDEX_URL, get_settings
 from app.schemas.react_flow import TaskInput
 from app.schemas.tool_config import ImageConfig
 from app.schemas.workflow_config import ToolOutput
@@ -19,7 +20,6 @@ from script.worker import celery_app
 
 PYTHON_CODE_IMAGE = ImageConfig.from_str('ghcr.io/astral-sh/uv:python3.13-bookworm-slim')
 R_CODE_IMAGE = ImageConfig.from_str('r-base:4.4.3')
-R_CODE_CRAN_REPOSITORY = 'https://packagemanager.posit.co/cran/2025-02-28'
 R_CODE_MAX_DEPENDENCIES = 32
 R_CODE_MAX_DEPENDENCY_LENGTH = 100
 R_PACKAGE_NAME_PATTERN = re.compile(r'^[A-Za-z](?:[A-Za-z0-9.]*[A-Za-z0-9])?$')
@@ -99,6 +99,24 @@ def render_python_script(code: str, dependencies: Any) -> str:
     return f'# /// script\n{commented_metadata}\n# ///\n\n{code.rstrip()}\n'
 
 
+def build_python_command(
+    arguments: list[str],
+    index_url: str = DEFAULT_PYTHON_INDEX_URL,
+) -> str:
+    """Build the uv command with the configured default Python package index."""
+    return shlex.join(
+        [
+            'uv',
+            'run',
+            '--default-index',
+            index_url,
+            '--script',
+            '/app/main.py',
+            *arguments,
+        ]
+    )
+
+
 def normalize_r_dependencies(dependencies: Any) -> list[str]:
     """Normalize R dependency data into distinct CRAN package names."""
     if dependencies is None:
@@ -136,16 +154,20 @@ def normalize_r_dependencies(dependencies: Any) -> list[str]:
     return normalized
 
 
-def render_r_dependency_script(dependencies: Any) -> str:
+def render_r_dependency_script(
+    dependencies: Any,
+    repository: str = DEFAULT_CRAN_REPOSITORY,
+) -> str:
     """Render a backend-controlled installer for R 4.4.3-compatible CRAN packages."""
     packages = normalize_r_dependencies(dependencies)
     package_vector = ', '.join(json.dumps(package) for package in packages)
+    repository_literal = json.dumps(repository)
     return (
         'library_dir <- Sys.getenv("R_LIBS_USER")\n'
         'if (!nzchar(library_dir)) stop("R_LIBS_USER is not configured")\n'
         'dir.create(library_dir, recursive = TRUE, showWarnings = FALSE)\n'
         '.libPaths(c(library_dir, .libPaths()))\n'
-        f'options(repos = c(CRAN = "{R_CODE_CRAN_REPOSITORY}"))\n'
+        f'options(repos = c(CRAN = {repository_literal}))\n'
         f'packages <- c({package_vector})\n'
         'missing <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]\n'
         'if (length(missing)) install.packages(missing, lib = library_dir, dependencies = NA)\n'
@@ -290,7 +312,8 @@ def python_task(
             *input_mounts,
             ContainerMount(source=str(output_path), target='/data/output', read_only=False),
         ]
-        command = shlex.join(['uv', 'run', '--script', '/app/main.py', *arguments])
+        index_url = str(get_settings().code.PYTHON_INDEX_URL)
+        command = build_python_command(arguments, index_url)
         logger.debug(f'python_task: {command}')
         status, console_output = run_command(
             PYTHON_CODE_IMAGE,
@@ -341,7 +364,11 @@ def r_task(
         script_path.write_text(f'{code.rstrip()}\n', encoding='utf-8')
         if normalized_dependencies:
             dependency_script = Path(staging_dir) / 'install_dependencies.R'
-            dependency_script.write_text(render_r_dependency_script(normalized_dependencies), encoding='utf-8')
+            repository = str(get_settings().code.CRAN_REPOSITORY)
+            dependency_script.write_text(
+                render_r_dependency_script(normalized_dependencies, repository),
+                encoding='utf-8',
+            )
 
         mounts = [
             ContainerMount(source=staging_dir, target='/app', read_only=True),

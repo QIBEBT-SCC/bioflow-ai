@@ -100,8 +100,7 @@ Generate exactly one complete R 4.4.3 script for the requested bounded, determin
 - The script runs with `Rscript --vanilla` in the official `r-base:4.4.3` container.
 - Its current working directory is the writable node output directory.
 - Upstream files and directories are mounted read-only and passed as named command-line options.
-- Additional CRAN packages declared in `dependencies` are installed before the script runs from the fixed
-  2025-02-28 Posit Package Manager snapshot compatible with R 4.4.3.
+- Additional CRAN packages declared in `dependencies` are installed before the script runs.
 
 ## CLI and Files
 
