@@ -18,12 +18,12 @@ SERVICE_DEFAULT_PORTS = {
 class UpdatePort(BaseModel):
     """Ports shifted during initialization; unset fields keep project defaults."""
 
-    api: int | None = Field(default=None, description='API 后端')
-    postgres: int | None = Field(default=None, description='PostgreSQL 数据库')
-    redis: int | None = Field(default=None, description='Redis 缓存/结果后端')
-    rabbitmq: int | None = Field(default=None, description='RabbitMQ 队列')
-    rustfs: int | None = Field(default=None, description='RustFS/S3 存储')
-    milvus: int | None = Field(default=None, description='Milvus 向量数据库')
+    api: int | None = Field(default=None, description='API backend')
+    postgres: int | None = Field(default=None, description='PostgreSQL database')
+    redis: int | None = Field(default=None, description='Redis cache/result backend')
+    rabbitmq: int | None = Field(default=None, description='RabbitMQ queue')
+    rustfs: int | None = Field(default=None, description='RustFS/S3 storage')
+    milvus: int | None = Field(default=None, description='Milvus vector database')
     web_ui: int | None = Field(default=None, description='Web UI')
 
 

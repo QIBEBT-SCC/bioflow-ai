@@ -44,7 +44,7 @@ def agent_worker(*, concurrency: int) -> None:
 
 @cli.command(name='auto-init')
 def auto_init() -> None:
-    """Run the interactive system initialization wizard (config + database)."""
+    """Run the interactive system initialization wizard."""
     from script.auto_init import run_auto_init
 
     run_auto_init()

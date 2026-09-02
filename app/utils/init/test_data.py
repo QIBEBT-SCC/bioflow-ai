@@ -26,7 +26,7 @@ def inspect_test_data(network: 'NetworkConfig', storage: 'StorageConfig') -> Tes
     test_data_path = resolve_path(storage.TEST_DATA_PATH)
     path_is_file = test_data_path.exists() and not test_data_path.is_dir()
     has_existing_data = test_data_path.exists() and test_data_path.is_dir() and any(test_data_path.iterdir())
-    proxy_text = network.get_proxy_url() if network.USE_PROXY else '未使用代理'
+    proxy_text = network.get_proxy_url() if network.USE_PROXY else 'No proxy'
 
     return TestDataInspection(
         path=test_data_path,
@@ -44,39 +44,41 @@ def initialize_test_data(
     """Prompt for and optionally synchronize the configured test dataset."""
     inspection = inspect_test_data(network, storage)
 
-    tui.render_section('测试数据集', '可从 Hugging Face 自动同步 BioFlowAI 测试数据。')
-    tui.console.print(f'[bold]测试数据路径:[/bold] {inspection.path}')
-    tui.console.print(f'[bold]下载代理:[/bold] {inspection.proxy_text}')
+    tui.render_section('Test Data', 'Optionally synchronize the BioFlowAI test dataset from Hugging Face.')
+    tui.console.print(f'[bold]Test data path:[/bold] {inspection.path}')
+    tui.console.print(f'[bold]Download proxy:[/bold] {inspection.proxy_text}')
 
     if inspection.path_is_file:
-        tui.render_notice(f'测试数据路径已存在但不是目录: {inspection.path}', style='#ef4444')
+        tui.render_notice(f'The test data path exists but is not a directory: {inspection.path}', style='#ef4444')
         return False
 
     if inspection.has_existing_data:
         default_download = False
-        prompt = '测试数据目录已存在内容, 是否继续同步/更新?'
+        prompt = 'The test data directory is not empty. Synchronize or update it?'
     else:
         default_download = True
-        prompt = '是否下载测试数据集?'
+        prompt = 'Download the test dataset?'
 
     if not confirm(prompt, default=default_download):
-        tui.render_notice('已跳过测试数据下载。', style='#94a3b8')
+        tui.render_notice('Test data download skipped.', style='#94a3b8')
         return None
 
     command = ['uvx', 'hf', 'sync', TESTDATA_SOURCE, str(inspection.path)]
     tui.console.print()
-    tui.console.print(f'[bold #22d3ee]执行:[/bold #22d3ee] {" ".join(command)}')
+    tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {" ".join(command)}')
 
     try:
         inspection.path.mkdir(parents=True, exist_ok=True)
         result = subprocess.run(command, check=False, env=proxy_environment(network))
     except FileNotFoundError:
-        tui.render_notice('未找到 uvx 命令, 请先安装 uv 后重试: https://docs.astral.sh/uv/', style='#ef4444')
+        tui.render_notice('uvx was not found. Install uv and try again: https://docs.astral.sh/uv/', style='#ef4444')
         return False
 
     if result.returncode != 0:
-        tui.render_notice(f'测试数据下载失败, uvx hf sync 退出码: {result.returncode}', style='#ef4444')
+        tui.render_notice(
+            f'Test data download failed; uvx hf sync exited with code {result.returncode}.', style='#ef4444'
+        )
         return False
 
-    tui.render_notice(f'测试数据已同步到 {inspection.path}', style='#10b981')
+    tui.render_notice(f'Test data synchronized to {inspection.path}.', style='#10b981')
     return True

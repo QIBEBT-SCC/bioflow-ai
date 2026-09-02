@@ -9,17 +9,17 @@ from app.utils.init.test_data import initialize_test_data
 
 
 def _confirm(message: str, *, default: bool) -> bool:
-    """统一初始化业务步骤中的确认回调."""
+    """Shared confirmation callback for synchronous initialization stages."""
     return tui.prompt_confirm(message, default=default)
 
 
 async def _confirm_async(message: str, *, default: bool) -> bool:
-    """统一异步初始化业务步骤中的确认回调."""
+    """Shared confirmation callback for asynchronous initialization stages."""
     return await tui.prompt_confirm_async(message, default=default)
 
 
 def run_auto_init() -> None:
-    """系统自动初始化主流程入口."""
+    """Run the automatic system initialization workflow."""
     config_path = Path('config.toml')
 
     tui.render_hero()

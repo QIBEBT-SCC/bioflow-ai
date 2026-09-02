@@ -11,7 +11,7 @@ from rich.text import Text
 
 console = Console()
 
-# 回答完成后, 将上一行行首的问号 (?) 覆写为绿色对勾
+# Replace the leading question mark with a green check mark after each answer.
 DONE_MARK = '\x1b[1A\r\x1b[38;2;16;185;129m✓\x1b[0m\x1b[1B\r'
 PROMPT_STYLE = questionary.Style(
     [
@@ -97,12 +97,12 @@ def prompt_path(message: str, *, default: str) -> str:
 def render_hero() -> None:
     """Render the initialization wizard hero."""
     title = Text('BioFlowAI', style='bold #22d3ee')
-    title.append(' 配置初始化向导', style='bold #f8fafc')
+    title.append(' Configuration & Initialization Wizard', style='bold #f8fafc')
 
     body = Table.grid(padding=(0, 1))
     body.add_column(justify='center')
     body.add_row(title)
-    body.add_row(Text('按步骤生成 config.toml, 默认值可直接回车确认。', style='#94a3b8'))
+    body.add_row(Text('Follow the steps to generate config.toml. Press Enter to accept defaults.', style='#94a3b8'))
 
     console.print()
     console.print(
@@ -143,8 +143,8 @@ def render_success(config_path: Path) -> None:
     """Render config initialization success."""
     body = Table.grid(padding=(0, 1))
     body.add_column()
-    body.add_row(Text('配置初始化完成', style='bold #10b981'))
-    body.add_row(Text(f'已写入 {config_path}', style='#cbd5e1'))
+    body.add_row(Text('Configuration complete', style='bold #10b981'))
+    body.add_row(Text(f'Written to {config_path}', style='#cbd5e1'))
 
     console.print()
     console.print(
@@ -164,28 +164,28 @@ def render_preset_database_summary(result: Any) -> None:
     table.add_column(style='#cbd5e1')
     table.add_column(style='#f8fafc')
 
-    admin_status = '已创建' if result.admin.created else '已存在, 已跳过'
-    table.add_row('管理员账户', admin_status)
+    admin_status = 'Created' if result.admin.created else 'Already exists; skipped'
+    table.add_row('Administrator account', admin_status)
 
     for item in (result.images, result.docs, result.tools):
-        parts = [f'导入 {item.inserted_count} 条']
+        parts = [f'Imported {item.inserted_count}']
         if item.deleted_count is not None:
-            parts.append(f'清理 {item.deleted_count} 条旧数据')
+            parts.append(f'Removed {item.deleted_count} old records')
         if item.downloaded:
-            parts.append('已下载 preset')
+            parts.append('Downloaded preset')
         if item.validation_error_count:
-            parts.append(f'校验失败 {item.validation_error_count} 条')
+            parts.append(f'{item.validation_error_count} validation failures')
         if item.warning_count:
-            parts.append(f'警告 {item.warning_count} 项')
+            parts.append(f'{item.warning_count} warnings')
         table.add_row(item.name, ', '.join(parts))
 
-    table.add_row('向量索引', '已重建')
+    table.add_row('Vector indexes', 'Rebuilt')
 
     console.print()
     console.print(
         Panel(
             table,
-            title='[bold #10b981]预置数据初始化完成[/bold #10b981]',
+            title='[bold #10b981]Preset Data Initialized[/bold #10b981]',
             border_style='#10b981',
             box=box.ROUNDED,
             padding=(1, 2),
@@ -206,7 +206,7 @@ def render_model_role_assignments(assignments: list[tuple[str, str]]) -> None:
     console.print(
         Panel(
             table,
-            title='[bold #f8fafc]系统智能体模型[/bold #f8fafc]',
+            title='[bold #f8fafc]System Agent Models[/bold #f8fafc]',
             border_style='#334155',
             box=box.ROUNDED,
             padding=(1, 2),
@@ -219,7 +219,7 @@ def render_system_success() -> None:
     console.print()
     console.print(
         Panel(
-            Text('系统初始化流程完成。', style='bold #10b981'),
+            Text('System initialization complete.', style='bold #10b981'),
             title='[bold #10b981]Done[/bold #10b981]',
             border_style='#10b981',
             box=box.ROUNDED,

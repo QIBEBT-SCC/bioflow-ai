@@ -70,29 +70,29 @@ PRESET_BY_KEY = {preset.key: preset for preset in OFFICIAL_PROVIDER_PRESETS}
 RESERVED_PROVIDER_NAMES = frozenset(preset.name.casefold() for preset in OFFICIAL_PROVIDER_PRESETS)
 
 ROLE_LABELS: Mapping[ModelRole, str] = {
-    ModelRole.LONG_CONTEXT: '长上下文模型',
-    ModelRole.AGENT: '智能体模型',
-    ModelRole.CODING: '编码模型',
-    ModelRole.SIMPLE: '简单任务模型',
-    ModelRole.HIGH_PERFORMANCE: '高性能模型',
-    ModelRole.CHAT: '常规对话模型',
-    ModelRole.VISION: '视觉模型',
+    ModelRole.LONG_CONTEXT: 'Long-context model',
+    ModelRole.AGENT: 'Agent model',
+    ModelRole.CODING: 'Coding model',
+    ModelRole.SIMPLE: 'Simple-task model',
+    ModelRole.HIGH_PERFORMANCE: 'High-performance model',
+    ModelRole.CHAT: 'Chat model',
+    ModelRole.VISION: 'Vision model',
 }
 
 
 def validate_provider_selection(selected: list[str]) -> bool | str:
     """Require at least one provider in the initialization wizard."""
-    return True if selected else '请至少选择一个 AI Provider。'
+    return True if selected else 'Select at least one AI provider.'
 
 
 def validate_model_selection(selected: list[str]) -> bool | str:
     """Require at least one model for every selected official provider."""
-    return True if selected else '请至少选择一个模型。'
+    return True if selected else 'Select at least one model.'
 
 
 def validate_required_text(value: str) -> bool | str:
     """Reject blank names while allowing surrounding whitespace in user input."""
-    return True if value.strip() else '此项不能为空。'
+    return True if value.strip() else 'This field is required.'
 
 
 def validate_base_url(value: str) -> bool | str:
@@ -100,21 +100,21 @@ def validate_base_url(value: str) -> bool | str:
     parsed = urlparse(value.strip())
     if parsed.scheme in {'http', 'https'} and parsed.netloc:
         return True
-    return '请输入完整的 http:// 或 https:// 地址。'
+    return 'Enter a complete http:// or https:// URL.'
 
 
 def validate_custom_provider_name(value: str) -> bool | str:
     """Prevent a custom endpoint from silently replacing an official provider."""
     name = value.strip()
     if not name:
-        return 'Provider 名称不能为空。'
+        return 'Provider name is required.'
     if name.casefold() in RESERVED_PROVIDER_NAMES:
-        return '自定义 Provider 不能使用官方 Provider 名称。'
+        return 'A custom provider cannot use an official provider name.'
     return True
 
 
 def _validate_api_key(value: str, *, credential_configured: bool) -> bool | str:
-    return True if value or credential_configured else 'API key 不能为空。'
+    return True if value or credential_configured else 'API key is required.'
 
 
 def _existing_provider(providers: Sequence[LLMProvider], name: str) -> LLMProvider | None:
@@ -124,7 +124,9 @@ def _existing_provider(providers: Sequence[LLMProvider], name: str) -> LLMProvid
 
 def _prompt_api_key(provider_name: str, existing: LLMProvider | None, *, required: bool) -> str | None:
     credential_configured = existing is not None and existing.credential_configured
-    key_hint = ' (留空保留已有值)' if credential_configured else (' (可留空)' if not required else '')
+    key_hint = (
+        ' (leave blank to keep the current value)' if credential_configured else (' (optional)' if not required else '')
+    )
     validate = None
     if required:
 
@@ -138,7 +140,7 @@ def _prompt_api_key(provider_name: str, existing: LLMProvider | None, *, require
 def _prompt_display_name(model_name: str, existing: LLMModel | None = None) -> str:
     default = existing.display_name if existing is not None else model_name
     return tui.prompt_text(
-        f'{model_name} 显示名称',
+        f'{model_name} display name',
         default=default,
         validate=validate_required_text,
     ).strip()
@@ -148,10 +150,10 @@ def _prompt_official_provider(
     preset: ProviderPreset,
     existing: LLMProvider | None,
 ) -> ProviderConfiguration:
-    tui.render_section(preset.name, '选择模型并配置官方服务凭据。')
+    tui.render_section(preset.name, 'Select models and configure official service credentials.')
     api_key = _prompt_api_key(preset.name, existing, required=True)
     use_proxy = tui.prompt_confirm(
-        f'{preset.name} 是否使用系统代理?',
+        f'Use the system proxy for {preset.name}?',
         default=existing.use_proxy if existing is not None else False,
     )
 
@@ -169,7 +171,7 @@ def _prompt_official_provider(
         for index, model_name in enumerate(preset.models)
     ]
     selected_model_names = tui.prompt_checkbox(
-        f'选择要启用的 {preset.name} 模型 (空格选择, 回车确认)',
+        f'Select {preset.name} models to enable (Space to select, Enter to confirm)',
         choices=choices,
         validate=validate_model_selection,
     )
@@ -200,12 +202,12 @@ def _prompt_custom_models(existing: LLMProvider | None) -> tuple[ModelConfigurat
         if not configured and existing_models:
             default_name = next(iter(existing_models))
         model_name = tui.prompt_text(
-            '模型 API 名称 (model name)',
+            'Model API name (model name)',
             default=default_name,
             validate=validate_required_text,
         ).strip()
         if any(model.name == model_name for model in configured):
-            tui.render_notice(f'模型 {model_name} 已添加, 请换一个名称。', style='#f59e0b')
+            tui.render_notice(f'Model {model_name} has already been added. Enter a different name.', style='#f59e0b')
             continue
 
         configured.append(
@@ -214,14 +216,14 @@ def _prompt_custom_models(existing: LLMProvider | None) -> tuple[ModelConfigurat
                 display_name=_prompt_display_name(model_name, existing_models.get(model_name)),
             )
         )
-        if not tui.prompt_confirm('是否继续为此 Provider 添加模型?', default=False):
+        if not tui.prompt_confirm('Add another model to this provider?', default=False):
             return tuple(configured)
 
 
 def _prompt_custom_provider(providers: Sequence[LLMProvider]) -> ProviderConfiguration:
-    tui.render_section('Custom', '配置一个 OpenAI-compatible Provider。')
+    tui.render_section('Custom', 'Configure an OpenAI-compatible provider.')
     provider_name = tui.prompt_text(
-        'Provider 名称',
+        'Provider name',
         default='Custom',
         validate=validate_custom_provider_name,
     ).strip()
@@ -237,7 +239,7 @@ def _prompt_custom_provider(providers: Sequence[LLMProvider]) -> ProviderConfigu
     )
     api_key = _prompt_api_key(provider_name, existing, required=False)
     use_proxy = tui.prompt_confirm(
-        f'{provider_name} 是否使用系统代理?',
+        f'Use the system proxy for {provider_name}?',
         default=existing.use_proxy if existing is not None else False,
     )
     return ProviderConfiguration(
@@ -274,7 +276,7 @@ def prompt_provider_configurations(providers: Sequence[LLMProvider]) -> list[Pro
         )
     )
     selected_keys = tui.prompt_checkbox(
-        '选择要启用的 AI Provider (空格选择, 回车确认)',
+        'Select AI providers to enable (Space to select, Enter to confirm)',
         choices=choices,
         validate=validate_provider_selection,
     )
@@ -357,7 +359,7 @@ def prompt_role_assignments(models: Sequence[LLMModel]) -> dict[ModelRole, LLMMo
     assignments = dict.fromkeys(ModelRole, models[0])
     model_labels = [f'{_model_provider_name(model)} / {model.display_name} ({model.name})' for model in models]
     model_by_label = dict(zip(model_labels, models, strict=True))
-    done_choice = '完成'
+    done_choice = 'Done'
     role_choices = [f'{index}. {label}' for index, label in enumerate(ROLE_LABELS.values(), start=1)]
     role_by_choice = dict(zip(role_choices, ROLE_LABELS, strict=True))
 
@@ -366,7 +368,7 @@ def prompt_role_assignments(models: Sequence[LLMModel]) -> dict[ModelRole, LLMMo
             [(role_label, model_labels[models.index(assignments[role])]) for role, role_label in ROLE_LABELS.items()]
         )
         selected_role = tui.prompt_select(
-            '选择要修改的角色',
+            'Select a role to change',
             choices=[done_choice, *role_choices],
             default=done_choice,
         )
@@ -376,7 +378,7 @@ def prompt_role_assignments(models: Sequence[LLMModel]) -> dict[ModelRole, LLMMo
         role = role_by_choice[selected_role]
         current_model = assignments[role]
         selected_label = tui.prompt_select(
-            f'为{ROLE_LABELS[role]}选择模型',
+            f'Select a model for {ROLE_LABELS[role]}',
             choices=model_labels,
             default=model_labels[models.index(current_model)],
         )
@@ -401,8 +403,8 @@ def _model_provider_name(model: LLMModel) -> str:
 def initialize_llm_providers() -> bool:
     """Interactively create providers, models, prices, and system-role assignments."""
     tui.render_section(
-        'AI Provider 与模型',
-        '配置官方或 OpenAI-compatible 服务、可用模型以及系统智能体模型。',
+        'AI Providers and Models',
+        'Configure official or OpenAI-compatible services, available models, and system agent models.',
     )
 
     try:
@@ -415,17 +417,17 @@ def initialize_llm_providers() -> bool:
             model_names = ', '.join(f'{_model_provider_name(model)}/{model.display_name}' for model in models)
             session.commit()
     except Exception as exc:
-        tui.render_notice(f'AI Provider 与模型配置失败: {exc}', style='#ef4444')
+        tui.render_notice(f'AI provider and model configuration failed: {exc}', style='#ef4444')
         return False
 
     provider_names = ', '.join(configuration.name for configuration in configurations)
-    tui.render_notice(f'已启用 AI Provider: {provider_names}', style='#10b981')
-    tui.render_notice(f'已配置模型: {model_names}', style='#10b981')
+    tui.render_notice(f'Enabled AI providers: {provider_names}', style='#10b981')
+    tui.render_notice(f'Configured models: {model_names}', style='#10b981')
     if models_without_prices:
         missing_names = ', '.join(models_without_prices)
         tui.render_notice(
-            f'以下模型未能自动识别价格, 当前价格暂记为 0: {missing_names}。'
-            '初始化完成后请在 Web UI 的模型设置中补充价格。',
+            f'Pricing could not be detected for these models and is temporarily set to 0: {missing_names}. '
+            'After initialization, add pricing in the Web UI model settings.',
             style='#f59e0b',
         )
     return True

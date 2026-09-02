@@ -83,7 +83,9 @@ def check_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
     """Detect the selected container runtime and a usable compose command."""
     runtime = docker.CONTAINER
     if shutil.which(runtime) is None:
-        return ComposeCommandResult(command=None, error=f'未找到 {runtime} 命令, 请先安装 {runtime}。')
+        return ComposeCommandResult(
+            command=None, error=f'The {runtime} command was not found. Install {runtime} first.'
+        )
 
     if runtime == 'docker':
         compose_command = ['docker', 'compose']
@@ -92,7 +94,8 @@ def check_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
             return ComposeCommandResult(command=compose_command)
 
         return ComposeCommandResult(
-            command=None, error='Docker 已安装, 但 `docker compose` 无法运行。请安装 Docker Compose 插件。'
+            command=None,
+            error='Docker is installed, but `docker compose` is unavailable. Install the Docker Compose plugin.',
         )
 
     compose_command = ['podman', 'compose']
@@ -106,12 +109,12 @@ def check_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
         if fallback_result.returncode == 0:
             return ComposeCommandResult(
                 command=fallback_command,
-                warning='`podman compose` 不可用, 已改用 `podman-compose`。',
+                warning='`podman compose` is unavailable; using `podman-compose` instead.',
             )
 
     return ComposeCommandResult(
         command=None,
-        error='Podman 已安装, 但 `podman compose` 无法运行。请安装 podman-compose 或 Podman Compose 插件。',
+        error='Podman is installed, but Compose is unavailable. Install podman-compose or the Podman Compose plugin.',
     )
 
 
@@ -122,7 +125,10 @@ def load_compose_file(
 ) -> ComposeFileResult:
     """Render root docker-compose.yml from the fixed compose template."""
     if not template_file.exists():
-        return ComposeFileResult(success=False, error=f'未找到 compose 模板 {template_file}, 无法启动项目容器。')
+        return ComposeFileResult(
+            success=False,
+            error=f'Compose template {template_file} was not found; project containers cannot be started.',
+        )
 
     compose_object = yaml.safe_load(template_file.read_text(encoding='utf-8'))
     updated_port: list[str] = []
@@ -132,27 +138,27 @@ def load_compose_file(
         services['web-ui']['environment']['BACKEND_API_URL'] = f'http://host.docker.internal:{api_port}/api/v1'
         if update_port:
             if update_port.api:
-                updated_port.append(f'web-ui BACKEND_API_URL 端口: {api_port}')
+                updated_port.append(f'web-ui BACKEND_API_URL port: {api_port}')
             if postgres_port := update_port.postgres:
                 services['postgres-db']['ports'][0] = f'{postgres_port}:5432'
-                updated_port.append(f'PostgreSQL 宿主机端口: {postgres_port}')
+                updated_port.append(f'PostgreSQL host port: {postgres_port}')
             if redis_port := update_port.redis:
                 services['redis-db']['ports'][0] = f'{redis_port}:6379'
-                updated_port.append(f'Redis 宿主机端口: {redis_port}')
+                updated_port.append(f'Redis host port: {redis_port}')
             if rabbitmq_port := update_port.rabbitmq:
                 services['rabbitmq-db']['ports'][0] = f'{rabbitmq_port}:5672'
-                updated_port.append(f'RabbitMQ 宿主机端口: {rabbitmq_port}')
+                updated_port.append(f'RabbitMQ host port: {rabbitmq_port}')
             if rustfs_port := update_port.rustfs:
                 services['rustfs']['ports'][0] = f'{rustfs_port}:9000'
-                updated_port.append(f'RustFS/S3 宿主机端口: {rustfs_port}')
+                updated_port.append(f'RustFS/S3 host port: {rustfs_port}')
             if milvus_port := update_port.milvus:
                 services['standalone']['ports'][0] = f'{milvus_port}:19530'
-                updated_port.append(f'Milvus 宿主机端口: {milvus_port}')
+                updated_port.append(f'Milvus host port: {milvus_port}')
             if web_ui_port := update_port.web_ui:
                 services['web-ui']['ports'][0] = f'{web_ui_port}:3000'
-                updated_port.append(f'Web UI 宿主机端口: {web_ui_port}')
+                updated_port.append(f'Web UI host port: {web_ui_port}')
     except (KeyError, IndexError, TypeError) as exc:
-        return ComposeFileResult(success=False, error=f'compose 模板结构不符合预期: {exc}')
+        return ComposeFileResult(success=False, error=f'The Compose template has an invalid structure: {exc}')
 
     content = yaml.safe_dump(compose_object, allow_unicode=True, sort_keys=False)
     COMPOSE_FILE.write_text(content, encoding='utf-8')
@@ -166,7 +172,9 @@ def check_exist_container(compose_command: list[str], runtime: str) -> RunningSe
         result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--services', '--status', 'running'])
         if result.returncode != 0:
             return RunningServicesResult(
-                success=False, services=[], error=f'无法读取 compose 运行状态: {result.stderr.strip()}'
+                success=False,
+                services=[],
+                error=f'Unable to read Compose service status: {result.stderr.strip()}',
             )
         services = sorted(line.strip() for line in result.stdout.splitlines() if line.strip())
         return RunningServicesResult(success=True, services=services)
@@ -174,13 +182,15 @@ def check_exist_container(compose_command: list[str], runtime: str) -> RunningSe
     result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--format', 'json'])
     if result.returncode != 0:
         return RunningServicesResult(
-            success=False, services=[], error=f'无法读取 compose 运行状态: {result.stderr.strip()}'
+            success=False,
+            services=[],
+            error=f'Unable to read Compose service status: {result.stderr.strip()}',
         )
 
     try:
         records = _parse_podman_ps_json(result.stdout)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        return RunningServicesResult(success=False, services=[], error=f'无法解析 compose 运行状态: {exc}')
+        return RunningServicesResult(success=False, services=[], error=f'Unable to parse Compose service status: {exc}')
 
     services = sorted(
         {
@@ -206,7 +216,7 @@ def _parse_podman_ps_json(output: str) -> list[dict[str, object]]:
     if isinstance(parsed, dict):
         parsed = [parsed]
     if not isinstance(parsed, list) or any(not isinstance(record, dict) for record in parsed):
-        msg = f'预期 JSON 对象列表, 实际为 {type(parsed).__name__}'
+        msg = f'Expected a list of JSON objects, got {type(parsed).__name__}'
         raise TypeError(msg)
     return parsed
 
@@ -257,10 +267,10 @@ def wait_for_project_services(
     while True:
         unready_services = check_unready_services(compose_command, runtime)
         if not unready_services:
-            return OperationResult(success=True, message='项目依赖服务已就绪。')
+            return OperationResult(success=True, message='Project services are ready.')
         if time.monotonic() >= deadline:
             names = ', '.join(unready_services)
-            return OperationResult(success=False, error=f'等待项目依赖服务就绪超时: {names}')
+            return OperationResult(success=False, error=f'Timed out waiting for project services: {names}')
         time.sleep(poll_interval)
 
 
@@ -275,14 +285,16 @@ def prepare_container_volumes(runtime: str) -> OperationResult:
         try:
             path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            return OperationResult(success=False, error=f'无法创建容器数据目录 {path}: {exc}')
+            return OperationResult(success=False, error=f'Unable to create container data directory {path}: {exc}')
 
         if runtime == 'podman':
             # Rootless Podman must translate container IDs through its user namespace.
             result = run_command(['podman', 'unshare', 'chown', f'{uid}:{gid}', str(path)])
             if result.returncode != 0:
-                error = result.stderr.strip() or f'退出码 {result.returncode}'
-                return OperationResult(success=False, error=f'无法设置 Podman 数据目录 {path} 的所有者: {error}')
+                error = result.stderr.strip() or f'exit code {result.returncode}'
+                return OperationResult(
+                    success=False, error=f'Unable to set ownership for Podman data directory {path}: {error}'
+                )
             continue
 
         if path_existed:
@@ -292,11 +304,14 @@ def prepare_container_volumes(runtime: str) -> OperationResult:
         except OSError as exc:
             return OperationResult(
                 success=False,
-                error=f'无法设置容器数据目录 {path} 的所有者为 {uid}:{gid}: {exc}',
+                error=f'Unable to set owner {uid}:{gid} for container data directory {path}: {exc}',
             )
 
     rustfs_path, milvus_path = volume_owners
-    return OperationResult(success=True, message=f'初始化 RustFS 和 Milvus 数据目录: {rustfs_path}, {milvus_path}')
+    return OperationResult(
+        success=True,
+        message=f'Initialized RustFS and Milvus data directories: {rustfs_path}, {milvus_path}',
+    )
 
 
 def initialize_project_containers(
@@ -306,11 +321,14 @@ def initialize_project_containers(
     update_port: UpdatePort | None = None,
 ) -> bool | None:
     """Prompt for and optionally start project compose containers."""
-    tui.render_section('项目容器', '检查容器运行时、同步 web-ui 端口并启动依赖服务。')
+    tui.render_section(
+        'Project Containers',
+        'Check the container runtime, synchronize the Web UI port, and start project services.',
+    )
 
     runtime = settings.docker.CONTAINER
-    if not confirm(f'是否使用 {runtime} 启动项目容器?', default=True):
-        tui.render_notice('已跳过项目容器启动。', style='#94a3b8')
+    if not confirm(f'Start project containers with {runtime}?', default=True):
+        tui.render_notice('Project container startup skipped.', style='#94a3b8')
         return None
 
     compose_result = check_compose_command(settings.docker)
@@ -327,48 +345,52 @@ def initialize_project_containers(
     template_file = compose_template_file(runtime)
     compose_file_result = load_compose_file(settings.network.PORT, update_port, template_file)
     if not compose_file_result.success:
-        tui.render_notice(compose_file_result.error or '生成 docker-compose.yml 失败。', style='#ef4444')
+        tui.render_notice(compose_file_result.error or 'Failed to generate docker-compose.yml.', style='#ef4444')
         return False
     if compose_file_result.written:
-        tui.render_notice(f'已从 {template_file} 生成 {COMPOSE_FILE}', style='#10b981')
-    tui.console.print(f'[bold]web-ui BACKEND_API_URL 端口:[/bold] {settings.network.PORT}')
+        tui.render_notice(f'Generated {COMPOSE_FILE} from {template_file}.', style='#10b981')
+    tui.console.print(f'[bold]web-ui BACKEND_API_URL port:[/bold] {settings.network.PORT}')
     for message in compose_file_result.updated_port:
-        tui.render_notice(f'已同步 {message}', style='#10b981')
+        tui.render_notice(f'Updated {message}.', style='#10b981')
 
     running_result = check_exist_container(compose_command, runtime)
     if not running_result.success:
-        tui.render_notice(running_result.error or '无法读取 compose 运行状态。', style='#f59e0b')
+        tui.render_notice(running_result.error or 'Unable to read Compose service status.', style='#f59e0b')
     running_services = set(running_result.services)
     if running_services:
-        tui.console.print(f'[bold #10b981]检测到已运行服务:[/bold #10b981] {", ".join(running_result.services)}')
+        tui.console.print(
+            f'[bold #10b981]Running services detected:[/bold #10b981] {", ".join(running_result.services)}'
+        )
     if running_services >= REQUIRED_SERVICES:
-        tui.render_notice('项目容器已在运行, 正在检查服务状态。', style='#94a3b8')
+        tui.render_notice('Project containers are already running; checking service health.', style='#94a3b8')
         ready_result = wait_for_project_services(compose_command, runtime)
         if ready_result.success:
-            tui.render_notice(ready_result.message or '项目依赖服务已就绪。', style='#10b981')
+            tui.render_notice(ready_result.message or 'Project services are ready.', style='#10b981')
             return True
-        tui.render_notice(ready_result.error or '项目依赖服务未就绪。', style='#ef4444')
+        tui.render_notice(ready_result.error or 'Project services are not ready.', style='#ef4444')
         return False
 
     volume_result = prepare_container_volumes(runtime)
     if not volume_result.success:
-        tui.render_notice(volume_result.error or '准备 compose 挂载目录失败。', style='#ef4444')
+        tui.render_notice(volume_result.error or 'Failed to prepare Compose volume directories.', style='#ef4444')
         return False
     if volume_result.message:
         tui.render_notice(volume_result.message, style='#10b981')
 
     command = [*compose_command, '-f', str(COMPOSE_FILE), 'up', '-d']
     tui.console.print()
-    tui.console.print(f'[bold #22d3ee]执行:[/bold #22d3ee] {" ".join(command)}')
+    tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {" ".join(command)}')
     result = subprocess.run(command, check=False)
     if result.returncode != 0:
-        tui.render_notice(f'项目容器启动失败, compose 退出码: {result.returncode}', style='#ef4444')
+        tui.render_notice(
+            f'Project container startup failed; Compose exited with code {result.returncode}.', style='#ef4444'
+        )
         return False
 
-    tui.render_notice('项目容器启动命令已执行, 正在等待依赖服务就绪。', style='#10b981')
+    tui.render_notice('Project containers started; waiting for services to become ready.', style='#10b981')
     ready_result = wait_for_project_services(compose_command, runtime)
     if not ready_result.success:
-        tui.render_notice(ready_result.error or '项目依赖服务未就绪。', style='#ef4444')
+        tui.render_notice(ready_result.error or 'Project services are not ready.', style='#ef4444')
         return False
-    tui.render_notice(ready_result.message or '项目依赖服务已就绪。', style='#10b981')
+    tui.render_notice(ready_result.message or 'Project services are ready.', style='#10b981')
     return True

@@ -81,14 +81,16 @@ async def init_admin() -> AdminInitResult:
             return AdminInitResult(created=False)
 
         def required(value: str) -> bool | str:
-            return True if value.strip() else '此项不能为空'
+            return True if value.strip() else 'This field is required.'
 
-        email = (await tui.prompt_text_async('管理员邮箱', validate=required)).strip().casefold()
-        username = (await tui.prompt_text_async('管理员用户名', default='admin', validate=required)).strip()
+        email = (await tui.prompt_text_async('Administrator email', validate=required)).strip().casefold()
+        username = (await tui.prompt_text_async('Administrator username', default='admin', validate=required)).strip()
         password = await tui.prompt_password_async(
-            '管理员密码 (不限制强度, 不能为空且最多 128 UTF-8 字节)',
+            'Administrator password (any strength, required, maximum 128 UTF-8 bytes)',
             validate=lambda value: (
-                required(value) if len(value.encode()) <= MAX_PASSWORD_BYTES else '密码不能超过 128 UTF-8 字节'
+                required(value)
+                if len(value.encode()) <= MAX_PASSWORD_BYTES
+                else 'The password cannot exceed 128 UTF-8 bytes.'
             ),
         )
         user_service.create_user(
@@ -115,7 +117,7 @@ async def _ensure_preset_file(filename: str) -> PresetFileResult:
 
 
 async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> PresetImportResult:
-    """初始化镜像数据库和镜像向量索引."""
+    """Initialize the image database and image vector index."""
     import orjson
     import polars as pl
     from langchain_core.documents import Document
@@ -188,7 +190,7 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
 
 
 async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
-    """初始化工具文档库."""
+    """Initialize the tool documentation database."""
     import polars as pl
     from pydantic import ValidationError
 
@@ -231,7 +233,7 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
 
 
 async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> PresetImportResult:
-    """初始化工具数据库和工具向量索引."""
+    """Initialize the tool database and tool vector index."""
     import orjson
     import polars as pl
     from langchain_core.documents import Document
@@ -380,9 +382,12 @@ async def rebuild_auxiliary_node_index(*, show_progress: bool = True) -> None:
 
 async def initialize_preset_database(confirm: Callable[..., Awaitable[bool]]) -> bool | None:
     """Prompt for and initialize preset SQL records and vector collections."""
-    tui.render_section('系统预置数据', '初始化管理员账户、工具数据库以及工具/镜像/辅助节点向量索引。')
-    if not await confirm('是否初始化系统预置数据和向量索引?', default=True):
-        tui.render_notice('已跳过预置数据初始化。', style='#94a3b8')
+    tui.render_section(
+        'System Preset Data',
+        'Initialize the administrator account, tool database, and tool/image/auxiliary-node vector indexes.',
+    )
+    if not await confirm('Initialize system preset data and vector indexes?', default=True):
+        tui.render_notice('Preset data initialization skipped.', style='#94a3b8')
         return None
 
     try:
@@ -392,7 +397,7 @@ async def initialize_preset_database(confirm: Callable[..., Awaitable[bool]]) ->
         result = await init_preset_database_records(drop_old=True, show_progress=False)
         await rebuild_auxiliary_node_index(show_progress=False)
     except Exception as exc:
-        tui.render_notice(f'预置数据初始化失败: {exc}', style='#ef4444')
+        tui.render_notice(f'Preset data initialization failed: {exc}', style='#ef4444')
         return False
 
     tui.render_preset_database_summary(result)
