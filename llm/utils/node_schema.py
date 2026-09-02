@@ -54,6 +54,26 @@ class SelectFileInFolderSchema(BaseModel):
     file_name: str
 
 
+class JoinPathSchema(BaseModel):
+    relative_path: str
+
+    @field_validator('relative_path')
+    @classmethod
+    def validate_relative_path(cls, relative_path: str) -> str:
+        """Require a non-empty relative path that cannot escape its base path."""
+        path = Path(relative_path)
+        if (
+            not relative_path
+            or relative_path == '.'
+            or path.is_absolute()
+            or '..' in path.parts
+            or '\\' in relative_path
+        ):
+            msg = 'relative_path must be a non-empty relative path without parent traversal'
+            raise ValueError(msg)
+        return relative_path
+
+
 class MoveFilesToFolderSchema(BaseModel):
     folder_name: str
 
@@ -181,6 +201,13 @@ PROCESSORS: dict[str, NodeSchema] = {
         'args': SelectFileInFolderSchema,
         'input_handles': [Handle(name='folder_path', description='Folder path')],
         'output_handles': [Handle(name='file_path', description='Selected file path')],
+    },
+    'join_path': {
+        'name': 'Join Path',
+        'description': 'Appends `relative_path` to an upstream file or directory path and returns the joined path. This node only constructs the path; it does not require the resulting path to exist.',
+        'args': JoinPathSchema,
+        'input_handles': [Handle(name='base_path', description='Base file or directory path')],
+        'output_handles': [Handle(name='path', description='Joined path')],
     },
     'copy2folder': {
         'name': 'Copy Files to Folder',

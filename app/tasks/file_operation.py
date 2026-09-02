@@ -82,6 +82,35 @@ def select_file_task(
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def join_path_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput],
+    relative_path: str,
+) -> ToolOutput:
+    """Append a relative path to an upstream path without checking existence."""
+    input_path = inputs.get('base_path')
+    if input_path is None:
+        msg = 'join_path requires exactly one base_path input'
+        raise ValueError(msg)
+
+    suffix = Path(relative_path)
+    if (
+        not relative_path
+        or relative_path == '.'
+        or suffix.is_absolute()
+        or '..' in suffix.parts
+        or '\\' in relative_path
+    ):
+        msg = 'relative_path must be a non-empty relative path without parent traversal'
+        raise ValueError(msg)
+
+    base_path, sample_name = get_tool_output(input_path.source_uid, input_path.source_k)
+    return ToolOutput(result={'path': Path(base_path) / suffix}, sample_name=sample_name)
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def rename_file_task(
     self: Task,  # noqa: ARG001
     result_dict: ToolOutput | None = None,  # noqa: ARG001

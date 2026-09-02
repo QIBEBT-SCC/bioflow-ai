@@ -21,6 +21,7 @@ from app.tasks.file_operation import (
     collect_mount_dirs_task,
     collect_sample_marks_task,
     create_text_file_task,
+    join_path_task,
     project_mark_task,
     rename_file_task,
     sample_mark_task,
@@ -434,6 +435,28 @@ class SelectTaskHandler(BaseTaskHandler):
         return select_file_task.s(inputs=task_node.kwarg, file_name=task_node.data.get('file_name')).set(
             task_id=task_node.id
         )
+
+
+@register_handler('join_path')
+class JoinPathTaskHandler(BaseTaskHandler):
+    """路径拼接任务处理器."""
+
+    track_progress = False
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='join_path',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        return join_path_task.s(
+            inputs=task_node.kwarg,
+            relative_path=task_node.data.get('relative_path', ''),
+        ).set(task_id=task_node.id)
 
 
 @register_handler('rename_file')
