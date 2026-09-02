@@ -29,6 +29,7 @@ from app.schemas.tools import (
     ToolPublic,
     ToolTagPublic,
     ToolTaskInfo,
+    ToolUsagePublic,
 )
 from app.services import tool_cache, tool_catalog
 
@@ -244,6 +245,31 @@ async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
     return ToolPublic.model_validate(tool)
 
 
+@router.get('/{tool_uid}/usage')
+async def get_tool_usage(
+    tool_uid: str,
+    session: SessionDep,
+    _current_user: AdminDep,
+    workflow_offset: Annotated[int, Query(ge=0)] = 0,
+    run_offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> ToolUsagePublic:
+    """List saved workflows and historical runs that reference a tool."""
+    if tool_crud.get(session, tool_uid) is None:
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
+
+    workflow_total, run_total = tool_crud.get_usage_counts(session, tool_uid)
+    return ToolUsagePublic(
+        workflow_total=workflow_total,
+        run_total=run_total,
+        workflow_offset=workflow_offset,
+        run_offset=run_offset,
+        limit=limit,
+        workflows=tool_crud.get_workflow_usage_page(session, tool_uid, limit, workflow_offset),
+        runs=tool_crud.get_run_usage_page(session, tool_uid, limit, run_offset),
+    )
+
+
 @router.patch('/{tool_uid}')
 async def update_tool(
     tool_uid: str,
@@ -278,7 +304,10 @@ async def mark_tool_ai_checked(
 @router.delete('/{tool_uid}')
 async def delete_tool(tool_uid: str, session: SessionDep, redis: RedisDep, _current_user: AdminDep) -> dict:
     """删除指定工具."""
-    await tool_catalog.delete_tool(session, redis, tool_uid)
+    try:
+        await tool_catalog.delete_tool(session, redis, tool_uid)
+    except tool_catalog.ToolInUseError as error:
+        raise HTTPException(HTTP_409_CONFLICT, detail=str(error)) from error
     return {'message': 'Tool deleted successfully', 'uid': tool_uid}
 
 

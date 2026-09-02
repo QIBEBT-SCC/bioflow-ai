@@ -5,7 +5,10 @@ from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.models.project import Project
 from app.models.tools import ToolDefine
+from app.models.workflow import RunInstance, TaskInstance, Workflow
+from app.schemas.tools import ToolRunUsage, ToolWorkflowUsage
 from app.utils.identifiers import UUIDLike, as_uuid
 
 _FUZZY_SIMILARITY_THRESHOLD = 0.1
@@ -179,3 +182,96 @@ def get(session: Session, tool_uid: UUIDLike) -> ToolDefine | None:
         )
     )
     return session.scalar(stmt)
+
+
+def _workflow_reference_predicate(tool_uid: UUIDLike) -> ColumnElement[bool]:
+    """Build a JSONB containment predicate for tool nodes in saved workflows."""
+    return Workflow.workflow.contains(
+        {'nodes': [{'type': 'tool', 'data': {'tool_uid': str(as_uuid(tool_uid))}}]},
+    )
+
+
+def get_usage_counts(session: Session, tool_uid: UUIDLike) -> tuple[int, int]:
+    """Return saved-workflow and distinct historical-run counts for a tool."""
+    normalized_uid = as_uuid(tool_uid)
+    workflow_count = session.scalar(
+        select(func.count()).select_from(Workflow).where(_workflow_reference_predicate(normalized_uid)),
+    ) or 0
+    run_count = session.scalar(
+        select(func.count(func.distinct(TaskInstance.instance_uid))).where(TaskInstance.tool_uid == normalized_uid),
+    ) or 0
+    return workflow_count, run_count
+
+
+def get_workflow_usage_page(
+    session: Session,
+    tool_uid: UUIDLike,
+    limit: int,
+    offset: int,
+) -> list[ToolWorkflowUsage]:
+    """Return a page of saved workflows that reference a tool."""
+    normalized_uid = as_uuid(tool_uid)
+    statement = (
+        select(Workflow)
+        .where(_workflow_reference_predicate(normalized_uid))
+        .order_by(Workflow.name, Workflow.uid)
+        .offset(offset)
+        .limit(limit)
+    )
+    tool_uid_text = str(normalized_uid)
+    return [
+        ToolWorkflowUsage(
+            uid=workflow.uid,
+            name=workflow.name,
+            description=workflow.description,
+            public=workflow.public,
+            node_count=sum(
+                1
+                for node in workflow.workflow.nodes
+                if node.type == 'tool' and node.data.get('tool_uid') == tool_uid_text
+            ),
+        )
+        for workflow in session.scalars(statement).all()
+    ]
+
+
+def get_run_usage_page(
+    session: Session,
+    tool_uid: UUIDLike,
+    limit: int,
+    offset: int,
+) -> list[ToolRunUsage]:
+    """Return a page of distinct runs that contain tasks for a tool."""
+    normalized_uid = as_uuid(tool_uid)
+    task_count = func.count(TaskInstance.uid).label('task_count')
+    statement = (
+        select(
+            RunInstance.uid,
+            RunInstance.name,
+            RunInstance.project_id,
+            Project.name.label('project_name'),
+            RunInstance.workflow_uid,
+            Workflow.name.label('workflow_name'),
+            RunInstance.status,
+            RunInstance.create_time,
+            task_count,
+        )
+        .join(TaskInstance, TaskInstance.instance_uid == RunInstance.uid)
+        .outerjoin(Project, Project.id == RunInstance.project_id)
+        .outerjoin(Workflow, Workflow.uid == RunInstance.workflow_uid)
+        .where(TaskInstance.tool_uid == normalized_uid)
+        .group_by(
+            RunInstance.uid,
+            RunInstance.name,
+            RunInstance.project_id,
+            Project.name,
+            RunInstance.workflow_uid,
+            Workflow.name,
+            RunInstance.status,
+            RunInstance.create_time,
+        )
+        .order_by(RunInstance.create_time.desc().nullslast(), RunInstance.uid)
+        .offset(offset)
+        .limit(limit)
+    )
+    return [ToolRunUsage.model_validate(row) for row in session.execute(statement).mappings().all()]

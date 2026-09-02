@@ -1,9 +1,11 @@
 import uuid
+from datetime import datetime
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
+from app.schemas.workflow_config import Status
 from app.utils.input_format import build_command_template
 
 
@@ -240,6 +242,42 @@ class ToolPublic(BaseModel):
             file_mounts=self.file_mounts,
         )
         return self
+
+
+class ToolWorkflowUsage(BaseModel):
+    """A saved workflow template that currently references a tool."""
+
+    uid: uuid.UUID
+    name: str
+    description: str
+    public: bool
+    node_count: int
+
+
+class ToolRunUsage(BaseModel):
+    """A historical run containing at least one task for a tool."""
+
+    uid: uuid.UUID
+    name: str
+    project_id: int | None
+    project_name: str | None
+    workflow_uid: uuid.UUID | None
+    workflow_name: str | None
+    status: Status
+    create_time: datetime | None
+    task_count: int
+
+
+class ToolUsagePublic(BaseModel):
+    """Paginated current and historical usage for one tool."""
+
+    workflow_total: int
+    run_total: int
+    workflow_offset: int
+    run_offset: int
+    limit: int
+    workflows: list[ToolWorkflowUsage]
+    runs: list[ToolRunUsage]
 
 
 class Handle(BaseModel):

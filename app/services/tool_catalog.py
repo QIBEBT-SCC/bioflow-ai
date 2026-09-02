@@ -2,6 +2,7 @@
 
 from langchain_core.documents import Document
 from redis.asyncio import Redis
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import app.crud.tools.image as image_crud
@@ -59,6 +60,17 @@ class ToolCommandExecutionError(ToolCatalogError):
         self.command = command
         self.result = result
         super().__init__(f'Command failed with exit code {result.exit_code}: {command}')
+
+
+class ToolInUseError(ToolCatalogError):
+    """A tool cannot be deleted while workflows or runs reference it."""
+
+    def __init__(self, workflow_count: int, run_count: int) -> None:
+        self.workflow_count = workflow_count
+        self.run_count = run_count
+        super().__init__(
+            f'Tool is used by {workflow_count} workflow(s) and {run_count} historical run(s).',
+        )
 
 
 def create_group(session: Session, group_data: ToolGroupCreate) -> ToolGroup:
@@ -328,10 +340,20 @@ async def delete_tool(
     tool_uid: UUIDLike,
 ) -> bool:
     """Delete a tool, its vector index entry, and its cached projections."""
-    with committing(session):
-        deleted = tool_crud.delete(session, tool_uid)
-        if not deleted:
-            return False
+    workflow_count, run_count = tool_crud.get_usage_counts(session, tool_uid)
+    if workflow_count or run_count:
+        raise ToolInUseError(workflow_count, run_count)
+
+    try:
+        with committing(session):
+            deleted = tool_crud.delete(session, tool_uid)
+            if not deleted:
+                return False
+    except IntegrityError as error:
+        workflow_count, run_count = tool_crud.get_usage_counts(session, tool_uid)
+        if workflow_count or run_count:
+            raise ToolInUseError(workflow_count, run_count) from error
+        raise
 
     vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
