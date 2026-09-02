@@ -45,7 +45,7 @@ uv sync --extra podman
 uv run bioflow-ai auto-init
 ```
 
-The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers.
+The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.mdx) for every prompt, accepted value, and default.
 
 After initialization, start the API, workflow worker, and agent worker in separate terminals:
 
