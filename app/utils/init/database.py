@@ -174,6 +174,7 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
         docs = [
             Document(page_content=img.description, metadata={'image_uid': str(img.uid), 'name': img.name})
             for img in batch_images
+            if img.description
         ]
 
         async with vectorstore:
@@ -317,6 +318,7 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
                     metadata={'tool_uid': str(tool.uid), 'image_uid': str(tool.image.uid), 'name': tool.name},
                 )
                 for tool in batch_tools
+                if tool.description
             ]
 
             async with vectorstore:
