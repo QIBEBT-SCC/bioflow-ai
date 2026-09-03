@@ -146,7 +146,7 @@ def rename_file_task(
     renamed_file = output_folder / new_file_name
     if renamed_file.exists() or renamed_file.is_symlink():
         renamed_file.unlink()
-    renamed_file.symlink_to(source_path)
+    shutil.copy2(source_path, renamed_file)
 
     return ToolOutput(result={'renamed_file': renamed_file}, sample_name=sample_name)
 
