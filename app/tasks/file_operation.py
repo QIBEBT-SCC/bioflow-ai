@@ -82,6 +82,53 @@ def select_file_task(
 
 
 @celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
+def read_file_content_task(
+    self: Task,  # noqa: ARG001
+    result_dict: ToolOutput | None = None,  # noqa: ARG001
+    *,
+    inputs: dict[str, TaskInput],
+    file_name: str,
+) -> ToolOutput:
+    """Read a UTF-8 text file from an upstream folder as a string value."""
+    folder_input = inputs.get('folder_path')
+    if folder_input is None:
+        msg = 'read_file_content requires exactly one folder_path input'
+        raise ValueError(msg)
+
+    file_pattern = Path(file_name)
+    if (
+        not file_name
+        or file_name == '.'
+        or file_pattern.is_absolute()
+        or '..' in file_pattern.parts
+        or '\\' in file_name
+    ):
+        msg = 'file_name must be a non-empty relative file name or glob pattern without parent traversal'
+        raise ValueError(msg)
+
+    parent_dir, sample_name = get_tool_output(folder_input.source_uid, folder_input.source_k)
+    parent_path = Path(parent_dir)
+
+    if has_magic(file_name):
+        matched_files = sorted(path for path in parent_path.glob(file_name) if path.is_file())
+        if not matched_files:
+            raise FileNotFoundError(parent_path / file_name)
+        selected_file = matched_files[0]
+    else:
+        selected_file = parent_path / file_name
+        if not selected_file.is_file():
+            raise FileNotFoundError(selected_file)
+
+    with selected_file.open('rb') as file:
+        content = file.read(TEXT_FILE_CONTENT_MAX_BYTES + 1)
+    if len(content) > TEXT_FILE_CONTENT_MAX_BYTES:
+        msg = f'file content must not exceed {TEXT_FILE_CONTENT_MAX_BYTES} bytes'
+        raise ValueError(msg)
+
+    return ToolOutput(result={'value': content.decode('utf-8')}, sample_name=sample_name)
+
+
+@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
 def join_path_task(
     self: Task,  # noqa: ARG001
     result_dict: ToolOutput | None = None,  # noqa: ARG001

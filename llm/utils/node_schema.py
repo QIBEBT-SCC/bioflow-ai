@@ -54,6 +54,26 @@ class SelectFileInFolderSchema(BaseModel):
     file_name: str
 
 
+class ReadFileContentSchema(BaseModel):
+    file_name: str
+
+    @field_validator('file_name')
+    @classmethod
+    def validate_file_name(cls, file_name: str) -> str:
+        """Require a relative file name or glob pattern within the upstream folder."""
+        file_pattern = Path(file_name)
+        if (
+            not file_name
+            or file_name == '.'
+            or file_pattern.is_absolute()
+            or '..' in file_pattern.parts
+            or '\\' in file_name
+        ):
+            msg = 'file_name must be a non-empty relative file name or glob pattern without parent traversal'
+            raise ValueError(msg)
+        return file_name
+
+
 class JoinPathSchema(BaseModel):
     relative_path: str
 
@@ -201,6 +221,13 @@ PROCESSORS: dict[str, NodeSchema] = {
         'args': SelectFileInFolderSchema,
         'input_handles': [Handle(name='folder_path', description='Folder path')],
         'output_handles': [Handle(name='file_path', description='Selected file path')],
+    },
+    'read_file_content': {
+        'name': 'Read File Content',
+        'description': 'Reads a UTF-8 text file from an upstream folder and exposes its content through a string `value` output. The `file_name` parameter accepts a file name or glob pattern; when multiple files match, the first path in sorted order is used. Files are limited to 5 MiB.',
+        'args': ReadFileContentSchema,
+        'input_handles': [Handle(name='folder_path', description='Folder path')],
+        'output_handles': [Handle(name='value', description='File content as a string value')],
     },
     'join_path': {
         'name': 'Join Path',

@@ -23,6 +23,7 @@ from app.tasks.file_operation import (
     create_text_file_task,
     join_path_task,
     project_mark_task,
+    read_file_content_task,
     rename_file_task,
     sample_mark_task,
     select_file_task,
@@ -433,6 +434,27 @@ class SelectTaskHandler(BaseTaskHandler):
 
     def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
         return select_file_task.s(inputs=task_node.kwarg, file_name=task_node.data.get('file_name')).set(
+            task_id=task_node.id
+        )
+
+
+@register_handler('read_file_content')
+class ReadFileContentTaskHandler(BaseTaskHandler):
+    """Read a file from an upstream folder and expose its content as a string."""
+
+    track_progress = False
+
+    def create_task_instance(self, task_node: TaskNode, context: TaskContext) -> TaskInstance:  # noqa: D102
+        return TaskInstance(
+            uid=uuid.UUID(task_node.id),
+            instance_uid=context.run_uid,
+            owner_id=context.owner.id,
+            name='read_file_content',
+            status=Status.WAITING,
+        )
+
+    def create_celery_task(self, task_node: TaskNode, context: TaskContext) -> Optional[Signature]:  # noqa: D102
+        return read_file_content_task.s(inputs=task_node.kwarg, file_name=task_node.data.get('file_name')).set(
             task_id=task_node.id
         )
 
