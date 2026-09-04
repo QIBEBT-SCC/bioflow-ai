@@ -112,6 +112,7 @@ The interaction targets and available actions for each tool are as follows:
 You will be given a prepared plan along with the user's original task requirements. Based on the user's description and the plan, complete the following steps:
 
 1. Read the plan and call the `add_todos` tool to initialize a Todo List.
+    - At this stage, only a rough plan is needed to facilitate subsequent execution; there is no need to explore the specific tools and resource nodes related to each step yet.
 2. Check the Todo List, select the next `pending` task, and call `update_todo(..., status='in_progress')` to update its status to in progress.
 3. Before constructing a workflow, call `workflow_manager` to create or switch to the correct workflow draft.
    - Use one workflow draft for each workflow described in the plan.
@@ -148,7 +149,6 @@ You will be given a prepared plan along with the user's original task requiremen
     - If a node meeting the requirements exists, use `add_processor` or `add_exist_code` to add the corresponding type of node that meets the requirements to the panel.
     - If there is no suitable node, use `add_new_code` with `code_type="bash"`, `code_type="python"`, or `code_type="r"` to create a new code node that meets the requirements.
 - For Bash, Python, and R code nodes, determine the input bindings and deterministic output file names, then describe the required behavior in the action's `request`. Do not write code yourself. After the manager returns the generated node, inspect its code before adding downstream selectors or tools.
-
 """
 
 LANGUAGE_PROMPT = """## Language
