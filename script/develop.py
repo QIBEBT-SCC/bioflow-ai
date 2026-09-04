@@ -1,8 +1,6 @@
 import asyncio
-import base64
 import shutil
 import time
-import unicodedata
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -35,10 +33,6 @@ TOOL_STATUS_FAILED = 'FAILED'
 TOOL_STATUS_COMPLETED = 'COMPLETED'
 TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_STATUS_FAILED)
 TOOL_TRAJECTORY_AGENTS = ('test_run', 'tool_generator')
-MCP_EXPORT_SCHEMA_VERSION = 1
-MCP_TOOL_ID_LENGTH = 22
-MCP_EXPORT_BUCKET = 'Aye10032/bioflow-ai-prebuild'
-MCP_EXPORT_BUCKET_PATH = 'tools.duckdb'
 
 
 def _format_notification_duration(duration_ms: int) -> str:
@@ -938,319 +932,6 @@ async def check_records(*, clean_incomplete: bool = False, dry_run: bool = False
     logger.info(f'Successfully reset {len(indices_to_reset)} records')
 
 
-def export_images(*, upload: bool = False) -> None:
-    """导出镜像数据."""
-    import polars as pl
-
-    from app.core.config import get_settings
-
-    db_sdn = get_settings().persistent.database.DB_URL
-
-    image_df = pl.read_database_uri(
-        'SELECT * FROM images',
-        uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
-        engine='connectorx',
-    ).sort('uid')
-    logger.info(f'Exported {image_df.height} records')
-    image_df.write_parquet('presets/images.parquet', compression='snappy')
-
-    if upload:
-        from huggingface_hub import batch_bucket_files
-
-        batch_bucket_files(
-            'Aye10032/bioflow-ai-prebuild',
-            add=[('presets/images.parquet', 'images.parquet')],
-        )
-
-
-def export_docs(*, upload: bool = False) -> None:
-    """导出工具文档."""
-    import polars as pl
-
-    from app.core.config import get_settings
-
-    db_sdn = get_settings().persistent.database.DB_URL
-
-    doc_df = pl.read_database_uri(
-        'SELECT * FROM tool_docs',
-        uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
-        engine='connectorx',
-    ).sort('uid')
-    logger.info(f'Exported {doc_df.height} records')
-
-    doc_df.write_parquet('presets/tool_docs.parquet', compression='snappy')
-
-    if upload:
-        from huggingface_hub import batch_bucket_files
-
-        batch_bucket_files(
-            'Aye10032/bioflow-ai-prebuild',
-            add=[('presets/tool_docs.parquet', 'tool_docs.parquet')],
-        )
-
-
-def export_tools(*, upload: bool = False) -> None:
-    """导出工具节点."""
-    import polars as pl
-
-    from app.core.config import get_settings
-
-    db_sdn = get_settings().persistent.database.DB_URL
-
-    tool_df = pl.read_database_uri(
-        """
-            SELECT t.*,
-                   COALESCE((
-                       SELECT jsonb_agg(jsonb_build_object('id', tt.id, 'name', tt.name) ORDER BY tt.id)
-                       FROM tool_tag_link ttl
-                       JOIN tool_tags tt ON tt.id = ttl.tag_id
-                       WHERE ttl.tool_uid = t.uid
-                   ), '[]'::jsonb)::text AS tags
-            FROM tools t
-            """,
-        uri=db_sdn.unicode_string().replace(db_sdn.scheme, db_sdn.scheme.split('+')[0]),
-        engine='connectorx',
-    ).sort('uid')
-    logger.info(f'Exported {tool_df.height} records')
-
-    tool_df.write_parquet('presets/tools.parquet', compression='snappy')
-
-    if upload:
-        from huggingface_hub import batch_bucket_files
-
-        batch_bucket_files(
-            'Aye10032/bioflow-ai-prebuild',
-            add=[('presets/tools.parquet', 'tools.parquet')],
-        )
-
-
-def _normalize_mcp_search_text(value: str) -> str:
-    """Normalize public catalog text for deterministic local search."""
-    return ' '.join(unicodedata.normalize('NFKC', value).casefold().split())
-
-
-def _compact_mcp_tool_id(value: uuid.UUID) -> str:
-    """Encode a UUID as a stable, URL-safe 22-character public identifier."""
-    return base64.urlsafe_b64encode(value.bytes).decode().rstrip('=')
-
-
-def _collect_mcp_export_snapshot() -> list[dict[str, Any]]:
-    """Read a consistent PostgreSQL snapshot for the standalone MCP catalog."""
-    from sqlalchemy import select
-
-    from app.core.session import engine
-    from app.models.tools import ToolDefine, ToolHelpDoc, ToolImage
-    from app.schemas.tools import ToolDefinitionImport
-    from app.utils.input_format import build_command_template
-
-    with (
-        engine.connect().execution_options(isolation_level='REPEATABLE READ') as connection,
-        connection.begin(),
-        Session(bind=connection) as session,
-    ):
-        images = list(session.scalars(select(ToolImage).order_by(ToolImage.uid)))
-        docs = list(session.scalars(select(ToolHelpDoc).order_by(ToolHelpDoc.uid)))
-        tools = list(session.scalars(select(ToolDefine).order_by(ToolDefine.uid)))
-
-        image_by_uid = {image.uid: image for image in images}
-        doc_by_uid = {doc.uid: doc for doc in docs}
-        tool_rows: list[dict[str, Any]] = []
-        for tool in tools:
-            validated = ToolDefinitionImport.model_validate(
-                {
-                    'uid': tool.uid,
-                    'name': tool.name,
-                    'image_uid': tool.image_uid,
-                    'description': tool.description,
-                    'tool_type': tool.tool_type,
-                    'group_id': tool.group_id,
-                    'help_doc_uid': tool.help_doc_uid,
-                    'command_template': tool.command_template,
-                    'dynamic_params': tool.dynamic_params,
-                    'immutable_static_params': tool.immutable_static_params,
-                    'modifiable_static_params': tool.modifiable_static_params,
-                    'file_mounts': tool.file_mounts,
-                }
-            )
-            if validated.uid is None:
-                msg = f'Tool has no UUID: {validated.name}'
-                raise ValueError(msg)
-
-            image = image_by_uid.get(validated.image_uid) if validated.image_uid is not None else None
-            if validated.image_uid is not None and image is None:
-                msg = f'Tool {validated.uid} references missing image {validated.image_uid}.'
-                raise ValueError(msg)
-
-            doc = doc_by_uid.get(validated.help_doc_uid) if validated.help_doc_uid is not None else None
-            if validated.help_doc_uid is not None and doc is None:
-                msg = f'Tool {validated.uid} references missing documentation {validated.help_doc_uid}.'
-                raise ValueError(msg)
-
-            aliases = [image.name, *image.aliases] if image is not None else []
-            normalized_aliases = [_normalize_mcp_search_text(alias) for alias in aliases]
-            normalized_name = _normalize_mcp_search_text(validated.name)
-            search_text = ' '.join(
-                [
-                    normalized_name,
-                    *normalized_aliases,
-                    _normalize_mcp_search_text(validated.description),
-                ]
-            )
-            mounts = [value.model_dump(mode='json') for value in validated.file_mounts]
-            tool_rows.append(
-                {
-                    'schema_version': MCP_EXPORT_SCHEMA_VERSION,
-                    'id': _compact_mcp_tool_id(validated.uid),
-                    'name': validated.name,
-                    'description': validated.description,
-                    'aliases': aliases,
-                    'image': image.image.get_image() if image is not None and image.image is not None else None,
-                    'complete_command': build_command_template(
-                        validated.command_template,
-                        validated.dynamic_params,
-                        validated.immutable_static_params,
-                        validated.modifiable_static_params,
-                        validated.file_mounts,
-                    ),
-                    'parameters': [value.model_dump(mode='json') for value in validated.dynamic_params],
-                    'inputs': [mount for mount in mounts if mount['file_type'] == 'INPUT'],
-                    'outputs': [mount for mount in mounts if mount['file_type'] == 'OUTPUT'],
-                    'documentation': doc.content if doc is not None else None,
-                    'normalized_name': normalized_name,
-                    'normalized_aliases': normalized_aliases,
-                    'search_text': search_text,
-                }
-            )
-
-    return tool_rows
-
-
-def _write_mcp_database(output: FilePath, tools: list[dict[str, Any]]) -> None:
-    """Write a validated catalog snapshot to a DuckDB database file."""
-    import duckdb
-
-    connection = duckdb.connect(str(output))
-    try:
-        connection.execute(
-            """
-            CREATE TABLE tools (
-                schema_version INTEGER NOT NULL CHECK (schema_version = 1),
-                id VARCHAR PRIMARY KEY CHECK (length(id) = 22),
-                name VARCHAR NOT NULL,
-                description VARCHAR NOT NULL,
-                aliases VARCHAR[] NOT NULL,
-                image VARCHAR,
-                complete_command VARCHAR NOT NULL,
-                parameters JSON NOT NULL,
-                inputs JSON NOT NULL,
-                outputs JSON NOT NULL,
-                documentation VARCHAR,
-                normalized_name VARCHAR NOT NULL,
-                normalized_aliases VARCHAR[] NOT NULL,
-                search_text VARCHAR NOT NULL
-            );
-            """
-        )
-        connection.executemany(
-            """
-            INSERT INTO tools VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?::JSON, ?::JSON, ?::JSON, ?, ?, ?, ?
-            )
-            """,
-            [
-                (
-                    row['schema_version'],
-                    row['id'],
-                    row['name'],
-                    row['description'],
-                    row['aliases'],
-                    row['image'],
-                    row['complete_command'],
-                    orjson.dumps(row['parameters']).decode(),
-                    orjson.dumps(row['inputs']).decode(),
-                    orjson.dumps(row['outputs']).decode(),
-                    row['documentation'],
-                    row['normalized_name'],
-                    row['normalized_aliases'],
-                    row['search_text'],
-                )
-                for row in tools
-            ],
-        )
-        connection.execute('CHECKPOINT')
-    finally:
-        connection.close()
-
-
-def _validate_mcp_database(output: FilePath, tools: list[dict[str, Any]]) -> None:
-    """Verify the generated database through a fresh read-only connection."""
-    import duckdb
-
-    connection = duckdb.connect(str(output), read_only=True)
-    try:
-        tables = connection.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' ORDER BY table_name"
-        ).fetchall()
-        if tables != [('tools',)]:
-            msg = 'Generated MCP database must contain only the tools table.'
-            raise ValueError(msg)
-
-        summary = connection.execute(
-            """
-            SELECT count(*), count(DISTINCT id), min(schema_version), max(schema_version),
-                   count(*) FILTER (WHERE NOT regexp_full_match(id, '[A-Za-z0-9_-]{22}'))
-            FROM tools
-            """
-        ).fetchone()
-        expected = (len(tools), len(tools), MCP_EXPORT_SCHEMA_VERSION, MCP_EXPORT_SCHEMA_VERSION, 0)
-        if summary != expected:
-            msg = 'Generated MCP database count, schema version, or public tool identifiers are invalid.'
-            raise ValueError(msg)
-    finally:
-        connection.close()
-
-
-def export_mcp(output: FilePath, *, upload: bool = False) -> None:
-    """Export the standalone BioFlowAI tool catalog used by the local MCP server."""
-    destination = output.expanduser().absolute()
-    if destination.is_symlink():
-        destination.unlink()
-    elif destination.is_dir():
-        msg = f'Output path is a directory: {destination}'
-        raise ValueError(msg)
-    elif destination.exists():
-        destination.unlink()
-
-    destination.parent.mkdir(parents=True, exist_ok=True)
-
-    tools = _collect_mcp_export_snapshot()
-    if not tools:
-        msg = 'Cannot export an empty MCP tool catalog.'
-        raise ValueError(msg)
-    try:
-        _write_mcp_database(destination, tools)
-        _validate_mcp_database(destination, tools)
-    except Exception:
-        if destination.exists() or destination.is_symlink():
-            destination.unlink()
-        raise
-
-    logger.success(
-        'Exported MCP database to {} ({} tools)',
-        destination,
-        len(tools),
-    )
-
-    if upload:
-        from huggingface_hub import batch_bucket_files
-
-        batch_bucket_files(
-            MCP_EXPORT_BUCKET,
-            add=[(destination, MCP_EXPORT_BUCKET_PATH)],
-        )
-        logger.success('Uploaded MCP database to {}/{}', MCP_EXPORT_BUCKET, MCP_EXPORT_BUCKET_PATH)
-
-
 def statistic() -> None:
     """统计生成情况."""
     import duckdb
@@ -1474,6 +1155,8 @@ def check_cmd(*, clean_incomplete: bool, dry_run: bool) -> None:
 )
 def export(*, upload: bool, db: tuple[str, ...]) -> None:
     """Export database data."""
+    from app.utils.export.database import export_docs, export_images, export_tools
+
     db_map = {
         'images': export_images,
         'docs': export_docs,
@@ -1481,7 +1164,10 @@ def export(*, upload: bool, db: tuple[str, ...]) -> None:
     }
     for name in db:
         logger.info(f'Exporting {name}...')
-        db_map[name](upload=upload)
+        result = db_map[name](upload=upload)
+        logger.success('Exported {} records to {}', result.record_count, result.output)
+        if result.remote_path is not None:
+            logger.success('Uploaded {} to {}', result.name, result.remote_path)
 
 
 @cli.command(name='export-mcp')
@@ -1494,10 +1180,16 @@ def export(*, upload: bool, db: tuple[str, ...]) -> None:
 )
 def export_mcp_cmd(output: FilePath, *, upload: bool) -> None:
     """Export the local MCP tool knowledge database."""
+    from app.utils.export.mcp import export_mcp_database
+
     try:
-        export_mcp(output, upload=upload)
+        result = export_mcp_database(output, upload=upload)
     except Exception as error:
         raise click.ClickException(str(error)) from error
+
+    logger.success('Exported MCP database to {} ({} tools)', result.output, result.tool_count)
+    if result.remote_path is not None:
+        logger.success('Uploaded MCP database to {}', result.remote_path)
 
 
 @cli.command()
