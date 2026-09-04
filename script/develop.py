@@ -37,6 +37,8 @@ TOOL_INCOMPLETE_STATUSES = (TOOL_STATUS_RUNNING, TOOL_STATUS_INTERRUPTED, TOOL_S
 TOOL_TRAJECTORY_AGENTS = ('test_run', 'tool_generator')
 MCP_EXPORT_SCHEMA_VERSION = 1
 MCP_TOOL_ID_LENGTH = 22
+MCP_EXPORT_BUCKET = 'Aye10032/bioflow-ai-prebuild'
+MCP_EXPORT_BUCKET_PATH = 'tools.duckdb'
 
 
 def _format_notification_duration(duration_ms: int) -> str:
@@ -1208,7 +1210,7 @@ def _validate_mcp_database(output: FilePath, tools: list[dict[str, Any]]) -> Non
         connection.close()
 
 
-def export_mcp(output: FilePath) -> None:
+def export_mcp(output: FilePath, *, upload: bool = False) -> None:
     """Export the standalone BioFlowAI tool catalog used by the local MCP server."""
     destination = output.expanduser().absolute()
     if destination.is_symlink():
@@ -1238,6 +1240,15 @@ def export_mcp(output: FilePath) -> None:
         destination,
         len(tools),
     )
+
+    if upload:
+        from huggingface_hub import batch_bucket_files
+
+        batch_bucket_files(
+            MCP_EXPORT_BUCKET,
+            add=[(destination, MCP_EXPORT_BUCKET_PATH)],
+        )
+        logger.success('Uploaded MCP database to {}/{}', MCP_EXPORT_BUCKET, MCP_EXPORT_BUCKET_PATH)
 
 
 def statistic() -> None:
@@ -1474,16 +1485,17 @@ def export(*, upload: bool, db: tuple[str, ...]) -> None:
 
 
 @cli.command(name='export-mcp')
+@click.option('--upload', is_flag=True, default=False, help='Upload tools.duckdb to the Hugging Face data bucket.')
 @click.option(
     '--output',
     required=True,
     type=click.Path(dir_okay=False, path_type=FilePath),
     help='Destination DuckDB file for the standalone MCP server.',
 )
-def export_mcp_cmd(output: FilePath) -> None:
+def export_mcp_cmd(output: FilePath, *, upload: bool) -> None:
     """Export the local MCP tool knowledge database."""
     try:
-        export_mcp(output)
+        export_mcp(output, upload=upload)
     except Exception as error:
         raise click.ClickException(str(error)) from error
 
