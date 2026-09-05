@@ -8,42 +8,17 @@ from llm.context import BaseContext
 from llm.models import get_coding_model
 from llm.prebuild.json_output import json_output
 from llm.states import BuildEdge, BuildNode
+from llm.utils.code_node_contract import BASH_CODE_CONTRACT, PYTHON_CODE_CONTRACT, R_CODE_CONTRACT
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
-BASH_CODE_SYSTEM = """You are a senior Bash engineer generating code for one workflow code node.
+BASH_CODE_SYSTEM = f"""You are a senior Bash engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
 First assess whether the request is eligible for this Bash-only node. Generate exactly one complete Bash script only
 when the entire requested deterministic workflow transformation is eligible.
 
-## Runtime
-
-- The script runs with `/usr/bin/bash`.
-- Its current working directory is a newly created writable output directory dedicated to this node invocation.
-- Upstream inputs are passed as named command-line options from `bind_param` nodes.
-- Standard Linux commands plus `fd`, `rg`, `jq`, `yq`, and `mlr` are available.
-- Do not assume Python, R, third-party packages, bioinformatics programs, package installation, or network access.
-
-## Request Eligibility
-
-- Before generating code, determine whether the entire request can be implemented in the runtime described above.
-- Set `reject` to `true` when the request requires Python, R, a bioinformatics program, any other unavailable
-  executable or third-party package, package installation, or network access.
-- Do not replace a requested bioinformatics tool or Python/R program with an improvised Bash implementation.
-
-## Script Requirements
-
-- Start with `#!/usr/bin/env bash` and `set -euo pipefail`.
-- Parse every declared input using `getopts`; never rely on argument order.
-- Use exactly the short options provided in the authoritative input contract.
-- Quote every path and validate all required options and expected file or directory types.
-- Write results to the current working directory using deterministic plain file names.
-- Never modify or write beside upstream inputs.
-- Send diagnostics to stderr and exit non-zero for invalid input.
-- Avoid writing large data to stdout; redirect results directly to named files.
-- Do not invoke Python or R.
-- Do not use bioinformatics software; such operations belong in tool nodes.
+{BASH_CODE_CONTRACT}
 
 ## Structured Result
 
@@ -53,36 +28,11 @@ when the entire requested deterministic workflow transformation is eligible.
 - When `reject` is `true`, return an empty string in `code`.
 """
 
-PYTHON_CODE_SYSTEM = """You are a senior Python engineer generating code for one workflow code node.
+PYTHON_CODE_SYSTEM = f"""You are a senior Python engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
 Generate exactly one complete Python 3.13 script for the requested bounded, deterministic workflow transformation.
 
-## Runtime
-
-- The script runs as one file through uv in a container.
-- Its current working directory is the writable node output directory.
-- Upstream files and directories are mounted read-only and passed as named command-line options.
-- Click is automatically provided by the runtime.
-- The backend adds PEP 723 metadata; do not add it yourself.
-
-## CLI and Files
-
-- Define one required Click option for every input in the authoritative input contract.
-- Use option names exactly as provided, including the leading `--`.
-- Validate paths with `click.Path(exists=True, path_type=Path)`.
-- Use `pathlib.Path` for filesystem operations.
-- Write every result to the current working directory with a deterministic plain file name.
-- Never modify or write beside upstream inputs.
-- Include the standard `if __name__ == '__main__': main()` entry point.
-
-## Dependencies
-
-- Prefer the standard library when it keeps the implementation clear.
-- List only additional Python distribution requirements in `dependencies`.
-- Do not list Click.
-- Use distribution names rather than import names, such as `PyYAML` instead of `yaml`.
-- Do not use URL, Git, or local-path requirements.
-- Do not create a virtual environment or invoke pip, uv, Bash, or R from the script.
+{PYTHON_CODE_CONTRACT}
 
 ## Structured Result
 
@@ -91,33 +41,11 @@ Generate exactly one complete Python 3.13 script for the requested bounded, dete
 - Return additional Python distribution requirements in `dependencies`; use an empty list when none are needed.
 """
 
-R_CODE_SYSTEM = """You are a senior R engineer generating code for one workflow code node.
+R_CODE_SYSTEM = f"""You are a senior R engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
 Generate exactly one complete R 4.4.3 script for the requested bounded, deterministic workflow transformation.
 
-## Runtime
-
-- The script runs with `Rscript --vanilla` in the official `r-base:4.4.3` container.
-- Its current working directory is the writable node output directory.
-- Upstream files and directories are mounted read-only and passed as named command-line options.
-- Additional CRAN packages declared in `dependencies` are installed before the script runs.
-
-## CLI and Files
-
-- Parse `commandArgs(trailingOnly = TRUE)` and require every option in the authoritative input contract.
-- Use option names exactly as provided, including their leading hyphens; do not rely on argument order.
-- Validate that every input path exists before reading it.
-- Write every result to the current working directory with a deterministic plain file name.
-- Never modify or write beside upstream inputs.
-- Send diagnostics to stderr and exit non-zero for invalid input.
-
-## Compatibility
-
-- Generate syntax and APIs compatible with R 4.4.3.
-- Prefer base and recommended packages when practical.
-- List only additional CRAN package names in `dependencies`; do not include version constraints, base packages,
-  Bioconductor packages, GitHub repositories, URLs, or local paths.
-- Do not invoke Bash, Python, package installers, or network clients from the script.
+{R_CODE_CONTRACT}
 
 ## Structured Result
 

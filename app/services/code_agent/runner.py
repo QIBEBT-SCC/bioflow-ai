@@ -30,39 +30,13 @@ from app.services.code_agent import session as session_store
 from app.services.code_agent.acp import CodeAgentClient
 from app.services.code_agent.container import build_container_launch
 from app.tasks.code import normalize_python_dependencies, normalize_r_dependencies
+from llm.utils.code_node_contract import SCRIPT_NAMES, code_agent_workspace_instructions
 
 DEVICE_CODE_PATTERN = re.compile(r'\b[A-Z0-9]{4}-[A-Z0-9]{4}\b')
-SCRIPT_NAMES = {
-    CodeNodeType.BASH: 'script.sh',
-    CodeNodeType.PYTHON: 'script.py',
-    CodeNodeType.R: 'script.R',
-}
 
 
 def _redis() -> Redis:
     return Redis.from_url(get_settings().persistent.cache.API_CACHE.unicode_string(), decode_responses=True)
-
-
-def _workspace_instructions(node_type: CodeNodeType) -> str:
-    language = {
-        CodeNodeType.BASH: 'Bash',
-        CodeNodeType.PYTHON: 'Python 3.13',
-        CodeNodeType.R: 'R 4.4.3',
-    }[node_type]
-    dependency_rule = (
-        'Do not create dependencies.txt for Bash.'
-        if node_type is CodeNodeType.BASH
-        else 'Put one direct dependency per line in dependencies.txt; do not add installer flags or commands.'
-    )
-    return (
-        '# BioFlowAI CODE workspace\n\n'
-        f'- Language: {language}.\n'
-        f'- You may modify only {SCRIPT_NAMES[node_type]}'
-        f'{" and dependencies.txt" if node_type is not CodeNodeType.BASH else ""}.\n'
-        f'- {dependency_rule}\n'
-        '- Use output/ only for temporary command output; its contents are never included in the proposal.\n'
-        '- Return code changes through this workspace; BioFlowAI handles saving the CODE definition.\n'
-    )
 
 
 def create_workspace(node_type: CodeNodeType) -> Path:
@@ -71,7 +45,7 @@ def create_workspace(node_type: CodeNodeType) -> Path:
     workspace.chmod(0o777)
     (workspace / 'output').mkdir(mode=0o777)
     agents = workspace / 'AGENTS.md'
-    agents.write_text(_workspace_instructions(node_type), encoding='utf-8')
+    agents.write_text(code_agent_workspace_instructions(node_type), encoding='utf-8')
     agents.chmod(0o666)
     return workspace
 
@@ -525,7 +499,9 @@ async def run_session(session_id: uuid.UUID) -> None:
 
             source = str(data.get('source', ''))
             dependencies = list(data.get('dependencies') or [])
-            prompt = _workspace_instructions(node_type) + '\n' + str(data.get('prompt', ''))
+            prompt = (
+                code_agent_workspace_instructions(node_type) + '\n## Current Request\n\n' + str(data.get('prompt', ''))
+            )
             pending_snapshot = (source, dependencies)
             write_baseline(workspace, node_type, source, dependencies)
             await session_store.set_status(redis, session_id, 'running')
