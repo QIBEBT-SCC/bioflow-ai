@@ -1,9 +1,27 @@
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.schemas.code import CodeNodeType
+
+CodingAgentProvider = Literal['codex', 'opencode']
+
+
+class CodingAgentCredentialsCreate(BaseModel):
+    """Write-only API credentials for adapters without device login."""
+
+    model_config = ConfigDict(extra='forbid')
+    api_key: SecretStr = Field(min_length=1, max_length=20_000)
+    model_provider: str = Field(default='anthropic', pattern=r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$')
+
+
+class CodingAgentProviderAvailability(BaseModel):
+    """Credential availability for one supported ACP adapter."""
+
+    provider: CodingAgentProvider
+    name: str
+    available: bool
 
 
 class CodingAgentAvailability(BaseModel):
@@ -12,9 +30,10 @@ class CodingAgentAvailability(BaseModel):
     available: bool
     provider: Literal['codex'] = 'codex'
     name: Literal['Codex'] = 'Codex'
+    providers: list[CodingAgentProviderAvailability] = Field(default_factory=list)
 
 
-class CodingAgentLoginPublic(BaseModel):
+class CodexLoginPublic(BaseModel):
     """One temporary administrator device-login attempt."""
 
     id: uuid.UUID
@@ -27,6 +46,7 @@ class CodeAgentSessionCreate(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     node_type: CodeNodeType
+    provider: CodingAgentProvider = 'codex'
 
 
 class CodeAgentSessionPublic(BaseModel):
@@ -72,7 +92,7 @@ class CodeAgentEvent(BaseModel):
     data: dict[str, object]
 
 
-class CodingAgentSettings(BaseModel):
+class CodexAgentSettings(BaseModel):
     """Site-wide native Codex settings applied to new sessions."""
 
     model_config = ConfigDict(extra='forbid')

@@ -8,15 +8,15 @@ from typing import Any
 
 import tomli_w
 
-from app.schemas.coding_agent import CodingAgentSettings
+from app.schemas.coding_agent import CodexAgentSettings
 from app.services.code_agent.account import auth_home, ensure_auth_home
 
 
-def read_settings() -> CodingAgentSettings:
+def read_settings() -> CodexAgentSettings:
     """Read site defaults without requiring a connected account."""
     path = auth_home() / 'config.toml'
     data: dict[str, Any] = tomllib.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
-    return CodingAgentSettings.model_validate(
+    return CodexAgentSettings.model_validate(
         {
             'sandbox_mode': data.get('sandbox_mode', 'workspace-write'),
             'web_search': data.get('web_search', 'live'),
@@ -25,7 +25,7 @@ def read_settings() -> CodingAgentSettings:
     )
 
 
-def write_settings(settings: CodingAgentSettings) -> CodingAgentSettings:
+def write_settings(settings: CodexAgentSettings) -> CodexAgentSettings:
     """Atomically replace native configuration while preserving account settings."""
     path = ensure_auth_home() / 'config.toml'
     data = tomllib.loads(path.read_text(encoding='utf-8'))

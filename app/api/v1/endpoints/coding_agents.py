@@ -1,4 +1,4 @@
-"""Administration API for the single site-wide Codex credential file."""
+"""Provider-specific administration APIs for ACP coding agents."""
 
 import asyncio
 import json
@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.auth import AdminDep
 from app.core.redis_client import RedisDep
-from app.schemas.coding_agent import CodingAgentLoginPublic, CodingAgentSettings
+from app.schemas.coding_agent import CodexAgentSettings, CodexLoginPublic, CodingAgentCredentialsCreate
 from app.services.code_agent import account as account_service
 from app.services.code_agent import login as login_store
 from app.services.code_agent import session as session_store
@@ -20,11 +20,11 @@ from app.services.code_agent import settings as settings_service
 router = APIRouter()
 
 
-@router.post('/login', status_code=status.HTTP_202_ACCEPTED)
-async def start_coding_agent_login(
+@router.post('/providers/codex/login', status_code=status.HTTP_202_ACCEPTED)
+async def start_codex_login(
     redis: RedisDep,
     current_user: AdminDep,
-) -> CodingAgentLoginPublic:
+) -> CodexLoginPublic:
     """Start the only supported sign-in method: ChatGPT device code."""
     from app.tasks.code_agent import login_codex_account
 
@@ -42,11 +42,11 @@ async def start_coding_agent_login(
     except Exception as error:
         await login_store.finish_login(redis, login_id, 'failed')
         raise HTTPException(status_code=503, detail='Coding-agent worker is unavailable') from error
-    return CodingAgentLoginPublic(id=login_id, status='starting')
+    return CodexLoginPublic(id=login_id, status='starting')
 
 
-@router.get('/login/{login_id}/events')
-async def stream_coding_agent_login_events(
+@router.get('/providers/codex/login/{login_id}/events')
+async def stream_codex_login_events(
     login_id: uuid.UUID,
     request: Request,
     redis: RedisDep,
@@ -77,8 +77,8 @@ async def stream_coding_agent_login_events(
     )
 
 
-@router.post('/login/{login_id}/cancel', status_code=status.HTTP_202_ACCEPTED)
-async def cancel_coding_agent_login(
+@router.post('/providers/codex/login/{login_id}/cancel', status_code=status.HTTP_202_ACCEPTED)
+async def cancel_codex_login(
     login_id: uuid.UUID,
     redis: RedisDep,
     current_user: AdminDep,
@@ -92,13 +92,29 @@ async def cancel_coding_agent_login(
     return {'status': 'cancelling'}
 
 
-@router.get('/settings')
-async def get_coding_agent_settings(_current_user: AdminDep) -> CodingAgentSettings:
+@router.get('/providers/codex/settings')
+async def get_codex_settings(_current_user: AdminDep) -> CodexAgentSettings:
     """Return native Codex defaults for new sessions."""
     return await asyncio.to_thread(settings_service.read_settings)
 
 
-@router.put('/settings')
-async def update_coding_agent_settings(data: CodingAgentSettings, _current_user: AdminDep) -> CodingAgentSettings:
+@router.put('/providers/codex/settings')
+async def update_codex_settings(data: CodexAgentSettings, _current_user: AdminDep) -> CodexAgentSettings:
     """Save site-wide policy without changing active sessions."""
     return await asyncio.to_thread(settings_service.write_settings, data)
+
+
+@router.put('/providers/opencode/credentials')
+async def save_opencode_credentials(
+    data: CodingAgentCredentialsCreate,
+    _current_user: AdminDep,
+) -> dict[str, bool]:
+    """Save credentials without ever returning the secret to the browser."""
+    key = data.api_key.get_secret_value().strip()
+    if not key:
+        raise HTTPException(status_code=422, detail='API key must not be blank')
+    try:
+        await asyncio.to_thread(account_service.write_api_credentials, 'opencode', key, data.model_provider)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {'available': True}

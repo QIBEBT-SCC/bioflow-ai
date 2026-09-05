@@ -11,7 +11,7 @@ from app.api.v1.endpoints import (
     auth,
     code,
     code_agent,
-    coding_agent_account,
+    coding_agents,
     genome,
     notification,
     project,
@@ -89,8 +89,8 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(user.router, prefix='/api/v1/user', tags=['user'], dependencies=protected)
     app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'], dependencies=protected)
     app.include_router(
-        coding_agent_account.router,
-        prefix='/api/v1/settings/coding-agent-account',
+        coding_agents.router,
+        prefix='/api/v1/settings/coding-agents',
         tags=['setting'],
         dependencies=protected,
     )

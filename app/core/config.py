@@ -137,6 +137,7 @@ class CodeAgentConfig(BaseSectionConfig):
     """Runtime limits for isolated ACP coding-agent sessions."""
 
     AUTH_PATH: str = './storage/codex-auth'
+    OPENCODE_AUTH_PATH: str = './storage/opencode-auth'
     LOGIN_TTL_SECONDS: int = Field(default=10 * 60, ge=60)
     LOGIN_TIMEOUT_SECONDS: int = Field(default=10 * 60, ge=60)
     SESSION_TTL_SECONDS: int = Field(default=30 * 60, ge=60)

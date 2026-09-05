@@ -18,6 +18,7 @@ from app.schemas.coding_agent import (
     CodeAgentSessionPublic,
     CodeAgentTurnCreate,
     CodingAgentAvailability,
+    CodingAgentProviderAvailability,
 )
 from app.services.code_agent import account as account_service
 from app.services.code_agent import session as session_store
@@ -51,8 +52,14 @@ def _validate_dependencies(node_type: CodeNodeType, dependencies: list[str]) -> 
 async def get_coding_agent_availability(
     _current_user: AdminDep,
 ) -> CodingAgentAvailability:
-    """Expose the optional AI entry point only while the shared Codex account is connected."""
-    return CodingAgentAvailability(available=account_service.credentials_configured())
+    """Expose the AI entry point when a supported provider has configured credentials."""
+    providers = [
+        CodingAgentProviderAvailability(
+            provider=provider, name=name, available=account_service.credentials_configured(provider)
+        )
+        for provider, name in (('codex', 'Codex'), ('opencode', 'OpenCode'))
+    ]
+    return CodingAgentAvailability(available=any(item.available for item in providers), providers=providers)
 
 
 @router.post('/sessions', status_code=status.HTTP_202_ACCEPTED)
@@ -64,8 +71,8 @@ async def create_code_agent_session(
     """Create an ephemeral session and dispatch its long-lived ACP owner."""
     from app.tasks.code_agent import execute_code_agent_session
 
-    if not account_service.credentials_configured():
-        raise HTTPException(status_code=503, detail='Codex account is not connected')
+    if not account_service.credentials_configured(data.provider):
+        raise HTTPException(status_code=503, detail=f'{data.provider} credentials are not configured')
     session_id = uuid.uuid4()
     try:
         await session_store.create_session(
@@ -73,6 +80,7 @@ async def create_code_agent_session(
             session_id,
             owner_id=current_user.id,
             node_type=data.node_type.value,
+            provider=data.provider,
         )
     except session_store.CodeAgentSessionError as error:
         raise _session_error(error) from error

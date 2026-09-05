@@ -23,6 +23,7 @@ from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.schemas.code import CodeNodeType
+from app.schemas.coding_agent import CodingAgentProvider
 from app.services.code_agent import account as account_service
 from app.services.code_agent import login as login_store
 from app.services.code_agent import session as session_store
@@ -198,9 +199,10 @@ async def start_acp(
     *,
     on_elicitation: Any = None,
     on_stderr: Any = None,
+    provider: CodingAgentProvider = 'codex',
 ) -> AsyncGenerator[ClientSideConnection]:
     """Let the SDK own stdio and process lifecycle for the isolated adapter."""
-    launch = build_container_launch(name, workspace, auth_home)
+    launch = build_container_launch(name, workspace, auth_home, provider)
     async with spawn_agent_process(
         cast('Client', CodeAgentClient(on_update, on_elicitation)),
         *launch.argv,
@@ -388,9 +390,10 @@ async def run_session(session_id: uuid.UUID) -> None:
         return
     owner_id = int(state['owner_id'])
     node_type = CodeNodeType(state['node_type'])
-    if not account_service.credentials_configured():
+    provider = cast('CodingAgentProvider', state.get('provider', 'codex'))
+    if not account_service.credentials_configured(provider):
         await session_store.append_event(
-            redis, session_id, 'turn.failed', {'message': 'Codex account is not connected'}
+            redis, session_id, 'turn.failed', {'message': f'{provider} credentials are not configured'}
         )
         await session_store.append_event(redis, session_id, 'session.closed', {})
         await session_store.release_session(redis, session_id, owner_id)
@@ -398,7 +401,7 @@ async def run_session(session_id: uuid.UUID) -> None:
         return
     workspace: Path | None = None
     try:
-        auth_home = account_service.prepare_auth_home_for_container()
+        auth_home = account_service.prepare_auth_home_for_container(provider)
         workspace = create_workspace(node_type)
         write_baseline(workspace, node_type, '', [])
     except Exception as exception:
@@ -437,6 +440,7 @@ async def run_session(session_id: uuid.UUID) -> None:
                 f'bioflow-acp-{session_id}',
                 publish_update,
                 on_stderr=publish_stderr,
+                provider=provider,
             )
         )
         session = await asyncio.wait_for(
@@ -521,7 +525,7 @@ async def run_session(session_id: uuid.UUID) -> None:
 
             source = str(data.get('source', ''))
             dependencies = list(data.get('dependencies') or [])
-            prompt = str(data.get('prompt', ''))
+            prompt = _workspace_instructions(node_type) + '\n' + str(data.get('prompt', ''))
             pending_snapshot = (source, dependencies)
             write_baseline(workspace, node_type, source, dependencies)
             await session_store.set_status(redis, session_id, 'running')

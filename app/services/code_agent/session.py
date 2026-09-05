@@ -70,6 +70,7 @@ async def create_session(
     *,
     owner_id: int,
     node_type: str,
+    provider: str = 'codex',
 ) -> None:
     """Reserve concurrency and persist one starting session atomically enough for Redis failure recovery."""
     config = get_settings().code_agent
@@ -88,6 +89,7 @@ async def create_session(
                 mapping={
                     'owner_id': str(owner_id),
                     'node_type': node_type,
+                    'provider': provider,
                     'status': 'starting',
                 },
             )
