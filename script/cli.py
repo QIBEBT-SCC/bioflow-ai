@@ -34,7 +34,7 @@ def worker() -> None:
 @cli.command(name='agent-worker')
 @click.option('--concurrency', type=click.IntRange(min=1), default=1, show_default=True)
 def agent_worker(*, concurrency: int) -> None:
-    """Start the isolated Celery worker for web agent runs."""
+    """Start the shared isolated Celery worker for web agent and ACP runs."""
     from app.utils.logger import init_logging
     from script.worker import agent_main
 

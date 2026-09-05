@@ -1,0 +1,90 @@
+"""Administration API for the single site-wide Codex credential file."""
+
+import json
+import uuid
+from collections.abc import AsyncIterator
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
+
+from app.core.auth import AdminDep
+from app.core.redis_client import RedisDep
+from app.schemas.coding_agent import CodingAgentLoginPublic
+from app.services.code_agent import account as account_service
+from app.services.code_agent import login as login_store
+from app.services.code_agent import session as session_store
+
+router = APIRouter()
+
+
+@router.post('/login', status_code=status.HTTP_202_ACCEPTED)
+async def start_coding_agent_login(
+    redis: RedisDep,
+    current_user: AdminDep,
+) -> CodingAgentLoginPublic:
+    """Start the only supported sign-in method: ChatGPT device code."""
+    from app.tasks.code_agent import login_codex_account
+
+    if await session_store.active_session_count(redis):
+        raise HTTPException(status_code=409, detail='Close active coding-agent sessions before signing in')
+    if account_service.credentials_configured():
+        raise HTTPException(status_code=409, detail='Codex is already connected')
+    login_id = uuid.uuid4()
+    try:
+        await login_store.create_login(redis, login_id, current_user.id)
+    except login_store.CodingAgentLoginBusyError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    try:
+        login_codex_account.apply_async(args=(str(login_id),), queue='acp')
+    except Exception as error:
+        await login_store.finish_login(redis, login_id, 'failed')
+        raise HTTPException(status_code=503, detail='Coding-agent worker is unavailable') from error
+    return CodingAgentLoginPublic(id=login_id, status='starting')
+
+
+@router.get('/login/{login_id}/events')
+async def stream_coding_agent_login_events(
+    login_id: uuid.UUID,
+    request: Request,
+    redis: RedisDep,
+    current_user: AdminDep,
+    after_id: Annotated[str, Query(pattern=r'^(?:0|\d+)-(?:0|\d+)$')] = '0-0',
+) -> StreamingResponse:
+    """Stream the device URL/code and final result to the initiating administrator."""
+    try:
+        await login_store.get_owned_login(redis, login_id, current_user.id)
+    except login_store.CodingAgentLoginNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Codex login not found') from error
+    last_event_id = request.headers.get('Last-Event-ID') or after_id
+
+    async def generate() -> AsyncIterator[str]:
+        async for event in login_store.read_events(redis, login_id, after_id=last_event_id):
+            if await request.is_disconnected():
+                return
+            if event is None:
+                yield ': heartbeat\n\n'
+                continue
+            payload = json.dumps(event.data, separators=(',', ':'))
+            yield f'id: {event.id}\nevent: {event.type}\ndata: {payload}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
+
+
+@router.post('/login/{login_id}/cancel', status_code=status.HTTP_202_ACCEPTED)
+async def cancel_coding_agent_login(
+    login_id: uuid.UUID,
+    redis: RedisDep,
+    current_user: AdminDep,
+) -> dict[str, str]:
+    """Ask the ACP owner to cancel an outstanding device-code login."""
+    try:
+        await login_store.get_owned_login(redis, login_id, current_user.id)
+    except login_store.CodingAgentLoginNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Codex login not found') from error
+    await login_store.request_cancel(redis, login_id)
+    return {'status': 'cancelling'}

@@ -151,6 +151,9 @@ project-includes = ["app/", "llm/", "script/"]
 [tool.pyrefly.errors]
 bad-override = false
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [dependency-groups]
 dev = [
     "boto3-stubs>=1.42.19",

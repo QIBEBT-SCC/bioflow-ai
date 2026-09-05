@@ -72,6 +72,26 @@ python_index_url = "https://pypi.org/simple"
 # Tsinghua TUNA: https://mirrors.tuna.tsinghua.edu.cn/CRAN
 cran_repository = "https://cloud.r-project.org"
 
+[code_agent]
+# Build environment/codex-acp/Dockerfile as this tag, or replace with the
+# immutable digest published by your deployment pipeline.
+image = "bioflow-ai/codex-acp:1.10.0-bioflow.1"
+# Persistent Codex home shared by the API and agent worker. Never point this at
+# a host user's ~/.codex; auth.json in this directory is the only durable state.
+auth_path = "./storage/codex-auth"
+login_ttl_seconds = 600
+login_timeout_seconds = 600
+session_ttl_seconds = 1800
+event_ttl_seconds = 1800
+heartbeat_seconds = 10
+turn_timeout_seconds = 900
+startup_timeout_seconds = 60
+max_sessions_per_user = 2
+max_sessions_system = 8
+cpu_limit = 1.0
+memory_limit = "1g"
+pid_limit = 256
+
 [celery]
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/1"

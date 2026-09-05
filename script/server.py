@@ -10,6 +10,8 @@ from app.api.v1.endpoints import (
     agent,
     auth,
     code,
+    code_agent,
+    coding_agent_account,
     genome,
     notification,
     project,
@@ -86,7 +88,15 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(agent.run_router, prefix='/api/v1/agent-runs', tags=['agent'], dependencies=member_protected)
     app.include_router(user.router, prefix='/api/v1/user', tags=['user'], dependencies=protected)
     app.include_router(setting.router, prefix='/api/v1/settings', tags=['setting'], dependencies=protected)
-    app.include_router(notification.router, prefix='/api/v1/notifications', tags=['notification'], dependencies=protected)
+    app.include_router(
+        coding_agent_account.router,
+        prefix='/api/v1/settings/coding-agent-account',
+        tags=['setting'],
+        dependencies=protected,
+    )
+    app.include_router(
+        notification.router, prefix='/api/v1/notifications', tags=['notification'], dependencies=protected
+    )
     app.include_router(skill.router, prefix='/api/v1/skills', tags=['skill'], dependencies=protected)
     app.include_router(project.tag_router, prefix='/api/v1/project-tags', tags=['project'], dependencies=protected)
     app.include_router(
@@ -119,6 +129,7 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'], dependencies=protected)
     app.include_router(tool.doc_router, prefix='/api/v1/documents', tags=['tool'], dependencies=protected)
     app.include_router(code.router, prefix='/api/v1/codes', tags=['code'], dependencies=protected)
+    app.include_router(code_agent.router, prefix='/api/v1/code-agent', tags=['code-agent'], dependencies=protected)
     app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'], dependencies=protected)
     app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'], dependencies=protected)
     app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'], dependencies=protected)

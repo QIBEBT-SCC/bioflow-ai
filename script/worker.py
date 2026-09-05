@@ -18,7 +18,11 @@ celery_app.conf.update(
     result_serializer='pickle',
     accept_content=['pickle'],
     task_track_started=True,
-    task_routes={'app.tasks.agent_run.execute_agent_run': {'queue': 'agent'}},
+    task_routes={
+        'app.tasks.agent_run.execute_agent_run': {'queue': 'agent'},
+        'app.tasks.code_agent.execute_code_agent_session': {'queue': 'acp'},
+        'app.tasks.code_agent.login_codex_account': {'queue': 'acp'},
+    },
     enable_utc=True,
     timezone='Asia/Shanghai',
 )
@@ -34,6 +38,7 @@ celery_app.autodiscover_tasks(
         'app.tasks.file_operation',
         'app.tasks.run_tool',
         'app.tasks.agent_run',
+        'app.tasks.code_agent',
     ],
     # pyrefly: ignore [bad-argument-type]
     None,
@@ -53,11 +58,11 @@ def main() -> None:
 
 
 def agent_main(*, concurrency: int = 1) -> None:
-    """Start the isolated long-running agent worker."""
+    """Start the shared long-running agent worker for LangGraph and ACP queues."""
     args = [
         'worker',
         f'--loglevel={get_settings().logger.CELERY_LEVEL}',
-        '--queues=agent',
+        '--queues=agent,acp',
         f'--concurrency={concurrency}',
     ]
     celery_app.worker_main(argv=args)
