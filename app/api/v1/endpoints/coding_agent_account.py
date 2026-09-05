@@ -1,5 +1,6 @@
 """Administration API for the single site-wide Codex credential file."""
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -10,10 +11,11 @@ from fastapi.responses import StreamingResponse
 
 from app.core.auth import AdminDep
 from app.core.redis_client import RedisDep
-from app.schemas.coding_agent import CodingAgentLoginPublic
+from app.schemas.coding_agent import CodingAgentLoginPublic, CodingAgentSettings
 from app.services.code_agent import account as account_service
 from app.services.code_agent import login as login_store
 from app.services.code_agent import session as session_store
+from app.services.code_agent import settings as settings_service
 
 router = APIRouter()
 
@@ -88,3 +90,15 @@ async def cancel_coding_agent_login(
         raise HTTPException(status_code=404, detail='Codex login not found') from error
     await login_store.request_cancel(redis, login_id)
     return {'status': 'cancelling'}
+
+
+@router.get('/settings')
+async def get_coding_agent_settings(_current_user: AdminDep) -> CodingAgentSettings:
+    """Return native Codex defaults for new sessions."""
+    return await asyncio.to_thread(settings_service.read_settings)
+
+
+@router.put('/settings')
+async def update_coding_agent_settings(data: CodingAgentSettings, _current_user: AdminDep) -> CodingAgentSettings:
+    """Save site-wide policy without changing active sessions."""
+    return await asyncio.to_thread(settings_service.write_settings, data)

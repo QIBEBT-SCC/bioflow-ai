@@ -9,11 +9,16 @@ import re
 import shutil
 import tempfile
 import uuid
-from contextlib import suppress
+from collections.abc import AsyncGenerator
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 from urllib.parse import urlsplit
 
+from acp import PROTOCOL_VERSION, Client, text_block
+from acp.client.connection import ClientSideConnection
+from acp.schema import ClientCapabilities, ElicitationCapabilities, ElicitationUrlCapabilities, Implementation
+from acp.stdio import spawn_agent_process
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
@@ -21,7 +26,7 @@ from app.schemas.code import CodeNodeType
 from app.services.code_agent import account as account_service
 from app.services.code_agent import login as login_store
 from app.services.code_agent import session as session_store
-from app.services.code_agent.acp import AcpClient
+from app.services.code_agent.acp import CodeAgentClient
 from app.services.code_agent.container import build_container_launch
 from app.tasks.code import normalize_python_dependencies, normalize_r_dependencies
 
@@ -55,18 +60,18 @@ def _workspace_instructions(node_type: CodeNodeType) -> str:
         f'{" and dependencies.txt" if node_type is not CodeNodeType.BASH else ""}.\n'
         f'- {dependency_rule}\n'
         '- Use output/ only for temporary command output; its contents are never included in the proposal.\n'
-        '- Do not access paths outside /workspace, request extra mounts, use privilege escalation, or save the CODE definition.\n'
+        '- Return code changes through this workspace; BioFlowAI handles saving the CODE definition.\n'
     )
 
 
 def create_workspace(node_type: CodeNodeType) -> Path:
-    """Create a session-only workspace with a read-only instruction file."""
+    """Create a session-only workspace with CODE authoring instructions."""
     workspace = Path(tempfile.mkdtemp(prefix='bioflow-code-agent-'))
     workspace.chmod(0o777)
     (workspace / 'output').mkdir(mode=0o777)
     agents = workspace / 'AGENTS.md'
     agents.write_text(_workspace_instructions(node_type), encoding='utf-8')
-    agents.chmod(0o444)
+    agents.chmod(0o666)
     return workspace
 
 
@@ -184,6 +189,7 @@ async def _remove_container(name: str) -> None:
                 await asyncio.wait_for(process.wait(), timeout=3)
 
 
+@asynccontextmanager
 async def start_acp(
     workspace: Path,
     auth_home: Path,
@@ -192,33 +198,59 @@ async def start_acp(
     *,
     on_elicitation: Any = None,
     on_stderr: Any = None,
-) -> tuple[AcpClient, asyncio.Task[None]]:
-    """Start the configured containerized adapter without invoking a shell."""
+) -> AsyncGenerator[ClientSideConnection]:
+    """Let the SDK own stdio and process lifecycle for the isolated adapter."""
     launch = build_container_launch(name, workspace, auth_home)
-    process = await asyncio.create_subprocess_exec(
+    async with spawn_agent_process(
+        cast('Client', CodeAgentClient(on_update, on_elicitation)),
         *launch.argv,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
         env={**os.environ, **launch.safe_environment},
-    )
-    client = AcpClient(process, on_update, on_elicitation)
+        transport_kwargs={'limit': 50 * 1024 * 1024},
+        use_unstable_protocol=True,
+    ) as (client, process):
 
-    async def ignore_stderr(_line: str) -> None:
-        return
+        async def ignore_stderr(_line: str) -> None:
+            return
 
-    stderr_task = asyncio.create_task(
-        _drain_stderr(process, on_stderr or ignore_stderr),
-        name='acp-stderr-reader',
-    )
-    return client, stderr_task
+        stderr_task = asyncio.create_task(_drain_stderr(process, on_stderr or ignore_stderr))
+        try:
+            response = await asyncio.wait_for(
+                client.initialize(
+                    protocol_version=PROTOCOL_VERSION,
+                    client_capabilities=ClientCapabilities(
+                        terminal=False,
+                        elicitation=ElicitationCapabilities(url=ElicitationUrlCapabilities())
+                        if on_elicitation
+                        else None,
+                    ),
+                    client_info=Implementation(name='bioflow-ai', title='BioFlowAI', version='0.1.0'),
+                ),
+                get_settings().code_agent.STARTUP_TIMEOUT_SECONDS,
+            )
+            if response.protocol_version != PROTOCOL_VERSION:
+                _fail('ACP adapter does not support protocol v1')
+            if on_elicitation and not any(
+                method.id == 'chat-gpt-device-code' for method in (response.auth_methods or [])
+            ):
+                _fail('The configured codex-acp version does not support device-code login')
+            yield client
+        finally:
+            stderr_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await stderr_task
 
 
-def _normalize_update(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def _normalize_update(update: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
     payload = update.get('update')
     if not isinstance(payload, dict):
-        return 'session.event', {'name': 'activity'}
+        return None
     kind = payload.get('sessionUpdate')
+    if kind == 'session_info_update':
+        return ('session.info', {'title': payload['title']}) if 'title' in payload else None
+    if kind == 'usage_update':
+        return 'session.usage', {key: payload[key] for key in ('used', 'size', 'cost') if key in payload}
+    if kind == 'config_option_update':
+        return 'config.updated', {'configOptions': payload.get('configOptions', [])}
     if kind == 'agent_message_chunk':
         content = payload.get('content')
         text = content.get('text') if isinstance(content, dict) else None
@@ -238,7 +270,7 @@ def _normalize_update(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             if isinstance(output, str):
                 payload = {**payload, 'output': output}
         return 'tool.updated', payload
-    return 'session.event', {'name': kind or 'activity'}
+    return None
 
 
 def _device_code_from_message(message: str) -> str:
@@ -290,8 +322,7 @@ async def run_codex_login(login_id: uuid.UUID) -> None:
         )
         return {'action': 'accept'}
 
-    client: AcpClient | None = None
-    stderr_task: asyncio.Task[None] | None = None
+    stack = AsyncExitStack()
     workspace: Path | None = None
     container_name = f'bioflow-acp-login-{login_id}'
     cancelled = False
@@ -300,20 +331,20 @@ async def run_codex_login(login_id: uuid.UUID) -> None:
         write_baseline(workspace, CodeNodeType.PYTHON, '# Codex login workspace\n', [])
         auth_home = account_service.prepare_auth_home_for_container()
         await login_store.append_event(redis, login_id, 'login.started', {})
-        client, stderr_task = await start_acp(
-            workspace,
-            auth_home,
-            container_name,
-            ignore_update,
-            on_elicitation=publish_device_code,
+        client = await stack.enter_async_context(
+            start_acp(
+                workspace,
+                auth_home,
+                container_name,
+                ignore_update,
+                on_elicitation=publish_device_code,
+            )
         )
-        startup_timeout = get_settings().code_agent.STARTUP_TIMEOUT_SECONDS
-        response = await client.initialize(timeout=startup_timeout, enable_url_elicitation=True)
-        methods = response.get('authMethods') or []
-        if not any(isinstance(method, dict) and method.get('id') == 'chat-gpt-device-code' for method in methods):
-            _fail('The configured codex-acp version does not support device-code login')
         login_task = asyncio.create_task(
-            client.authenticate('chat-gpt-device-code', timeout=get_settings().code_agent.LOGIN_TIMEOUT_SECONDS)
+            asyncio.wait_for(
+                client.authenticate(method_id='chat-gpt-device-code'),
+                get_settings().code_agent.LOGIN_TIMEOUT_SECONDS,
+            )
         )
         while not login_task.done():
             if await login_store.cancel_requested(redis, login_id):
@@ -329,8 +360,7 @@ async def run_codex_login(login_id: uuid.UUID) -> None:
             await login_store.finish_login(redis, login_id, 'cancelled')
             return
         await login_task
-        auth_status = await client.authentication_status(timeout=startup_timeout)
-        if auth_status.get('type') != 'chat-gpt' or not account_service.finalize_credentials():
+        if not account_service.finalize_credentials():
             _fail('Codex device login completed without a reusable ChatGPT credential')
         await login_store.append_event(redis, login_id, 'login.completed', {})
         await login_store.finish_login(redis, login_id, 'completed')
@@ -341,13 +371,8 @@ async def run_codex_login(login_id: uuid.UUID) -> None:
         await login_store.append_event(redis, login_id, 'login.failed', {'message': error})
         await login_store.finish_login(redis, login_id, 'failed')
     finally:
-        if client is not None:
-            with suppress(Exception):
-                await client.close()
-        if stderr_task is not None:
-            stderr_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await stderr_task
+        with suppress(Exception):
+            await stack.aclose()
         await _remove_container(container_name)
         if workspace is not None:
             shutil.rmtree(workspace, ignore_errors=True)
@@ -390,31 +415,46 @@ async def run_session(session_id: uuid.UUID) -> None:
         await redis.aclose()
         return
 
+    config_options: list[Any] = []
+
     async def publish_update(update: dict[str, Any]) -> None:
-        event_type, data = _normalize_update(update)
-        await session_store.append_event(redis, session_id, event_type, data)
+        event = _normalize_update(update)
+        if event is not None:
+            event_type, data = event
+            await session_store.append_event(redis, session_id, event_type, data)
 
     async def publish_stderr(line: str) -> None:
         await session_store.append_event(redis, session_id, 'tool.updated', {'kind': 'terminal', 'output': line})
 
-    client: AcpClient | None = None
-    stderr_task: asyncio.Task[None] | None = None
+    stack = AsyncExitStack()
     command_cursor = '0-0'
     pending_snapshot: tuple[str, list[str]] | None = None
     try:
-        client, stderr_task = await start_acp(
-            workspace,
-            auth_home,
-            f'bioflow-acp-{session_id}',
-            publish_update,
-            on_stderr=publish_stderr,
+        client = await stack.enter_async_context(
+            start_acp(
+                workspace,
+                auth_home,
+                f'bioflow-acp-{session_id}',
+                publish_update,
+                on_stderr=publish_stderr,
+            )
         )
-        startup_timeout = get_settings().code_agent.STARTUP_TIMEOUT_SECONDS
-        await client.initialize(timeout=startup_timeout)
-        auth_status = await client.authentication_status(timeout=startup_timeout)
-        if auth_status.get('type') != 'chat-gpt':
-            _fail('Codex account is not connected')
-        acp_session_id = await client.new_session(timeout=startup_timeout)
+        session = await asyncio.wait_for(
+            client.new_session(cwd='/workspace', mcp_servers=[]),
+            get_settings().code_agent.STARTUP_TIMEOUT_SECONDS,
+        )
+        acp_session_id = session.session_id
+        config_options = session.config_options or []
+        await session_store.append_event(
+            redis,
+            session_id,
+            'config.updated',
+            {
+                'configOptions': [
+                    option.model_dump(mode='json', by_alias=True, exclude_none=True) for option in config_options
+                ]
+            },
+        )
         await session_store.set_status(redis, session_id, 'ready')
         await session_store.append_event(redis, session_id, 'session.ready', {'session_id': str(session_id)})
 
@@ -437,7 +477,37 @@ async def run_session(session_id: uuid.UUID) -> None:
                 close_requested = True
                 continue
             if command == 'cancel':
-                await client.cancel(acp_session_id)
+                await client.cancel(session_id=acp_session_id)
+                continue
+            if command == 'config':
+                try:
+                    if pending_snapshot is not None:
+                        _fail('Decide the pending proposal before changing configuration')
+                    if not any(
+                        option.id == data['config_id'] and option.category in {'model', 'thought_level'}
+                        for option in config_options
+                    ):
+                        _fail('This session option is not available in the coding sidebar')
+                    result = await asyncio.wait_for(
+                        client.set_config_option(
+                            session_id=acp_session_id, config_id=data['config_id'], value=data['value']
+                        ),
+                        get_settings().code_agent.STARTUP_TIMEOUT_SECONDS,
+                    )
+                    config_options = result.config_options
+                    await session_store.append_event(
+                        redis,
+                        session_id,
+                        'config.completed',
+                        {
+                            'configOptions': [
+                                option.model_dump(mode='json', by_alias=True, exclude_none=True)
+                                for option in config_options
+                            ]
+                        },
+                    )
+                except Exception as exception:
+                    await session_store.append_event(redis, session_id, 'config.failed', {'message': str(exception)})
                 continue
             if command == 'reject' and pending_snapshot is not None:
                 write_baseline(workspace, node_type, *pending_snapshot)
@@ -457,7 +527,10 @@ async def run_session(session_id: uuid.UUID) -> None:
             await session_store.set_status(redis, session_id, 'running')
             await session_store.append_event(redis, session_id, 'turn.started', {})
             prompt_task = asyncio.create_task(
-                client.prompt(acp_session_id, prompt, timeout=get_settings().code_agent.TURN_TIMEOUT_SECONDS)
+                asyncio.wait_for(
+                    client.prompt(session_id=acp_session_id, prompt=[text_block(prompt)]),
+                    get_settings().code_agent.TURN_TIMEOUT_SECONDS,
+                )
             )
             cancelled = False
             while not prompt_task.done():
@@ -470,14 +543,19 @@ async def run_session(session_id: uuid.UUID) -> None:
                     if not await redis.exists(session_store.session_key(session_id)):
                         cancelled = True
                         close_requested = True
-                        await client.cancel(acp_session_id)
+                        await client.cancel(session_id=acp_session_id)
                     continue
                 _stream, commands = rows[0]
                 command_cursor, active_fields = commands[0]
                 active_command = active_fields.get('command')
+                if active_command == 'config':
+                    await session_store.append_event(
+                        redis, session_id, 'config.failed', {'message': 'Wait for the active turn to finish'}
+                    )
+                    continue
                 if active_command in {'cancel', 'close'}:
                     cancelled = True
-                    await client.cancel(acp_session_id)
+                    await client.cancel(session_id=acp_session_id)
                     if active_command == 'close':
                         close_requested = True
             try:
@@ -535,13 +613,8 @@ async def run_session(session_id: uuid.UUID) -> None:
                 {'message': str(exception), 'recoverable': False},
             )
     finally:
-        if client is not None:
-            with suppress(Exception):
-                await client.close()
-        if stderr_task is not None:
-            stderr_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await stderr_task
+        with suppress(Exception):
+            await stack.aclose()
         await _remove_container(f'bioflow-acp-{session_id}')
         shutil.rmtree(workspace, ignore_errors=True)
         await session_store.append_event(redis, session_id, 'session.closed', {})

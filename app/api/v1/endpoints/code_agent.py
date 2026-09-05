@@ -12,6 +12,7 @@ from app.core.auth import AdminDep
 from app.core.redis_client import RedisDep
 from app.schemas.code import CodeNodeType
 from app.schemas.coding_agent import (
+    CodeAgentConfigUpdate,
     CodeAgentProposalDecision,
     CodeAgentSessionCreate,
     CodeAgentSessionPublic,
@@ -208,3 +209,22 @@ async def close_code_agent_session(
     except session_store.CodeAgentSessionError as error:
         raise _session_error(error) from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put('/sessions/{session_id}/config', status_code=status.HTTP_202_ACCEPTED)
+async def update_code_agent_config(
+    session_id: uuid.UUID,
+    data: CodeAgentConfigUpdate,
+    redis: RedisDep,
+    current_user: AdminDep,
+) -> dict[str, str]:
+    """Queue an ACP configuration change while the session is idle."""
+    try:
+        state = await session_store.get_owned_session(redis, session_id, current_user.id)
+        if state.get('status') != 'ready':
+            message = 'Coding-agent session is not ready'
+            raise session_store.CodeAgentSessionBusyError(message)
+        await session_store.append_command(redis, session_id, 'config', data.model_dump())
+    except session_store.CodeAgentSessionError as error:
+        raise _session_error(error) from error
+    return {'status': 'queued'}

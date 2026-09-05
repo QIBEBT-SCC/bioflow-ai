@@ -136,7 +136,6 @@ class CodeConfig(BaseSectionConfig):
 class CodeAgentConfig(BaseSectionConfig):
     """Runtime limits for isolated ACP coding-agent sessions."""
 
-    IMAGE: str = 'bioflow-ai/codex-acp:1.10.0-bioflow.1'
     AUTH_PATH: str = './storage/codex-auth'
     LOGIN_TTL_SECONDS: int = Field(default=10 * 60, ge=60)
     LOGIN_TIMEOUT_SECONDS: int = Field(default=10 * 60, ge=60)

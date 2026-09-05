@@ -75,10 +75,11 @@ cran_repository = "https://cloud.r-project.org"
 [code_agent]
 # Build environment/codex-acp/Dockerfile as this tag, or replace with the
 # immutable digest published by your deployment pipeline.
-image = "bioflow-ai/codex-acp:1.10.0-bioflow.1"
+image = "bioflow-ai/codex-acp:1.10.0-bioflow.2"
 # Persistent Codex home shared by the API and agent worker. Never point this at
 # a host user's ~/.codex; auth.json in this directory is the only durable state.
 auth_path = "./storage/codex-auth"
+# Configure sandbox, web search and command networking in Settings > Coding Agent.
 login_ttl_seconds = 600
 login_timeout_seconds = 600
 session_ttl_seconds = 1800

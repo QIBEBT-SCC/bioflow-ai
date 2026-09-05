@@ -1,5 +1,6 @@
 """Native Docker and Podman command construction for isolated ACP adapters."""
 
+import json
 from dataclasses import dataclass
 from ipaddress import ip_address
 from pathlib import Path
@@ -7,6 +8,9 @@ from typing import Literal
 
 from app.core.config import get_settings
 from app.services.code_agent.account import container_user
+from app.services.code_agent.settings import read_settings
+
+CODEX_IMAGE: str = 'bioflow-ai/codex-acp:1.10.0-bioflow.2'
 
 
 @dataclass(frozen=True)
@@ -45,7 +49,6 @@ def _common_arguments(
 ) -> tuple[list[str], dict[str, str]]:
     config = get_settings().code_agent
     workspace_path = str(workspace.resolve(strict=True))
-    agents_path = str((workspace / 'AGENTS.md').resolve(strict=True))
     resolved_workspace = workspace.resolve(strict=True)
     resolved_auth = auth_home.resolve(strict=True)
     if (
@@ -83,8 +86,6 @@ def _common_arguments(
         '--mount',
         f'type=bind,src={workspace_path},dst=/workspace,rw',
         '--mount',
-        f'type=bind,src={agents_path},dst=/workspace/AGENTS.md,ro',
-        '--mount',
         f'type=bind,src={auth_path},dst=/home/codex/.codex,rw',
         '--workdir',
         '/workspace',
@@ -95,9 +96,9 @@ def _common_arguments(
         '--env',
         'NO_BROWSER=1',
         '--env',
-        'INITIAL_AGENT_MODE=agent',
+        'CODEX_CONFIG',
     ]
-    environment: dict[str, str] = {}
+    environment = {'CODEX_CONFIG': json.dumps(read_settings().codex_config())}
     network = get_settings().network
     if network.USE_PROXY:
         proxy_url, uses_host_alias = _proxy_url(runtime)
@@ -105,7 +106,7 @@ def _common_arguments(
             arguments.extend(['--add-host', 'host.docker.internal:host-gateway'])
         arguments.extend(['--env', 'HTTP_PROXY', '--env', 'HTTPS_PROXY', '--env', 'ALL_PROXY'])
         environment.update(HTTP_PROXY=proxy_url, HTTPS_PROXY=proxy_url, ALL_PROXY=proxy_url)
-    arguments.extend([config.IMAGE, 'codex-acp'])
+    arguments.extend([CODEX_IMAGE, 'codex-acp'])
     return arguments, environment
 
 

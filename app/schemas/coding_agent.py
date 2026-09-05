@@ -70,3 +70,30 @@ class CodeAgentEvent(BaseModel):
     id: str
     type: str
     data: dict[str, object]
+
+
+class CodingAgentSettings(BaseModel):
+    """Site-wide native Codex settings applied to new sessions."""
+
+    model_config = ConfigDict(extra='forbid')
+    sandbox_mode: Literal['read-only', 'workspace-write', 'danger-full-access'] = 'workspace-write'
+    web_search: Literal['live', 'cached', 'disabled'] = 'live'
+    network_access: bool = True
+
+    def codex_config(self) -> dict[str, object]:
+        """Map editable settings to native Codex configuration keys."""
+        return {
+            'sandbox_mode': self.sandbox_mode,
+            'approval_policy': 'never',
+            'approvals_reviewer': 'user',
+            'web_search': self.web_search,
+            'sandbox_workspace_write': {'network_access': self.network_access},
+        }
+
+
+class CodeAgentConfigUpdate(BaseModel):
+    """Forward a session option selected from the agent's advertised options."""
+
+    model_config = ConfigDict(extra='forbid')
+    config_id: str = Field(min_length=1)
+    value: str

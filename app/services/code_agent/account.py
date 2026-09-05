@@ -33,7 +33,7 @@ def ensure_auth_home() -> Path:
     if config_path.is_symlink():
         message = 'Codex configuration path must not be a symbolic link'
         raise RuntimeError(message)
-    if not config_path.exists() or config_path.read_text(encoding='utf-8') != CODEX_CONFIG:
+    if not config_path.exists():
         config_path.write_text(CODEX_CONFIG, encoding='utf-8')
     config_path.chmod(0o600)
     return path
