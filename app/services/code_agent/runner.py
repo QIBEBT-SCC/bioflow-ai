@@ -28,8 +28,9 @@ from app.services.code_agent import account as account_service
 from app.services.code_agent import login as login_store
 from app.services.code_agent import session as session_store
 from app.services.code_agent.acp import CodeAgentClient
-from app.services.code_agent.container import build_container_launch
+from app.services.code_agent.launch import build_agent_launch
 from app.tasks.code import normalize_python_dependencies, normalize_r_dependencies
+from app.utils.container import remove_container_process
 from llm.utils.code_node_contract import SCRIPT_NAMES, code_agent_workspace_instructions
 
 DEVICE_CODE_PATTERN = re.compile(r'\b[A-Z0-9]{4}-[A-Z0-9]{4}\b')
@@ -140,30 +141,6 @@ async def _drain_stderr(process: asyncio.subprocess.Process, callback: Any) -> N
         await callback(line.decode(errors='replace').rstrip())
 
 
-async def _remove_container(name: str) -> None:
-    """Force-remove one exact runner container after transport shutdown."""
-    runtime = get_settings().docker.CONTAINER
-    process: asyncio.subprocess.Process | None = None
-    try:
-        process = await asyncio.create_subprocess_exec(
-            runtime,
-            'rm',
-            '--force',
-            name,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await asyncio.wait_for(process.wait(), timeout=10)
-    except FileNotFoundError:
-        return
-    except TimeoutError:
-        if process is not None:
-            with suppress(ProcessLookupError):
-                process.kill()
-            with suppress(TimeoutError):
-                await asyncio.wait_for(process.wait(), timeout=3)
-
-
 @asynccontextmanager
 async def start_acp(
     workspace: Path,
@@ -176,11 +153,11 @@ async def start_acp(
     provider: CodingAgentProvider = 'codex',
 ) -> AsyncGenerator[ClientSideConnection]:
     """Let the SDK own stdio and process lifecycle for the isolated adapter."""
-    launch = build_container_launch(name, workspace, auth_home, provider)
+    launch = build_agent_launch(name, workspace, auth_home, provider)
     async with spawn_agent_process(
         cast('Client', CodeAgentClient(on_update, on_elicitation)),
         *launch.argv,
-        env={**os.environ, **launch.safe_environment},
+        env={**os.environ, **launch.host_environment},
         transport_kwargs={'limit': 50 * 1024 * 1024},
         use_unstable_protocol=True,
     ) as (client, process):
@@ -256,6 +233,14 @@ def _device_code_from_message(message: str) -> str:
 
 def _fail(message: str) -> NoReturn:
     raise RuntimeError(message)
+
+
+def _agent_error(exception: Exception, last_stderr: str | None = None) -> str:
+    """Prefer the adapter's concrete stderr when the ACP transport only reports closure."""
+    message = str(exception) or exception.__class__.__name__
+    if last_stderr and message in {'Connection closed', 'Stream closed'}:
+        return last_stderr
+    return message
 
 
 def _validate_device_url(value: object) -> str:
@@ -349,7 +334,7 @@ async def run_codex_login(login_id: uuid.UUID) -> None:
     finally:
         with suppress(Exception):
             await stack.aclose()
-        await _remove_container(container_name)
+        await remove_container_process(container_name)
         if workspace is not None:
             shutil.rmtree(workspace, ignore_errors=True)
         await redis.aclose()
@@ -400,7 +385,12 @@ async def run_session(session_id: uuid.UUID) -> None:
             event_type, data = event
             await session_store.append_event(redis, session_id, event_type, data)
 
+    last_stderr: str | None = None
+
     async def publish_stderr(line: str) -> None:
+        nonlocal last_stderr
+        if line.strip():
+            last_stderr = line.strip()
         await session_store.append_event(redis, session_id, 'tool.updated', {'kind': 'terminal', 'output': line})
 
     stack = AsyncExitStack()
@@ -590,12 +580,12 @@ async def run_session(session_id: uuid.UUID) -> None:
                 redis,
                 session_id,
                 'turn.failed',
-                {'message': str(exception), 'recoverable': False},
+                {'message': _agent_error(exception, last_stderr), 'recoverable': False},
             )
     finally:
         with suppress(Exception):
             await stack.aclose()
-        await _remove_container(f'bioflow-acp-{session_id}')
+        await remove_container_process(f'bioflow-acp-{session_id}')
         shutil.rmtree(workspace, ignore_errors=True)
         await session_store.append_event(redis, session_id, 'session.closed', {})
         await session_store.release_session(redis, session_id, owner_id)

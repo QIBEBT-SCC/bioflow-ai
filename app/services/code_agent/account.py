@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.core.config import get_settings
 from app.schemas.coding_agent import CodingAgentProvider, OpenCodeModelProvider, OpenCodeSettings
+from app.utils.container import resolve_container_user
 
 CODEX_CONFIG = 'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n'
 OPENCODE_MODEL_PROVIDERS: tuple[OpenCodeModelProvider, ...] = (
@@ -99,22 +100,10 @@ def remove_credentials() -> None:
         path.unlink()
 
 
-def container_user() -> tuple[str, int | None]:
-    """Choose a non-root container identity that can reach the private bind mount."""
-    runtime = get_settings().docker.CONTAINER
-    if runtime == 'podman':
-        return '65532:65532', None
-    uid = os.getuid()
-    gid = os.getgid()
-    if uid != 0:
-        return f'{uid}:{gid}', None
-    return '65532:65532', 65532
-
-
 def prepare_auth_home_for_container(provider: CodingAgentProvider = 'codex') -> Path:
     """Prepare ownership immediately before mounting the credential directory."""
     path = ensure_auth_home(provider)
-    _user, owner = container_user()
+    owner = resolve_container_user(65532, 65532).host_owner
     if owner is not None:
         for item in (path, *path.iterdir()):
             os.chown(item, owner, owner, follow_symlinks=False)

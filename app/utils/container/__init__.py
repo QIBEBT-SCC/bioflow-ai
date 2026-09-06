@@ -1,17 +1,20 @@
 import asyncio
+from contextlib import suppress
 
 from docker.types import Mount
-from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.schemas.tool_config import ImageConfig
-from app.utils.container._general import CONTAINER_ROOT_USER
-
-
-class ContainerMount(BaseModel):
-    target: str = Field(description='Target path in container, a suitably named subdirectory under /data/')
-    source: str = Field(description='Source path on host')
-    read_only: bool
+from app.utils.container._general import (
+    CONTAINER_ROOT_USER,
+    ContainerMount,
+    ContainerProcessLaunch,
+    ContainerProcessSpec,
+    ContainerTmpfs,
+    ContainerUser,
+    build_process_arguments,
+    resolve_container_user,
+)
 
 
 def _convert_to_podman_mount(mounts: list[ContainerMount]) -> list[dict]:
@@ -37,6 +40,41 @@ def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
         container_id = create_container(image, _convert_to_docker_mount(mounts))  # pyrefly: ignore [bad-argument-type]
 
     return container_id
+
+
+def build_container_process_launch(spec: ContainerProcessSpec) -> ContainerProcessLaunch:
+    """Build a native subprocess invocation for the configured container runtime."""
+    runtime = get_settings().docker.CONTAINER
+    runtime_arguments: tuple[str, ...] = ()
+    if runtime == 'podman' and spec.podman_keep_id is not None:
+        uid, gid = spec.podman_keep_id
+        runtime_arguments = (f'--userns=keep-id:uid={uid},gid={gid}',)
+    arguments, host_environment = build_process_arguments(spec, runtime, runtime_arguments=runtime_arguments)
+    return ContainerProcessLaunch(argv=[runtime, *arguments], host_environment=host_environment)
+
+
+async def remove_container_process(identifier: str, timeout: float = 10) -> None:
+    """Force-remove a container through the configured native runtime."""
+    runtime = get_settings().docker.CONTAINER
+    process: asyncio.subprocess.Process | None = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            runtime,
+            'rm',
+            '--force',
+            identifier,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(process.wait(), timeout=timeout)
+    except FileNotFoundError:
+        return
+    except TimeoutError:
+        if process is not None:
+            with suppress(ProcessLookupError):
+                process.kill()
+            with suppress(TimeoutError):
+                await asyncio.wait_for(process.wait(), timeout=3)
 
 
 def run_command(
@@ -188,8 +226,15 @@ def remove_container(container_id: str) -> None:
 __all__ = [
     'CONTAINER_ROOT_USER',
     'ContainerMount',
+    'ContainerProcessLaunch',
+    'ContainerProcessSpec',
+    'ContainerTmpfs',
+    'ContainerUser',
+    'build_container_process_launch',
     'create_container',
     'remove_container',
+    'remove_container_process',
+    'resolve_container_user',
     'run_command',
     'run_command_async',
     'run_command_background',
