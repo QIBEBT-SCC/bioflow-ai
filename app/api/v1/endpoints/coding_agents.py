@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.auth import AdminDep
 from app.core.redis_client import RedisDep
-from app.schemas.coding_agent import CodexAgentSettings, CodexLoginPublic, CodingAgentCredentialsCreate
+from app.schemas.coding_agent import CodexAgentSettings, CodexLoginPublic, OpenCodeCredentialsCreate, OpenCodeSettings
 from app.services.code_agent import account as account_service
 from app.services.code_agent import login as login_store
 from app.services.code_agent import session as session_store
@@ -106,15 +106,26 @@ async def update_codex_settings(data: CodexAgentSettings, _current_user: AdminDe
 
 @router.put('/providers/opencode/credentials')
 async def save_opencode_credentials(
-    data: CodingAgentCredentialsCreate,
+    data: OpenCodeCredentialsCreate,
     _current_user: AdminDep,
-) -> dict[str, bool]:
+) -> OpenCodeSettings:
     """Save credentials without ever returning the secret to the browser."""
     key = data.api_key.get_secret_value().strip()
     if not key:
         raise HTTPException(status_code=422, detail='API key must not be blank')
     try:
-        await asyncio.to_thread(account_service.write_api_credentials, 'opencode', key, data.model_provider)
+        return await asyncio.to_thread(
+            account_service.write_opencode_credentials,
+            key,
+            data.model_provider,
+            str(data.base_url) if data.base_url is not None else None,
+            data.model_id,
+        )
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return {'available': True}
+
+
+@router.get('/providers/opencode/settings')
+async def get_opencode_settings(_current_user: AdminDep) -> OpenCodeSettings:
+    """Return the selected provider and non-secret custom endpoint fields."""
+    return await asyncio.to_thread(account_service.read_opencode_settings)
