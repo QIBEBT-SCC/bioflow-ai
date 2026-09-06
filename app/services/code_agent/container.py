@@ -11,7 +11,8 @@ from app.schemas.coding_agent import CodingAgentProvider
 from app.services.code_agent.account import container_user
 from app.services.code_agent.settings import read_settings
 
-CODEX_IMAGE: str = 'bioflow-ai/codex-acp:1.10.0-bioflow.2'
+CODEX_IMAGE: str = 'docker.io/aye1032/codex-acp:1.10.0-bioflow.2'
+OPENCODE_IMAGE: str = 'docker.io/aye1032/opencode-acp:1.18.29-bioflow'
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,7 @@ def _common_arguments(
         environment.update(HTTP_PROXY=proxy_url, HTTPS_PROXY=proxy_url, ALL_PROXY=proxy_url)
     commands = {
         'codex': [CODEX_IMAGE, 'codex-acp'],
-        'opencode': ['bioflow-ai/opencode-acp:1.18.29', 'opencode', 'acp'],
+        'opencode': [OPENCODE_IMAGE, 'opencode', 'acp'],
     }
     arguments.extend(commands[provider])
     return arguments, environment
