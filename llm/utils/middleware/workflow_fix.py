@@ -1,4 +1,4 @@
-"""Mutation policy for the workflow-fixer agent."""
+"""Editing-scope policy for the workflow-fixer agent."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -8,27 +8,6 @@ from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-MUTATING_ACTIONS = {
-    'tool_node_manager': {'add', 'update_args', 'create'},
-    'resource_node_manager': {'create_db', 'add'},
-    'utility_node_manager': {
-        'add_processor',
-        'add_exist_code',
-        'add_new_code',
-        'update_code',
-        'add_note',
-        'add_downstream_summary',
-    },
-    'workflow_manager': {
-        'create_workflow_draft',
-        'switch_workflow_draft',
-        'delete_workflow_draft',
-        'update_workflow_metadata',
-        'delete_node',
-        'fix_edge',
-        'save_all_workflows',
-    },
-}
 FORBIDDEN_DRAFT_ACTIONS = {
     'create_workflow_draft',
     'switch_workflow_draft',
@@ -38,8 +17,8 @@ FORBIDDEN_DRAFT_ACTIONS = {
 }
 
 
-class WorkflowFixGuardMiddleware(AgentMiddleware):
-    """Permit mutations only for a diagnosis that recommends patching the workflow."""
+class WorkflowFixScopeMiddleware(AgentMiddleware):
+    """Prevent unsupported draft and workflow-metadata operations."""
 
     @staticmethod
     def _rejection(request: ToolCallRequest) -> ToolMessage | None:
@@ -57,25 +36,7 @@ class WorkflowFixGuardMiddleware(AgentMiddleware):
                 tool_call_id=request.tool_call['id'],
             )
 
-        is_mutation = action in MUTATING_ACTIONS.get(tool_name, set())
-        if tool_name == 'finalize_workflow_fix':
-            is_mutation = args.get('mode') == 'save'
-        if not is_mutation:
-            return None
-
-        state = request.state
-        classification = state.get('diagnosis_classification', 'unknown')
-        recommended_action = state.get('recommended_action', 'need_more_evidence')
-        if recommended_action == 'patch_workflow' and classification in {'workflow_structure', 'workflow_usage'}:
-            return None
-        return ToolMessage(
-            content=(
-                f'Workflow mutation is forbidden for diagnosis classification={classification!r}, '
-                f'recommended_action={recommended_action!r}. Inspect the workflow if useful, then call '
-                'finalize_workflow_fix with mode="no_change" and give the user a concrete recommendation.'
-            ),
-            tool_call_id=request.tool_call['id'],
-        )
+        return None
 
     def wrap_tool_call(
         self,

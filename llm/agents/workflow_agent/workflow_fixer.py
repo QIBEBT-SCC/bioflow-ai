@@ -19,7 +19,7 @@ from llm.utils.middleware import (
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
     WorkflowBuilderProgressMiddleware,
-    WorkflowFixGuardMiddleware,
+    WorkflowFixScopeMiddleware,
 )
 
 if TYPE_CHECKING:
@@ -34,13 +34,11 @@ SYSTEM_PROMPT = """你是一个节点式生物信息工作流修复智能体。�
 ## 必须遵循的流程
 
 1. 首先调用 `workflow_manager` 的 `view_workflow`，再对诊断涉及的节点调用 `view_node`。将报告建议与当前面板逐项比对，识别用户在诊断后已经手动完成的修改。
-2. 只有机器摘要同时满足 `classification` 为 `workflow_structure` 或 `workflow_usage`，并且 `recommended_action` 为 `patch_workflow` 时，才允许修改工作流。
-3. 只实施仍然必要的最小变更。可以添加或删除节点、更新 Tool 节点可修改参数、更新现有 CODE 节点源码、修复连线。
-4. 不得创建、切换或删除草稿，不得修改工作流元数据，不得调用 `save_all_workflows`。当前只有一个已加载的 active draft。
-5. 不支持直接修改当前已有 Resource/Processor 节点的参数或节点定义。如有需要, 可以在详细规划后通过删除和新建节点实现修改。
-6. 若分类是 `node_definition`，动作是 `manual_node_fix`，或属于数据、环境、证据不足问题，禁止通过改工作流绕过，直接以 no_change 完成并给出具体人工建议。
-7. 修改连线时，先查看完整工作流；若要替换现有有效连线，调用 `workflow_manager(action="fix_edge")` 时传入完整目标边集合并设置 `replace_all=true`。
-8. 结束前必须且只能通过 `finalize_workflow_fix` 提交：
+2. 根据用户要求、诊断报告和当前工作流，只实施仍然必要的最小变更。可以添加或删除节点、更新 Tool 节点可修改参数、更新现有 CODE 节点源码、修复连线。
+3. 不得创建、切换或删除草稿，不得修改工作流元数据，不得调用 `save_all_workflows`。当前只有一个已加载的 active draft。
+4. 不支持直接修改当前已有 Resource/Processor 节点的参数或节点定义。如有需要, 可以在详细规划后通过删除和新建节点实现修改。
+5. 修改连线时，先查看完整工作流；若要替换现有有效连线，调用 `workflow_manager(action="fix_edge")` 时传入完整目标边集合并设置 `replace_all=true`。
+6. 结束前必须且只能通过 `finalize_workflow_fix` 提交：
    - 确有变更：`mode="save"`，在 summary 中使用系统提示词末尾指定的用户语言列出修改内容、原因和验证建议。工具会原地更新模板并写 UPDATE.md。
    - 当前已修好、无需变更、无法安全修改或禁止修改：`mode="no_change"`，具体说明原因和下一步；不会创建 UPDATE.md。
 
@@ -91,7 +89,7 @@ def build_workflow_fixer(checkpointer: Optional['BaseCheckpointSaver'] = None) -
         ],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
-            WorkflowFixGuardMiddleware(),
+            WorkflowFixScopeMiddleware(),
             WorkflowBuilderProgressMiddleware(),
             SkillMiddleware('workflow_builder'),
             CheckStateExistMiddleware('fix_completed', 'finalize_workflow_fix'),

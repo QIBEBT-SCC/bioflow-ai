@@ -147,23 +147,6 @@ def finalize_workflow_fix(
             }
         )
 
-    classification = runtime.state.get('diagnosis_classification')
-    recommended_action = runtime.state.get('recommended_action')
-    if recommended_action != 'patch_workflow' or classification not in {'workflow_structure', 'workflow_usage'}:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=(
-                            'This diagnosis does not authorize workflow mutation. Use mode="no_change" and explain '
-                            'the required node-definition, data, environment, or evidence work.'
-                        ),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
-
     nodes = list(runtime.state.get('exist_nodes', []))
     edges = list(runtime.state.get('exist_edges', []))
     if errors := _validation_errors(nodes, edges):

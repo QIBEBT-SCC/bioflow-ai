@@ -170,8 +170,6 @@ class WorkflowFixState(BuildState, total=False):
     diagnosis_run_uid: str
     target_workflow_uid: str
     diagnosis_report: str
-    diagnosis_classification: str
-    recommended_action: str
     original_workflow: dict[str, Any]
     original_node_id_mapping: dict[str, str]
     fix_completed: bool

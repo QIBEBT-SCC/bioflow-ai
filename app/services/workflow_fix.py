@@ -1,6 +1,5 @@
 """Prepare the diagnosis and current template used by a workflow-fixer run."""
 
-import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,13 +29,6 @@ class WorkflowFixPreparation:
     diagnosis_run_uid: uuid.UUID
     workflow_uid: uuid.UUID
     node_id_mapping: dict[str, str]
-
-
-def _summary_value(report: str, key: str, default: str) -> str:
-    machine_summary = re.search(r'##\s*机器可读摘要\s*```ya?ml\s*(.*?)```', report, re.DOTALL | re.IGNORECASE)
-    source = machine_summary.group(1) if machine_summary else report
-    match = re.search(rf'(?m)^\s*{re.escape(key)}\s*:\s*([\w-]+)\s*$', source)
-    return match.group(1) if match else default
 
 
 def _report_path(project_root: Path, diagnosis: AgentRun) -> Path:
@@ -83,14 +75,10 @@ def prepare_workflow_fix(
         session=session,
     )
     draft = loaded.draft
-    classification = _summary_value(diagnosis_report, 'classification', 'unknown')
-    recommended_action = _summary_value(diagnosis_report, 'recommended_action', 'need_more_evidence')
     state: dict[str, Any] = {
         'diagnosis_run_uid': str(diagnosis.uid),
         'target_workflow_uid': str(workflow.uid),
         'diagnosis_report': diagnosis_report,
-        'diagnosis_classification': classification,
-        'recommended_action': recommended_action,
         'original_workflow': workflow.workflow.model_dump(mode='json'),
         'original_node_id_mapping': loaded.node_id_mapping,
         'active_workflow_id': draft.draft_id,
