@@ -177,7 +177,7 @@ def refresh_help_document(session: Session, doc_uid: UUIDLike) -> ToolHelpDoc:
         raise ToolCatalogNotFoundError(_HELP_DOCUMENT_IMAGE_NOT_FOUND)
 
     result = execute_image_command(doc.image.image, doc.help_command)
-    if not result.succeeded:
+    if not result.output:
         raise ToolCommandExecutionError(doc.help_command, result)
 
     with committing(session):
@@ -238,7 +238,7 @@ async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefi
     with committing(session):
         if help_doc is None:
             result = execute_image_command(image.image, tool_data.help_command)
-            if not result.succeeded:
+            if not result.output:
                 raise ToolCommandExecutionError(tool_data.help_command, result)
             help_doc = doc_crud.insert(
                 session,
