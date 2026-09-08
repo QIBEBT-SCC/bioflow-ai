@@ -9,6 +9,7 @@ from app.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic
 from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag, ToolTagLink
 from app.models.user import User
 from app.models.workflow import ProjectWorkflow, RunInstance, TaskInstance, TaskMonitor, Workflow
+from app.v2.models import NodeDependencyV2, NodeRunV2, WorkflowOutboxV2, WorkflowRunV2
 
 __all__ = [
     'AgentEvent',
@@ -24,6 +25,8 @@ __all__ = [
     'LLMProvider',
     'LLMSetting',
     'LLMStatistic',
+    'NodeDependencyV2',
+    'NodeRunV2',
     'NotificationChannel',
     'NotificationSubscription',
     'ParentDocument',
@@ -47,4 +50,6 @@ __all__ = [
     'ToolTagLink',
     'User',
     'Workflow',
+    'WorkflowOutboxV2',
+    'WorkflowRunV2',
 ]

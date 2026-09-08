@@ -47,12 +47,15 @@ uv run bioflow-ai auto-init
 
 The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.mdx) for every prompt, accepted value, and default.
 
-After initialization, start the API, workflow worker, and agent worker in separate terminals:
+After initialization, start the API, V2 workflow dispatcher and worker, and agent worker in separate terminals:
 
 ```bash
 uv run bioflow-ai api
-uv run bioflow-ai worker
+uv run bioflow-ai workflow-v2-dispatcher
+uv run bioflow-ai workflow-v2-worker --concurrency 4
 uv run bioflow-ai agent-worker
 ```
+
+The legacy `uv run bioflow-ai worker` command remains available only for V1 and other existing Celery jobs.
 
 Open [http://localhost:3000](http://localhost:3000) in your browser. If a default port is already in use, the initializer selects an available port and displays it in the terminal.

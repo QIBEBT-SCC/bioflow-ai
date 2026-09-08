@@ -38,6 +38,7 @@ from app.core.session import create_db_and_tables
 from app.schemas.user_config import UserRole
 from app.services.notification.gateway import NotificationGateway
 from app.utils.middleware import AuthCookieCleanupMiddleware, LogRequestMiddleware
+from app.v2.api import endpoints as v2
 
 meta = metadata('bioflow-ai')
 
@@ -133,6 +134,10 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'], dependencies=protected)
     app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'], dependencies=protected)
     app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'], dependencies=protected)
+    app.include_router(v2.workflow_router, prefix='/api/v2/workflows', tags=['workflow-v2'])
+    app.include_router(v2.project_router, prefix='/api/v2/projects', tags=['workflow-v2'])
+    app.include_router(v2.run_router, prefix='/api/v2/runs', tags=['workflow-v2'])
+    app.include_router(v2.node_router, prefix='/api/v2/node-runs', tags=['workflow-v2'])
     return app
 
 

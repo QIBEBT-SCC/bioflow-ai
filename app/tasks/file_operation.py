@@ -262,6 +262,11 @@ def _register_mark(
     with Session(engine) as session:
         parsed_run_uid = uuid.UUID(run_uid)
         run = session.get(RunInstance, parsed_run_uid)
+        if run is None:
+            # V2 owns a separate run table but shares the project/sample mark services.
+            from app.v2.models import WorkflowRunV2
+
+            run = session.get(WorkflowRunV2, parsed_run_uid)
         if run is None or run.project_id is None or run.workflow_uid is None:
             msg = 'Dynamic marks require a project workflow run.'
             raise ValueError(msg)

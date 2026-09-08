@@ -2,6 +2,9 @@ import json
 import platform
 import socket
 import time
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from itertools import takewhile
 from pathlib import Path
@@ -114,6 +117,30 @@ class BaseBioTask(celery.Task):
 # ---------------------------------------------------------------------------
 
 _TASK_NOT_FOUND = 'Task not found'
+_output_resolver: ContextVar[Callable[[str, str], tuple[str, str | None]] | None] = ContextVar(
+    'workflow_output_resolver',
+    default=None,
+)
+_task_updater: ContextVar[Callable[[str, TaskUpdate], bool] | None] = ContextVar(
+    'workflow_task_updater',
+    default=None,
+)
+
+
+@contextmanager
+def workflow_task_runtime(
+    *,
+    output_resolver: Callable[[str, str], tuple[str, str | None]],
+    task_updater: Callable[[str, TaskUpdate], bool],
+) -> Generator[None]:
+    """Install V2 dependency and persistence hooks for one local node execution."""
+    resolver_token = _output_resolver.set(output_resolver)
+    updater_token = _task_updater.set(task_updater)
+    try:
+        yield
+    finally:
+        _task_updater.reset(updater_token)
+        _output_resolver.reset(resolver_token)
 
 
 def _append_failure_log(base_dir: str, exc: object, einfo: object) -> None:
@@ -243,6 +270,8 @@ def get_tool_data(tool_uid: str) -> ToolTaskInfo:
 
 def update_task(uid: str, data: TaskUpdate) -> bool:
     """更新任务状态."""
+    if updater := _task_updater.get():
+        return updater(uid, data)
     try:
         with Session(engine) as session:
             workflow_runtime.update_task(session, uid, data)
@@ -254,6 +283,8 @@ def update_task(uid: str, data: TaskUpdate) -> bool:
 
 def get_tool_output(uid: str, k: str, max_retries: int = 5, retry_interval: float = 3.0) -> tuple[str, str | None]:
     """从数据库获取任务输出, 带轮询重试机制."""
+    if resolver := _output_resolver.get():
+        return resolver(uid, k)
     for attempt in range(max_retries):
         try:
             with Session(engine) as session:
