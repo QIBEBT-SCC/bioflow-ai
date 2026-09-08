@@ -35,6 +35,11 @@ def get_task_status(task_uid: str, db_status: Status | int = Status.WAITING) -> 
         return normalized_db_status
 
     celery_status = _get_task_status_from_celery(task_uid)
+    if normalized_db_status == Status.WAITING and celery_status == Status.ERROR:
+        # Celery propagates a failed chain result to every remaining task ID.
+        # Tasks that never started remain WAITING in the database and should
+        # not be presented as execution failures.
+        return Status.WAITING
     return celery_status if celery_status is not None else normalized_db_status
 
 
