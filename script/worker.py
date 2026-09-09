@@ -64,26 +64,14 @@ def agent_main(*, concurrency: int = 1) -> None:
     celery_app.worker_main(argv=args)
 
 
-def resource_main(*, concurrency: int = 2) -> None:
-    """Start the worker for resource download and index-building jobs."""
+def execution_main(*, concurrency: int = 4) -> None:
+    """Start the shared worker for workflow nodes and one-off resource jobs."""
     args = [
         'worker',
         f'--loglevel={get_settings().logger.CELERY_LEVEL}',
-        '--queues=resource',
-        f'--concurrency={concurrency}',
-        f'--hostname=resource-{os.getpid()}@%h',
-    ]
-    celery_app.worker_main(argv=args)
-
-
-def workflow_main(*, concurrency: int = 4) -> None:
-    """Start the worker that only consumes durable workflow node events."""
-    args = [
-        'worker',
-        f'--loglevel={get_settings().logger.CELERY_LEVEL}',
-        '--queues=workflow-v2',
+        '--queues=workflow-v2,resource',
         f'--concurrency={concurrency}',
         '--prefetch-multiplier=1',
-        f'--hostname=workflow-{os.getpid()}@%h',
+        f'--hostname=execution-{os.getpid()}@%h',
     ]
     celery_app.worker_main(argv=args)

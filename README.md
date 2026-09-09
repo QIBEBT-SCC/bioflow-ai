@@ -16,7 +16,7 @@ The platform combines a FastAPI backend, Celery task queues, AI agents, containe
 
 - Linux (recommended)
 - [Git](https://git-scm.com/)
-- Python 3.12+
+- Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
 - One of the following container runtimes:
   - Docker with the Docker Compose plugin
@@ -47,19 +47,13 @@ uv run bioflow-ai auto-init
 
 The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.mdx) for every prompt, accepted value, and default.
 
-After initialization, start the API and the isolated workflow, resource, and agent processes in separate terminals:
+After initialization, start the API, workflow dispatcher, shared execution worker, and agent worker in separate terminals:
 
 ```bash
 uv run bioflow-ai api
 uv run bioflow-ai workflow-dispatcher
-uv run bioflow-ai workflow-worker --concurrency 4
-uv run bioflow-ai resource-worker --concurrency 2
+uv run bioflow-ai execution-worker --concurrency 4
 uv run bioflow-ai agent-worker
 ```
-
-For an existing installation that already ran the former `app/v2` prototype, back up PostgreSQL and apply the
-[one-time workflow runtime migration](presets/migrations/20260909_integrate_workflow_runtime.sql) before starting
-this version. It preserves the verified V2 run tables under their final names and intentionally removes V1
-run/task/monitor history.
 
 Open [http://localhost:3000](http://localhost:3000) in your browser. If a default port is already in use, the initializer selects an available port and displays it in the terminal.

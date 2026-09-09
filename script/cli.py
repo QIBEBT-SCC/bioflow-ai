@@ -32,26 +32,15 @@ def agent_worker(*, concurrency: int) -> None:
     agent_main(concurrency=concurrency)
 
 
-@cli.command(name='resource-worker')
-@click.option('--concurrency', type=click.IntRange(min=1), default=2, show_default=True)
-def resource_worker(*, concurrency: int) -> None:
-    """Start the Celery worker for background resource preparation."""
-    from app.utils.logger import init_logging
-    from script.worker import resource_main
-
-    init_logging()
-    resource_main(concurrency=concurrency)
-
-
-@cli.command(name='workflow-worker')
+@cli.command(name='execution-worker')
 @click.option('--concurrency', type=click.IntRange(min=1), default=4, show_default=True)
-def workflow_worker(*, concurrency: int) -> None:
-    """Start the isolated Celery worker for DAG nodes."""
+def execution_worker(*, concurrency: int) -> None:
+    """Start the shared Celery worker for DAG nodes and resource preparation."""
     from app.utils.logger import init_logging
-    from script.worker import workflow_main
+    from script.worker import execution_main
 
     init_logging()
-    workflow_main(concurrency=concurrency)
+    execution_main(concurrency=concurrency)
 
 
 @cli.command(name='workflow-dispatcher')
