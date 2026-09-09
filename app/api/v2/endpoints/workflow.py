@@ -38,6 +38,7 @@ from app.schemas.workflow_run import (
     PaginatedNodeRuns,
     PaginatedWorkflowRuns,
     ProjectWorkflowRunRequest,
+    RunStatus,
     WorkflowRunPublic,
     WorkflowRunStatistics,
 )
@@ -176,10 +177,11 @@ def list_all_runs(
     current_user: MemberDep,
     offset: int = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    status: RunStatus | None = None,
 ) -> PaginatedWorkflowRuns:
     """List workflow runs."""
     owner_id = None if _is_admin(current_user) else current_user.id
-    return runs.list_runs(session, owner_id=owner_id, offset=offset, limit=limit)
+    return runs.list_runs(session, owner_id=owner_id, status=status, offset=offset, limit=limit)
 
 
 @run_router.get('/statistics')
@@ -213,6 +215,16 @@ def get_project_run_statistics(
     _owned_project(session, project_id, current_user)
     owner_id = None if _is_admin(current_user) else current_user.id
     return runs.run_statistics(session, owner_id=owner_id, project_id=project_id)
+
+
+@run_router.get('/{uid}/node-runs')
+def list_run_node_runs(
+    uid: uuid.UUID,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> list[NodeRunRecord]:
+    """List current-generation node executions for one workflow run."""
+    return runs.list_node_runs_for_run(session, _owned_run(session, uid, current_user))
 
 
 @run_router.get('/{uid}')

@@ -382,6 +382,18 @@ def recent_node_runs(
     ]
 
 
+def list_node_runs_for_run(session: Session, run: WorkflowRun) -> list[NodeRunRecord]:
+    """Return current-generation node executions in workflow definition order."""
+    owner = session.get(User, run.owner_id)
+    owner_username = owner.username if owner is not None else str(run.owner_id)
+    nodes = session.scalars(
+        select(NodeRun)
+        .where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
+        .order_by(NodeRun.position_index, NodeRun.uid)
+    )
+    return [_to_node_record(node, run, owner_username) for node in nodes]
+
+
 def _node_statistics(nodes: list[NodeRun]) -> NodeRunStatistics:
     counts = dict.fromkeys(NodeRunStatus, 0)
     for node in nodes:
@@ -434,6 +446,7 @@ def list_runs(
     *,
     owner_id: int | None,
     project_id: int | None = None,
+    status: RunStatus | None = None,
     offset: int = 0,
     limit: int = 20,
 ) -> PaginatedWorkflowRuns:
@@ -443,6 +456,8 @@ def list_runs(
         filters.append(WorkflowRun.owner_id == owner_id)
     if project_id is not None:
         filters.append(WorkflowRun.project_id == project_id)
+    if status is not None:
+        filters.append(WorkflowRun.status == status)
     statement = select(WorkflowRun).where(*filters).order_by(WorkflowRun.create_time.desc()).offset(offset).limit(limit)
     count_statement = select(func.count()).select_from(WorkflowRun).where(*filters)
     runs = list(session.scalars(statement))
