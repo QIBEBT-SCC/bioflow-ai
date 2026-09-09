@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
+from fastapi import Path as PathParam
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -31,8 +32,10 @@ from app.schemas.workflow_run import (
     FileContentRequest,
     MonitorPublic,
     NodeRunPublic,
+    NodeRunRecord,
     NodeRunStatus,
     OutputFileNode,
+    PaginatedNodeRuns,
     PaginatedWorkflowRuns,
     ProjectWorkflowRunRequest,
     WorkflowRunPublic,
@@ -282,10 +285,35 @@ async def get_run_file_content(
     return await serve_file(full_path)
 
 
+@node_router.get('')
+def list_node_runs(
+    session: SessionDep,
+    current_user: MemberDep,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    status: NodeRunStatus | None = None,
+) -> PaginatedNodeRuns:
+    """List current-generation node executions for the task center."""
+    owner_id = None if _is_admin(current_user) else current_user.id
+    return runs.list_node_runs(session, owner_id=owner_id, status=status, offset=offset, limit=limit)
+
+
+@node_router.get('/recent/{hours}')
+def list_recent_node_runs(
+    hours: Annotated[int, PathParam(ge=1, le=24 * 7)],
+    session: SessionDep,
+    current_user: MemberDep,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 1000,
+) -> list[NodeRunRecord]:
+    """List recent current-generation node executions for the task timeline."""
+    owner_id = None if _is_admin(current_user) else current_user.id
+    return runs.recent_node_runs(session, owner_id=owner_id, hours=hours, limit=limit)
+
+
 @node_router.get('/{uid}')
 def get_node_run(uid: uuid.UUID, session: SessionDep, current_user: MemberDep) -> NodeRunPublic:
     """Get one current-generation node run."""
-    return NodeRunPublic.model_validate(_owned_node(session, uid, current_user))
+    return runs.to_node_public(session, _owned_node(session, uid, current_user))
 
 
 @node_router.get('/{uid}/result')

@@ -104,19 +104,36 @@ class WorkflowRunPublic(WorkflowRunRecord):
     node_statistics: NodeRunStatistics = Field(default_factory=NodeRunStatistics)
 
 
-class NodeRunPublic(BaseModel):
-    """Public state for a node execution."""
+class NodeRunRecord(BaseModel):
+    """Task-center projection for one current-generation node execution."""
 
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
     run_uid: uuid.UUID
+    run_name: str
     generation: int
     definition_node_id: str
     node_type: str
     name: str
-    track_progress: bool
     status: NodeRunStatus
+    owner_id: int
+    owner_username: str
+    project_id: int | None
+    workflow_uid: uuid.UUID | None
+    sample_uid: uuid.UUID | None
+    create_time: datetime | None
+    start_time: datetime | None
+    end_time: datetime | None
+
+
+class NodeRunPublic(NodeRunRecord):
+    """Detailed public state for one current-generation node execution."""
+
+    track_progress: bool
+    tool_uid: uuid.UUID | None
+    tool_name: str | None
+    tool_description: str | None
     base_dir: str | None
     commands: str | None
     error_message: str | None
@@ -124,11 +141,18 @@ class NodeRunPublic(BaseModel):
     system: str | None
     hostname: str | None
     worker_id: str | None
-    create_time: datetime | None
     queued_at: datetime | None
-    start_time: datetime | None
     heartbeat_at: datetime | None
-    end_time: datetime | None
+
+
+class PaginatedNodeRuns(BaseModel):
+    """Paginated current-generation node executions."""
+
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+    data: list[NodeRunRecord]
 
 
 class PaginatedWorkflowRuns(BaseModel):

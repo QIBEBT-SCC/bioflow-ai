@@ -4,23 +4,30 @@ import io
 import shutil
 import uuid
 import zipfile
+from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config import get_settings
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample
+from app.models.tools import ToolDefine
+from app.models.user import User
 from app.models.workflow import NodeDependency, NodeRun, Workflow, WorkflowOutbox, WorkflowRun
 from app.schemas.project_workflow import WorkflowRunResult
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.user import CurrentUser
 from app.schemas.workflow_run import (
     NodeRunData,
+    NodeRunPublic,
+    NodeRunRecord,
     NodeRunStatistics,
     NodeRunStatus,
+    PaginatedNodeRuns,
     PaginatedWorkflowRuns,
     RunStatus,
     WorkflowRunPublic,
@@ -252,6 +259,127 @@ def get_node(session: Session, node_uid: uuid.UUID) -> NodeRun | None:
         return None
     run = session.get(WorkflowRun, node.run_uid)
     return node if run is not None and node.generation == run.generation else None
+
+
+def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> NodeRunRecord:
+    return NodeRunRecord(
+        uid=node.uid,
+        run_uid=node.run_uid,
+        run_name=run.name,
+        generation=node.generation,
+        definition_node_id=node.definition_node_id,
+        node_type=node.node_type,
+        name=node.name,
+        status=node.status,
+        owner_id=run.owner_id,
+        owner_username=owner_username,
+        project_id=run.project_id,
+        workflow_uid=run.workflow_uid,
+        sample_uid=run.sample_uid,
+        create_time=node.create_time,
+        start_time=node.start_time,
+        end_time=node.end_time,
+    )
+
+
+def to_node_public(session: Session, node: NodeRun) -> NodeRunPublic:
+    """Build task-center details for one current-generation node execution."""
+    run = session.get(WorkflowRun, node.run_uid)
+    if run is None or node.generation != run.generation:
+        message = 'Node run does not belong to the current workflow generation'
+        raise WorkflowRunNotFoundError(message)
+    owner = session.get(User, run.owner_id)
+    tool = session.get(ToolDefine, node.tool_uid) if node.tool_uid is not None else None
+    record = _to_node_record(node, run, owner.username if owner is not None else str(run.owner_id))
+    return NodeRunPublic(
+        **record.model_dump(),
+        track_progress=node.track_progress,
+        tool_uid=node.tool_uid,
+        tool_name=tool.name if tool is not None else None,
+        tool_description=tool.description if tool is not None else None,
+        base_dir=node.base_dir,
+        commands=node.commands,
+        error_message=node.error_message,
+        tool_output=node.tool_output,
+        system=node.system,
+        hostname=node.hostname,
+        worker_id=node.worker_id,
+        queued_at=node.queued_at,
+        heartbeat_at=node.heartbeat_at,
+    )
+
+
+def _node_list_filters(
+    *,
+    owner_id: int | None,
+    project_id: int | None,
+    status: NodeRunStatus | None,
+) -> list[ColumnElement[bool]]:
+    filters = [NodeRun.generation == WorkflowRun.generation]
+    if owner_id is not None:
+        filters.append(WorkflowRun.owner_id == owner_id)
+    if project_id is not None:
+        filters.append(WorkflowRun.project_id == project_id)
+    if status is not None:
+        filters.append(NodeRun.status == status)
+    return filters
+
+
+def list_node_runs(
+    session: Session,
+    *,
+    owner_id: int | None,
+    project_id: int | None = None,
+    status: NodeRunStatus | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> PaginatedNodeRuns:
+    """Return current-generation node executions for the task center."""
+    filters = _node_list_filters(owner_id=owner_id, project_id=project_id, status=status)
+    statement = (
+        select(NodeRun, WorkflowRun, User.username)
+        .join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid)
+        .join(User, User.id == WorkflowRun.owner_id)
+        .where(*filters)
+        .order_by(NodeRun.create_time.desc(), NodeRun.uid.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    count_statement = (
+        select(func.count()).select_from(NodeRun).join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid).where(*filters)
+    )
+    rows = session.execute(statement).all()
+    total = session.scalar(count_statement) or 0
+    return PaginatedNodeRuns(
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + limit < total,
+        data=[_to_node_record(node, run, owner_username) for node, run, owner_username in rows],
+    )
+
+
+def recent_node_runs(
+    session: Session,
+    *,
+    owner_id: int | None,
+    hours: int,
+    limit: int = 1000,
+) -> list[NodeRunRecord]:
+    """Return recent current-generation node executions for the task timeline."""
+    filters = _node_list_filters(owner_id=owner_id, project_id=None, status=None)
+    filters.append(NodeRun.create_time >= utc_now() - timedelta(hours=hours))
+    statement = (
+        select(NodeRun, WorkflowRun, User.username)
+        .join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid)
+        .join(User, User.id == WorkflowRun.owner_id)
+        .where(*filters)
+        .order_by(NodeRun.create_time.desc(), NodeRun.uid.desc())
+        .limit(limit)
+    )
+    return [
+        _to_node_record(node, run, owner_username) for node, run, owner_username in session.execute(statement).all()
+    ]
 
 
 def _node_statistics(nodes: list[NodeRun]) -> NodeRunStatistics:
