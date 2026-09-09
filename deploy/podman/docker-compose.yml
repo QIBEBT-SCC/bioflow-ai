@@ -122,7 +122,7 @@ services:
 
   web-ui:
     container_name: bioflow-ai-web
-    image: ghcr.io/qibebt-scc/bioflow-ai-web:0.2.5
+    image: ghcr.io/qibebt-scc/bioflow-ai-web:0.4.1
     environment:
       BACKEND_API_URL: http://host.docker.internal:8000/api/v1
     extra_hosts:
