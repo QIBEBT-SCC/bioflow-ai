@@ -21,16 +21,6 @@ def api(*, enable_request_log: bool) -> None:
     main(log_requests=enable_request_log)
 
 
-@cli.command()
-def worker() -> None:
-    """Start the Celery worker."""
-    from app.utils.logger import init_logging
-    from script.worker import main
-
-    init_logging()
-    main()
-
-
 @cli.command(name='agent-worker')
 @click.option('--concurrency', type=click.IntRange(min=1), default=1, show_default=True)
 def agent_worker(*, concurrency: int) -> None:
@@ -42,23 +32,34 @@ def agent_worker(*, concurrency: int) -> None:
     agent_main(concurrency=concurrency)
 
 
-@cli.command(name='workflow-v2-worker')
-@click.option('--concurrency', type=click.IntRange(min=1), default=4, show_default=True)
-def workflow_v2_worker(*, concurrency: int) -> None:
-    """Start the isolated Celery worker for V2 DAG nodes."""
+@cli.command(name='resource-worker')
+@click.option('--concurrency', type=click.IntRange(min=1), default=2, show_default=True)
+def resource_worker(*, concurrency: int) -> None:
+    """Start the Celery worker for background resource preparation."""
     from app.utils.logger import init_logging
-    from script.worker import workflow_v2_main
+    from script.worker import resource_main
 
     init_logging()
-    workflow_v2_main(concurrency=concurrency)
+    resource_main(concurrency=concurrency)
 
 
-@cli.command(name='workflow-v2-dispatcher')
-@click.option('--stale-after', type=click.IntRange(min=30), default=300, show_default=True)
-def workflow_v2_dispatcher(*, stale_after: int) -> None:
-    """Start the durable V2 Outbox dispatcher and recovery scanner."""
+@cli.command(name='workflow-worker')
+@click.option('--concurrency', type=click.IntRange(min=1), default=4, show_default=True)
+def workflow_worker(*, concurrency: int) -> None:
+    """Start the isolated Celery worker for DAG nodes."""
     from app.utils.logger import init_logging
-    from script.workflow_v2_dispatcher import main
+    from script.worker import workflow_main
+
+    init_logging()
+    workflow_main(concurrency=concurrency)
+
+
+@cli.command(name='workflow-dispatcher')
+@click.option('--stale-after', type=click.IntRange(min=30), default=300, show_default=True)
+def workflow_dispatcher(*, stale_after: int) -> None:
+    """Start the durable Outbox dispatcher and recovery scanner."""
+    from app.utils.logger import init_logging
+    from script.workflow_dispatcher import main
 
     init_logging()
     main(stale_after_seconds=stale_after)

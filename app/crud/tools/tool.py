@@ -7,7 +7,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.project import Project
 from app.models.tools import ToolDefine
-from app.models.workflow import RunInstance, TaskInstance, Workflow
+from app.models.workflow import NodeRun, Workflow, WorkflowRun
 from app.schemas.tools import ToolRunUsage, ToolWorkflowUsage
 from app.utils.identifiers import UUIDLike, as_uuid
 
@@ -194,12 +194,18 @@ def _workflow_reference_predicate(tool_uid: UUIDLike) -> ColumnElement[bool]:
 def get_usage_counts(session: Session, tool_uid: UUIDLike) -> tuple[int, int]:
     """Return saved-workflow and distinct historical-run counts for a tool."""
     normalized_uid = as_uuid(tool_uid)
-    workflow_count = session.scalar(
-        select(func.count()).select_from(Workflow).where(_workflow_reference_predicate(normalized_uid)),
-    ) or 0
-    run_count = session.scalar(
-        select(func.count(func.distinct(TaskInstance.instance_uid))).where(TaskInstance.tool_uid == normalized_uid),
-    ) or 0
+    workflow_count = (
+        session.scalar(
+            select(func.count()).select_from(Workflow).where(_workflow_reference_predicate(normalized_uid)),
+        )
+        or 0
+    )
+    run_count = (
+        session.scalar(
+            select(func.count(func.distinct(NodeRun.run_uid))).where(NodeRun.tool_uid == normalized_uid),
+        )
+        or 0
+    )
     return workflow_count, run_count
 
 
@@ -243,34 +249,34 @@ def get_run_usage_page(
 ) -> list[ToolRunUsage]:
     """Return a page of distinct runs that contain tasks for a tool."""
     normalized_uid = as_uuid(tool_uid)
-    task_count = func.count(TaskInstance.uid).label('task_count')
+    task_count = func.count(NodeRun.uid).label('task_count')
     statement = (
         select(
-            RunInstance.uid,
-            RunInstance.name,
-            RunInstance.project_id,
+            WorkflowRun.uid,
+            WorkflowRun.name,
+            WorkflowRun.project_id,
             Project.name.label('project_name'),
-            RunInstance.workflow_uid,
+            WorkflowRun.workflow_uid,
             Workflow.name.label('workflow_name'),
-            RunInstance.status,
-            RunInstance.create_time,
+            WorkflowRun.status,
+            WorkflowRun.create_time,
             task_count,
         )
-        .join(TaskInstance, TaskInstance.instance_uid == RunInstance.uid)
-        .outerjoin(Project, Project.id == RunInstance.project_id)
-        .outerjoin(Workflow, Workflow.uid == RunInstance.workflow_uid)
-        .where(TaskInstance.tool_uid == normalized_uid)
+        .join(NodeRun, NodeRun.run_uid == WorkflowRun.uid)
+        .outerjoin(Project, Project.id == WorkflowRun.project_id)
+        .outerjoin(Workflow, Workflow.uid == WorkflowRun.workflow_uid)
+        .where(NodeRun.tool_uid == normalized_uid)
         .group_by(
-            RunInstance.uid,
-            RunInstance.name,
-            RunInstance.project_id,
+            WorkflowRun.uid,
+            WorkflowRun.name,
+            WorkflowRun.project_id,
             Project.name,
-            RunInstance.workflow_uid,
+            WorkflowRun.workflow_uid,
             Workflow.name,
-            RunInstance.status,
-            RunInstance.create_time,
+            WorkflowRun.status,
+            WorkflowRun.create_time,
         )
-        .order_by(RunInstance.create_time.desc().nullslast(), RunInstance.uid)
+        .order_by(WorkflowRun.create_time.desc().nullslast(), WorkflowRun.uid)
         .offset(offset)
         .limit(limit)
     )

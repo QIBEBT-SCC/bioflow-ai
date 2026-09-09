@@ -34,7 +34,6 @@ async def save_workflow_drafts(drafts: list[WorkflowDraft], user_id: int) -> lis
                 execution_scope=to_execution_scope(draft.execution_scope),
                 workflow=workflow_define,
                 public=True,
-                auto_summary=True,
             )
             workflows.append(workflow)
 

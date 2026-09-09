@@ -9,24 +9,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import rustworkx as rx
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import app.crud.project_file_mapping as project_file_mapping_crud
 import app.crud.resource.sample as sample_crud
-import app.crud.run_instance as run_instance_crud
-import app.crud.workflow as workflow_crud
 from app.core.session import engine
+from app.models.workflow import NodeRun, WorkflowRun
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.tool_config import ImageConfig
-from app.schemas.workflow_config import Status
+from app.schemas.workflow_run import NodeRunStatus
 from app.utils.container import ContainerMount, run_command
 from llm.context import WorkflowDiagnosisContext
-from llm.utils.formatters import format_json, format_text
+from llm.utils.formatters import format_json
 
 EVIDENCE_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
 EVIDENCE_MOUNT_PATH = '/app/data/input'
@@ -56,86 +55,61 @@ def _parents_and_children(workflow: WorkflowDefinition) -> tuple[dict[str, set[s
     return parents, children
 
 
-def _has_failed_ancestor(node_id: str, parents: dict[str, set[str]], failed: set[str]) -> bool:
-    queue = deque(parents.get(node_id, ()))
-    visited: set[str] = set()
-    while queue:
-        parent = queue.popleft()
-        if parent in failed:
-            return True
-        if parent in visited:
-            continue
-        visited.add(parent)
-        queue.extend(parents.get(parent, ()))
-    return False
-
-
-def _scheduler_groups(workflow: WorkflowDefinition) -> list[list[str]]:
-    """Mirror the runtime scheduler's rustworkx layer ordering without task imports."""
-    graph = rx.PyDiGraph()
-    node_indices: dict[str, int] = {}
+def _topology_levels(workflow: WorkflowDefinition) -> dict[str, int]:
+    """Calculate presentation-only diagnostic levels without mirroring runtime scheduling."""
+    node_ids = [node.id for node in workflow.nodes]
+    indegree = dict.fromkeys(node_ids, 0)
+    children: dict[str, list[str]] = defaultdict(list)
+    levels = dict.fromkeys(node_ids, 0)
     for edge in workflow.edges:
-        if edge.source not in node_indices:
-            node_indices[edge.source] = graph.add_node(edge.source)
-        if edge.target not in node_indices:
-            node_indices[edge.target] = graph.add_node(edge.target)
-        graph.add_edge(node_indices[edge.source], node_indices[edge.target], None)
-    first_layer = [
-        index for index in graph.node_indices() if graph.in_degree(index) == 0 and graph.out_degree(index) > 0
-    ]
-    return [[str(node_id) for node_id in layer] for layer in rx.layers(graph, first_layer)]
+        if edge.source not in indegree or edge.target not in indegree:
+            continue
+        children[edge.source].append(edge.target)
+        indegree[edge.target] += 1
+    queue = deque(node_id for node_id in node_ids if indegree[node_id] == 0)
+    while queue:
+        node_id = queue.popleft()
+        for child in children[node_id]:
+            levels[child] = max(levels[child], levels[node_id] + 1)
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                queue.append(child)
+    return levels
 
 
-def execution_labels(workflow: WorkflowDefinition, statuses: dict[str, Status]) -> dict[str, dict[str, Any]]:
-    """Describe scheduler order and why each executable node did or did not run."""
-    groups = _scheduler_groups(workflow)
-    topology_order = [node_id for group in groups for node_id in group]
-    order = [node_id for node_id in topology_order if node_id in statuses]
-    levels = {node_id: level for level, group in enumerate(groups) for node_id in group}
-    positions = {node_id: index for index, node_id in enumerate(order)}
-    failed = {node_id for node_id, status in statuses.items() if status == Status.ERROR}
-    first_failed_position = min((positions[node_id] for node_id in failed if node_id in positions), default=None)
-    parents, _ = _parents_and_children(workflow)
+def execution_labels(
+    workflow: WorkflowDefinition,
+    statuses: dict[str, NodeRunStatus],
+    positions: dict[str, int],
+) -> dict[str, dict[str, Any]]:
+    """Describe each node from durable runtime state, not Celery backend state."""
+    levels = _topology_levels(workflow)
     result: dict[str, dict[str, Any]] = {}
-    for node_id in topology_order:
+    for node in workflow.nodes:
+        node_id = node.id
         status = statuses.get(node_id)
-        position = positions.get(node_id)
         if status is None:
-            reason = 'no_task_instance'
-        elif status == Status.ERROR:
+            reason = 'presentation_only'
+        elif status == NodeRunStatus.FAILED:
             reason = 'direct_failed'
-        elif status == Status.SUCCESS:
+        elif status == NodeRunStatus.SUCCEEDED:
             reason = 'completed'
-        elif status == Status.RUNNING:
+        elif status == NodeRunStatus.RUNNING:
             reason = 'running'
-        elif _has_failed_ancestor(node_id, parents, failed):
+        elif status == NodeRunStatus.BLOCKED:
             reason = 'blocked_by_dependency'
-        elif first_failed_position is not None and position is not None and position > first_failed_position:
-            reason = 'not_run_due_chain_abort'
+        elif status == NodeRunStatus.QUEUED:
+            reason = 'queued'
+        elif status == NodeRunStatus.READY:
+            reason = 'ready'
         else:
-            reason = 'waiting_or_not_scheduled'
+            reason = 'waiting_for_dependencies'
         result[node_id] = {
-            'dispatch_order': position + 1 if position is not None else None,
-            'topology_level': levels[node_id],
+            'dispatch_order': positions.get(node_id),
+            'topology_level': levels.get(node_id),
             'execution_reason': reason,
         }
     return result
-
-
-def _celery_failure(task_uid: str) -> dict[str, Any] | None:
-    try:
-        from script.worker import celery_app
-
-        result = celery_app.AsyncResult(task_uid)
-        if not result.failed():
-            return {'state': result.state}
-        return {
-            'state': result.state,
-            'error': format_text(str(result.result), max_chars=8_000),
-            'traceback': format_text(str(result.traceback or ''), max_chars=20_000),
-        }
-    except Exception as error:
-        return {'unavailable': f'{type(error).__name__}: {error}'}
 
 
 def _compact_node_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -148,87 +122,75 @@ def _compact_node_data(data: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def _template_node_ids(workflow: WorkflowDefinition, workflow_uid: uuid.UUID | None) -> dict[str, str]:
-    if workflow_uid is None:
-        return {}
-    with Session(engine) as session:
-        template = workflow_crud.get(session, workflow_uid)
-        if template is None:
-            return {}
-        template_nodes = template.workflow.nodes
-    if len(template_nodes) != len(workflow.nodes):
-        return {}
-    if any(current.type != original.type for current, original in zip(workflow.nodes, template_nodes, strict=True)):
-        return {}
-    return {current.id: original.id for current, original in zip(workflow.nodes, template_nodes, strict=True)}
-
-
 def _workflow_payload(source_run_uid: str, include_node_id: str | None = None) -> dict[str, Any]:
+    try:
+        run_uid = uuid.UUID(source_run_uid)
+    except ValueError:
+        return {'error': 'Workflow execution not found.'}
     with Session(engine) as session:
-        run = run_instance_crud.get(session, source_run_uid)
+        run = session.get(WorkflowRun, run_uid)
         if run is None:
             return {'error': 'Workflow execution not found.'}
         workflow = run.workflow
-        tasks = list(run.tasks)
+        node_runs = list(
+            session.scalars(
+                select(NodeRun)
+                .where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
+                .order_by(NodeRun.position_index)
+            )
+        )
         run_payload = {
             'uid': str(run.uid),
+            'generation': run.generation,
             'name': run.name,
             'workflow_uid': str(run.workflow_uid) if run.workflow_uid else None,
             'project_id': run.project_id,
-            'status': run.status.name,
+            'status': run.status.value,
+            'settled': run.settled,
             'base_dir': run.base_dir,
             'create_time': run.create_time,
             'start_time': run.start_time,
             'end_time': run.end_time,
         }
-        task_payloads = {
-            str(task.uid): {
-                'task_uid': str(task.uid),
-                'name': task.name,
-                'tool_uid': str(task.tool_uid) if task.tool_uid else None,
-                'status': task.status.name,
-                'base_dir': task.base_dir,
-                'commands': task.commands,
-                'tool_output': task.tool_output.model_dump(mode='json') if task.tool_output else None,
-                'create_time': task.create_time,
-                'start_time': task.start_time,
-                'end_time': task.end_time,
+        node_run_payloads = {
+            node_run.definition_node_id: {
+                'node_run_uid': str(node_run.uid),
+                'name': node_run.name,
+                'tool_uid': str(node_run.tool_uid) if node_run.tool_uid else None,
+                'status': node_run.status.value,
+                'base_dir': node_run.base_dir,
+                'commands': node_run.commands,
+                'error_message': node_run.error_message,
+                'tool_output': node_run.tool_output.model_dump(mode='json') if node_run.tool_output else None,
+                'create_time': node_run.create_time,
+                'queued_at': node_run.queued_at,
+                'start_time': node_run.start_time,
+                'heartbeat_at': node_run.heartbeat_at,
+                'end_time': node_run.end_time,
             }
-            for task in tasks
+            for node_run in node_runs
         }
-        statuses = {str(task.uid): task.status for task in tasks}
+        statuses = {node_run.definition_node_id: node_run.status for node_run in node_runs}
+        positions = {node_run.definition_node_id: node_run.position_index for node_run in node_runs}
         workflow_uid = run.workflow_uid
 
-    scheduler_error: str | None = None
-    try:
-        schedule = execution_labels(workflow, statuses)
-    except Exception as error:
-        schedule = {}
-        scheduler_error = f'{type(error).__name__}: {error}'
-    template_ids = _template_node_ids(workflow, workflow_uid)
+    schedule = execution_labels(workflow, statuses, positions)
     parents, children = _parents_and_children(workflow)
     requested_runtime_id = include_node_id
-    if include_node_id and include_node_id not in {node.id for node in workflow.nodes}:
-        requested_runtime_id = next(
-            (runtime_id for runtime_id, template_id in template_ids.items() if template_id == include_node_id),
-            include_node_id,
-        )
 
     nodes: list[dict[str, Any]] = []
     for node in workflow.nodes:
         if requested_runtime_id and node.id != requested_runtime_id:
             continue
-        task = task_payloads.get(node.id)
-        if task and task['status'] == Status.ERROR.name:
-            task['celery'] = _celery_failure(node.id)
+        node_run = node_run_payloads.get(node.id)
         nodes.append(
             {
                 'runtime_node_id': node.id,
-                'template_node_id': template_ids.get(node.id),
-                'template_mapping': 'position_and_type' if node.id in template_ids else None,
+                'template_node_id': node.id if workflow_uid else None,
+                'template_mapping': 'stable_definition_id' if workflow_uid else None,
                 'type': node.type,
                 'data': node.data if requested_runtime_id else _compact_node_data(node.data),
-                'task': task,
+                'task': node_run,
                 'schedule': schedule.get(node.id),
                 'upstream_runtime_node_ids': sorted(parents.get(node.id, ())),
                 'downstream_runtime_node_ids': sorted(children.get(node.id, ())),
@@ -237,10 +199,9 @@ def _workflow_payload(source_run_uid: str, include_node_id: str | None = None) -
     mapped = {node.id for node in workflow.nodes}
     return {
         'run': run_payload,
-        'scheduler_error': scheduler_error,
         'nodes': nodes,
         'edges': [edge.model_dump(mode='json') for edge in workflow.edges] if not requested_runtime_id else None,
-        'unmapped_tasks': [payload for uid, payload in task_payloads.items() if uid not in mapped],
+        'unmapped_tasks': [payload for node_id, payload in node_run_payloads.items() if node_id not in mapped],
         **({'error': f'Node not found: {include_node_id}'} if include_node_id and not nodes else {}),
     }
 
@@ -294,26 +255,37 @@ def _error(code: str, message: str) -> str:
 
 def _validated_path(raw_path: str | None, source: str) -> tuple[Path, Literal['file', 'directory']]:
     if not raw_path:
-        raise _evidence_error('missing_path', f'Evidence source `{source}` has no filesystem path.')
+        msg = 'missing_path'
+        raise _evidence_error(msg, f'Evidence source `{source}` has no filesystem path.')
     try:
         path = Path(raw_path).expanduser().resolve(strict=True)
     except (FileNotFoundError, OSError) as error:
-        raise _evidence_error('path_not_found', f'Evidence source `{source}` no longer exists.') from error
+        msg = 'path_not_found'
+        raise _evidence_error(msg, f'Evidence source `{source}` no longer exists.') from error
     if path.is_file():
         return path, 'file'
     if path.is_dir():
         return path, 'directory'
-    raise _evidence_error('unsupported_path', f'Evidence source `{source}` is not a regular file or directory.')
+    msg = 'unsupported_path'
+    raise _evidence_error(msg, f'Evidence source `{source}` is not a regular file or directory.')
 
 
 def _current_run(session: Session, context: WorkflowDiagnosisContext) -> Any:
-    run = run_instance_crud.get(session, context.source_run_uid)
+    try:
+        run_uid = uuid.UUID(context.source_run_uid)
+    except ValueError as error:
+        msg = 'run_not_found'
+        raise _evidence_error(msg, 'The workflow execution no longer exists.') from error
+    run = session.get(WorkflowRun, run_uid)
     if run is None:
-        raise _evidence_error('run_not_found', 'The workflow execution no longer exists.')
+        msg = 'run_not_found'
+        raise _evidence_error(msg, 'The workflow execution no longer exists.')
     if run.owner_id != context.user_id:
-        raise _evidence_error('access_denied', 'The workflow execution does not belong to the current user.')
+        msg = 'access_denied'
+        raise _evidence_error(msg, 'The workflow execution does not belong to the current user.')
     if run.project_id != context.project_id:
-        raise _evidence_error('project_mismatch', 'The workflow execution does not belong to the current project.')
+        msg = 'project_mismatch'
+        raise _evidence_error(msg, 'The workflow execution does not belong to the current project.')
     return run
 
 
@@ -325,43 +297,53 @@ def resolve_evidence_source(source: str, context: WorkflowDiagnosisContext) -> R
         if source == 'run:current':
             path, kind = _validated_path(run.base_dir, source)
             if kind != 'directory':
-                raise _evidence_error('invalid_run_path', 'The current run path is not a directory.')
+                msg = 'invalid_run_path'
+                raise _evidence_error(msg, 'The current run path is not a directory.')
             return ResolvedEvidence(source=source, path=path, kind=kind)
 
         if source.startswith('sample:'):
             tag = source.removeprefix('sample:')
             if not tag:
-                raise _evidence_error('invalid_source', 'A sample source must include a tag.')
+                msg = 'invalid_source'
+                raise _evidence_error(msg, 'A sample source must include a tag.')
             if run.sample_uid is None:
+                msg = 'sample_unavailable'
                 raise _evidence_error(
-                    'sample_unavailable',
+                    msg,
                     'The current workflow execution is project-level and has no bound sample.',
                 )
             sample = sample_crud.get_with_files(session, run.sample_uid)
             if sample is None:
-                raise _evidence_error('sample_not_found', 'The sample bound to the current run no longer exists.')
+                msg = 'sample_not_found'
+                raise _evidence_error(msg, 'The sample bound to the current run no longer exists.')
             if sample.owner_id != context.user_id or sample.project_id != context.project_id:
-                raise _evidence_error('access_denied', 'The current run sample is outside the allowed project scope.')
+                msg = 'access_denied'
+                raise _evidence_error(msg, 'The current run sample is outside the allowed project scope.')
             sample_file = next((item for item in sample.sample_files if item.tag == tag), None)
             if sample_file is None:
-                raise _evidence_error('reference_not_found', f'Sample reference `{source}` was not found.')
+                msg = 'reference_not_found'
+                raise _evidence_error(msg, f'Sample reference `{source}` was not found.')
             path, kind = _validated_path(sample_file.file_path, source)
             return ResolvedEvidence(source=source, path=path, kind=kind)
 
         if source.startswith('proj:'):
             keyword = source.removeprefix('proj:')
             if not keyword:
-                raise _evidence_error('invalid_source', 'A project source must include a keyword.')
+                msg = 'invalid_source'
+                raise _evidence_error(msg, 'A project source must include a keyword.')
             mapping = project_file_mapping_crud.get_by_keyword(session, context.project_id, keyword)
             if mapping is None:
-                raise _evidence_error('reference_not_found', f'Project reference `{source}` was not found.')
+                msg = 'reference_not_found'
+                raise _evidence_error(msg, f'Project reference `{source}` was not found.')
             if mapping.project_id != context.project_id:
-                raise _evidence_error('project_mismatch', 'The project reference is outside the allowed project scope.')
+                msg = 'project_mismatch'
+                raise _evidence_error(msg, 'The project reference is outside the allowed project scope.')
             path, kind = _validated_path(mapping.file_path, source)
             return ResolvedEvidence(source=source, path=path, kind=kind)
 
+    msg = 'invalid_source'
     raise _evidence_error(
-        'invalid_source',
+        msg,
         'source must be exactly `run:current`, `sample:<tag>`, or `proj:<keyword>`.',
     )
 
@@ -370,10 +352,12 @@ def build_bounded_command(command: str) -> str:
     """Wrap an inspection command with time and captured-output limits inside the container."""
     stripped = command.strip()
     if not stripped:
-        raise _evidence_error('empty_command', 'The evidence inspection command cannot be empty.')
+        msg = 'empty_command'
+        raise _evidence_error(msg, 'The evidence inspection command cannot be empty.')
     if len(stripped) > MAX_COMMAND_CHARS:
+        msg = 'command_too_long'
         raise _evidence_error(
-            'command_too_long',
+            msg,
             f'The evidence inspection command exceeds {MAX_COMMAND_CHARS} characters.',
         )
 

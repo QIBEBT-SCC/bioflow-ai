@@ -98,7 +98,7 @@ class AgentRunTarget(Base):
         primary_key=True,
     )
     source_run_uid: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey('run_instances.uid', ondelete='CASCADE'),
+        ForeignKey('workflow_runs.uid', ondelete='CASCADE'),
         index=True,
     )
 

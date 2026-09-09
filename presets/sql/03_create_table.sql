@@ -364,10 +364,8 @@ CREATE TABLE IF NOT EXISTS workflows
     description     VARCHAR NOT NULL,
     wf_type         INTEGER NOT NULL,
     execution_scope INTEGER NOT NULL,
-    workflow        jsonb,
+    workflow        jsonb    NOT NULL,
     public          BOOLEAN NOT NULL,
-    auto_summary    BOOLEAN NOT NULL DEFAULT FALSE,
-    summary_prompt  VARCHAR,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users
 );
@@ -383,24 +381,94 @@ CREATE TABLE IF NOT EXISTS project_workflows
     FOREIGN KEY (workflow_uid) REFERENCES workflows (uid) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS run_instances
+CREATE TABLE IF NOT EXISTS workflow_runs
 (
-    uid          uuid    NOT NULL,
-    name         VARCHAR NOT NULL,
-    owner_id     INTEGER NOT NULL,
+    uid          uuid        NOT NULL,
+    generation   INTEGER     NOT NULL,
+    name         VARCHAR     NOT NULL,
+    owner_id     INTEGER     NOT NULL,
     project_id   INTEGER,
     workflow_uid uuid,
     sample_uid   uuid,
-    base_dir     VARCHAR,
-    workflow     jsonb,
-    status       INTEGER NOT NULL,
-    create_time  TIMESTAMP,
+    base_dir     VARCHAR     NOT NULL,
+    workflow     jsonb       NOT NULL,
+    status       VARCHAR(16) NOT NULL,
+    settled      BOOLEAN     NOT NULL DEFAULT FALSE,
+    create_time  TIMESTAMP   NOT NULL,
     start_time   TIMESTAMP,
     end_time     TIMESTAMP,
     PRIMARY KEY (uid),
     FOREIGN KEY (owner_id) REFERENCES users,
     FOREIGN KEY (project_id) REFERENCES projects ON DELETE CASCADE,
+    FOREIGN KEY (workflow_uid) REFERENCES workflows ON DELETE SET NULL,
     FOREIGN KEY (sample_uid) REFERENCES samples ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS workflow_node_runs
+(
+    uid                uuid        NOT NULL,
+    run_uid            uuid        NOT NULL,
+    generation         INTEGER     NOT NULL,
+    definition_node_id VARCHAR     NOT NULL,
+    node_type           VARCHAR     NOT NULL,
+    name                VARCHAR     NOT NULL,
+    position_index      INTEGER     NOT NULL,
+    track_progress      BOOLEAN     NOT NULL DEFAULT TRUE,
+    prepared_data       jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    status              VARCHAR(16) NOT NULL,
+    tool_uid            uuid,
+    base_dir            VARCHAR,
+    commands            VARCHAR,
+    error_message       VARCHAR,
+    tool_output         jsonb,
+    system              VARCHAR,
+    hostname            VARCHAR,
+    worker_id           VARCHAR,
+    create_time         TIMESTAMP   NOT NULL,
+    queued_at           TIMESTAMP,
+    start_time          TIMESTAMP,
+    heartbeat_at        TIMESTAMP,
+    end_time            TIMESTAMP,
+    PRIMARY KEY (uid),
+    CONSTRAINT uq_node_run_definition UNIQUE (run_uid, generation, definition_node_id),
+    FOREIGN KEY (run_uid) REFERENCES workflow_runs ON DELETE CASCADE,
+    FOREIGN KEY (tool_uid) REFERENCES tools
+);
+
+CREATE TABLE IF NOT EXISTS workflow_node_dependencies
+(
+    uid             uuid    NOT NULL,
+    run_uid         uuid    NOT NULL,
+    generation      INTEGER NOT NULL,
+    source_node_uid uuid    NOT NULL,
+    target_node_uid uuid    NOT NULL,
+    source_handle   VARCHAR NOT NULL,
+    target_handle   VARCHAR NOT NULL,
+    PRIMARY KEY (uid),
+    CONSTRAINT uq_node_dependency_binding UNIQUE
+        (run_uid, generation, source_node_uid, source_handle, target_node_uid, target_handle),
+    FOREIGN KEY (run_uid) REFERENCES workflow_runs ON DELETE CASCADE,
+    FOREIGN KEY (source_node_uid) REFERENCES workflow_node_runs ON DELETE CASCADE,
+    FOREIGN KEY (target_node_uid) REFERENCES workflow_node_runs ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS workflow_outbox
+(
+    uid              uuid        NOT NULL,
+    run_uid          uuid        NOT NULL,
+    node_run_uid     uuid        NOT NULL,
+    generation       INTEGER     NOT NULL,
+    status           VARCHAR(16) NOT NULL,
+    publish_attempts INTEGER     NOT NULL DEFAULT 0,
+    claim_token      uuid,
+    claimed_at       TIMESTAMP WITH TIME ZONE,
+    last_error       VARCHAR,
+    create_time      TIMESTAMP   NOT NULL,
+    published_at     TIMESTAMP,
+    PRIMARY KEY (uid),
+    CONSTRAINT uq_workflow_outbox_node_run UNIQUE (node_run_uid),
+    FOREIGN KEY (run_uid) REFERENCES workflow_runs ON DELETE CASCADE,
+    FOREIGN KEY (node_run_uid) REFERENCES workflow_node_runs ON DELETE CASCADE
 );
 
 -- 智能体运行所关联的工作流执行
@@ -410,43 +478,7 @@ CREATE TABLE IF NOT EXISTS agent_run_targets
     source_run_uid uuid NOT NULL,
     PRIMARY KEY (agent_run_uid),
     FOREIGN KEY (agent_run_uid) REFERENCES agent_runs ON DELETE CASCADE,
-    FOREIGN KEY (source_run_uid) REFERENCES run_instances ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS task_instances
-(
-    uid          uuid    NOT NULL,
-    name         VARCHAR NOT NULL,
-    instance_uid uuid    NOT NULL,
-    owner_id     INTEGER NOT NULL,
-    tool_uid     uuid,
-    commands     VARCHAR,
-    base_dir     VARCHAR,
-    tool_output  jsonb,
-    system       VARCHAR,
-    hostname     VARCHAR,
-    status       INTEGER NOT NULL,
-    create_time  TIMESTAMP,
-    start_time   TIMESTAMP,
-    end_time     TIMESTAMP,
-    PRIMARY KEY (uid),
-    FOREIGN KEY (instance_uid) REFERENCES run_instances ON DELETE CASCADE,
-    FOREIGN KEY (owner_id) REFERENCES users,
-    FOREIGN KEY (tool_uid) REFERENCES tools
-);
-
-CREATE TABLE IF NOT EXISTS task_monitor_logs
-(
-    id        SERIAL,
-    task_uid  uuid             NOT NULL,
-    cpu_usage DOUBLE PRECISION NOT NULL,
-    mem_usage DOUBLE PRECISION NOT NULL,
-    mem_used  DOUBLE PRECISION NOT NULL,
-    io_in     DOUBLE PRECISION NOT NULL,
-    io_out    DOUBLE PRECISION NOT NULL,
-    time      TIMESTAMP        NOT NULL,
-    PRIMARY KEY (id),
-    FOREIGN KEY (task_uid) REFERENCES task_instances ON DELETE CASCADE
+    FOREIGN KEY (source_run_uid) REFERENCES workflow_runs ON DELETE CASCADE
 );
 
 -- 文档相关

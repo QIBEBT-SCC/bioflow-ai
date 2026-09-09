@@ -26,7 +26,10 @@ celery_app.conf.update(
         'app.tasks.agent_run.execute_agent_run': {'queue': 'agent'},
         'app.tasks.code_agent.execute_code_agent_session': {'queue': 'acp'},
         'app.tasks.code_agent.login_codex_account': {'queue': 'acp'},
-        'app.v2.tasks.workflow.execute_node': {'queue': 'workflow-v2'},
+        'app.tasks.load_tasks.load_bio_db.download_bio_db_task': {'queue': 'resource'},
+        'app.tasks.load_tasks.load_genome.download_genome_admin_task': {'queue': 'resource'},
+        'app.tasks.load_tasks.load_genome.build_genome_index_admin_task': {'queue': 'resource'},
+        'app.tasks.workflow.execute_node': {'queue': 'workflow-v2'},
     },
     enable_utc=True,
     timezone='Asia/Shanghai',
@@ -34,17 +37,10 @@ celery_app.conf.update(
 celery_app.autodiscover_tasks(
     [
         'app.tasks.load_tasks.load_bio_db',
-        'app.tasks.load_tasks.load_file',
         'app.tasks.load_tasks.load_genome',
-        'app.tasks.load_tasks.static_value',
-        'app.tasks.summary_task.summary',
-        'app.tasks.archive_operation',
-        'app.tasks.code',
-        'app.tasks.file_operation',
-        'app.tasks.run_tool',
         'app.tasks.agent_run',
         'app.tasks.code_agent',
-        'app.v2.tasks.workflow',
+        'app.tasks.workflow',
     ],
     # pyrefly: ignore [bad-argument-type]
     None,
@@ -55,12 +51,6 @@ celery_app.autodiscover_tasks(
 def on_worker_process_init(**kwargs) -> None:  # noqa: ARG001
     """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
     engine.dispose()
-
-
-def main() -> None:
-    """Start the Celery worker."""
-    args = ['worker', f'--loglevel={get_settings().logger.CELERY_LEVEL}']
-    celery_app.worker_main(argv=args)
 
 
 def agent_main(*, concurrency: int = 1) -> None:
@@ -74,14 +64,26 @@ def agent_main(*, concurrency: int = 1) -> None:
     celery_app.worker_main(argv=args)
 
 
-def workflow_v2_main(*, concurrency: int = 4) -> None:
-    """Start the isolated worker that only consumes durable V2 node events."""
+def resource_main(*, concurrency: int = 2) -> None:
+    """Start the worker for resource download and index-building jobs."""
+    args = [
+        'worker',
+        f'--loglevel={get_settings().logger.CELERY_LEVEL}',
+        '--queues=resource',
+        f'--concurrency={concurrency}',
+        f'--hostname=resource-{os.getpid()}@%h',
+    ]
+    celery_app.worker_main(argv=args)
+
+
+def workflow_main(*, concurrency: int = 4) -> None:
+    """Start the worker that only consumes durable workflow node events."""
     args = [
         'worker',
         f'--loglevel={get_settings().logger.CELERY_LEVEL}',
         '--queues=workflow-v2',
         f'--concurrency={concurrency}',
         '--prefetch-multiplier=1',
-        f'--hostname=workflow-v2-{os.getpid()}@%h',
+        f'--hostname=workflow-{os.getpid()}@%h',
     ]
     celery_app.worker_main(argv=args)

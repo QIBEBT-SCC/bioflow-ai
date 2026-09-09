@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.setting import LLMStatistic
 from app.models.user import User
-from app.models.workflow import RunInstance
+from app.models.workflow import WorkflowRun
 from app.schemas.user import UserDetail, UserUpdate
 from app.schemas.user_config import UserRole
 
@@ -34,9 +34,12 @@ def count_active_admins(session: Session, *, lock: bool = False) -> int:
     if lock:
         statement = select(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True)).with_for_update()
         return len(session.scalars(statement).all())
-    return session.scalar(
-        select(func.count()).select_from(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True))
-    ) or 0
+    return (
+        session.scalar(
+            select(func.count()).select_from(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True))
+        )
+        or 0
+    )
 
 
 def update(session: Session, user_id: int, data: UserUpdate) -> User | None:
@@ -69,7 +72,7 @@ def get_all_with_stats(session: Session) -> list[UserDetail]:
         .subquery()
     )
     run_count_sq = (
-        select(RunInstance.owner_id, func.count().label('run_count')).group_by(RunInstance.owner_id).subquery()
+        select(WorkflowRun.owner_id, func.count().label('run_count')).group_by(WorkflowRun.owner_id).subquery()
     )
 
     stmt = (

@@ -1,26 +1,24 @@
 import json
 from typing import Any
 
-from celery import Task
 from loguru import logger
 
 from app.schemas.react_flow import TaskInput
-from app.schemas.task_instance import TaskUpdate
 from app.schemas.tool_config import FileMount, ImageConfig
 from app.schemas.workflow_config import ToolOutput
+from app.schemas.workflow_run import NodeRunUpdate
 from app.services.tool_execution import (
     DockerToolExecutionConfig,
     ResolvedToolInput,
     execute_docker_tool,
     prepare_docker_tool_execution,
 )
-from app.tasks.base.base_task import (
-    BaseBioTask,
+from app.services.workflow.execution_context import (
+    get_node_output,
     get_tool_data,
-    get_tool_output,
-    update_task,
+    update_node,
 )
-from script.worker import celery_app, monitor_redis_client
+from script.worker import monitor_redis_client
 
 
 def _resolve_task_inputs(
@@ -33,16 +31,14 @@ def _resolve_task_inputs(
         if file.file_type != 'INPUT':
             continue
         task_input = inputs[file.name]
-        value, source_sample_name = get_tool_output(task_input.source_uid, task_input.source_k)
+        value, source_sample_name = get_node_output(task_input.source_uid, task_input.source_k)
         resolved_inputs[file.name] = ResolvedToolInput(value=value, sample_name=source_sample_name)
     return resolved_inputs
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def docker_task(
-    self: Task,
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def execute_tool(
     *,
+    node_run_id: str,
     tool_uid: str,
     inputs: dict[str, TaskInput],
     output_dir: str,
@@ -63,10 +59,8 @@ def docker_task(
     Returns:
         ToolOutput: 工具输出结果
     """
-    assert self.request.id is not None  # noqa: S101
-
     tool_config = get_tool_data(tool_uid)
-    logger.debug(f'task {self.request.id} start: {tool_config.name}')
+    logger.debug(f'node {node_run_id} start: {tool_config.name}')
     resolved_inputs = _resolve_task_inputs(tool_config.file_mounts, inputs)
     config = DockerToolExecutionConfig(
         image=ImageConfig.model_validate(tool_config.image.image),
@@ -84,14 +78,14 @@ def docker_task(
         params,
     )
 
-    data = TaskUpdate(
+    data = NodeRunUpdate(
         commands=f'docker run --rm '
         f'{" ".join([f"-v {bind.source}:{bind.target}:rw" for bind in execution.volume_binds])} '
         f'{execution.image.get_image()} /bin/bash -c "{execution.command}"'
     )
-    update_task(self.request.id, data)
+    update_node(node_run_id, data)
 
-    redis_key = f'task-monitor-{self.request.id}'
+    redis_key = f'node-monitor-{node_run_id}'
 
     def save_monitor(stats: dict[str, Any] | None) -> None:
         monitor_redis_client.rpush(redis_key, json.dumps(stats))

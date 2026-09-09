@@ -1,18 +1,18 @@
-"""Schemas and states owned by the V2 workflow runtime."""
+"""Schemas and states owned by the durable workflow runtime."""
 
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.react_flow import Edge, WorkflowDefinition
+from app.schemas.react_flow import Edge
 from app.schemas.workflow_config import ToolOutput
 
 
 class RunStatus(StrEnum):
-    """User-visible outcome of a V2 workflow run."""
+    """User-visible outcome of a workflow run."""
 
     PENDING = 'pending'
     RUNNING = 'running'
@@ -77,7 +77,7 @@ class NodeRunData(BaseModel):
 
 
 class WorkflowRunRecord(BaseModel):
-    """Compact V2 run response."""
+    """Compact workflow-run response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,7 +105,7 @@ class WorkflowRunPublic(WorkflowRunRecord):
 
 
 class NodeRunPublic(BaseModel):
-    """Public state for a V2 node execution."""
+    """Public state for a node execution."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,7 +132,7 @@ class NodeRunPublic(BaseModel):
 
 
 class PaginatedWorkflowRuns(BaseModel):
-    """Paginated V2 runs."""
+    """Paginated workflow runs."""
 
     total: int
     offset: int
@@ -142,7 +142,7 @@ class PaginatedWorkflowRuns(BaseModel):
 
 
 class WorkflowRunStatistics(BaseModel):
-    """Aggregate counts for V2 workflow runs."""
+    """Aggregate counts for workflow runs."""
 
     total: int = 0
     pending: int = 0
@@ -151,15 +151,8 @@ class WorkflowRunStatistics(BaseModel):
     failed: int = 0
 
 
-class WorkflowRunRequest(BaseModel):
-    """Ad-hoc editor workflow execution request."""
-
-    workflow: WorkflowDefinition
-    template_name: str = 'unname'
-
-
 class ProjectWorkflowRunRequest(BaseModel):
-    """V2 project execution request; retries and auto-summary are intentionally absent."""
+    """Project execution request; retries and auto-summary are intentionally absent."""
 
     model_config = ConfigDict(extra='forbid')
 
@@ -171,3 +164,45 @@ class FileContentRequest(BaseModel):
     """Relative run output path."""
 
     path: str
+
+
+class OutputFileItem(BaseModel):
+    """One output file in a workflow-run file tree."""
+
+    type: Literal['file'] = 'file'
+    path: str
+    name: str
+
+
+class OutputFolderItem(BaseModel):
+    """One output folder in a workflow-run file tree."""
+
+    type: Literal['folder'] = 'folder'
+    path: str
+    name: str
+    children: list['OutputFileNode'] = Field(default_factory=list)
+
+
+OutputFileNode = Annotated[OutputFileItem | OutputFolderItem, Field(discriminator='type')]
+OutputFolderItem.model_rebuild()
+
+
+class NodeRunUpdate(BaseModel):
+    """Executor-owned metadata that may be persisted while a node is running."""
+
+    commands: str | None = None
+    system: str | None = None
+    hostname: str | None = None
+
+
+class MonitorPublic(BaseModel):
+    """Transient container resource sample exposed by the node-run API."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cpu_usage: float
+    mem_usage: float
+    mem_used: float
+    io_in: float
+    io_out: float
+    time: datetime

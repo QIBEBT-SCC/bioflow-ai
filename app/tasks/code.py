@@ -7,16 +7,14 @@ from pathlib import Path
 from typing import Any
 
 import tomli_w
-from celery import Task
 from loguru import logger
 
 from app.core.config import DEFAULT_CRAN_REPOSITORY, DEFAULT_PYTHON_INDEX_URL, get_settings
 from app.schemas.react_flow import TaskInput
 from app.schemas.tool_config import ImageConfig
 from app.schemas.workflow_config import ToolOutput
-from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
+from app.services.workflow.execution_context import get_node_output, get_prefix
 from app.utils.container import ContainerMount, run_command
-from script.worker import celery_app
 
 PYTHON_CODE_IMAGE = ImageConfig.from_str('ghcr.io/astral-sh/uv:python3.13-bookworm-slim')
 R_CODE_IMAGE = ImageConfig.from_str('r-base:4.4.3')
@@ -191,7 +189,7 @@ def _resolve_container_code_inputs(
     seen_parameters: set[str] = set()
 
     for index, kwarg in enumerate(kwargs, start=1):
-        json_str, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+        json_str, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
         bound_input = json.loads(json_str)
         if not isinstance(bound_input, dict) or len(bound_input) != 1:
             msg = f'Each {language} code input must come from one bind_param node'
@@ -222,10 +220,7 @@ def _resolve_container_code_inputs(
     return arguments, mounts, sample_names
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def bash_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def execute_bash(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     code: str,
@@ -244,7 +239,7 @@ def bash_task(
     param_args: dict[str, str] = {}
     input_sample_names = []
     for kwarg in raw_inputs:
-        json_str, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+        json_str, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
         param_args.update(json.loads(json_str))
         input_sample_names.append(sample_name)
 
@@ -260,7 +255,7 @@ def bash_task(
     for param, file_path in param_args.items():
         args.extend([param, file_path])
 
-    logger.debug(f'bash_task: bash {" ".join(args)}')
+    logger.debug(f'bash executor: bash {" ".join(args)}')
 
     result = subprocess.run(
         ['/usr/bin/bash', *args],
@@ -286,10 +281,7 @@ def bash_task(
     return ToolOutput(result={'output_folder': output_path}, log=log_path)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def python_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def execute_python(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     code: str,
@@ -314,7 +306,7 @@ def python_task(
         ]
         index_url = str(get_settings().code.PYTHON_INDEX_URL)
         command = build_python_command(arguments, index_url)
-        logger.debug(f'python_task: {command}')
+        logger.debug(f'python executor: {command}')
         status, console_output = run_command(
             PYTHON_CODE_IMAGE,
             mounts,
@@ -336,10 +328,7 @@ def python_task(
     )
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def r_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def execute_r(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     code: str,
@@ -386,7 +375,7 @@ def r_task(
             )
         else:
             command = run_script_command
-        logger.debug(f'r_task: {command}')
+        logger.debug(f'r executor: {command}')
         status, console_output = run_command(
             R_CODE_IMAGE,
             mounts,

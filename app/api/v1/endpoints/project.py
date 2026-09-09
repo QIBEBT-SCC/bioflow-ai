@@ -2,22 +2,19 @@ import uuid
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from loguru import logger
+from fastapi.responses import FileResponse, Response
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 from app.core.auth import AdminDep, MemberDep, UserDep
 from app.core.session import SessionDep
 from app.crud import project as project_crud
 from app.crud import project_file_mapping as project_file_mapping_crud
-from app.crud import project_workflow as project_workflow_crud
 from app.crud import projetc_tag as tag_crud
-from app.crud import run_instance as run_crud
 from app.crud import workflow as wf_crud
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample, SampleFiles
 from app.schemas.agent_file import AgentFilePublic, AgentFileUpdate
-from app.schemas.common import Paginated, Statistics
+from app.schemas.common import Paginated
 from app.schemas.project import (
     ProjectCreateProp,
     ProjectCreateResult,
@@ -34,8 +31,6 @@ from app.schemas.project import (
 from app.schemas.project_workflow import (
     ProjectWorkflowAdd,
     ProjectWorkflowPublic,
-    WorkflowRunRequest,
-    WorkflowRunResult,
 )
 from app.schemas.resource import (
     SampleBatchImportResult,
@@ -46,17 +41,13 @@ from app.schemas.resource import (
     SamplePublic,
     SampleUpdate,
 )
-from app.schemas.run_instance import SimpleRunPublic
 from app.schemas.user_config import UserRole
-from app.schemas.workflow_config import ExecutionScope
 from app.services import agent_file as agent_file_service
 from app.services import project as project_service
 from app.services import project_file_mapping as project_file_mapping_service
 from app.services import project_workflow as project_workflow_service
-from app.services import runtime_status
 from app.services import sample as sample_service
 from app.utils.file_browser import serve_file
-from app.utils.workflow import create_project_level_run, create_runs_from_samples
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -597,196 +588,6 @@ async def remove_workflow_from_project(
     except project_workflow_service.ProjectWorkflowNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
     return {'message': 'Workflow removed successfully'}
-
-
-@router.post('/{project_id}/workflows/{workflow_uid}/run')
-async def run_workflow_on_samples(
-    project_id: int,
-    workflow_uid: uuid.UUID,
-    run_request: WorkflowRunRequest,
-    session: SessionDep,
-    current_user: UserDep,
-) -> WorkflowRunResult:
-    """Run a workflow.
-
-    - Sample-level workflow: Requires sample_uids, creates a run instance for each sample
-    - Project-level workflow: Does not require sample_uids, creates only one run instance
-
-    Args:
-        project_id: Project ID
-        workflow_uid: Workflow template UID
-        run_request: Contains optional list of sample UIDs and optional run name prefix
-
-    Returns:
-        WorkflowRunResult: Contains the list of created run instance UIDs.
-    """
-    # Check if workflow is in the project
-    if not project_workflow_crud.exists(session, project_id, workflow_uid):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
-
-    # Get workflow to determine execution scope
-    workflow = wf_crud.get(session, workflow_uid)  # type: ignore
-    if not workflow:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
-
-    # Dispatch based on execution scope
-    if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
-        # Project-level execution
-        if run_request.sample_uids:
-            raise HTTPException(
-                HTTP_400_BAD_REQUEST,
-                'Project-level workflows do not accept sample_uids',
-            )
-
-        return create_project_level_run(
-            session,
-            project_id,
-            workflow_uid,
-            current_user,
-            run_request.run_name_prefix,
-            auto_summary=run_request.auto_summary,
-            summary_prompt=workflow.summary_prompt,
-        )
-    # Sample-level execution
-    if not run_request.sample_uids:
-        raise HTTPException(
-            HTTP_400_BAD_REQUEST,
-            'Sample-level workflows require sample_uids',
-        )
-
-    logger.debug(run_request)
-    return create_runs_from_samples(
-        session,
-        project_id,
-        workflow_uid,
-        run_request.sample_uids,
-        current_user,
-        run_request.run_name_prefix,
-        auto_summary=run_request.auto_summary,
-        summary_prompt=workflow.summary_prompt,
-    )
-
-
-@router.get('/{project_id}/workflows/{workflow_uid}/package')
-async def package_workflow_runs(
-    project_id: int,
-    workflow_uid: uuid.UUID,
-    session: SessionDep,
-    current_user: UserDep,
-) -> StreamingResponse:
-    """Download all run instance output directories for a workflow as a zip archive.
-
-    Args:
-        project_id: Project ID
-        workflow_uid: Workflow template UID
-
-    Returns:
-        StreamingResponse: A zip file containing all run output directories.
-    """
-    try:
-        owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
-        return await project_workflow_service.package_workflow_runs(
-            session,
-            project_id,
-            workflow_uid,
-            owner_id=owner_id,
-        )
-    except project_workflow_service.ProjectWorkflowNotFoundError as error:
-        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
-
-
-@router.get('/{project_id}/runs')
-async def get_project_runs(
-    project_id: int,
-    session: SessionDep,
-    current_user: UserDep,
-    offset: int = 0,
-    limit: Annotated[int, Query(le=100)] = 20,
-) -> Paginated[SimpleRunPublic]:
-    """Get all run instances of the project.
-
-    Args:
-        project_id: Project ID
-        offset: Offset
-        limit: Limit count
-
-    Returns:
-        Paginated[SimpleRunPublic]: Page of run instances with refreshed runtime task statistics.
-    """
-    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
-    runs, total = run_crud.get_runs_by_project_page(
-        session,
-        project_id,
-        limit,
-        offset,
-        owner_id=owner_id,
-    )
-
-    result = []
-    for run in runs:
-        stats = runtime_status.refresh_run_status(run)
-        run_data = SimpleRunPublic.model_validate(run)
-        run_data.task_statistics = stats
-        result.append(run_data)
-
-    return Paginated(
-        total=total,
-        offset=offset,
-        limit=limit,
-        has_more=offset + limit < total,
-        data=result,
-    )
-
-
-@router.get('/{project_id}/runs/stats')
-async def get_project_run_stats(
-    project_id: int,
-    session: SessionDep,
-    current_user: UserDep,
-) -> Statistics:
-    """Get run instance statistics by status for a project.
-
-    Args:
-        project_id: Project ID
-
-    Returns:
-        Statistics: Counts of total, success, error, running, waiting run instances.
-    """
-    owner_id = None if current_user.role == UserRole.ADMIN else current_user.id
-    stats = run_crud.get_project_run_stats(session, project_id, owner_id=owner_id)
-    return runtime_status.apply_effective_nonterminal_run_stats(
-        stats,
-        run_crud.get_nonterminal_runs_by_project(session, project_id, owner_id=owner_id),
-    )
-
-
-@router.get('/{project_id}/runs/{run_uid}')
-async def get_project_run(
-    project_id: int,
-    run_uid: uuid.UUID,
-    session: SessionDep,
-    current_user: UserDep,
-) -> SimpleRunPublic:
-    """Get the details of the specified run instance in the project.
-
-    Args:
-        project_id: Project ID
-        run_uid: Run instance UID
-
-    Returns:
-        SimpleRunPublic: Details of the run instance with refreshed runtime task statistics.
-    """
-    run = run_crud.get(session, str(run_uid))
-    if not run or run.project_id != project_id or (
-        run.owner_id != current_user.id and current_user.role != UserRole.ADMIN
-    ):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Run not found in this project')
-
-    stats = runtime_status.refresh_run_status(run)
-    run_data = SimpleRunPublic.model_validate(run)
-    run_data.task_statistics = stats
-
-    return run_data
 
 
 # ==================== Project File Mapping Management Endpoints ====================

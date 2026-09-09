@@ -16,13 +16,6 @@ class ProjectWorkflowPublic(BaseModel):
     execution_scope: ExecutionScope
     import_time: datetime
     enabled: bool
-    auto_summary: bool
-
-
-class WorkflowRunRequest(BaseModel):
-    sample_uids: list[uuid.UUID] | None = None
-    run_name_prefix: str | None = None
-    auto_summary: bool | None = None  # None = 使用 workflow 默认值
 
 
 class WorkflowRunResult(BaseModel):

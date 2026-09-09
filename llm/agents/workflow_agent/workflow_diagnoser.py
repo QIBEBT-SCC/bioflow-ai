@@ -1,5 +1,5 @@
 # ruff: noqa: RUF001
-"""Container-backed, read-only workflow failure diagnosis agent V2."""
+"""Container-backed, read-only workflow failure diagnosis agent."""
 
 from typing import TYPE_CHECKING, Optional, cast
 
@@ -28,7 +28,7 @@ SYSTEM_PROMPT = """你是一个生物信息分析运维专家。你的任务是�
 
 1. `workflow_reader`：读取该次运行保存的工作流快照、节点与边、实际任务状态、执行目录、拓扑层和 Celery 串行派发顺序。
 2. `run_command`：在一次性容器中对一个只读证据来源执行有边界的 shell 检查。只允许以下来源：
-   - `run:current`：当前诊断目标 RunInstance 的根工作目录。
+   - `run:current`：当前诊断目标工作流运行的根工作目录。
    - `sample:<tag>`：当前运行所绑定样本的一个已登记文件。
    - `proj:<keyword>`：当前项目的一个已登记共享文件。
    证据统一挂载在 `/app/data/input`；它可能是文件或目录。使用 `find`、`file`、`rg`、`head`、`tail`、`zcat`、`gzip -t`、`seqkit`、`awk` 等只读命令检查证据。每次只能检查一个来源。

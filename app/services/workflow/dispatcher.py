@@ -1,4 +1,4 @@
-"""Transactional Outbox publisher for the V2 workflow queue."""
+"""Transactional Outbox publisher for the workflow queue."""
 
 import uuid
 from datetime import datetime, timedelta
@@ -8,16 +8,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.session import engine
+from app.models.workflow import NodeRun, WorkflowOutbox, WorkflowRun
+from app.schemas.workflow_run import NodeRunStatus, OutboxStatus
+from app.services.workflow.runtime import recover_runtime
 from app.utils.system import utc_now
-from app.v2.models import NodeRunV2, WorkflowOutboxV2, WorkflowRunV2
-from app.v2.schemas.workflow import NodeRunStatus, OutboxStatus
-from app.v2.services.runtime import recover_runtime
 
-WORKFLOW_V2_QUEUE = 'workflow-v2'
+WORKFLOW_QUEUE = 'workflow-v2'
 DISPATCH_CLAIM_TIMEOUT = timedelta(seconds=30)
 
 
-def _has_active_claim(event: WorkflowOutboxV2, now: datetime) -> bool:
+def _has_active_claim(event: WorkflowOutbox, now: datetime) -> bool:
     if event.claim_token is None or event.claimed_at is None:
         return False
     claimed_at = event.claimed_at
@@ -30,14 +30,14 @@ def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str, int] | None:
     """Lease one event and commit QUEUED before a message can reach a worker."""
     now = utc_now()
     with Session(engine) as session, session.begin():
-        event = session.get(WorkflowOutboxV2, event_uid, with_for_update=True)
+        event = session.get(WorkflowOutbox, event_uid, with_for_update=True)
         if event is None or event.status != OutboxStatus.PENDING:
             return None
         if _has_active_claim(event, now):
             return None
 
-        node = session.get(NodeRunV2, event.node_run_uid, with_for_update=True)
-        run = session.get(WorkflowRunV2, event.run_uid)
+        node = session.get(NodeRun, event.node_run_uid, with_for_update=True)
+        run = session.get(WorkflowRun, event.run_uid)
         if node is None or run is None or node.generation != event.generation or run.generation != event.generation:
             event.status = OutboxStatus.PUBLISHED
             event.published_at = now
@@ -66,13 +66,13 @@ def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str, int] | None:
 
 def _record_publish_failure(event_uid: uuid.UUID, token: uuid.UUID, error: BaseException) -> None:
     with Session(engine) as session, session.begin():
-        event = session.get(WorkflowOutboxV2, event_uid, with_for_update=True)
+        event = session.get(WorkflowOutbox, event_uid, with_for_update=True)
         if event is None or event.status != OutboxStatus.PENDING or event.claim_token != token:
             return
         event.claim_token = None
         event.claimed_at = None
         event.last_error = str(error)[:4000]
-        node = session.get(NodeRunV2, event.node_run_uid, with_for_update=True)
+        node = session.get(NodeRun, event.node_run_uid, with_for_update=True)
         if node is not None and node.generation == event.generation and node.status == NodeRunStatus.QUEUED:
             node.status = NodeRunStatus.READY
             node.queued_at = None
@@ -80,7 +80,7 @@ def _record_publish_failure(event_uid: uuid.UUID, token: uuid.UUID, error: BaseE
 
 def _record_publish_success(event_uid: uuid.UUID, token: uuid.UUID) -> None:
     with Session(engine) as session, session.begin():
-        event = session.get(WorkflowOutboxV2, event_uid, with_for_update=True)
+        event = session.get(WorkflowOutbox, event_uid, with_for_update=True)
         if event is None or event.status != OutboxStatus.PENDING or event.claim_token != token:
             return
         event.status = OutboxStatus.PUBLISHED
@@ -96,16 +96,16 @@ def dispatch_pending(*, limit: int = 100) -> int:
     with Session(engine) as session, session.begin():
         event_ids = list(
             session.scalars(
-                select(WorkflowOutboxV2.uid)
+                select(WorkflowOutbox.uid)
                 .where(
-                    WorkflowOutboxV2.status == OutboxStatus.PENDING,
+                    WorkflowOutbox.status == OutboxStatus.PENDING,
                     or_(
-                        WorkflowOutboxV2.claim_token.is_(None),
-                        WorkflowOutboxV2.claimed_at.is_(None),
-                        WorkflowOutboxV2.claimed_at < expired_before,
+                        WorkflowOutbox.claim_token.is_(None),
+                        WorkflowOutbox.claimed_at.is_(None),
+                        WorkflowOutbox.claimed_at < expired_before,
                     ),
                 )
-                .order_by(WorkflowOutboxV2.create_time)
+                .order_by(WorkflowOutbox.create_time)
                 .limit(limit)
                 .with_for_update(skip_locked=True)
             )
@@ -118,12 +118,12 @@ def dispatch_pending(*, limit: int = 100) -> int:
             continue
         token, node_run_id, generation = reserved
         try:
-            from app.v2.tasks.workflow import execute_node
+            from app.tasks.workflow import execute_node
 
             execute_node.apply_async(
                 kwargs={'node_run_id': node_run_id, 'generation': generation},
                 task_id=node_run_id,
-                queue=WORKFLOW_V2_QUEUE,
+                queue=WORKFLOW_QUEUE,
                 serializer='json',
                 ignore_result=True,
                 retry=True,
@@ -131,7 +131,7 @@ def dispatch_pending(*, limit: int = 100) -> int:
             )
         except Exception as error:
             _record_publish_failure(event_uid, token, error)
-            logger.exception(f'Failed to publish V2 outbox event {event_uid}')
+            logger.exception(f'Failed to publish workflow outbox event {event_uid}')
         else:
             _record_publish_success(event_uid, token)
             published += 1

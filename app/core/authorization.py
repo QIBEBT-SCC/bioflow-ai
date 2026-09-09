@@ -3,8 +3,6 @@ from starlette import status
 
 from app.core.auth import UserDep
 from app.core.session import SessionDep
-from app.crud import run_instance as run_crud
-from app.crud import task_instance as task_crud
 from app.crud import workflow as workflow_crud
 from app.models.project import Project
 from app.schemas.user import CurrentUser
@@ -12,8 +10,6 @@ from app.schemas.user_config import UserRole
 
 PROJECT_RESOURCE = 'Project'
 WORKFLOW_RESOURCE = 'Workflow'
-RUN_RESOURCE = 'Run'
-TASK_RESOURCE = 'Task'
 
 
 def _not_found(resource: str) -> HTTPException:
@@ -85,31 +81,3 @@ async def authorize_workflow_request(
         return
     _require_member(current_user)
     _require_owner(workflow.owner_id, current_user, WORKFLOW_RESOURCE)
-
-
-async def authorize_run_request(
-    session: SessionDep,
-    current_user: UserDep,
-    uid: str | None = None,
-) -> None:
-    """Keep every individual run private to its owner and administrators."""
-    if uid is None:
-        return
-    run = run_crud.get(session, uid)
-    if run is None:
-        raise _not_found(RUN_RESOURCE)
-    _require_owner(run.owner_id, current_user, RUN_RESOURCE)
-
-
-async def authorize_task_request(
-    session: SessionDep,
-    current_user: UserDep,
-    uid: str | None = None,
-) -> None:
-    """Keep every individual task private to its owner and administrators."""
-    if uid is None:
-        return
-    task = task_crud.get(session, uid)
-    if task is None:
-        raise _not_found(TASK_RESOURCE)
-    _require_owner(task.owner_id, current_user, TASK_RESOURCE)

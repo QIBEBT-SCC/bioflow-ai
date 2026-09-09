@@ -8,8 +8,7 @@ from app.models.resource import BioDb, File, ReferenceGenomes, Sample, SampleFil
 from app.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic
 from app.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag, ToolTagLink
 from app.models.user import User
-from app.models.workflow import ProjectWorkflow, RunInstance, TaskInstance, TaskMonitor, Workflow
-from app.v2.models import NodeDependencyV2, NodeRunV2, WorkflowOutboxV2, WorkflowRunV2
+from app.models.workflow import NodeDependency, NodeRun, ProjectWorkflow, Workflow, WorkflowOutbox, WorkflowRun
 
 __all__ = [
     'AgentEvent',
@@ -25,8 +24,8 @@ __all__ = [
     'LLMProvider',
     'LLMSetting',
     'LLMStatistic',
-    'NodeDependencyV2',
-    'NodeRunV2',
+    'NodeDependency',
+    'NodeRun',
     'NotificationChannel',
     'NotificationSubscription',
     'ParentDocument',
@@ -37,11 +36,8 @@ __all__ = [
     'ProjectTagLink',
     'ProjectWorkflow',
     'ReferenceGenomes',
-    'RunInstance',
     'Sample',
     'SampleFiles',
-    'TaskInstance',
-    'TaskMonitor',
     'ToolDefine',
     'ToolGroup',
     'ToolHelpDoc',
@@ -50,6 +46,6 @@ __all__ = [
     'ToolTagLink',
     'User',
     'Workflow',
-    'WorkflowOutboxV2',
-    'WorkflowRunV2',
+    'WorkflowOutbox',
+    'WorkflowRun',
 ]

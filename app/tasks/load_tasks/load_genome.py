@@ -14,7 +14,7 @@ from app.schemas.resource import GenomeUpdate
 from app.schemas.tool_config import ImageConfig
 from app.schemas.workflow_config import ToolOutput
 from app.services.resource import reference_genome as genome_service
-from app.tasks.base.base_task import BaseBioTask, get_tool_output
+from app.services.workflow.execution_context import get_node_output
 from app.utils.api.ncbi_datasets import (
     NCBIAssemblyDataReport,
     download_genome_data,
@@ -217,10 +217,7 @@ def _create_genome_record(
     return genome_service.create_genome(session, genome_record)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_ncbi_genome_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def load_ncbi_genome(
     *,
     inputs: dict[str, TaskInput],
     required_index: list[str],
@@ -229,7 +226,7 @@ def load_ncbi_genome_task(
     load_result = {}
     with Session(engine) as session:
         if 'ncbi_tax_id' in inputs:
-            tax_id, _ = get_tool_output(inputs['ncbi_tax_id'].source_uid, inputs['ncbi_tax_id'].source_k)
+            tax_id, _ = get_node_output(inputs['ncbi_tax_id'].source_uid, inputs['ncbi_tax_id'].source_k)
             # 首先尝试通过tax_id在数据库中查找
             genome_record = genome_crud.get_by_taxid(session, int(tax_id))
 
@@ -241,7 +238,7 @@ def load_ncbi_genome_task(
             else:
                 logger.debug(f'Found existed genome record for tax_id: "{tax_id}"')
         elif 'species_name' in inputs:
-            species_name, _ = get_tool_output(inputs['species_name'].source_uid, inputs['species_name'].source_k)
+            species_name, _ = get_node_output(inputs['species_name'].source_uid, inputs['species_name'].source_k)
             genome_records = genome_crud.search(session, species_name)
 
             if not genome_records:
@@ -296,10 +293,7 @@ def load_ncbi_genome_task(
     return ToolOutput(result=load_result)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_hg38_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def load_hg38(
     *,
     required_index: list[str],
 ) -> ToolOutput:
@@ -337,10 +331,7 @@ def load_hg38_task(
     return ToolOutput(result=load_result)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_mm39_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def load_mm39(
     *,
     required_index: list[str],
 ) -> ToolOutput:

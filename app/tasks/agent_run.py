@@ -15,10 +15,10 @@ from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 import app.crud.agent as agent_crud
-import app.crud.run_instance as run_instance_crud
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.agent import AgentMessage, AgentRun
+from app.models.workflow import WorkflowRun
 from app.schemas.agent import (
     TERMINAL_AGENT_RUN_STATUSES,
     AgentEventType,
@@ -177,7 +177,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 target = agent_crud.get_run_target(session, run.uid)
                 if target is None:
                     raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
-                source_run = run_instance_crud.get(session, target.source_run_uid)
+                source_run = session.get(WorkflowRun, target.source_run_uid)
                 if source_run is None:
                     raise ValueError(MISSING_WORKFLOW_RUN_SOURCE_ERROR)  # noqa: TRY301
                 source_run_uid = source_run.uid
@@ -258,7 +258,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                         raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
                     with Session(engine) as session:
                         fix_run = agent_crud.get_run(session, run_uid)
-                        source_run = run_instance_crud.get(session, source_run_uid)
+                        source_run = session.get(WorkflowRun, source_run_uid)
                         if fix_run is None or source_run is None:
                             raise ValueError(MISSING_WORKFLOW_RUN_SOURCE_ERROR)  # noqa: TRY301
                         prepared = workflow_fix_service.prepare_workflow_fix(

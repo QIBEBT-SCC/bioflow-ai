@@ -4,13 +4,6 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class Status(IntEnum):
-    WAITING = 0
-    RUNNING = 1
-    ERROR = 2
-    SUCCESS = 3
-
-
 class WorkflowType(IntEnum):
     SUBMODULE = 0
     TEMPLATE = 1

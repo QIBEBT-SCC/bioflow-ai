@@ -1,4 +1,4 @@
-"""Creation, rerun and read models for V2 workflow runs."""
+"""Creation, rerun and read models for durable workflow runs."""
 
 import io
 import shutil
@@ -13,14 +13,11 @@ from app.core.config import get_settings
 from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample
-from app.models.workflow import Workflow
+from app.models.workflow import NodeDependency, NodeRun, Workflow, WorkflowOutbox, WorkflowRun
 from app.schemas.project_workflow import WorkflowRunResult
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.user import CurrentUser
-from app.utils.input_format import to_safe_path_segment
-from app.utils.system import random_uid, utc_now
-from app.v2.models import NodeDependencyV2, NodeRunV2, WorkflowOutboxV2, WorkflowRunV2
-from app.v2.schemas.workflow import (
+from app.schemas.workflow_run import (
     NodeRunData,
     NodeRunStatistics,
     NodeRunStatus,
@@ -30,39 +27,41 @@ from app.v2.schemas.workflow import (
     WorkflowRunRecord,
     WorkflowRunStatistics,
 )
-from app.v2.services.compiler import CompileContext, compile_run
+from app.services.workflow.compiler import CompileContext, compile_run
+from app.utils.input_format import to_safe_path_segment
+from app.utils.system import random_uid, utc_now
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH
-_NO_V2_RUN = 'No V2 run exists for this workflow'
+_NO_RUN = 'No run exists for this workflow'
 
 
 class WorkflowRunConflictError(RuntimeError):
-    """A V2 run cannot be restarted until its active generation settles."""
+    """A run cannot be restarted until its active generation settles."""
 
 
 class WorkflowRunNotFoundError(RuntimeError):
-    """No current V2 generation exists for a requested workflow package."""
+    """No current generation exists for a requested workflow package."""
 
 
 def _project_output_root(project_id: int, workflow: Workflow, sample: Sample | None) -> Path:
     segment = f'{to_safe_path_segment(workflow.name)}-{workflow.uid}'
-    root = Path(STORAGE_PATH).absolute() / 'proj' / str(project_id) / 'runs-v2' / segment
+    root = Path(STORAGE_PATH).absolute() / 'proj' / str(project_id) / 'runs' / segment
     if sample is None:
         return root / 'project'
     sample_segment = f'{to_safe_path_segment(sample.sample_name)}-{sample.uid}'
     return root / sample_segment
 
 
-def _clear_generation(session: Session, run: WorkflowRunV2) -> None:
-    session.execute(delete(WorkflowOutboxV2).where(WorkflowOutboxV2.run_uid == run.uid))
-    session.execute(delete(NodeDependencyV2).where(NodeDependencyV2.run_uid == run.uid))
-    session.execute(delete(NodeRunV2).where(NodeRunV2.run_uid == run.uid))
+def _clear_generation(session: Session, run: WorkflowRun) -> None:
+    session.execute(delete(WorkflowOutbox).where(WorkflowOutbox.run_uid == run.uid))
+    session.execute(delete(NodeDependency).where(NodeDependency.run_uid == run.uid))
+    session.execute(delete(NodeRun).where(NodeRun.run_uid == run.uid))
     session.flush()
 
 
 def _compile_new_run(
     session: Session,
-    run: WorkflowRunV2,
+    run: WorkflowRun,
     workflow: WorkflowDefinition,
     *,
     sample_name: str | None,
@@ -92,17 +91,17 @@ def create_editor_run(
     workflow: WorkflowDefinition,
     template_name: str,
     current_user: CurrentUser,
-) -> WorkflowRunV2:
-    """Create a fresh ad-hoc V2 run; graph IDs remain unchanged."""
+) -> WorkflowRun:
+    """Create a fresh ad-hoc run; graph IDs remain unchanged."""
     run_uid = random_uid()
     output_root = (
         Path(STORAGE_PATH).absolute()
         / f'{current_user.username}({current_user.id})'
-        / 'temporarily-v2'
+        / 'temporarily'
         / to_safe_path_segment(template_name)
         / str(run_uid)
     )
-    run = WorkflowRunV2(
+    run = WorkflowRun(
         uid=run_uid,
         generation=1,
         name=f'temporarily-{template_name}',
@@ -127,15 +126,15 @@ def _find_project_run(
     project_id: int,
     workflow_uid: uuid.UUID,
     sample_uid: uuid.UUID | None,
-) -> WorkflowRunV2 | None:
-    statement = select(WorkflowRunV2).where(
-        WorkflowRunV2.project_id == project_id,
-        WorkflowRunV2.workflow_uid == workflow_uid,
+) -> WorkflowRun | None:
+    statement = select(WorkflowRun).where(
+        WorkflowRun.project_id == project_id,
+        WorkflowRun.workflow_uid == workflow_uid,
     )
     statement = (
-        statement.where(WorkflowRunV2.sample_uid.is_(None))
+        statement.where(WorkflowRun.sample_uid.is_(None))
         if sample_uid is None
-        else statement.where(WorkflowRunV2.sample_uid == sample_uid)
+        else statement.where(WorkflowRun.sample_uid == sample_uid)
     )
     return session.scalar(statement.with_for_update())
 
@@ -149,7 +148,7 @@ def _create_or_rerun_project_run(
     current_user: CurrentUser,
     sample: Sample | None,
     run_name_prefix: str | None,
-) -> tuple[WorkflowRunV2, str | None]:
+) -> tuple[WorkflowRun, str | None]:
     sample_uid = sample.uid if sample else None
     sample_name = sample.sample_name if sample else None
     existing = _find_project_run(session, project_id, workflow.uid, sample_uid)
@@ -159,7 +158,7 @@ def _create_or_rerun_project_run(
     if existing is not None:
         if not existing.settled:
             label = sample_name or project_name
-            message = f'{label} already has an unsettled V2 workflow run'
+            message = f'{label} already has an unsettled workflow run'
             raise WorkflowRunConflictError(message)
         old_base_dir = existing.base_dir
         _clear_generation(session, existing)
@@ -170,7 +169,7 @@ def _create_or_rerun_project_run(
         run_uid = random_uid()
         label = sample_name or project_name
         run_name = f'{run_name_prefix}-{label}' if run_name_prefix else f'{project_name}-{workflow.name}-{label}'
-        run = WorkflowRunV2(
+        run = WorkflowRun(
             uid=run_uid,
             generation=1,
             name=run_name,
@@ -212,7 +211,7 @@ def create_project_runs(
 ) -> WorkflowRunResult:
     """Atomically create or rerun all requested sample/project generations."""
     old_output_dirs: list[str] = []
-    runs: list[WorkflowRunV2] = []
+    workflow_runs: list[WorkflowRun] = []
     try:
         for sample in samples:
             run, old_base_dir = _create_or_rerun_project_run(
@@ -224,11 +223,11 @@ def create_project_runs(
                 sample=sample,
                 run_name_prefix=run_name_prefix,
             )
-            runs.append(run)
+            workflow_runs.append(run)
             if old_base_dir:
                 old_output_dirs.append(old_base_dir)
         session.commit()
-        for run in runs:
+        for run in workflow_runs:
             session.refresh(run)
     except Exception:
         session.rollback()
@@ -238,24 +237,24 @@ def create_project_runs(
         old_path = Path(old_output_dir)
         if old_path.exists():
             shutil.rmtree(old_path)
-    return WorkflowRunResult(run_uids=[run.uid for run in runs], count=len(runs))
+    return WorkflowRunResult(run_uids=[run.uid for run in workflow_runs], count=len(workflow_runs))
 
 
-def get_run(session: Session, run_uid: uuid.UUID) -> WorkflowRunV2 | None:
-    """Load one V2 run."""
-    return session.get(WorkflowRunV2, run_uid)
+def get_run(session: Session, run_uid: uuid.UUID) -> WorkflowRun | None:
+    """Load one workflow run."""
+    return session.get(WorkflowRun, run_uid)
 
 
-def get_node(session: Session, node_uid: uuid.UUID) -> NodeRunV2 | None:
-    """Load one current-generation V2 node."""
-    node = session.get(NodeRunV2, node_uid)
+def get_node(session: Session, node_uid: uuid.UUID) -> NodeRun | None:
+    """Load one current-generation node."""
+    node = session.get(NodeRun, node_uid)
     if node is None:
         return None
-    run = session.get(WorkflowRunV2, node.run_uid)
+    run = session.get(WorkflowRun, node.run_uid)
     return node if run is not None and node.generation == run.generation else None
 
 
-def _node_statistics(nodes: list[NodeRunV2]) -> NodeRunStatistics:
+def _node_statistics(nodes: list[NodeRun]) -> NodeRunStatistics:
     counts = dict.fromkeys(NodeRunStatus, 0)
     for node in nodes:
         counts[node.status] += 1
@@ -271,13 +270,13 @@ def _node_statistics(nodes: list[NodeRunV2]) -> NodeRunStatistics:
     )
 
 
-def to_public(session: Session, run: WorkflowRunV2) -> WorkflowRunPublic:
+def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
     """Build a current-generation graph with NodeRun data injected by stable definition ID."""
     nodes = list(
         session.scalars(
-            select(NodeRunV2)
-            .where(NodeRunV2.run_uid == run.uid, NodeRunV2.generation == run.generation)
-            .order_by(NodeRunV2.position_index)
+            select(NodeRun)
+            .where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
+            .order_by(NodeRun.position_index)
         )
     )
     by_definition = {node.definition_node_id: node for node in nodes}
@@ -310,16 +309,14 @@ def list_runs(
     offset: int = 0,
     limit: int = 20,
 ) -> PaginatedWorkflowRuns:
-    """Return only V2 runs; V1 history is intentionally invisible."""
+    """Return workflow runs for the requested owner and project."""
     filters = []
     if owner_id is not None:
-        filters.append(WorkflowRunV2.owner_id == owner_id)
+        filters.append(WorkflowRun.owner_id == owner_id)
     if project_id is not None:
-        filters.append(WorkflowRunV2.project_id == project_id)
-    statement = (
-        select(WorkflowRunV2).where(*filters).order_by(WorkflowRunV2.create_time.desc()).offset(offset).limit(limit)
-    )
-    count_statement = select(func.count()).select_from(WorkflowRunV2).where(*filters)
+        filters.append(WorkflowRun.project_id == project_id)
+    statement = select(WorkflowRun).where(*filters).order_by(WorkflowRun.create_time.desc()).offset(offset).limit(limit)
+    count_statement = select(func.count()).select_from(WorkflowRun).where(*filters)
     runs = list(session.scalars(statement))
     total = session.scalar(count_statement) or 0
     return PaginatedWorkflowRuns(
@@ -332,13 +329,13 @@ def list_runs(
 
 
 def run_statistics(session: Session, *, owner_id: int | None, project_id: int | None = None) -> WorkflowRunStatistics:
-    """Aggregate V2 run states."""
+    """Aggregate workflow-run states."""
     filters = []
     if owner_id is not None:
-        filters.append(WorkflowRunV2.owner_id == owner_id)
+        filters.append(WorkflowRun.owner_id == owner_id)
     if project_id is not None:
-        filters.append(WorkflowRunV2.project_id == project_id)
-    rows = session.execute(select(WorkflowRunV2.status, func.count()).where(*filters).group_by(WorkflowRunV2.status))
+        filters.append(WorkflowRun.project_id == project_id)
+    rows = session.execute(select(WorkflowRun.status, func.count()).where(*filters).group_by(WorkflowRun.status))
     counts: dict[RunStatus, int] = {}
     for row in rows:
         counts[row[0]] = row[1]
@@ -358,16 +355,16 @@ def package_project_workflow_runs(
     workflow_uid: uuid.UUID,
     owner_id: int | None,
 ) -> bytes:
-    """Build a zip containing only current-generation V2 outputs."""
+    """Build a zip containing only current-generation outputs."""
     filters = [
-        WorkflowRunV2.project_id == project_id,
-        WorkflowRunV2.workflow_uid == workflow_uid,
+        WorkflowRun.project_id == project_id,
+        WorkflowRun.workflow_uid == workflow_uid,
     ]
     if owner_id is not None:
-        filters.append(WorkflowRunV2.owner_id == owner_id)
-    current_runs = list(session.scalars(select(WorkflowRunV2).where(*filters).order_by(WorkflowRunV2.sample_uid)))
+        filters.append(WorkflowRun.owner_id == owner_id)
+    current_runs = list(session.scalars(select(WorkflowRun).where(*filters).order_by(WorkflowRun.sample_uid)))
     if not current_runs:
-        raise WorkflowRunNotFoundError(_NO_V2_RUN)
+        raise WorkflowRunNotFoundError(_NO_RUN)
 
     sample_uids = [run.sample_uid for run in current_runs if run.sample_uid is not None]
     sample_names = {

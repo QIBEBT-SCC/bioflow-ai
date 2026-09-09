@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 
-from celery import Task
 from sqlalchemy.orm import Session
 
 from app.core.session import engine
@@ -9,8 +8,7 @@ from app.crud import project_file_mapping as project_file_mapping_crud
 from app.crud.resource import sample as sample_crud
 from app.schemas.workflow_config import ToolOutput
 from app.services.output_validation import output_path_exists
-from app.tasks.base.base_task import BaseBioTask, get_prefix, resolve_path
-from script.worker import celery_app
+from app.services.workflow.execution_context import get_prefix, resolve_path
 
 _FASTQ_PATTERN = re.compile('fastq', re.IGNORECASE)
 _COMPRESSION_SUFFIXES = {'.gz', '.bz2', '.xz', '.bz', '.zip'}
@@ -94,10 +92,7 @@ def _resolve_and_normalize_path(
     return normalized_path, file_tag
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_file_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def load_file(
     *,
     file: str,
     project_id: int | None = None,
@@ -115,10 +110,7 @@ def load_file_task(
     return ToolOutput(result={'file_path': file_path}, sample_name=source_sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_sequence_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def load_sequence(
     *,
     r1: str,
     r2: str,

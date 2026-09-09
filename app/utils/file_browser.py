@@ -5,9 +5,9 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from starlette.responses import FileResponse, Response
-from starlette.status import HTTP_413_REQUEST_ENTITY_TOO_LARGE
+from starlette.status import HTTP_413_CONTENT_TOO_LARGE
 
-from app.schemas.run_instance import OutputFileItem, OutputFileNode, OutputFolderItem
+from app.schemas.workflow_run import OutputFileItem, OutputFileNode, OutputFolderItem
 
 _TEXT_EXTENSIONS = {
     '.json',
@@ -90,7 +90,7 @@ async def serve_file(file_path: FileSystemPath) -> Response:
         size = await asyncio.to_thread(lambda: file_path.stat().st_size)
         if size > _MAX_TEXT_BYTES:
             raise HTTPException(
-                HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                HTTP_413_CONTENT_TOO_LARGE,
                 f'File too large to preview ({size:,} bytes). Download the file instead.',
             )
         effective_mime = (mime_type or 'text/plain') + '; charset=utf-8'

@@ -305,20 +305,12 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
     from app.core.session import engine
     from app.models.project import ProjectFileMapping
     from app.models.resource import Sample, SampleFiles
-    from app.models.workflow import RunInstance, TaskInstance, TaskMonitor
+    from app.models.workflow import WorkflowRun
 
     await _clean_project_workflows(con, thread_id, project_id)
 
     with Session(engine) as session:
-        run_instance_uids = session.scalars(select(RunInstance.uid).where(RunInstance.project_id == project_id)).all()
-        if run_instance_uids:
-            task_instance_uids = session.scalars(
-                select(TaskInstance.uid).where(TaskInstance.instance_uid.in_(run_instance_uids))
-            ).all()
-            if task_instance_uids:
-                session.execute(delete(TaskMonitor).where(TaskMonitor.task_uid.in_(task_instance_uids)))
-            session.execute(delete(TaskInstance).where(TaskInstance.instance_uid.in_(run_instance_uids)))
-            session.execute(delete(RunInstance).where(RunInstance.uid.in_(run_instance_uids)))
+        session.execute(delete(WorkflowRun).where(WorkflowRun.project_id == project_id))
 
         sample_uids = session.scalars(select(Sample.uid).where(Sample.project_id == project_id)).all()
         if sample_uids:

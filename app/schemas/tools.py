@@ -5,7 +5,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
-from app.schemas.workflow_config import Status
+from app.schemas.workflow_run import RunStatus
 from app.utils.input_format import build_command_template
 
 
@@ -263,7 +263,7 @@ class ToolRunUsage(BaseModel):
     project_name: str | None
     workflow_uid: uuid.UUID | None
     workflow_name: str | None
-    status: Status
+    status: RunStatus
     create_time: datetime | None
     task_count: int
 

@@ -13,8 +13,6 @@ class WorkflowCreateProp(BaseModel):
     execution_scope: ExecutionScope = ExecutionScope.SAMPLE_LEVEL
     workflow: WorkflowDefinition
     public: bool
-    auto_summary: bool = False
-    summary_prompt: str | None = None
 
 
 class WorkflowSimple(BaseModel):
@@ -37,13 +35,9 @@ class WorkflowPublic(BaseModel):
     execution_scope: ExecutionScope
     workflow: WorkflowDefinition
     public: bool
-    auto_summary: bool
-    summary_prompt: str | None
 
 
 class WorkflowUpdate(BaseModel):
     name: str | None = None
     execution_scope: ExecutionScope | None = None
     workflow: WorkflowDefinition | None = None
-    auto_summary: bool | None = None
-    summary_prompt: str | None = None

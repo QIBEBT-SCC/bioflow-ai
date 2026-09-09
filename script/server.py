@@ -16,21 +16,15 @@ from app.api.v1.endpoints import (
     notification,
     project,
     resource,
-    run_instance,
     setting,
     skill,
-    task_instance,
     tool,
     user,
     workflow,
 )
+from app.api.v2.endpoints import workflow as workflow_v2
 from app.core.auth import get_current_active_user, require_role
-from app.core.authorization import (
-    authorize_project_request,
-    authorize_run_request,
-    authorize_task_request,
-    authorize_workflow_request,
-)
+from app.core.authorization import authorize_project_request, authorize_workflow_request
 from app.core.config import get_settings
 from app.core.redis_client import close_cache_regis, notification_redis_client, setup_cache_redis
 from app.core.s3_client import init_bucket
@@ -38,7 +32,6 @@ from app.core.session import create_db_and_tables
 from app.schemas.user_config import UserRole
 from app.services.notification.gateway import NotificationGateway
 from app.utils.middleware import AuthCookieCleanupMiddleware, LogRequestMiddleware
-from app.v2.api import endpoints as v2
 
 meta = metadata('bioflow-ai')
 
@@ -112,18 +105,6 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
         tags=['workflow'],
         dependencies=[*protected, Depends(authorize_workflow_request)],
     )
-    app.include_router(
-        run_instance.router,
-        prefix='/api/v1/runs',
-        tags=['runs'],
-        dependencies=[*member_protected, Depends(authorize_run_request)],
-    )
-    app.include_router(
-        task_instance.router,
-        prefix='/api/v1/tasks',
-        tags=['tasks'],
-        dependencies=[*member_protected, Depends(authorize_task_request)],
-    )
     app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'], dependencies=protected)
     app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'], dependencies=protected)
     app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'], dependencies=protected)
@@ -134,10 +115,10 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(resource.db_router, prefix='/api/v1/bio_dbs', tags=['resource'], dependencies=protected)
     app.include_router(genome.reference_router, prefix='/api/v1/references', tags=['genome'], dependencies=protected)
     app.include_router(resource.sample_router, prefix='/api/v1/samples', tags=['resource'], dependencies=protected)
-    app.include_router(v2.workflow_router, prefix='/api/v2/workflows', tags=['workflow-v2'])
-    app.include_router(v2.project_router, prefix='/api/v2/projects', tags=['workflow-v2'])
-    app.include_router(v2.run_router, prefix='/api/v2/runs', tags=['workflow-v2'])
-    app.include_router(v2.node_router, prefix='/api/v2/node-runs', tags=['workflow-v2'])
+    app.include_router(workflow_v2.workflow_router, prefix='/api/v2/workflows', tags=['workflow'])
+    app.include_router(workflow_v2.project_router, prefix='/api/v2/projects', tags=['workflow'])
+    app.include_router(workflow_v2.run_router, prefix='/api/v2/runs', tags=['workflow'])
+    app.include_router(workflow_v2.node_router, prefix='/api/v2/node-runs', tags=['workflow'])
     return app
 
 

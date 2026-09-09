@@ -1,4 +1,4 @@
-"""Generic compression and decompression tasks for workflow files."""
+"""Generic compression and decompression executors for workflow files."""
 
 import bz2
 import gzip
@@ -10,8 +10,6 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
-from celery import Task
-
 from app.schemas.archive import (
     STREAM_COMPRESSION_FORMATS,
     CompressionFormat,
@@ -19,8 +17,7 @@ from app.schemas.archive import (
 )
 from app.schemas.react_flow import TaskInput
 from app.schemas.workflow_config import ToolOutput
-from app.tasks.base.base_task import BaseBioTask, get_tool_output
-from script.worker import celery_app
+from app.services.workflow.execution_context import get_node_output
 
 TarWriteMode = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
 
@@ -57,10 +54,7 @@ def _write_tar(source: Path, destination: Path, suffix: str) -> None:
         archive.add(source, arcname=source.name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def compress_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def compress(
     *,
     inputs: dict[str, TaskInput],
     compressed_file_name: str,
@@ -84,7 +78,7 @@ def compress_task(
 
     resolved_format = resolve_compression_format(compressed_file_name, compression_format)
 
-    source_path_str, sample_name = get_tool_output(input_path.source_uid, input_path.source_k)
+    source_path_str, sample_name = get_node_output(input_path.source_uid, input_path.source_k)
     source_path = Path(source_path_str).absolute()
     if not source_path.exists():
         raise FileNotFoundError(source_path)
@@ -140,10 +134,7 @@ def _stream_suffix_from_magic(source: Path) -> str | None:
     return None
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def decompress_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def decompress(
     *,
     inputs: dict[str, TaskInput],
     output_dir: str,
@@ -154,7 +145,7 @@ def decompress_task(
         msg = 'decompress requires exactly one compressed_path input'
         raise ValueError(msg)
 
-    source_path_str, sample_name = get_tool_output(compressed_input.source_uid, compressed_input.source_k)
+    source_path_str, sample_name = get_node_output(compressed_input.source_uid, compressed_input.source_k)
     source_path = Path(source_path_str).absolute()
     if not source_path.exists():
         raise FileNotFoundError(source_path)

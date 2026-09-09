@@ -5,7 +5,6 @@ import uuid
 from glob import has_magic
 from pathlib import Path
 
-from celery import Task
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,25 +12,21 @@ from sqlalchemy.orm import Session
 from app.core.session import engine
 from app.crud.resource import sample as sample_crud
 from app.models.resource import Sample
-from app.models.workflow import RunInstance
+from app.models.workflow import WorkflowRun
 from app.schemas.react_flow import TaskInput
 from app.schemas.workflow_config import ToolOutput
 from app.services import project_file_mapping as project_file_mapping_service
 from app.services import sample as sample_service
 from app.services.output_validation import output_path_exists
-from app.tasks.base.base_task import BaseBioTask, get_prefix, get_tool_output
+from app.services.workflow.execution_context import get_node_output, get_prefix
 from app.utils.input_format import to_safe_path_segment
-from script.worker import celery_app
 
 PROJECT_FILE_KEYWORD_MAX_LENGTH = 50
 TEXT_FILE_CONTENT_MAX_BYTES = 5 * 1024 * 1024
 MARK_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def create_text_file_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def create_text_file(
     *,
     file_name: str,
     content: str,
@@ -53,10 +48,7 @@ def create_text_file_task(
     return ToolOutput(result={'file_path': output_file})
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def select_file_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def select_file(
     *,
     inputs: dict[str, TaskInput],
     file_name: str,
@@ -65,7 +57,7 @@ def select_file_task(
     kwarg = inputs.get('folder_path')
     if kwarg is None:
         raise ValueError
-    parent_dir, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+    parent_dir, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
 
     parent_path = Path(parent_dir)
     if has_magic(file_name):
@@ -81,10 +73,7 @@ def select_file_task(
     return ToolOutput(result={'file_path': selected_file}, sample_name=sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def read_file_content_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def read_file_content(
     *,
     inputs: dict[str, TaskInput],
     file_name: str,
@@ -106,7 +95,7 @@ def read_file_content_task(
         msg = 'file_name must be a non-empty relative file name or glob pattern without parent traversal'
         raise ValueError(msg)
 
-    parent_dir, sample_name = get_tool_output(folder_input.source_uid, folder_input.source_k)
+    parent_dir, sample_name = get_node_output(folder_input.source_uid, folder_input.source_k)
     parent_path = Path(parent_dir)
 
     if has_magic(file_name):
@@ -128,10 +117,7 @@ def read_file_content_task(
     return ToolOutput(result={'value': content.decode('utf-8')}, sample_name=sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def join_path_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def join_path(
     *,
     inputs: dict[str, TaskInput],
     relative_path: str,
@@ -153,14 +139,11 @@ def join_path_task(
         msg = 'relative_path must be a non-empty relative path without parent traversal'
         raise ValueError(msg)
 
-    base_path, sample_name = get_tool_output(input_path.source_uid, input_path.source_k)
+    base_path, sample_name = get_node_output(input_path.source_uid, input_path.source_k)
     return ToolOutput(result={'path': Path(base_path) / suffix}, sample_name=sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def rename_file_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def rename_file(
     *,
     inputs: dict[str, TaskInput],
     new_file_name: str,
@@ -181,7 +164,7 @@ def rename_file_task(
         msg = 'new_file_name must be a single, non-empty file name'
         raise ValueError(msg)
 
-    source_path_str, sample_name = get_tool_output(input_file.source_uid, input_file.source_k)
+    source_path_str, sample_name = get_node_output(input_file.source_uid, input_file.source_k)
     source_path = Path(source_path_str).absolute()
     if not source_path.exists():
         raise FileNotFoundError(source_path)
@@ -198,10 +181,7 @@ def rename_file_task(
     return ToolOutput(result={'renamed_file': renamed_file}, sample_name=sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def collect_files_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def collect_files(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     output_dir: str,
@@ -214,7 +194,7 @@ def collect_files_task(
     output_folder.mkdir(parents=True, exist_ok=True)
 
     for kwarg in kwargs:
-        origin_file = Path(get_tool_output(kwarg.source_uid, kwarg.source_k)[0])
+        origin_file = Path(get_node_output(kwarg.source_uid, kwarg.source_k)[0])
         if origin_file.exists():
             new_file = output_folder / origin_file.name
             if new_file.exists() or new_file.is_symlink():
@@ -254,19 +234,14 @@ def _register_mark(
         raise ValueError(msg)
 
     normalized_name = _normalize_mark_name(mark_name)
-    file_path, sample_name = get_tool_output(input_file.source_uid, input_file.source_k)
+    file_path, sample_name = get_node_output(input_file.source_uid, input_file.source_k)
     marked_path = Path(file_path).absolute()
     if not output_path_exists(marked_path):
         raise FileNotFoundError(marked_path)
 
     with Session(engine) as session:
         parsed_run_uid = uuid.UUID(run_uid)
-        run = session.get(RunInstance, parsed_run_uid)
-        if run is None:
-            # V2 owns a separate run table but shares the project/sample mark services.
-            from app.v2.models import WorkflowRunV2
-
-            run = session.get(WorkflowRunV2, parsed_run_uid)
+        run = session.get(WorkflowRun, parsed_run_uid)
         if run is None or run.project_id is None or run.workflow_uid is None:
             msg = 'Dynamic marks require a project workflow run.'
             raise ValueError(msg)
@@ -301,10 +276,7 @@ def _register_mark(
     return ToolOutput(result={'file_path': marked_path}, sample_name=sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def project_mark_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def project_mark(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     run_uid: str,
@@ -321,10 +293,7 @@ def project_mark_task(
     )
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def sample_mark_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def sample_mark(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     run_uid: str,
@@ -341,10 +310,7 @@ def sample_mark_task(
     )
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def collect_sample_marks_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def collect_sample_marks(
     *,
     project_id: int | None,
     sample_uid: str | None,
@@ -447,10 +413,7 @@ def collect_sample_marks_task(
     )
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def collect_mount_dirs_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def collect_mount_dirs(
     *,
     inputs: dict[str, TaskInput | list[TaskInput]],
     output_dir: str,
@@ -475,7 +438,7 @@ def collect_mount_dirs_task(
     entries = []
     sample_names = []
     for index, kwarg in enumerate(kwargs, start=1):
-        source_path_str, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+        source_path_str, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
         source_path = Path(source_path_str).absolute()
         if not source_path.exists():
             raise FileNotFoundError(source_path)
@@ -508,10 +471,7 @@ def collect_mount_dirs_task(
     return ToolOutput(result={'mount_dir_list': f'mountlist:{manifest_path}'}, sample_name=common_sample_name)
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def bind_param_task(
-    self: Task,  # noqa: ARG001
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def bind_param(
     *,
     inputs: dict[str, TaskInput],
     parameter: str,
@@ -520,5 +480,5 @@ def bind_param_task(
     kwarg = inputs.get('file')
     if kwarg is None:
         raise ValueError
-    file_path, sample_name = get_tool_output(kwarg.source_uid, kwarg.source_k)
+    file_path, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
     return ToolOutput(result={'file_with_param': json.dumps({parameter: file_path})}, sample_name=sample_name)

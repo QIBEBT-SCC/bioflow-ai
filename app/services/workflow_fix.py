@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 import app.crud.agent as agent_crud
 import app.crud.workflow as workflow_crud
 from app.models.agent import AgentRun
-from app.models.workflow import RunInstance
+from app.models.workflow import WorkflowRun
 from llm.workflow_builder.loading import load_workflow_draft
 
 MISSING_DIAGNOSIS_ERROR = 'No completed workflow diagnosis exists for this run in the current conversation.'
@@ -49,7 +49,7 @@ def prepare_workflow_fix(
     session: Session,
     *,
     fix_run: AgentRun,
-    source_run: RunInstance,
+    source_run: WorkflowRun,
     project_root: Path,
 ) -> WorkflowFixPreparation:
     """Load the latest same-session diagnosis and the current persisted template."""

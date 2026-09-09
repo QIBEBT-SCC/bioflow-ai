@@ -1,4 +1,4 @@
-"""V2 workflow execution, status, output and monitoring endpoints."""
+"""Version 2 workflow execution, status, output, and monitoring endpoints."""
 
 import asyncio
 import json
@@ -21,27 +21,27 @@ from app.crud import project_workflow as project_workflow_crud
 from app.crud import workflow as workflow_crud
 from app.crud.resource import sample as sample_crud
 from app.models.project import Project
+from app.models.workflow import NodeRun, WorkflowRun
 from app.schemas.project_workflow import WorkflowRunResult
 from app.schemas.react_flow import WorkflowDefinition
-from app.schemas.run_instance import OutputFileNode
-from app.schemas.task_instance import MonitorPublic
 from app.schemas.user import CurrentUser
 from app.schemas.user_config import UserRole
 from app.schemas.workflow_config import ExecutionScope, ToolOutput
-from app.utils.file_browser import build_file_tree, serve_file
-from app.utils.input_format import to_safe_path_segment
-from app.v2.models import NodeRunV2, WorkflowRunV2
-from app.v2.schemas.workflow import (
+from app.schemas.workflow_run import (
     FileContentRequest,
+    MonitorPublic,
     NodeRunPublic,
     NodeRunStatus,
+    OutputFileNode,
     PaginatedWorkflowRuns,
     ProjectWorkflowRunRequest,
     WorkflowRunPublic,
     WorkflowRunStatistics,
 )
-from app.v2.services import runs
-from app.v2.services.compiler import WorkflowCompileError
+from app.services.workflow import runs
+from app.services.workflow.compiler import WorkflowCompileError
+from app.utils.file_browser import build_file_tree, serve_file
+from app.utils.input_format import to_safe_path_segment
 
 if TYPE_CHECKING:
     from app.models.resource import Sample
@@ -56,17 +56,17 @@ def _is_admin(user: CurrentUser) -> bool:
     return user.role == UserRole.ADMIN
 
 
-def _owned_run(session: Session, run_uid: uuid.UUID, user: CurrentUser) -> WorkflowRunV2:
+def _owned_run(session: Session, run_uid: uuid.UUID, user: CurrentUser) -> WorkflowRun:
     run = runs.get_run(session, run_uid)
     if run is None or (run.owner_id != user.id and not _is_admin(user)):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'V2 run not found')
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow run not found')
     return run
 
 
-def _owned_node(session: Session, node_uid: uuid.UUID, user: CurrentUser) -> NodeRunV2:
+def _owned_node(session: Session, node_uid: uuid.UUID, user: CurrentUser) -> NodeRun:
     node = runs.get_node(session, node_uid)
     if node is None:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'V2 node run not found')
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow node run not found')
     _owned_run(session, node.run_uid, user)
     return node
 
@@ -85,7 +85,7 @@ def run_editor_workflow(
     current_user: MemberDep,
     template_name: str = 'unname',
 ) -> WorkflowRunPublic:
-    """Start a V2 editor run without rewriting graph node IDs."""
+    """Start an editor run without rewriting graph node IDs."""
     try:
         run = runs.create_editor_run(session, workflow, template_name, current_user)
     except WorkflowCompileError as error:
@@ -101,7 +101,7 @@ def run_project_workflow(
     session: SessionDep,
     current_user: MemberDep,
 ) -> WorkflowRunResult:
-    """Create or rerun the current V2 generation for a project workflow."""
+    """Create or rerun the current generation for a project workflow."""
     project = _owned_project(session, project_id, current_user)
     if not project_workflow_crud.exists(session, project_id, workflow_uid):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
@@ -143,7 +143,7 @@ def package_project_workflow_runs(
     session: SessionDep,
     current_user: MemberDep,
 ) -> StreamingResponse:
-    """Download only the current V2 generation for each project/sample run."""
+    """Download only the current generation for each project/sample run."""
     _owned_project(session, project_id, current_user)
     if not project_workflow_crud.exists(session, project_id, workflow_uid):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
@@ -174,14 +174,14 @@ def list_all_runs(
     offset: int = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> PaginatedWorkflowRuns:
-    """List only V2 runs."""
+    """List workflow runs."""
     owner_id = None if _is_admin(current_user) else current_user.id
     return runs.list_runs(session, owner_id=owner_id, offset=offset, limit=limit)
 
 
 @run_router.get('/statistics')
 def get_run_statistics(session: SessionDep, current_user: MemberDep) -> WorkflowRunStatistics:
-    """Get aggregate V2 run states."""
+    """Get aggregate workflow run states."""
     owner_id = None if _is_admin(current_user) else current_user.id
     return runs.run_statistics(session, owner_id=owner_id)
 
@@ -194,7 +194,7 @@ def list_project_runs(
     offset: int = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> PaginatedWorkflowRuns:
-    """List current V2 generations for one owned project."""
+    """List current workflow generations for one owned project."""
     _owned_project(session, project_id, current_user)
     owner_id = None if _is_admin(current_user) else current_user.id
     return runs.list_runs(session, owner_id=owner_id, project_id=project_id, offset=offset, limit=limit)
@@ -206,7 +206,7 @@ def get_project_run_statistics(
     session: SessionDep,
     current_user: MemberDep,
 ) -> WorkflowRunStatistics:
-    """Get aggregate V2 run states for an owned project."""
+    """Get aggregate workflow run states for an owned project."""
     _owned_project(session, project_id, current_user)
     owner_id = None if _is_admin(current_user) else current_user.id
     return runs.run_statistics(session, owner_id=owner_id, project_id=project_id)
@@ -284,7 +284,7 @@ async def get_run_file_content(
 
 @node_router.get('/{uid}')
 def get_node_run(uid: uuid.UUID, session: SessionDep, current_user: MemberDep) -> NodeRunPublic:
-    """Get one current-generation V2 node run."""
+    """Get one current-generation node run."""
     return NodeRunPublic.model_validate(_owned_node(session, uid, current_user))
 
 
@@ -293,7 +293,7 @@ def get_node_result(uid: uuid.UUID, session: SessionDep, current_user: MemberDep
     """Get a completed node output from PostgreSQL."""
     node = _owned_node(session, uid, current_user)
     if node.tool_output is None:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'V2 node has no output')
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Node has no output')
     return node.tool_output
 
 
@@ -307,14 +307,14 @@ async def get_node_monitor(
     """Read transient resource samples; Redis is not used for DAG correctness."""
     _owned_node(session, uid, current_user)
     # pyrefly: ignore [not-async]
-    raw_list = await monitor_redis_client.lrange(f'task-monitor-{uid}', 0, -1)
+    raw_list = await monitor_redis_client.lrange(f'node-monitor-{uid}', 0, -1)
     records = [MonitorPublic.model_validate(json.loads(record)) for record in raw_list]
     if len(records) > max_points:
         records = records[:: max(1, len(records) // max_points)]
     return records
 
 
-def _node_log_path(node: NodeRunV2) -> Path | None:
+def _node_log_path(node: NodeRun) -> Path | None:
     if node.tool_output is not None and node.tool_output.log:
         return Path(node.tool_output.log)
     return Path(node.base_dir) / '11_run.log' if node.base_dir else None
@@ -364,7 +364,7 @@ def stream_node_log(
     current_user: MemberDep,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> StreamingResponse:
-    """Stream log additions until the node reaches a terminal V2 state."""
+    """Stream log additions until the node reaches a terminal state."""
     _owned_node(session, uid, current_user)
     return StreamingResponse(
         _stream_node_log(uid, session, current_user, request, offset),

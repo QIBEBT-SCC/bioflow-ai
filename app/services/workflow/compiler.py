@@ -1,4 +1,4 @@
-"""Validation and durable compilation of V2 workflow definitions."""
+"""Validation and durable compilation of workflow definitions."""
 
 import uuid
 from collections import defaultdict, deque
@@ -6,15 +6,19 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.models.workflow import NodeDependency, NodeRun, WorkflowOutbox, WorkflowRun
 from app.schemas.react_flow import Edge, Node, WorkflowDefinition
-from app.v2.executors import PRESENTATION_NODE_TYPES, prepare_node, supported_node_types
-from app.v2.executors.registry import ExecutorContext
-from app.v2.models import NodeDependencyV2, NodeRunV2, WorkflowOutboxV2, WorkflowRunV2
-from app.v2.schemas.workflow import NodeRunStatus, RunStatus
+from app.schemas.workflow_run import NodeRunStatus, RunStatus
+from app.services.workflow.executors import (
+    PRESENTATION_NODE_TYPES,
+    ExecutorContext,
+    prepare_node,
+    supported_node_types,
+)
 
 
 class WorkflowCompileError(ValueError):
-    """The supplied workflow graph is not a valid executable V2 DAG."""
+    """The supplied workflow graph is not a valid executable DAG."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +57,7 @@ def _validate_graph(workflow: WorkflowDefinition) -> tuple[dict[str, Node], list
             message = f'Duplicate node ID: {node.id}'
             raise WorkflowCompileError(message)
         if node.type not in supported_node_types() | PRESENTATION_NODE_TYPES:
-            message = f'Node {node.id}: unsupported V2 executor type {node.type!r}'
+            message = f'Node {node.id}: unsupported executor type {node.type!r}'
             raise WorkflowCompileError(message)
         node_map[node.id] = node
 
@@ -100,26 +104,26 @@ def _validate_graph(workflow: WorkflowDefinition) -> tuple[dict[str, Node], list
 
 
 def validate_workflow(workflow: WorkflowDefinition) -> list[str]:
-    """Validate a V2 workflow and return its stable topological definition order."""
+    """Validate a workflow and return its stable topological definition order."""
     return _validate_graph(workflow)[2]
 
 
 def compile_run(
     session: Session,
-    run: WorkflowRunV2,
+    run: WorkflowRun,
     workflow: WorkflowDefinition,
     context: CompileContext,
-) -> list[NodeRunV2]:
+) -> list[NodeRun]:
     """Compile a workflow into NodeRun, dependency and root Outbox rows.
 
     The caller owns the surrounding transaction.  Nothing is published here.
     """
     node_map, edges, order = _validate_graph(workflow)
-    node_runs: dict[str, NodeRunV2] = {}
+    node_runs: dict[str, NodeRun] = {}
 
     for position_index, node_id in enumerate(order, start=1):
         node = node_map[node_id]
-        node_runs[node_id] = NodeRunV2(
+        node_runs[node_id] = NodeRun(
             run_uid=run.uid,
             generation=run.generation,
             definition_node_id=node.id,
@@ -148,7 +152,7 @@ def compile_run(
             incoming[edge.target][target_key] = [existing, reference]
         source_nodes_by_target[edge.target].add(edge.source)
         session.add(
-            NodeDependencyV2(
+            NodeDependency(
                 run_uid=run.uid,
                 generation=run.generation,
                 source_node_uid=source_run.uid,
@@ -182,7 +186,7 @@ def compile_run(
         if not source_nodes_by_target[node_id]:
             node_run.status = NodeRunStatus.READY
             session.add(
-                WorkflowOutboxV2(
+                WorkflowOutbox(
                     run_uid=run.uid,
                     node_run_uid=node_run.uid,
                     generation=run.generation,

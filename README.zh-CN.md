@@ -47,12 +47,16 @@ uv run bioflow-ai auto-init
 
 自动初始化程序会引导完成系统配置、测试数据、依赖容器、数据库、管理员账号和模型 Provider 的初始化。每项提示、可填写内容和默认值请参阅[自动初始化指南](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.zh.mdx)。
 
-初始化完成后，分别在独立终端中启动 API、工作流 Worker 和智能体 Worker：
+初始化完成后，分别在独立终端中启动 API、工作流 Dispatcher、工作流 Worker、资源 Worker 和智能体 Worker：
 
 ```bash
 uv run bioflow-ai api
-uv run bioflow-ai worker
+uv run bioflow-ai workflow-dispatcher
+uv run bioflow-ai workflow-worker --concurrency 4
+uv run bioflow-ai resource-worker --concurrency 2
 uv run bioflow-ai agent-worker
 ```
+
+如果现有环境已运行过旧的 `app/v2` 原型，请先备份 PostgreSQL，再执行[一次性工作流运行时迁移](presets/migrations/20260909_integrate_workflow_runtime.sql)。该迁移会保留已验证的 V2 运行表并重命名为最终表名，同时按计划删除 V1 的 Run/Task/Monitor 历史。
 
 默认在浏览器中访问 [http://localhost:3000](http://localhost:3000)。如果默认端口已被占用，自动初始化程序会选择可用端口并在终端中显示。

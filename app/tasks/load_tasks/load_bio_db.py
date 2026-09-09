@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.session import engine
 from app.models.resource import BioDb
-from app.schemas.task_instance import TaskUpdate
 from app.schemas.tool_config import ImageConfig
 from app.schemas.workflow_config import ToolOutput
+from app.schemas.workflow_run import NodeRunUpdate
 from app.services.resource import bio_db as db_service
-from app.tasks.base.base_task import BaseBioTask, update_task
+from app.services.workflow.execution_context import update_node
 from app.utils.container import CONTAINER_ROOT_USER, ContainerMount, run_command
 from app.utils.input_format import to_safe_path_segment
 from app.utils.redis import decode_redis_value, get_bio_db_download_task_key
@@ -55,7 +55,7 @@ def _run_bio_db_download(
     bio_db: BioDb,
     task_id: str,
     *,
-    task_instance_uid: str | None = None,
+    node_run_uid: str | None = None,
 ) -> Path:
     """Download a BioDb by executing its configured command in a container."""
     if bio_db.id is None:
@@ -93,10 +93,10 @@ def _run_bio_db_download(
             ContainerMount(source=str(target_dir), target=BIO_DB_CONTAINER_PATH, read_only=False),
         ]
         command = bio_db.download_command
-        if task_instance_uid is not None:
-            update_task(
-                task_instance_uid,
-                TaskUpdate(
+        if node_run_uid is not None:
+            update_node(
+                node_run_uid,
+                NodeRunUpdate(
                     commands=f'docker run --rm --user {CONTAINER_ROOT_USER} '
                     f'-v {target_dir}:{BIO_DB_CONTAINER_PATH}:rw '
                     f'{image_cfg.get_image()} /bin/sh -c "{command}"'
@@ -141,11 +141,9 @@ def download_bio_db_task(
         return {'db_id': db_id, 'path': str(target_dir)}
 
 
-@celery_app.task(bind=True, pydantic=True, base=BaseBioTask)
-def load_bio_db_task(
-    self: Task,
-    result_dict: ToolOutput | None = None,  # noqa: ARG001
+def load_bio_db(
     *,
+    node_run_id: str,
     db_id: int,
 ) -> ToolOutput:
     """Load a BioDb path, downloading it lazily when it has not been prepared yet."""
@@ -159,6 +157,5 @@ def load_bio_db_task(
             msg = f'BioDb {db_id} has no valid path and no download_command.'
             raise FileNotFoundError(msg)
 
-        task_id = cast('str', self.request.id)
-        target_dir = _run_bio_db_download(session, bio_db, task_id, task_instance_uid=task_id)
+        target_dir = _run_bio_db_download(session, bio_db, node_run_id, node_run_uid=node_run_id)
         return ToolOutput(result={'file_path': target_dir})

@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 import app.crud.agent as agent_crud
 import app.crud.project_workflow as project_workflow_crud
-import app.crud.run_instance as run_instance_crud
 from app.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from app.models.project import Project
 from app.models.user import User
+from app.models.workflow import WorkflowRun
 from app.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
     AgentEventType,
@@ -124,9 +124,7 @@ def _require_owned_project(session: Session, project_id: int, owner_id: int) -> 
 
 def get_owned_session(session: Session, session_uid: UUIDLike, owner_id: int) -> AgentSession:
     agent_session = agent_crud.get_session(session, as_uuid(session_uid))
-    if agent_session is None or (
-        agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id)
-    ):
+    if agent_session is None or (agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
         raise AgentSessionNotFoundError
     return agent_session
 
@@ -201,13 +199,10 @@ def create_run(
     if agent_name in {AgentName.WORKFLOW_DIAGNOSER, AgentName.WORKFLOW_FIXER}:
         if source_run_uid is None:
             raise AgentScopeError(WORKFLOW_RUN_TARGET_REQUIRED_ERROR)
-        source_run = run_instance_crud.get(session, source_run_uid)
+        source_run = session.get(WorkflowRun, source_run_uid)
         if (
             source_run is None
-            or (
-                source_run.owner_id != agent_session.owner_id
-                and not _is_admin_actor(session, agent_session.owner_id)
-            )
+            or (source_run.owner_id != agent_session.owner_id and not _is_admin_actor(session, agent_session.owner_id))
             or source_run.project_id != agent_session.project_id
         ):
             raise AgentProjectAccessError
