@@ -59,6 +59,16 @@ def _check_image(client: PodmanClient, image_cfg: ImageConfig) -> None:
             )
 
 
+def _get_gpu_devices() -> list[str]:
+    """Return Podman CDI device names configured for container creation."""
+    settings = get_settings().docker
+    if not settings.ENABLE_GPU:
+        return []
+    if settings.GPU_DEVICES == 'all':
+        return ['nvidia.com/gpu=all']
+    return [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.GPU_DEVICES.split(',')]
+
+
 def run_podman(
     image_cfg: ImageConfig,
     command: str,
@@ -98,15 +108,6 @@ def run_podman(
         _check_runtime_mode()
         _check_image(client, image_cfg)
 
-        # 处理 GPU 配置
-        device = None
-        settings = get_settings()
-        if settings.docker.ENABLE_GPU:
-            if settings.docker.GPU_DEVICES == 'all':
-                device = ['nvidia.com/gpu=all']
-            else:
-                # 指定具体设备, 如 '0,1' -> ['nvidia.com/gpu=0', 'nvidia.com/gpu=1']
-                device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
         if user is not None:
             kwargs['user'] = user
 
@@ -119,7 +120,7 @@ def run_podman(
                 remove=False,
                 detach=True,
                 workdir=workdir,
-                device=device,
+                devices=_get_gpu_devices(),
                 **kwargs,
             )
             status_code = container.wait()
@@ -168,14 +169,6 @@ def run_podman_background(
         _check_image(client, image_cfg)
         container = None
 
-        # 处理 GPU 配置
-        device = None
-        settings = get_settings()
-        if settings.docker.ENABLE_GPU:
-            if settings.docker.GPU_DEVICES == 'all':
-                device = ['nvidia.com/gpu=all']
-            else:
-                device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
         if user is not None:
             kwargs['user'] = user
 
@@ -188,7 +181,7 @@ def run_podman_background(
                 remove=False,
                 detach=True,
                 workdir=workdir,
-                device=device,
+                devices=_get_gpu_devices(),
                 **kwargs,
             )
 
@@ -243,15 +236,6 @@ def create_container(
         _check_runtime_mode()
         _check_image(client, image_cfg)
 
-        # 处理 GPU 配置
-        device = None
-        settings = get_settings()
-        if settings.docker.ENABLE_GPU:
-            if settings.docker.GPU_DEVICES == 'all':
-                device = ['nvidia.com/gpu=all']
-            else:
-                device = [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.docker.GPU_DEVICES.split(',')]
-
         container = client.containers.create(
             image_cfg.get_image(),
             command='tail -f /dev/null',  # 保证容器常驻
@@ -260,7 +244,7 @@ def create_container(
             remove=False,
             detach=True,
             user=CONTAINER_ROOT_USER,
-            device=device,
+            devices=_get_gpu_devices(),
             **kwargs,
         )
         container.start()
