@@ -66,6 +66,7 @@ class ToolImageImport(ToolImageData):
     """Validated tool image data loaded from a preset."""
 
     uid: uuid.UUID | None = None
+    ref: str
 
 
 class ToolImagePublic(ToolImageData):
@@ -74,6 +75,7 @@ class ToolImagePublic(ToolImageData):
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
+    ref: str
 
 
 class ImagePublic(ToolImagePublic):

@@ -52,7 +52,6 @@ class CreateToolOutput(BaseModel):
 
 # =====================test run agent state==========================
 class TestRunState(AgentState):
-    known_images: Annotated[dict[str, str], operator.or_]
     test_run_report: NotRequired[TestRunReport]
     updated: NotRequired[bool]
     checked: NotRequired[bool]

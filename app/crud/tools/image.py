@@ -116,52 +116,15 @@ def find_by_image_url(session: Session, image_url: str) -> Sequence[ToolImage]:
     return session.scalars(stmt).all()
 
 
-def find_by_image_ref(session: Session, image_ref: str) -> Sequence[ToolImage]:
-    """Return up to two tool images matching a full or partial Docker image reference.
-
-    Supported references include repository, namespace/repository, full
-    registry/namespace/repository, and any of those forms with an explicit tag.
-    """
-    image_name, tag = _split_image_tag(image_ref)
-    url_group = image_name.split('/')
-    image_field = type_coerce(ToolImage.image, JSONB)
-
-    match len(url_group):
-        case 3:
-            conditions = [
-                image_field['registry'].astext == url_group[0],
-                image_field['namespace'].astext == url_group[1],
-                image_field['repository'].astext == url_group[2],
-            ]
-        case 2:
-            conditions = [
-                image_field['namespace'].astext == url_group[0],
-                image_field['repository'].astext == url_group[1],
-            ]
-        case 1:
-            conditions = [image_field['repository'].astext == url_group[0]]
-        case _:
-            err_msg = 'Incorrect image format. It MUST be like `[registry/][namespace/]<repository>[:tag]`'
-            raise ValueError(err_msg)
-
-    if tag is not None:
-        conditions.append(image_field['tag'].astext == tag)
-
-    stmt = select(ToolImage).where(*conditions).limit(2)
-    return session.scalars(stmt).all()
+def get_by_ref(session: Session, image_ref: str) -> ToolImage | None:
+    """Return the image with an exact generated reference."""
+    stmt = select(ToolImage).where(ToolImage.ref == image_ref)
+    return session.scalar(stmt)
 
 
 def _has_explicit_tag(image_url: str) -> bool:
     """Return whether a Docker image string explicitly includes a tag."""
     return ':' in image_url.rsplit('/', 1)[-1]
-
-
-def _split_image_tag(image_ref: str) -> tuple[str, str | None]:
-    """Split a Docker image reference into name and optional explicit tag."""
-    if not _has_explicit_tag(image_ref):
-        return image_ref, None
-    image_name, tag = image_ref.rsplit(':', 1)
-    return image_name, tag
 
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolImage], int]:
@@ -198,9 +161,3 @@ def get_by_name(session: Session, name: str) -> ToolImage | None:
     """Return a tool image by its name."""
     stmt = select(ToolImage).where(ToolImage.name == name)
     return session.scalar(stmt)
-
-
-def find_by_name(session: Session, name: str) -> Sequence[ToolImage]:
-    """Return up to two tool images with an exact name."""
-    stmt = select(ToolImage).where(ToolImage.name == name).limit(2)
-    return session.scalars(stmt).all()

@@ -44,6 +44,7 @@ class ToolImage(Base):
     __tablename__ = 'images'
 
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
+    ref: Mapped[str] = mapped_column(unique=True)
     name: Mapped[str]
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     version: Mapped[str]

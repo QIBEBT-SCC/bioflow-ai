@@ -32,6 +32,7 @@ from app.schemas.tools import (
     ToolUsagePublic,
 )
 from app.services import tool_cache, tool_catalog
+from app.services.image_references import DuplicateImageUrlError
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -85,7 +86,10 @@ async def create_image(
     _current_user: AdminDep,
 ) -> ToolImagePublic:
     """Create a new Docker image registry entry."""
-    return tool_catalog.create_image(session, image_data)  # type: ignore[return-value]
+    try:
+        return tool_catalog.create_image(session, image_data)  # type: ignore[return-value]
+    except DuplicateImageUrlError as error:
+        raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
 
 
 @image_router.get('')
@@ -140,7 +144,10 @@ async def update_image(
     _current_user: AdminDep,
 ) -> ToolImagePublic:
     """更新镜像信息."""
-    updated_image = tool_catalog.update_image(session, uid, image_update)
+    try:
+        updated_image = tool_catalog.update_image(session, uid, image_update)
+    except DuplicateImageUrlError as error:
+        raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
     if updated_image is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Image not found')
     return updated_image  # type: ignore[return-value]

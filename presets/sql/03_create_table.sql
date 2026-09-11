@@ -274,6 +274,7 @@ CREATE TABLE IF NOT EXISTS project_file_mappings
 CREATE TABLE IF NOT EXISTS images
 (
     uid         uuid    NOT NULL,
+    ref         VARCHAR NOT NULL,
     name        VARCHAR NOT NULL,
     aliases     VARCHAR[] NOT NULL DEFAULT ARRAY[]::VARCHAR[],
     version     VARCHAR NOT NULL,
@@ -281,7 +282,8 @@ CREATE TABLE IF NOT EXISTS images
     homepage    VARCHAR,
     paper_link  VARCHAR,
     image       jsonb,
-    PRIMARY KEY (uid)
+    PRIMARY KEY (uid),
+    CONSTRAINT uq_images_ref UNIQUE (ref)
 );
 
 CREATE TABLE IF NOT EXISTS tool_docs

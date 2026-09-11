@@ -23,8 +23,9 @@ from app.schemas.tools import (
 )
 from app.services import tool_cache
 from app.services._transaction import committing
+from app.services.image_references import assign_image_refs, lock_and_get_all
 from app.services.tool_execution import ImageCommandResult, execute_image_command
-from app.utils.identifiers import UUIDLike
+from app.utils.identifiers import UUIDLike, as_uuid
 from llm.models import qwen3_embedding
 from llm.vectorstores import MilvusVectorStore
 
@@ -97,30 +98,24 @@ def resolve_image_url(session: Session, image_url: str) -> ToolImage | None:
 
 
 def resolve_image_reference(session: Session, image_ref: str) -> ToolImage | None:
-    """Resolve a flexible image reference, falling back to an exact tool-image name."""
-    images = list(image_crud.find_by_image_ref(session, image_ref))
-    if not images:
-        images = list(image_crud.find_by_name(session, image_ref))
-    if not images:
-        return None
-    if len(images) > 1:
-        msg = f'Multiple image records match "{image_ref}". Please provide a more specific image reference.'
-        raise AmbiguousToolImageError(msg)
-    return images[0]
+    """Resolve an exact generated tool-image reference."""
+    return image_crud.get_by_ref(session, image_ref)
 
 
 def create_image(session: Session, image_data: ImageCreate) -> ToolImage:
     """Create a tool image."""
-    image = ToolImage(
-        name=image_data.name,
-        aliases=image_data.aliases,
-        version=image_data.version,
-        description=image_data.description,
-        homepage=image_data.homepage,
-        paper_link=image_data.paper_link,
-        image=image_data.image,
-    )
     with committing(session):
+        images = lock_and_get_all(session)
+        image = ToolImage(
+            name=image_data.name,
+            aliases=image_data.aliases,
+            version=image_data.version,
+            description=image_data.description,
+            homepage=image_data.homepage,
+            paper_link=image_data.paper_link,
+            image=image_data.image,
+        )
+        assign_image_refs([*images, image])
         image_crud.insert(session, image)
     session.refresh(image)
     return image
@@ -129,9 +124,11 @@ def create_image(session: Session, image_data: ImageCreate) -> ToolImage:
 def update_image(session: Session, image_uid: UUIDLike, image_update: ImageUpdate) -> ToolImage | None:
     """Update a tool image."""
     with committing(session):
+        images = lock_and_get_all(session)
         image = image_crud.update(session, image_uid, image_update)
         if image is None:
             return None
+        assign_image_refs(images)
     session.refresh(image)
     return image
 
@@ -139,9 +136,11 @@ def update_image(session: Session, image_uid: UUIDLike, image_update: ImageUpdat
 async def delete_image(session: Session, image_uid: UUIDLike) -> bool:
     """Delete a tool image and its vector index entry."""
     with committing(session):
+        images = lock_and_get_all(session)
         deleted = image_crud.delete(session, image_uid)
         if not deleted:
             return False
+        assign_image_refs([image for image in images if image.uid != as_uuid(image_uid)])
 
     vectorstore = MilvusVectorStore(
         collection_name='ImageCollection',

@@ -52,36 +52,24 @@ def _validate_command(command: str, workdir: str | None, tool_call_id: str | Non
 def _resolve_image_ref(
     image_ref: str | None,
     runtime: ToolRuntime[TestRunContext],
-) -> tuple[ImageConfig, dict[str, str], Command | None]:
-    """Resolve a short image reference to an ImageConfig and update cache mappings."""
-    known_images = dict(runtime.state.get('known_images') or {})
+) -> tuple[ImageConfig, Command | None]:
+    """Resolve an exact generated image reference to its container configuration."""
     if not image_ref:
-        return DEFAULT_LINUX_IMAGE, known_images, None
+        return DEFAULT_LINUX_IMAGE, None
 
-    cached_image = known_images.get(image_ref)
-    if cached_image:
-        return ImageConfig.from_str(cached_image), known_images, None
-
-    try:
-        with Session(engine) as session:
-            tool_image = tool_catalog.resolve_image_reference(session, image_ref)
-    except tool_catalog.AmbiguousToolImageError as error:
-        return DEFAULT_LINUX_IMAGE, known_images, _blocked_command(str(error), runtime.tool_call_id)
+    with Session(engine) as session:
+        tool_image = tool_catalog.resolve_image_reference(session, image_ref)
 
     if tool_image is None:
         return (
             DEFAULT_LINUX_IMAGE,
-            known_images,
             _blocked_command(
-                f'No local image matches `{image_ref}`. Use `search_local_image` first, then pass a unique image reference from the results.',
+                f'No local image has the reference `{image_ref}`. Use `search_local_image` and pass the exact `<image_ref>` from its results.',
                 runtime.tool_call_id,
             ),
         )
 
-    full_image = tool_image.image.get_image()
-    known_images[image_ref] = full_image
-    known_images[full_image] = full_image
-    return tool_image.image, known_images, None
+    return tool_image.image, None
 
 
 async def _validate_extra_mounts(
@@ -150,7 +138,7 @@ async def advance_run_command_tool(
 
     Args:
         command: 要运行的Linux命令行指令
-        image_ref: 用于执行命令的docker镜像, 必须包含镜像的repository, registry、namespace和tag可以视情况省略; 若不指定则使用默认的Linux基础镜像
+        image_ref: `search_local_image` 返回的镜像 `<image_ref>`; 若不指定则使用默认的Linux基础镜像
         workdir: 指定命令运行的工作目录
         mounts: 除默认测试数据和输出目录外, **额外的**数据挂载
     """
@@ -159,7 +147,7 @@ async def advance_run_command_tool(
         return invalid_command
 
     # 镜像解析
-    image, known_images, invalid_image = _resolve_image_ref(image_ref, runtime)
+    image, invalid_image = _resolve_image_ref(image_ref, runtime)
     if invalid_image is not None:
         return invalid_image
 
@@ -205,7 +193,4 @@ async def advance_run_command_tool(
             )
         ],
     }
-    if image_ref:
-        update['known_images'] = known_images
-
     return Command(update=update)
