@@ -37,8 +37,12 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
                 f'  <image>\n'
                 f'    <name>{image.name}</name>\n'
                 f'    <image_ref>{image.ref}</image_ref>\n'
-                f'    <aliases>{", ".join(image.aliases)}</aliases>\n'
-                f'    <description>{image.description}</description>\n'
+                + (
+                    f'    <aliases>{", ".join(image.aliases)}</aliases>\n'
+                    if image.aliases
+                    else ''
+                )
+                + f'    <description>{image.description}</description>\n'
                 f'  <image>'
             )
             for image in images
