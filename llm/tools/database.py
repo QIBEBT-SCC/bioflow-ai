@@ -37,13 +37,10 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
                 f'  <image>\n'
                 f'    <name>{image.name}</name>\n'
                 f'    <image_ref>{image.ref}</image_ref>\n'
-                + (
-                    f'    <aliases>{", ".join(image.aliases)}</aliases>\n'
-                    if image.aliases
-                    else ''
-                )
+                f'    <url>{image.image.get_image()}</url>\n'
+                + (f'    <aliases>{", ".join(image.aliases)}</aliases>\n' if image.aliases else '')
                 + f'    <description>{image.description}</description>\n'
-                f'  <image>'
+                f'  </image>'
             )
             for image in images
         ]
@@ -81,35 +78,23 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
 
 @tool(parse_docstring=True)
 def select_image(
-    image_url: str,
+    image_ref: str,
     runtime: ToolRuntime[Any],
 ) -> Command:
     """Select existing image in the database.
 
     Args:
-        image_url: selected image URL. Use the exact URL from `search_local_image` result.
+        image_ref: Exact `<image_ref>` returned by `search_local_image`.
     """
     with Session(engine) as session:
-        try:
-            tool_image = tool_catalog.resolve_image_url(session, image_url)
-        except tool_catalog.AmbiguousToolImageError as error:
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=str(error),
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ]
-                }
-            )
+        tool_image = tool_catalog.resolve_image_reference(session, image_ref)
 
     if tool_image is None:
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content='The corresponding image was not found in the local database. Please verify the image URL or search again.',
+                        content='The corresponding image was not found in the local database. Please use the exact `<image_ref>` from `search_local_image` or search again.',
                         tool_call_id=runtime.tool_call_id,
                     )
                 ]

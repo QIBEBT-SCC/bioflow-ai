@@ -50,10 +50,6 @@ class ToolCatalogConfigurationError(ToolCatalogError):
     """Required catalog configuration is missing or inconsistent."""
 
 
-class AmbiguousToolImageError(ToolCatalogError):
-    """A tool-image reference matches more than one persisted image."""
-
-
 class ToolCommandExecutionError(ToolCatalogError):
     """A command required for a catalog operation failed."""
 
@@ -84,17 +80,6 @@ def create_group(session: Session, group_data: ToolGroupCreate) -> ToolGroup:
         )
     session.refresh(group)
     return group
-
-
-def resolve_image_url(session: Session, image_url: str) -> ToolImage | None:
-    """Resolve a Docker image URL to one persisted image."""
-    images = list(image_crud.find_by_image_url(session, image_url))
-    if not images:
-        return None
-    if len(images) > 1:
-        msg = f'Multiple image records match "{image_url}". Please provide a full image URL with tag.'
-        raise AmbiguousToolImageError(msg)
-    return images[0]
 
 
 def resolve_image_reference(session: Session, image_ref: str) -> ToolImage | None:

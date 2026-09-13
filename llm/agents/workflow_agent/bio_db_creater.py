@@ -59,8 +59,8 @@ When BioFlowAI runs the download task:
 
 4. Decide `download_image`.
    - Use an empty string for `download_image` when the database can be downloaded with generic network/file utilities such as `wget`, `curl`, `aria2c`, `aws s3`, `tar`, `gzip`, `unzip`, or similar standard downloader tools.
-   - If the database must be downloaded or prepared by a specific bioinformatics tool, use `search_local_image` with that tool name and choose the most appropriate returned image URL.
-   - Use the exact image URL returned by `search_local_image`.
+   - If the database must be downloaded or prepared by a specific bioinformatics tool, use `search_local_image` with that tool name and choose the most appropriate returned `<url>`.
+   - Use the exact full `<url>` value returned by `search_local_image`, not its short `<image_ref>`.
    - If no suitable local image is found, prefer a generic direct-download method when one exists. If the tool-specific method is the only valid method, still create the best record you can only when you have enough information; otherwise explain the blocker briefly instead of inventing an image.
 
 5. Create the BioDb record.

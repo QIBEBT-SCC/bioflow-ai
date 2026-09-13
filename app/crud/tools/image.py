@@ -1,12 +1,10 @@
 from collections.abc import Sequence
 
-from sqlalchemy import func, select, text, type_coerce
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.tools import ToolDefine, ToolImage
-from app.schemas.tool_config import ImageConfig
 from app.schemas.tools import ImageUpdate
 from app.utils.identifiers import UUIDLike, as_uuid
 
@@ -94,37 +92,10 @@ def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> S
     return session.scalars(stmt).all()
 
 
-def find_by_image_url(session: Session, image_url: str) -> Sequence[ToolImage]:
-    """Return up to two tool images matching a Docker image URL.
-
-    If the URL includes a tag, the tag is matched too. If the URL does not include a tag,
-    only registry/namespace/repository are matched.
-    """
-    image_config = ImageConfig.from_str(image_url)
-    has_tag = _has_explicit_tag(image_url)
-    image_field = type_coerce(ToolImage.image, JSONB)
-
-    conditions = [
-        image_field['registry'].astext == image_config.registry,
-        image_field['namespace'].astext == image_config.namespace,
-        image_field['repository'].astext == image_config.repository,
-    ]
-    if has_tag:
-        conditions.append(image_field['tag'].astext == image_config.tag)
-
-    stmt = select(ToolImage).where(*conditions).limit(2)
-    return session.scalars(stmt).all()
-
-
 def get_by_ref(session: Session, image_ref: str) -> ToolImage | None:
     """Return the image with an exact generated reference."""
     stmt = select(ToolImage).where(ToolImage.ref == image_ref)
     return session.scalar(stmt)
-
-
-def _has_explicit_tag(image_url: str) -> bool:
-    """Return whether a Docker image string explicitly includes a tag."""
-    return ':' in image_url.rsplit('/', 1)[-1]
 
 
 def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> tuple[Sequence[ToolImage], int]:

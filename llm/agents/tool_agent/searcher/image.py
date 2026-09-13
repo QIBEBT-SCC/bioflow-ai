@@ -31,7 +31,7 @@ Removing or adding punctuation, changing only letter case, or repeating essentia
 different strategy. If a search returns results but none is suitable, that attempt also counts as unsuccessful and you
 must continue with the remaining strategies. Stop early only when a suitable image is found.
 
-After a suitable image is found, use `select_image` with the exact image URL shown in the `<url>` field. You may call
+After a suitable image is found, use `select_image(image_ref=...)` with the exact `<image_ref>` value. You may call
 `ask_human` to request that the user add an image only after all three search strategies have failed. Never call
 `ask_human` immediately after the first empty or irrelevant result.
 """

@@ -72,7 +72,7 @@ To achieve this, your first task is to **find available Docker images** based on
 <ThinkingProcess>
 To find them, you just need to follow these steps:
 First, use the `search_local_image` tool to search the local database for existing tool images.
-    - If an image for the tool exists, directly use `select_image` with the exact image URL shown in the `<url>` field to select the corresponding image.
+    - If an image for the tool exists, directly use `select_image(image_ref=...)` with the exact `<image_ref>` value to select the corresponding image.
     - Otherwise, call `search_image` to search for images on Docker Hub, and based on the results, use the `pull_and_save_image` tool to pull and save the image.
 
 If you encounter any unresolvable issues at any point, you can call the `ask_human` tool to ask for human assistance.
