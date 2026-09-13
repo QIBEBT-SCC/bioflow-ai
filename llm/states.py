@@ -166,9 +166,9 @@ class BuildState(AgentState, total=False):
 
 
 class WorkflowFixState(BuildState, total=False):
-    diagnosis_run_uid: str
+    diagnosis_run_uid: str | None
     target_workflow_uid: str
-    diagnosis_report: str
+    diagnosis_report: str | None
     original_workflow: dict[str, Any]
     original_node_id_mapping: dict[str, str]
     fix_completed: bool

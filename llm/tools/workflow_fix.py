@@ -81,17 +81,20 @@ def _stage_update(
     summary: str,
 ) -> tuple[Path, Path, str]:
     project_root = Path(runtime.context.workdir).expanduser().resolve()
-    diagnosis_uid = uuid.UUID(runtime.context.diagnosis_run_uid)
+    diagnosis_uid = uuid.UUID(runtime.context.diagnosis_run_uid) if runtime.context.diagnosis_run_uid else None
     fix_uid = uuid.UUID(runtime.context.agent_run_uid)
-    output_dir = project_root / 'fixes' / str(diagnosis_uid) / 'updates' / str(fix_uid)
+    output_dir = (
+        project_root / 'fixes' / str(diagnosis_uid or runtime.context.source_run_uid) / 'updates' / str(fix_uid)
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     update_path = output_dir / 'UPDATE.md'
     temporary_path = output_dir / f'.UPDATE.{uuid.uuid4().hex}.tmp'
+    diagnosis_field = f'diagnosis_run_uid: {diagnosis_uid}\n' if diagnosis_uid else ''
     content = (
         '---\n'
         'schema_version: 1\n'
         f'source_run_uid: {runtime.context.source_run_uid}\n'
-        f'diagnosis_run_uid: {diagnosis_uid}\n'
+        f'{diagnosis_field}'
         f'fix_run_uid: {fix_uid}\n'
         f'workflow_uid: {runtime.context.workflow_uid}\n'
         f'updated_at: {utc_now().isoformat()}\n'

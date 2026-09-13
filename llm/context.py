@@ -52,7 +52,7 @@ class WorkflowFixContext(ProjectContext):
     agent_run_uid: str
     source_run_uid: str
     workflow_uid: str
-    diagnosis_run_uid: str
+    diagnosis_run_uid: str | None
 
 
 class FolderContext(BaseContext):

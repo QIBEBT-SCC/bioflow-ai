@@ -39,7 +39,7 @@ AGENTS: dict[RouteTask, AgentSpec] = {
         factory=build_workflow_diagnoser_v2,
     ),
     'workflow-fixer': AgentSpec(
-        description='Apply the latest diagnosis to the current workflow template and record the update.',
+        description='Repair the current workflow template from the user request and any available diagnosis.',
         factory=build_workflow_fixer,
     ),
     'sample-manager': AgentSpec(

@@ -135,6 +135,14 @@ class AgentRunCreate(AgentLanguagePreference):
     text: str = Field(min_length=1, max_length=100_000)
     source_run_uid: uuid.UUID | None = None
 
+    @model_validator(mode='after')
+    def validate_fix_request(self) -> 'AgentRunCreate':
+        """Require a concrete message when starting workflow repair."""
+        if self.agent_name == AgentName.WORKFLOW_FIXER and not self.text.strip():
+            message = 'workflow-fixer requires a non-empty request'
+            raise ValueError(message)
+        return self
+
 
 class AgentRunResume(AgentLanguagePreference):
     approved: bool = False
