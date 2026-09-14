@@ -179,8 +179,6 @@ def _view_resource(resource_type: str, runtime: ToolRuntime[ProjectContext]) -> 
             '- `ncbi_genome`: Loads reference genomes and annotation files for any species from NCBI RefSeq based on species name or ID.\n'
             '- `GRCh38`: Loads the human reference genome released by GENCODE.\n'
             '- `GRCm39`: Loads the mouse reference genome released by GENCODE.\n\n'
-            'In addition to providing genome and annotation files, all these nodes also offer indexes for common alignment tools. '
-            'Generally, you can use them directly rather than manually building indexes. '
             'Refer to the respective nodes for more details.'
         )
         return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
