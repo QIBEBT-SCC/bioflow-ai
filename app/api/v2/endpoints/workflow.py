@@ -313,7 +313,7 @@ async def _preview_file(
     path: str,
     generation: int,
     session: Session,
-) -> tuple[Path, Path, str]:
+) -> tuple[AsyncPath, AsyncPath, str]:
     """Apply run ownership's current-generation and path restrictions before parsing."""
     if generation != run.generation:
         raise HTTPException(HTTP_409_CONFLICT, 'Run was restarted. Refresh its file tree.')
@@ -324,7 +324,7 @@ async def _preview_file(
     if not await full_path.is_file():
         raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
     try:
-        kind = file_kind(full_path)
+        kind = file_kind(Path(str(full_path)))
     except PreviewError:
         kind = 'unsupported'
     nodes = session.execute(

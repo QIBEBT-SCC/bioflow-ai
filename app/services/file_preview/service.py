@@ -8,6 +8,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from anyio import Path as AsyncPath
 from fastapi import HTTPException
 
 from app.services.file_preview.worker import MAX_RESPONSE_BYTES
@@ -28,7 +29,7 @@ _ERROR_STATUS = {
 }
 
 
-async def run_preview(root: Path, path: Path, operation: str, **kwargs: Any) -> dict[str, Any]:
+async def run_preview(root: Path | AsyncPath, path: Path | AsyncPath, operation: str, **kwargs: Any) -> dict[str, Any]:
     """Return quickly under load and kill a parser that exceeds two seconds."""
     try:
         _slots.get_nowait()
@@ -38,10 +39,13 @@ async def run_preview(root: Path, path: Path, operation: str, **kwargs: Any) -> 
     try:
         try:
             async with asyncio.timeout(PREVIEW_TIMEOUT_SECONDS):
-                stat = await asyncio.to_thread(path.stat)
+                # The route resolves paths with anyio.Path, whose stat() is async.
+                # Convert at this boundary before calling filesystem methods in a thread.
+                file_path = Path(str(path))
+                stat = await asyncio.to_thread(file_path.stat)
                 request = {
                     'root': str(root),
-                    'path': str(path),
+                    'path': str(file_path),
                     'size': stat.st_size,
                     'mtime_ns': stat.st_mtime_ns,
                     'operation': operation,
