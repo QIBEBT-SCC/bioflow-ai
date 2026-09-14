@@ -11,9 +11,16 @@ from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.requests import Request
-from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
+from starlette.status import (
+    HTTP_400_BAD_REQUEST,
+    HTTP_403_FORBIDDEN,
+    HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
+    HTTP_422_UNPROCESSABLE_CONTENT,
+)
 
 from app.core.auth import MemberDep
 from app.core.redis_client import monitor_redis_client
@@ -30,6 +37,8 @@ from app.schemas.user_config import UserRole
 from app.schemas.workflow_config import ExecutionScope, ToolOutput
 from app.schemas.workflow_run import (
     FileContentRequest,
+    FilePreviewMetaRequest,
+    FilePreviewRegionRequest,
     MonitorPublic,
     NodeRunPublic,
     NodeRunRecord,
@@ -42,6 +51,8 @@ from app.schemas.workflow_run import (
     WorkflowRunPublic,
     WorkflowRunStatistics,
 )
+from app.services.file_preview.service import run_preview
+from app.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
 from app.services.workflow import runs
 from app.services.workflow.compiler import WorkflowCompileError
 from app.utils.file_browser import build_file_tree, serve_file
@@ -295,6 +306,111 @@ async def get_run_file_content(
     if not await full_path.exists() or not await full_path.is_file():
         raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
     return await serve_file(full_path)
+
+
+async def _preview_file(
+    run: WorkflowRun,
+    path: str,
+    generation: int,
+    session: Session,
+) -> tuple[Path, Path, str]:
+    """Apply run ownership's current-generation and path restrictions before parsing."""
+    if generation != run.generation:
+        raise HTTPException(HTTP_409_CONFLICT, 'Run was restarted. Refresh its file tree.')
+    base = await AsyncPath(run.base_dir).resolve()
+    full_path = await (base / path).resolve()
+    if not full_path.is_relative_to(base):
+        raise HTTPException(HTTP_403_FORBIDDEN, 'Access denied')
+    if not await full_path.is_file():
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
+    try:
+        kind = file_kind(full_path)
+    except PreviewError:
+        kind = 'unsupported'
+    nodes = session.execute(
+        select(NodeRun).where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
+    ).scalars()
+    matching = [
+        node for node in nodes if node.base_dir and full_path.is_relative_to(await AsyncPath(node.base_dir).resolve())
+    ]
+    if matching and any(node.status != NodeRunStatus.SUCCEEDED for node in matching):
+        raise HTTPException(HTTP_409_CONFLICT, 'This file belongs to a node that has not completed successfully.')
+    if not matching and not run.settled:
+        raise HTTPException(HTTP_409_CONFLICT, 'This file may still be written. Wait for the run to finish.')
+    return base, full_path, kind
+
+
+@run_router.post('/{uid}/files/preview/meta')
+async def get_run_file_preview_meta(
+    uid: uuid.UUID,
+    body: FilePreviewMetaRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Report bounded, searchable genomic preview metadata."""
+    run = _owned_run(session, uid, current_user)
+    base, path, kind = await _preview_file(run, body.path, body.generation, session)
+    if kind == 'unsupported':
+        return {
+            'kind': kind,
+            'supported': False,
+            'reason': 'This file format has no genomic preview.',
+            'chromosomes': [],
+            'default_chromosome': None,
+            'has_more_chromosomes': False,
+        }
+    if kind == 'bed' and (await path.stat()).st_size > MAX_BED_BYTES:
+        return {
+            'kind': kind,
+            'supported': False,
+            'reason': 'BED preview supports files up to 4 MiB.',
+            'chromosomes': [],
+            'default_chromosome': None,
+            'has_more_chromosomes': False,
+        }
+    try:
+        return await run_preview(base, path, 'meta', query=body.query)
+    except HTTPException as error:
+        if error.status_code == HTTP_422_UNPROCESSABLE_CONTENT:
+            return {
+                'kind': kind,
+                'supported': False,
+                'reason': error.detail,
+                'chromosomes': [],
+                'default_chromosome': None,
+                'has_more_chromosomes': False,
+            }
+        raise
+
+
+@run_router.post('/{uid}/files/preview/region')
+async def get_run_file_preview_region(
+    uid: uuid.UUID,
+    body: FilePreviewRegionRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Read only one capped genomic viewport."""
+    run = _owned_run(session, uid, current_user)
+    base, path, kind = await _preview_file(run, body.path, body.generation, session)
+    if kind == 'unsupported':
+        raise HTTPException(415, 'This file format has no genomic preview.')
+    if kind == 'bed' and (await path.stat()).st_size > MAX_BED_BYTES:
+        raise HTTPException(413, 'BED preview supports files up to 4 MiB.')
+    if body.end <= body.start:
+        raise HTTPException(422, 'Use a non-empty, 0-based half-open interval.')
+    max_span = 10_000_000 if kind == 'bigwig' else 1_000_000
+    if body.end - body.start > max_span:
+        raise HTTPException(413, f'This track allows a region of at most {max_span:,} bases.')
+    return await run_preview(
+        base,
+        path,
+        'region',
+        chrom=body.chrom,
+        start=body.start,
+        end=body.end,
+        bins=body.bins,
+    )
 
 
 @node_router.get('')

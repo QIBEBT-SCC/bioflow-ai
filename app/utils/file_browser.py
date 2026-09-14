@@ -14,12 +14,15 @@ _TEXT_EXTENSIONS = {
     '.csv',
     '.tsv',
     '.fasta',
+    '.fa',
     '.fastq',
+    '.fq',
     '.vcf',
     '.bed',
     '.gff',
     '.gtf',
     '.sam',
+    '.dict',
     '.log',
     '.md',
     '.sh',
@@ -28,6 +31,7 @@ _TEXT_EXTENSIONS = {
     '.toml',
     '.ini',
     '.conf',
+    '.r',
 }
 _MAX_TEXT_BYTES = 10 * 1024 * 1024  # 10 MB
 

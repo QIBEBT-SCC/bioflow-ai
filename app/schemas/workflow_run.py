@@ -190,6 +190,29 @@ class FileContentRequest(BaseModel):
     path: str
 
 
+class FilePreviewMetaRequest(BaseModel):
+    """Metadata lookup for one file in the active run generation."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    path: str = Field(min_length=1, max_length=4096)
+    generation: int = Field(ge=1)
+    query: str = Field(default='', max_length=100)
+
+
+class FilePreviewRegionRequest(BaseModel):
+    """A 0-based, half-open genomic viewport."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    path: str = Field(min_length=1, max_length=4096)
+    generation: int = Field(ge=1)
+    chrom: str = Field(min_length=1, max_length=255)
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    bins: int = Field(default=512, ge=1, le=512)
+
+
 class OutputFileItem(BaseModel):
     """One output file in a workflow-run file tree."""
 
