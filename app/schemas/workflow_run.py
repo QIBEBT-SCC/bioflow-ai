@@ -211,6 +211,10 @@ class FilePreviewRegionRequest(BaseModel):
     start: int = Field(ge=0)
     end: int = Field(gt=0)
     bins: int = Field(default=512, ge=1, le=512)
+    chrom2: str | None = Field(default=None, min_length=1, max_length=255)
+    start2: int | None = Field(default=None, ge=0)
+    end2: int | None = Field(default=None, gt=0)
+    resolution: int | None = Field(default=None, gt=0)
 
 
 class OutputFileItem(BaseModel):

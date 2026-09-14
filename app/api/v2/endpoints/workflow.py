@@ -399,9 +399,14 @@ async def get_run_file_preview_region(
         raise HTTPException(413, 'BED preview supports files up to 4 MiB.')
     if body.end <= body.start:
         raise HTTPException(422, 'Use a non-empty, 0-based half-open interval.')
-    max_span = 10_000_000 if kind == 'bigwig' else 1_000_000
+    max_span = 10_000_000 if kind in {'bigwig', 'hic', 'cool', 'mcool'} else 1_000_000
     if body.end - body.start > max_span:
         raise HTTPException(413, f'This track allows a region of at most {max_span:,} bases.')
+    if kind in {'hic', 'cool', 'mcool'}:
+        if (body.start2 is None) != (body.end2 is None):
+            raise HTTPException(422, 'Both coordinates of the second locus are required.')
+        if body.start2 and body.end2 and (body.end2 <= body.start2 or body.end2 - body.start2 > max_span):
+            raise HTTPException(413, 'The second locus must span 1 base to 10 Mb.')
     return await run_preview(
         base,
         path,
@@ -410,6 +415,10 @@ async def get_run_file_preview_region(
         start=body.start,
         end=body.end,
         bins=body.bins,
+        chrom2=body.chrom2,
+        start2=body.start2,
+        end2=body.end2,
+        resolution=body.resolution,
     )
 
 

@@ -53,6 +53,7 @@ dependencies = [
     "websockets>=15.0.1",
     "sqlalchemy>=2.0.44",
     "pybigwig>=0.3.24,<0.4",
+    "hictkpy[numpy]>=1.4,<2",
 ]
 
 [project.scripts]

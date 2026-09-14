@@ -16,6 +16,9 @@ MAX_BED_RECORDS = 50_000
 MAX_INTERVALS = 300
 MAX_POINTS = 512
 MAX_RESPONSE_BYTES = 256 * 1024
+CONTACT_KINDS = frozenset({'hic', 'cool', 'mcool'})
+MAX_CONTACT_BINS = 64
+MAX_CONTACT_SPAN = 10_000_000
 
 
 class PreviewError(Exception):
@@ -35,6 +38,8 @@ def file_kind(path: Path) -> str:
         return 'bigbed'
     if suffix == '.bed':
         return 'bed'
+    if suffix in {'.hic', '.cool', '.mcool'}:
+        return suffix[1:]
     raise PreviewError('unsupported', 'This file format has no genomic preview.')
 
 
@@ -72,6 +77,8 @@ def _chromosomes(chroms: dict[str, int], query: str) -> dict[str, Any]:
 
 
 def _metadata(path: Path, kind: str, query: str) -> dict[str, Any]:
+    if kind in CONTACT_KINDS:
+        return _contact_metadata(path, kind, query)
     if kind == 'bed':
         chroms: dict[str, int] = {}
         for chrom, _, end, _ in _bed_rows(path):
@@ -137,6 +144,125 @@ def _region(path: Path, kind: str, chrom: str, start: int, end: int, bins: int) 
         raise PreviewError('invalid', 'The indexed genomic file is damaged or incomplete.') from error
 
 
+def _contact_file(path: Path, kind: str) -> tuple[dict[str, int], list[int]]:
+    import hictkpy
+
+    try:
+        matches = {
+            'hic': hictkpy.is_hic,
+            'cool': hictkpy.is_cooler,
+            'mcool': hictkpy.is_mcool_file,
+        }
+        if not matches[kind](str(path)):
+            raise PreviewError('invalid', 'File contents do not match its Hi-C extension.')
+        if kind == 'cool':
+            file = hictkpy.File(str(path))
+            return dict(file.chromosomes()), [int(file.resolution())]
+        file = hictkpy.MultiResFile(str(path))
+        return dict(file.chromosomes()), sorted({int(resolution) for resolution in file.resolutions()})
+    except RuntimeError as error:
+        raise PreviewError('invalid', 'The indexed Hi-C file is damaged or incomplete.') from error
+
+
+def _contact_metadata(path: Path, kind: str, query: str) -> dict[str, Any]:
+    chroms, resolutions = _contact_file(path, kind)
+    if not resolutions or any(resolution <= 0 for resolution in resolutions):
+        raise PreviewError('invalid', 'The Hi-C file has no valid resolution.')
+    return {
+        'kind': kind,
+        'supported': True,
+        'file_size': path.stat().st_size,
+        'resolutions': resolutions[:100],
+        **_chromosomes(chroms, query),
+    }
+
+
+def _contact_region(path: Path, kind: str, request: dict[str, Any]) -> dict[str, Any]:
+    import hictkpy
+
+    chroms, resolutions = _contact_file(path, kind)
+    chrom1, start1, end1 = request['chrom'], request['start'], request['end']
+    chrom2 = request.get('chrom2') or chrom1
+    start2 = request.get('start2')
+    end2 = request.get('end2')
+    if (start2 is None) != (end2 is None):
+        raise PreviewError('invalid_region', 'Both coordinates of the second locus are required.')
+    if start2 is None:
+        start2, end2 = start1, end1
+    axes = ((chrom1, start1, end1), (chrom2, start2, end2))
+    for chrom, start, end in axes:
+        if chrom not in chroms or start < 0 or end <= start or end > chroms[chrom]:
+            raise PreviewError('invalid_region', 'Region is outside this chromosome.')
+        if end - start > MAX_CONTACT_SPAN:
+            raise PreviewError('range_too_large', 'Hi-C viewports allow at most 10 Mb per axis.')
+
+    def bin_count(start: int, end: int, resolution: int) -> int:
+        return (end - 1) // resolution - start // resolution + 1
+
+    selected = request.get('resolution')
+    if selected is not None and selected not in resolutions:
+        raise PreviewError('invalid_region', 'Resolution is not present in this Hi-C file.')
+    candidates = [selected] if selected is not None else resolutions
+    resolution = next(
+        (
+            value
+            for value in candidates
+            if bin_count(start1, end1, value) <= MAX_CONTACT_BINS and bin_count(start2, end2, value) <= MAX_CONTACT_BINS
+        ),
+        None,
+    )
+    if resolution is None:
+        raise PreviewError(
+            'too_dense', 'This resolution exceeds 64 bins per axis. Zoom in or choose a coarser resolution.'
+        )
+    width = bin_count(start1, end1, resolution)
+    height = bin_count(start2, end2, resolution)
+    values = [0.0] * (width * height)
+    first_bin1, first_bin2 = start1 // resolution, start2 // resolution
+    try:
+        file = hictkpy.File(str(path), resolution)
+        first = f'{chrom1}:{start1 + 1}-{end1}'
+        second = f'{chrom2}:{start2 + 1}-{end2}'
+        chrom_order = {name: index for index, name in enumerate(chroms)}
+        swapped = (chrom_order[chrom1], start1) > (chrom_order[chrom2], start2)
+        for pixel in file.fetch(
+            second if swapped else first,
+            first if swapped else second,
+            join=True,
+            count_type='float64',
+        ):
+            first_start = pixel.start2 if swapped else pixel.start1
+            second_start = pixel.start1 if swapped else pixel.start2
+            x = first_start // resolution - first_bin1
+            y = second_start // resolution - first_bin2
+            if not (0 <= x < width and 0 <= y < height):
+                continue
+            count = float(pixel.count)
+            if not math.isfinite(count):
+                continue
+            values[y * width + x] += count
+            if chrom1 == chrom2:
+                mirror_x = second_start // resolution - first_bin1
+                mirror_y = first_start // resolution - first_bin2
+                if (mirror_x, mirror_y) != (x, y) and 0 <= mirror_x < width and 0 <= mirror_y < height:
+                    values[mirror_y * width + mirror_x] += count
+    except RuntimeError as error:
+        raise PreviewError('invalid', 'The indexed Hi-C file is damaged or incomplete.') from error
+    return {
+        'kind': 'heatmap',
+        'chrom': chrom1,
+        'start': start1,
+        'end': end1,
+        'chrom2': chrom2,
+        'start2': start2,
+        'end2': end2,
+        'resolution': resolution,
+        'width': width,
+        'height': height,
+        'values': values,
+    }
+
+
 def parse(request: dict[str, Any]) -> dict[str, Any]:
     """Validate file identity inside the worker, then parse one bounded request."""
     root = Path(request['root']).resolve()
@@ -149,6 +275,8 @@ def parse(request: dict[str, Any]) -> dict[str, Any]:
     kind = file_kind(path)
     if request['operation'] == 'meta':
         result = _metadata(path, kind, request.get('query', ''))
+    elif kind in CONTACT_KINDS:
+        result = _contact_region(path, kind, request)
     else:
         result = _region(path, kind, request['chrom'], request['start'], request['end'], request['bins'])
     final = path.stat()
