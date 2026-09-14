@@ -99,11 +99,13 @@ def iter_trajectory_events(
     root_path: str | Path | None = None,
     *,
     agent_name: str | None = None,
+    run_id: str | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Iterate locally stored events in deterministic per-run order."""
     root = Path(root_path).expanduser().resolve() if root_path is not None else get_trajectory_root()
     agent_pattern = f'agent={_safe_component(agent_name)}' if agent_name else 'agent=*'
-    for event_path in sorted(root.glob(f'{agent_pattern}/run=*/events/*.json')):
+    run_pattern = f'run={_safe_component(run_id)}' if run_id else 'run=*'
+    for event_path in sorted(root.glob(f'{agent_pattern}/{run_pattern}/events/*.json')):
         yield orjson.loads(event_path.read_bytes())
 
 
