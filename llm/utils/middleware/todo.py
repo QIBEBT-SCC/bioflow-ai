@@ -398,29 +398,29 @@ class TodoMiddleware(AgentMiddleware):
     def before_agent(self, state: StateT, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: D102
         return {'msg_to_keep': len(state['messages'])}
 
-    def wrap_model_call(  # noqa: D102
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelCallResult:
-        if request.system_message is None:
-            return handler(request)
+    # def wrap_model_call(  # noqa: D102
+    #     self,
+    #     request: ModelRequest,
+    #     handler: Callable[[ModelRequest], ModelResponse],
+    # ) -> ModelCallResult:
+    #     if request.system_message is None:
+    #         return handler(request)
 
-        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
-        new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
-        return handler(request.override(system_message=new_system_message))
+    #     new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
+    #     new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+    #     return handler(request.override(system_message=new_system_message))
 
-    async def awrap_model_call(  # noqa: D102
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
-    ) -> ModelCallResult:
-        if request.system_message is None:
-            return await handler(request)
+    # async def awrap_model_call(  # noqa: D102
+    #     self,
+    #     request: ModelRequest,
+    #     handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    # ) -> ModelCallResult:
+    #     if request.system_message is None:
+    #         return await handler(request)
 
-        new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
-        new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
-        return await handler(request.override(system_message=new_system_message))
+    #     new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
+    #     new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+    #     return await handler(request.override(system_message=new_system_message))
 
     @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
