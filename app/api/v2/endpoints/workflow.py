@@ -299,13 +299,43 @@ async def get_run_file_content(
 ) -> Response:
     """Serve a current-generation file without allowing path traversal."""
     run = _owned_run(session, uid, current_user)
+    full_path = await _run_output_file(run, body.path)
+    return await serve_file(full_path)
+
+
+async def _run_output_file(run: WorkflowRun, path: str) -> AsyncPath:
+    """Resolve one output path inside its run, including symlink targets."""
     base = await AsyncPath(run.base_dir).resolve()
-    full_path = await (base / body.path).resolve()
+    full_path = await (base / path).resolve()
     if not full_path.is_relative_to(base):
         raise HTTPException(HTTP_403_FORBIDDEN, 'Access denied')
-    if not await full_path.exists() or not await full_path.is_file():
+    if not await full_path.is_file():
         raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
-    return await serve_file(full_path)
+    return full_path
+
+
+@run_router.get('/{uid}/files/view/{generation}/{path:path}')
+async def view_run_file(
+    uid: uuid.UUID,
+    generation: int,
+    path: str,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> Response:
+    """Serve an owned output at a stable URL so HTML-relative assets resolve."""
+    run = _owned_run(session, uid, current_user)
+    if generation != run.generation:
+        raise HTTPException(HTTP_409_CONFLICT, 'Run was restarted. Refresh its file tree.')
+    full_path = await _run_output_file(run, path)
+    response = await serve_file(full_path, inline=True)
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    suffix = full_path.suffix.lower()
+    if suffix in {'.html', '.htm'}:
+        response.headers['Content-Security-Policy'] = 'sandbox allow-scripts'
+    elif suffix == '.svg':
+        response.headers['Content-Security-Policy'] = 'sandbox'
+    return response
 
 
 async def _preview_file(

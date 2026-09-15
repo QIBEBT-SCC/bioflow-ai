@@ -67,7 +67,7 @@ async def build_file_tree(base_dir: FileSystemPath, current_dir: FileSystemPath)
     return await asyncio.to_thread(_build_file_tree_sync, _to_path(base_dir), _to_path(current_dir))
 
 
-async def serve_file(file_path: FileSystemPath) -> Response:
+async def serve_file(file_path: FileSystemPath, *, inline: bool = False) -> Response:
     """Return an appropriate FastAPI Response for a file based on its MIME type.
 
     Text-based files (including bioinformatics formats) are read inline up to
@@ -75,6 +75,7 @@ async def serve_file(file_path: FileSystemPath) -> Response:
 
     Args:
         file_path: Absolute path to the file. Must already be validated as safe.
+        inline: Let browser viewers display binary files instead of downloading them.
 
     Returns:
         Response: FastAPI response with the file content and correct Content-Type.
@@ -105,4 +106,5 @@ async def serve_file(file_path: FileSystemPath) -> Response:
         path=str(file_path),
         media_type=mime_type or 'application/octet-stream',
         filename=file_path.name,
+        content_disposition_type='inline' if inline else 'attachment',
     )
