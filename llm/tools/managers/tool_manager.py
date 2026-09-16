@@ -289,11 +289,13 @@ def _tool_creation_handoff_command(
             'messages': [
                 ToolMessage(
                     content=(
-                        'TOOL_NODE_CREATION_REQUIRES_HUMAN (non-fatal)\n'
-                        f'Tool node `{name}` could not continue without user input.\n'
-                        f'<human_request>\n{parent_request}\n</human_request>\n'
-                        'Call `ask_human` with this request. After receiving the answer, retry tool creation and include '
-                        'the user feedback in the node requirements.'
+                        'TOOL_NODE_CREATION_HANDOFF (non-fatal)\n'
+                        f'Tool node `{name}` could not continue from the original request. No tool node was created.\n'
+                        f'<handoff_context>\n{parent_request}\n</handoff_context>\n'
+                        'Use the verified findings above to replan the workflow. If they identify alternative tools or '
+                        'an atomic decomposition, search for and use or create those nodes separately, with Bash nodes '
+                        'for simple glue operations where appropriate. Call `ask_human` only when a user choice or '
+                        'restated requirement is still necessary. Do not retry the unchanged creation request.'
                     ),
                     tool_call_id=runtime.tool_call_id,
                 )

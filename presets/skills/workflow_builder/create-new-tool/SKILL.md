@@ -168,7 +168,10 @@ If a requirement contains multiple steps, split it into multiple simple nodes an
 # Handling Tool Creation Failures
 
 When tool creation fails, determine from the feedback whether the failure to generate the required node was caused by an inadequate description or by the tool itself.
-- If the manager returns `TOOL_NODE_CREATION_REQUIRES_HUMAN`, the tool-creation sub-agent has encountered a blocking issue and deliberately handed it back to you. Immediately call `ask_human` with the complete content inside `<human_request>`; do not silently skip the node or retry before receiving the answer. After the user responds, retry creation and include that feedback in the node requirements.
+- If the manager returns `TOOL_NODE_CREATION_HANDOFF`, the tool-creation sub-agent has deliberately stopped without creating a node. Read the complete `<handoff_context>` and do not retry the unchanged request.
+  - If the handoff establishes that the requested tool cannot perform the operation but identifies alternatives, return to workflow planning and search for the suggested tools. Create a different node only after the normal catalog search shows that it is missing.
+  - If the handoff establishes that the request is not atomic, split it into the reported single-command operations. Search for or create each Tool node separately and use a Bash node for simple glue, formatting, or text-processing steps where appropriate.
+  - Call `ask_human` only when the handoff still requires the user to choose an alternative or restate the requirement. Include the relevant verified findings in the question, then use the answer to replan rather than retrying the original request verbatim.
 - If creation fails or the returned node is unusable due to an inaccurate description, refine your description and try generating it again.
 - If the tool itself is unable to successfully package the node, report the situation to a human and ask for guidance on the next steps.
 - If the human feedback requests that the process end here, proceed directly to saving the draft after completing the other wrap-up tasks, and do not process any subsequent TODOs.

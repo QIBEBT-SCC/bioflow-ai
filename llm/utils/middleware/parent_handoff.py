@@ -15,8 +15,10 @@ from llm.context import BaseContext
 
 PARENT_HANDOFF_PROMPT = """## Parent-agent handoff
 You are running as a sub-agent. If any instruction tells you to call `ask_human`, call `return_to_parent`
-instead. Include the complete blocking issue, relevant execution context, and the exact question the parent agent
-should ask. This ends your current run and returns the request to the parent agent; do not try to continue afterward.
+instead. Include the complete blocking issue, relevant execution context, and a concrete recommended next action. If a
+human decision or new input is genuinely required, also include the exact question the parent agent should ask. The
+parent may instead resolve the issue by replanning from your verified findings. This ends your current run and returns
+the request to the parent agent; do not try to continue afterward.
 """
 
 
@@ -25,7 +27,7 @@ async def return_to_parent(request: str, runtime: ToolRuntime[BaseContext]) -> C
     """Return a blocking request to the supervising agent and stop this sub-agent.
 
     Args:
-        request: Complete issue context and the exact question that the supervising agent should ask the user.
+        request: Complete issue context, recommended next action, and any exact question that still requires user input.
     """
     if not runtime.context.delegate_human_requests:
         return Command(
