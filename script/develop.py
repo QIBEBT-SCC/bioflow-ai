@@ -448,6 +448,67 @@ def search_tools(tool_name: str) -> None:
     con.close()
 
 
+def update_tool_requirement(index: int, requirement: str) -> None:
+    """Update a tool build requirement and show the record before and after the change."""
+    import duckdb
+    from rich import box
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    if not requirement.strip():
+        msg = 'Requirement must not be empty.'
+        raise click.BadParameter(msg, param_hint='requirement')
+
+    con = duckdb.connect(DB_PATH)
+    try:
+        previous = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+        if previous is None:
+            msg = f'No data found for index {index}'
+            raise click.ClickException(msg)
+
+        con.execute(
+            """UPDATE tool_functions
+               SET function_description = ?, updated_at = current_timestamp
+               WHERE index = ?""",
+            [requirement, index],
+        )
+        updated = _row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+    finally:
+        con.close()
+
+    if updated is None:
+        msg = f'Failed to reload the updated record for index {index}'
+        raise click.ClickException(msg)
+
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style='bold cyan', justify='right', no_wrap=True)
+    table.add_column(overflow='fold')
+    table.add_row('previous requirement:', Text(str(previous['function_description'])))
+    for key, value in updated.items():
+        if value is None:
+            display = Text('None', style='dim')
+        elif key == 'status':
+            status_style = (
+                'green' if value == TOOL_STATUS_COMPLETED else 'yellow' if value == TOOL_STATUS_PENDING else 'red'
+            )
+            display = Text(str(value), style=status_style)
+        else:
+            display = Text(str(value))
+        table.add_row(f'{key}:', display)
+
+    Console().print(
+        Panel(
+            table,
+            title=f'[bold green]Updated Tool Requirement #{index}[/bold green]',
+            border_style='green',
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 async def init_tools(index: int | None = None, *, langsmith_tracing: bool = False) -> None:
     """初始化工具节点."""
     import sys
@@ -993,6 +1054,14 @@ def cli() -> None:
 def search_cmd(name: str) -> None:
     """Search for tools by name."""
     search_tools(tool_name=name)
+
+
+@cli.command(name='update-tool-requirement')
+@click.argument('index', type=int)
+@click.argument('requirement', type=str)
+def update_tool_requirement_cmd(index: int, requirement: str) -> None:
+    """Update the original build requirement for one tool record."""
+    update_tool_requirement(index, requirement)
 
 
 @cli.command()
