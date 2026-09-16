@@ -332,7 +332,7 @@ async def view_run_file(
     response.headers['X-Content-Type-Options'] = 'nosniff'
     suffix = full_path.suffix.lower()
     if suffix in {'.html', '.htm'}:
-        response.headers['Content-Security-Policy'] = 'sandbox allow-scripts'
+        response.headers['Content-Security-Policy'] = 'sandbox allow-scripts allow-same-origin'
     elif suffix == '.svg':
         response.headers['Content-Security-Policy'] = 'sandbox'
     return response
