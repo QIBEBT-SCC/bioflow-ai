@@ -1,7 +1,6 @@
-"""Export a searchable tool-to-test-run-report lookup table."""
+"""Export a searchable tool-to-Markdown-test-run-report lookup table."""
 
 import csv
-import json
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,16 +13,6 @@ from llm.utils.trajectory_store import iter_trajectory_events
 
 TEST_RUN_AGENT = 'test_run'
 TEST_RUN_REPORT_COLUMNS = ('run_id', 'report')
-REPORT_TEMPLATE = """working_dir: {working_dir}
-help_command: |-
-{help_command}
-running_command: |-
-{running_command}
-parameters:{parameters}
-input_files:{input_files}
-output_files:{output_files}
-note:{note}
-"""
 
 
 @dataclass(frozen=True)
@@ -61,69 +50,79 @@ def _final_report(event: dict[str, Any]) -> Mapping[str, Any] | None:
     return report
 
 
-def _quoted(value: Any) -> str:
-    """Render a JSON string scalar, which is also valid YAML."""
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _block(value: Any) -> str:
+def _text(value: Any, label: str) -> str:
     if not isinstance(value, str):
-        msg = f'Expected report text, got {type(value).__name__}.'
+        msg = f'Expected {label} to be text, got {type(value).__name__}.'
         raise TypeError(msg)
-    return '\n'.join(f'  {line}' for line in value.splitlines() or [''])
+    return value
 
 
-def _object_list(value: Any, fields: tuple[str, ...], label: str) -> str:
+def _objects(value: Any, fields: tuple[str, ...], label: str) -> list[Mapping[str, Any]]:
     if not isinstance(value, list):
         msg = f'Expected {label} to be a list.'
         raise TypeError(msg)
-    if not value:
-        return ' []'
 
-    lines: list[str] = []
+    items: list[Mapping[str, Any]] = []
     for item in value:
         if not isinstance(item, Mapping):
             msg = f'Expected each {label} item to be an object.'
             raise TypeError(msg)
-        for index, field in enumerate(fields):
-            if field not in item:
-                msg = f'Missing {field} in {label} item.'
-                raise ValueError(msg)
-            prefix = '  - ' if index == 0 else '    '
-            lines.append(f'{prefix}{field}: {_quoted(item[field])}')
-    return f'\n{"\n".join(lines)}'
+        missing_fields = [field for field in fields if field not in item]
+        if missing_fields:
+            msg = f'Missing {", ".join(missing_fields)} in {label} item.'
+            raise ValueError(msg)
+        items.append(item)
+    return items
 
 
-def _optional_note(value: Any) -> str:
-    if value is None:
-        return ' null'
-    return f' |-\n{_block(value)}'
+def _parameter_lines(value: Any) -> str:
+    items = _objects(value, ('parameter', 'description'), 'parameters')
+    if not items:
+        return '- None'
+    return '\n'.join(
+        f'- `{_text(item["parameter"], "parameters parameter")}`: '
+        f'{_text(item["description"], "parameters description")}'
+        for item in items
+    )
+
+
+def _output_file_lines(value: Any) -> str:
+    items = _objects(value, ('path', 'file_type', 'description'), 'output_files')
+    if not items:
+        return '- None'
+    return '\n'.join(
+        f'- `{_text(item["path"], "output_files path")}`: '
+        f'[{_text(item["file_type"], "output_files file_type")}] '
+        f'{_text(item["description"], "output_files description")}'
+        for item in items
+    )
 
 
 def _report_text(report: Mapping[str, Any]) -> str:
-    """Render a structured report with a stable, human-oriented field order."""
+    """Render a structured report as compact Markdown for evaluation and display."""
     required_fields = ('working_dir', 'help_command', 'running_command', 'parameters', 'input_files', 'output_files')
     missing_fields = [field for field in required_fields if field not in report]
     if missing_fields:
         msg = f'Missing required test-run report field(s): {", ".join(missing_fields)}.'
         raise ValueError(msg)
-    return REPORT_TEMPLATE.format(
-        working_dir=_quoted(report['working_dir']),
-        help_command=_block(report['help_command']),
-        running_command=_block(report['running_command']),
-        parameters=_object_list(report['parameters'], ('parameter', 'description'), 'parameters'),
-        input_files=_object_list(
-            report['input_files'],
-            ('name', 'path', 'file_type', 'description'),
-            'input_files',
-        ),
-        output_files=_object_list(
-            report['output_files'],
-            ('name', 'path', 'file_type', 'description'),
-            'output_files',
-        ),
-        note=_optional_note(report.get('note')),
-    )
+
+    working_dir = _text(report['working_dir'], 'working_dir')
+    _text(report['help_command'], 'help_command')
+    running_command = _text(report['running_command'], 'running_command')
+    parameters = _parameter_lines(report['parameters'])
+    _objects(report['input_files'], ('name', 'path', 'file_type', 'description'), 'input_files')
+    output_files = _output_file_lines(report['output_files'])
+    sections = [
+        '## Test Run Report',
+        f'working dir: {working_dir}',
+        f'```bash\n{running_command}\n```',
+        f'**Command Explain**\n\n{parameters}',
+        f'**Output Files**\n\n{output_files}',
+    ]
+    note = report.get('note')
+    if note is not None:
+        sections.append(f'**Note**\n{_text(note, "note")}')
+    return '\n\n'.join(sections)
 
 
 def _load_tool_records(db_path: Path) -> list[_ToolRecord]:
