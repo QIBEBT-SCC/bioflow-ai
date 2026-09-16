@@ -874,64 +874,6 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     logger.info(f'Successfully deleted {len(valid_indices)} tool records')
 
 
-async def check_records(*, clean_incomplete: bool = False, dry_run: bool = False) -> None:
-    """检查并重置孤立或未完成的 DuckDB 开发任务."""
-    import duckdb
-
-    import app.crud.tools.tool as tool_crud
-    from app.core.session import engine
-
-    con = duckdb.connect(DB_PATH)
-    indices_to_reset: list[int] = []
-    thread_ids_to_delete: list[str] = []
-
-    rows_with_node = _rows_to_dicts(con, 'SELECT * FROM tool_functions WHERE tool_uid IS NOT NULL')
-    with Session(engine) as session:
-        for row in rows_with_node:
-            if tool_crud.get(session, row['tool_uid']) is None:
-                indices_to_reset.append(row['index'])
-                if row['thread_id']:
-                    thread_ids_to_delete.append(row['thread_id'])
-                logger.info(
-                    f'Found orphaned record (index={row["index"]}): '
-                    f'tool_uid={row["tool_uid"]} does not exist in the database'
-                )
-
-    if clean_incomplete:
-        placeholders = ','.join(['?' for _ in TOOL_INCOMPLETE_STATUSES])
-        incomplete_rows = _rows_to_dicts(
-            con,
-            f'SELECT * FROM tool_functions WHERE status IN ({placeholders})',  # noqa: S608
-            list(TOOL_INCOMPLETE_STATUSES),
-        )
-        for row in incomplete_rows:
-            if row['index'] not in indices_to_reset:
-                indices_to_reset.append(row['index'])
-                if row['thread_id']:
-                    thread_ids_to_delete.append(row['thread_id'])
-                logger.info(
-                    f'Found incomplete record (index={row["index"]}, status={row["status"]}): {row["tool_name"]}'
-                )
-
-    if not indices_to_reset:
-        logger.info('No records need to be reset')
-        con.close()
-        return
-
-    if dry_run:
-        logger.info(
-            f'[DRY RUN] Found {len(indices_to_reset)} records to reset across '
-            f'{len(thread_ids_to_delete)} agent records'
-        )
-        logger.info(f'[DRY RUN] Indices to reset: {indices_to_reset}')
-        con.close()
-        return
-
-    await _cleanup_threads(con, thread_ids_to_delete, indices_to_reset)
-    con.close()
-    logger.info(f'Successfully reset {len(indices_to_reset)} records')
-
-
 def statistic() -> None:
     """统计生成情况."""
     import duckdb
@@ -977,8 +919,7 @@ def statistic() -> None:
     stats.add_row('Succeeded', f'[green]{success:,}[/green]  Nodes generated [green]{unique_nodes:,}[/green]')
     stats.add_row(
         'Incomplete',
-        f'Running [cyan]{running:,}[/cyan]  Interrupted [yellow]{interrupted:,}[/yellow]  '
-        f'Failed [red]{failed:,}[/red]',
+        f'Running [cyan]{running:,}[/cyan]  Interrupted [yellow]{interrupted:,}[/yellow]  Failed [red]{failed:,}[/red]',
     )
 
     console.print(
@@ -1060,8 +1001,12 @@ def search_cmd(name: str) -> None:
 @click.option('--help-command', '-c', help='Command used to retrieve tool help (required in manual mode).')
 @click.option('--function', '-f', help='Description of the tool function to generate (required in manual mode).')
 @click.option('--thread-id', '-t', help='Checkpoint thread ID (required in manual mode).')
-@click.option('--drop-old', is_flag=True, default=False, help='Delete the old checkpoint for this thread before running.')
-@click.option('--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).')
+@click.option(
+    '--drop-old', is_flag=True, default=False, help='Delete the old checkpoint for this thread before running.'
+)
+@click.option(
+    '--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).'
+)
 def create_tools_cmd(
     index: int | None,
     name: str | None,
@@ -1117,7 +1062,9 @@ def read_interrupt_cmd(index: int) -> None:
 @click.argument('index', type=int)
 @click.option('--message', '-m', type=str, default=None, help='Message to send when resuming the run.')
 @click.option('--approve', is_flag=True, default=False, help='Approve the interrupted action.')
-@click.option('--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).')
+@click.option(
+    '--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).'
+)
 def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmith_tracing: bool) -> None:
     """Resume the tool creation task at the specified index."""
     asyncio.run(continue_run(index, message, approve=approve, langsmith_tracing=langsmith_tracing))
@@ -1128,19 +1075,6 @@ def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmit
 def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
     """Delete prebuilt tools by index (multiple indices are supported, e.g. 61 62 63 65)."""
     asyncio.run(delete_prebuild_tool(list(indices)))
-
-
-@cli.command()
-@click.option(
-    '--clean-incomplete',
-    is_flag=True,
-    default=False,
-    help='Also clean incomplete tasks with RUNNING, INTERRUPTED, or FAILED status.',
-)
-@click.option('--dry-run', is_flag=True, default=False, help='Preview records without making changes.')
-def check_cmd(*, clean_incomplete: bool, dry_run: bool) -> None:
-    """Check and reset orphaned DuckDB records."""
-    asyncio.run(check_records(clean_incomplete=clean_incomplete, dry_run=dry_run))
 
 
 @cli.command()
