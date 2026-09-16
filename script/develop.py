@@ -1235,6 +1235,39 @@ def export_node_stats_cmd(db_path: FilePath, input_dir: FilePath | None, output:
     logger.success('Exported {} node-generation runs to {}', count, output.expanduser().resolve())
 
 
+@cli.command(name='export-test-run-reports')
+@click.option(
+    '--input-dir',
+    type=click.Path(file_okay=False, path_type=FilePath),
+    default=None,
+    help='Saved agent trajectories (default: persistent.storage.storage_path/agent_trajectories).',
+)
+@click.option(
+    '--output',
+    type=click.Path(dir_okay=False, path_type=FilePath),
+    default=FilePath('presets/build/test_run_reports.csv'),
+    show_default=True,
+    help='Destination CSV with run_id and YAML report columns.',
+)
+def export_test_run_reports_cmd(input_dir: FilePath | None, output: FilePath) -> None:
+    """Export the last completed structured report for each recorded test run."""
+    from app.utils.export.test_run_reports import export_test_run_reports
+    from llm.utils.trajectory_store import get_trajectory_root
+
+    trajectory_root = input_dir or get_trajectory_root()
+    try:
+        result = export_test_run_reports(trajectory_root, output, show_progress=True)
+    except (OSError, TypeError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+    logger.success(
+        'Exported {} test-run reports from {} runs ({} events) to {}',
+        result.report_count,
+        result.run_count,
+        result.event_count,
+        result.output,
+    )
+
+
 @cli.command(name='compact-trajectories')
 @click.option(
     '--input-dir',
