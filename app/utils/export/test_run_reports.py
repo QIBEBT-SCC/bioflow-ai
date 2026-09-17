@@ -1,6 +1,7 @@
 """Export a searchable tool-to-Markdown-test-run-report lookup table."""
 
 import csv
+import json
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -12,7 +13,9 @@ from tqdm import tqdm
 from llm.utils.trajectory_store import iter_trajectory_events
 
 TEST_RUN_AGENT = 'test_run'
-TEST_RUN_REPORT_COLUMNS = ('run_id', 'report')
+WRITE_REPORT_TOOL = 'write_tool_report'
+TEST_RUN_REPORT_COLUMNS = ('run_id', 'with_validation', 'without_validation', 'first_pass')
+ERROR_PREVIEW_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,8 @@ class TestRunReportExportResult:
     lookup_count: int
     resolved_reference_count: int
     missing_lookup_count: int
+    first_pass_count: int
+    validation_retry_count: int
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,19 @@ class _ToolRecord:
     lookup_id: str
     run_id: str | None
     tool_uid: str
+
+
+@dataclass(frozen=True)
+class _ReportAttempt:
+    report: Any
+    accepted: bool
+
+
+@dataclass(frozen=True)
+class _ReportVersions:
+    with_validation: Mapping[str, Any]
+    without_validation: Any
+    first_pass: bool
 
 
 def _final_report(event: dict[str, Any]) -> Mapping[str, Any] | None:
@@ -48,6 +66,26 @@ def _final_report(event: dict[str, Any]) -> Mapping[str, Any] | None:
         msg = f'Invalid test-run report in trajectory event {event.get("event_id", "unknown")}: expected an object.'
         raise TypeError(msg)
     return report
+
+
+def _report_attempt(event: dict[str, Any]) -> _ReportAttempt | None:
+    """Return a submitted report and whether that exact submission passed validation."""
+    if event.get('event_type') != 'tool_call':
+        return None
+    payload = event.get('payload')
+    if not isinstance(payload, Mapping):
+        return None
+    request = payload.get('request')
+    if not isinstance(request, Mapping) or request.get('name') != WRITE_REPORT_TOOL:
+        return None
+
+    args = request.get('args')
+    report = args['report'] if isinstance(args, Mapping) and 'report' in args else args
+
+    response = payload.get('response')
+    update = response.get('update') if isinstance(response, Mapping) else None
+    accepted = isinstance(update, Mapping) and 'test_run_report' in update
+    return _ReportAttempt(report=report, accepted=accepted)
 
 
 def _text(value: Any, label: str) -> str:
@@ -125,6 +163,17 @@ def _report_text(report: Mapping[str, Any]) -> str:
     return '\n\n'.join(sections)
 
 
+def _first_report_text(report: Any) -> str:
+    """Render a first submission, retaining malformed tool arguments as Markdown-wrapped JSON."""
+    if isinstance(report, Mapping):
+        try:
+            return _report_text(report)
+        except (TypeError, ValueError):
+            pass
+    raw_report = json.dumps(report, ensure_ascii=False, indent=2)
+    return f'## Test Run Report\n\n**Raw first submission (invalid report structure)**\n\n```json\n{raw_report}\n```'
+
+
 def _load_tool_records(db_path: Path) -> list[_ToolRecord]:
     import duckdb
 
@@ -147,11 +196,11 @@ def _load_tool_records(db_path: Path) -> list[_ToolRecord]:
 
 
 def _lookup_rows(
-    reports: Mapping[str, Mapping[str, Any]],
+    reports: Mapping[str, _ReportVersions],
     records: list[_ToolRecord],
-) -> tuple[list[dict[str, str]], int, int]:
+) -> tuple[list[dict[str, Any]], int, int]:
     """Build one lookup row per tool record, resolving reused nodes through their tool UID."""
-    source_report_by_tool: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    source_report_by_tool: dict[str, tuple[str, _ReportVersions]] = {}
     for record in records:
         if record.run_id is None or record.run_id not in reports:
             continue
@@ -161,7 +210,7 @@ def _lookup_rows(
             msg = f'Tool {record.tool_uid} has multiple test-run report sources: {previous_source[0]}, {record.run_id}.'
             raise ValueError(msg)
 
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
     resolved_reference_count = 0
     missing_lookup_count = 0
     for record in records:
@@ -174,7 +223,14 @@ def _lookup_rows(
             continue
         if record.run_id not in reports:
             resolved_reference_count += 1
-        rows.append({'run_id': record.lookup_id, 'report': _report_text(report)})
+        rows.append(
+            {
+                'run_id': record.lookup_id,
+                'with_validation': _report_text(report.with_validation),
+                'without_validation': _first_report_text(report.without_validation),
+                'first_pass': report.first_pass,
+            }
+        )
     return rows, resolved_reference_count, missing_lookup_count
 
 
@@ -199,7 +255,8 @@ def export_test_run_reports(
         msg = 'The CSV output path cannot be the source DuckDB file.'
         raise ValueError(msg)
 
-    reports: dict[str, Mapping[str, Any]] = {}
+    final_reports: dict[str, Mapping[str, Any]] = {}
+    first_attempts: dict[str, _ReportAttempt] = {}
     run_ids: set[str] = set()
     event_count = 0
     events = iter_trajectory_events(trajectory_root, agent_name=TEST_RUN_AGENT)
@@ -219,13 +276,32 @@ def export_test_run_reports(
             raise ValueError(msg)
         event_count += 1
         run_ids.add(run_id)
+        attempt = _report_attempt(event)
+        if attempt is not None:
+            first_attempts.setdefault(run_id, attempt)
         report = _final_report(event)
         if report is not None:
-            reports[run_id] = report
+            final_reports[run_id] = report
 
     if event_count == 0:
         msg = f'No test-run trajectory events found: {trajectory_root}'
         raise ValueError(msg)
+
+    missing_first_attempts = sorted(set(final_reports) - set(first_attempts))
+    if missing_first_attempts:
+        preview = ', '.join(missing_first_attempts[:ERROR_PREVIEW_LIMIT])
+        suffix = ' ...' if len(missing_first_attempts) > ERROR_PREVIEW_LIMIT else ''
+        msg = f'Missing first {WRITE_REPORT_TOOL} attempt for completed test-run report(s): {preview}{suffix}'
+        raise ValueError(msg)
+
+    reports = {
+        run_id: _ReportVersions(
+            with_validation=report,
+            without_validation=first_attempts[run_id].report,
+            first_pass=first_attempts[run_id].accepted,
+        )
+        for run_id, report in final_reports.items()
+    }
 
     rows, resolved_reference_count, missing_lookup_count = _lookup_rows(
         reports,
@@ -250,4 +326,6 @@ def export_test_run_reports(
         lookup_count=len(rows),
         resolved_reference_count=resolved_reference_count,
         missing_lookup_count=missing_lookup_count,
+        first_pass_count=sum(report.first_pass for report in reports.values()),
+        validation_retry_count=sum(not report.first_pass for report in reports.values()),
     )

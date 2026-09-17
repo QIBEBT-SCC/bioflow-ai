@@ -1257,10 +1257,10 @@ def export_node_stats_cmd(db_path: FilePath, input_dir: FilePath | None, output:
     type=click.Path(dir_okay=False, path_type=FilePath),
     default=FilePath('presets/build/test_run_reports.csv'),
     show_default=True,
-    help='Destination CSV mapping tool_<index>_<name> lookup IDs to report text.',
+    help='Destination CSV containing first-submission and validated reports plus first-pass flags.',
 )
 def export_test_run_reports_cmd(db_path: FilePath, input_dir: FilePath | None, output: FilePath) -> None:
-    """Export searchable report text for recorded tool entries."""
+    """Export first-submission and validated report text for recorded tool entries."""
     from app.utils.export.test_run_reports import export_test_run_reports
     from llm.utils.trajectory_store import get_trajectory_root
 
@@ -1276,6 +1276,12 @@ def export_test_run_reports_cmd(db_path: FilePath, input_dir: FilePath | None, o
         result.run_count,
         result.event_count,
         result.output,
+    )
+    logger.info(
+        '{} of {} source reports passed validation on the first submission; {} passed after validation feedback.',
+        result.first_pass_count,
+        result.source_report_count,
+        result.validation_retry_count,
     )
     logger.info(
         'Resolved {} no-test-run references; skipped {} tool records without a recorded source report.',
