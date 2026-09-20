@@ -24,15 +24,15 @@ def print_stream_chunk(
     namespace = chunk.get('ns', ())
 
     if chunk['type'] == 'custom':
-        _print_panel(
-            console,
-            Panel(
-                Pretty(chunk['data']),
-                # title='[bold yellow]🔔 Custom Event[/bold yellow]',
-                border_style='yellow',
-            ),
-            namespace,
-        )
+        # _print_panel(
+        #     console,
+        #     Panel(
+        #         Pretty(chunk['data']),
+        #         title='[bold yellow]🔔 Custom Event[/bold yellow]',
+        #         border_style='yellow',
+        #     ),
+        #     namespace,
+        # )
         return
 
     if chunk['type'] == 'updates':
