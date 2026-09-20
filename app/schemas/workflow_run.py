@@ -262,6 +262,33 @@ class FileTablePreviewProfileRequest(FileTablePreviewMetaRequest):
     filters: list[TablePreviewFilter] = Field(default_factory=list)
 
 
+class FileVcfPreviewMetaRequest(BaseModel):
+    """Metadata lookup for a VCF in the active run generation."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    path: str = Field(min_length=1, max_length=4096)
+    generation: int = Field(ge=1)
+
+
+class FileVcfPreviewQueryRequest(FileVcfPreviewMetaRequest):
+    """A filtered page of VCF records in file order."""
+
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1)
+    contig: str | None = Field(default=None, min_length=1, max_length=1024)
+    variant_type: Literal['all', 'snp', 'mnv', 'indel', 'sv', 'mixed', 'other'] = 'all'
+    filter_status: Literal['all', 'pass', 'filtered', 'unfiltered'] = 'all'
+    search: str = Field(default='', max_length=1024)
+    min_qual: float | None = None
+
+
+class FileVcfPreviewDetailRequest(FileVcfPreviewMetaRequest):
+    """One VCF record selected by its zero-based body index."""
+
+    record_index: int = Field(ge=0)
+
+
 class OutputFileItem(BaseModel):
     """One output file in a workflow-run file tree."""
 

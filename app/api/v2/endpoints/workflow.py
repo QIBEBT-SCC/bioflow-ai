@@ -42,6 +42,9 @@ from app.schemas.workflow_run import (
     FileTablePreviewMetaRequest,
     FileTablePreviewProfileRequest,
     FileTablePreviewQueryRequest,
+    FileVcfPreviewDetailRequest,
+    FileVcfPreviewMetaRequest,
+    FileVcfPreviewQueryRequest,
     MonitorPublic,
     NodeRunPublic,
     NodeRunRecord,
@@ -56,6 +59,12 @@ from app.schemas.workflow_run import (
 )
 from app.services.file_preview.service import run_preview
 from app.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
+from app.services.signal_preview import (
+    TEXT_SIGNAL_KINDS,
+    SignalPreviewError,
+    signal_metadata,
+    signal_region,
+)
 from app.services.table_preview import (
     TablePreviewError,
     profile_column,
@@ -63,6 +72,7 @@ from app.services.table_preview import (
     table_file_kind,
     table_metadata,
 )
+from app.services.vcf_preview import VcfPreviewError, query_vcf, vcf_file_kind, vcf_metadata, vcf_record_detail
 from app.services.workflow import runs
 from app.services.workflow.compiler import WorkflowCompileError
 from app.utils.file_browser import build_file_tree, serve_file
@@ -408,6 +418,18 @@ async def get_run_file_preview_meta(
             'default_chromosome': None,
             'has_more_chromosomes': False,
         }
+    if kind in TEXT_SIGNAL_KINDS:
+        try:
+            return await asyncio.to_thread(signal_metadata, Path(str(path)), kind, body.query)
+        except SignalPreviewError as error:
+            return {
+                'kind': kind,
+                'supported': False,
+                'reason': str(error),
+                'chromosomes': [],
+                'default_chromosome': None,
+                'has_more_chromosomes': False,
+            }
     try:
         return await run_preview(base, path, 'meta', query=body.query)
     except HTTPException as error:
@@ -439,7 +461,7 @@ async def get_run_file_preview_region(
         raise HTTPException(413, 'BED preview supports files up to 4 MiB.')
     if body.end <= body.start:
         raise HTTPException(422, 'Use a non-empty, 0-based half-open interval.')
-    max_span = 10_000_000 if kind in {'bigwig', 'hic', 'cool', 'mcool'} else 1_000_000
+    max_span = 10_000_000 if kind in {'bigwig', 'bedgraph', 'wig', 'hic', 'cool', 'mcool'} else 1_000_000
     if body.end - body.start > max_span:
         raise HTTPException(413, f'This track allows a region of at most {max_span:,} bases.')
     if kind in {'hic', 'cool', 'mcool'}:
@@ -447,6 +469,19 @@ async def get_run_file_preview_region(
             raise HTTPException(422, 'Both coordinates of the second locus are required.')
         if body.start2 and body.end2 and (body.end2 <= body.start2 or body.end2 - body.start2 > max_span):
             raise HTTPException(413, 'The second locus must span 1 base to 10 Mb.')
+    if kind in TEXT_SIGNAL_KINDS:
+        try:
+            return await asyncio.to_thread(
+                signal_region,
+                Path(str(path)),
+                kind,
+                body.chrom,
+                body.start,
+                body.end,
+                body.bins,
+            )
+        except SignalPreviewError as error:
+            raise HTTPException(422, str(error)) from error
     return await run_preview(
         base,
         path,
@@ -531,6 +566,75 @@ async def profile_run_table_column(
             filters=[item.model_dump() for item in body.filters],
         )
     except TablePreviewError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+def _require_vcf_file(path: AsyncPath) -> None:
+    """Reject files without a VCF or compressed-VCF extension."""
+    try:
+        vcf_file_kind(Path(str(path)))
+    except VcfPreviewError as error:
+        raise HTTPException(415, str(error)) from error
+
+
+@run_router.post('/{uid}/files/preview/vcf/meta')
+async def get_run_vcf_preview_meta(
+    uid: uuid.UUID,
+    body: FileVcfPreviewMetaRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Return VCF header, variant summaries, and contig density data."""
+    run = _owned_run(session, uid, current_user)
+    _, path, _ = await _preview_file(run, body.path, body.generation, session)
+    _require_vcf_file(path)
+    try:
+        return await asyncio.to_thread(vcf_metadata, Path(str(path)))
+    except VcfPreviewError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@run_router.post('/{uid}/files/preview/vcf/query')
+async def query_run_vcf_preview(
+    uid: uuid.UUID,
+    body: FileVcfPreviewQueryRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Return one filtered page of VCF records."""
+    run = _owned_run(session, uid, current_user)
+    _, path, _ = await _preview_file(run, body.path, body.generation, session)
+    _require_vcf_file(path)
+    try:
+        return await asyncio.to_thread(
+            query_vcf,
+            Path(str(path)),
+            offset=body.offset,
+            limit=body.limit,
+            contig=body.contig,
+            variant_type=body.variant_type,
+            filter_status=body.filter_status,
+            search=body.search,
+            min_qual=body.min_qual,
+        )
+    except VcfPreviewError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@run_router.post('/{uid}/files/preview/vcf/detail')
+async def get_run_vcf_preview_detail(
+    uid: uuid.UUID,
+    body: FileVcfPreviewDetailRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Return INFO and sample FORMAT values for one VCF record."""
+    run = _owned_run(session, uid, current_user)
+    _, path, _ = await _preview_file(run, body.path, body.generation, session)
+    _require_vcf_file(path)
+    try:
+        return await asyncio.to_thread(vcf_record_detail, Path(str(path)), body.record_index)
+    except VcfPreviewError as error:
         raise HTTPException(422, str(error)) from error
 
 

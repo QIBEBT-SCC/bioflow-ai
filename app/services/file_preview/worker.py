@@ -38,6 +38,10 @@ def file_kind(path: Path) -> str:
         return 'bigbed'
     if suffix == '.bed':
         return 'bed'
+    if suffix in {'.bedgraph', '.bdg', '.bg'}:
+        return 'bedgraph'
+    if suffix in {'.wig', '.wiggle'}:
+        return 'wig'
     if suffix in {'.hic', '.cool', '.mcool'}:
         return suffix[1:]
     raise PreviewError('unsupported', 'This file format has no genomic preview.')
