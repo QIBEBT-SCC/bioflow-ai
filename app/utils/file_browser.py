@@ -34,8 +34,9 @@ _TEXT_EXTENSIONS = {
     '.r',
 }
 _NEWICK_EXTENSIONS = {'.bionj', '.contree', '.dnd', '.newick', '.nwk', '.tre', '.tree', '.treefile', '.trees'}
+_MSA_EXTENSIONS = {'.afa', '.aln', '.clustal', '.clw', '.msa', '.phy', '.phylip', '.sto', '.stockholm'}
 _MAX_TEXT_BYTES = 10 * 1024 * 1024  # 10 MB
-_MAX_NEWICK_BYTES = 4 * 1024 * 1024  # 4 MiB
+_MAX_STRUCTURED_TEXT_BYTES = 4 * 1024 * 1024  # 4 MiB
 
 
 type FileSystemPath = str | PathLike[str]
@@ -73,8 +74,9 @@ async def serve_file(file_path: FileSystemPath, *, inline: bool = False) -> Resp
     """Return an appropriate FastAPI Response for a file based on its MIME type.
 
     Text-based files (including bioinformatics formats) are read inline with
-    format-specific limits: 4 MiB for Newick and 10 MiB otherwise. Binary files
-    (images, PDFs, etc.) are streamed via FileResponse.
+    format-specific limits: 4 MiB for structured text previews (Newick and
+    multiple sequence alignments) and 10 MiB otherwise. Binary files (images,
+    PDFs, etc.) are streamed via FileResponse.
 
     Args:
         file_path: Absolute path to the file. Must already be validated as safe.
@@ -91,15 +93,17 @@ async def serve_file(file_path: FileSystemPath, *, inline: bool = False) -> Resp
     suffix = file_path.suffix.lower()
 
     is_newick = suffix in _NEWICK_EXTENSIONS
-    is_text = is_newick or (
+    is_msa = suffix in _MSA_EXTENSIONS
+    is_structured_text = is_newick or is_msa
+    is_text = is_structured_text or (
         (mime_type and mime_type.startswith('text/')) or suffix in _TEXT_EXTENSIONS or mime_type == 'application/json'
     )
 
     if is_text:
         size = await asyncio.to_thread(lambda: file_path.stat().st_size)
-        max_bytes = _MAX_NEWICK_BYTES if is_newick else _MAX_TEXT_BYTES
+        max_bytes = _MAX_STRUCTURED_TEXT_BYTES if is_structured_text else _MAX_TEXT_BYTES
         if size > max_bytes:
-            label = 'Newick file' if is_newick else 'File'
+            label = 'Newick file' if is_newick else 'MSA file' if is_msa else 'File'
             raise HTTPException(
                 HTTP_413_CONTENT_TOO_LARGE,
                 f'{label} too large to preview ({size:,} bytes; limit {max_bytes:,}). Download the file instead.',
