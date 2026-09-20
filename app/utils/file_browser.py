@@ -35,8 +35,10 @@ _TEXT_EXTENSIONS = {
 }
 _NEWICK_EXTENSIONS = {'.bionj', '.contree', '.dnd', '.newick', '.nwk', '.tre', '.tree', '.treefile', '.trees'}
 _MSA_EXTENSIONS = {'.afa', '.aln', '.clustal', '.clw', '.msa', '.phy', '.phylip', '.sto', '.stockholm'}
+_GFA_EXTENSIONS = {'.gfa', '.gfa1'}
 _MAX_TEXT_BYTES = 10 * 1024 * 1024  # 10 MB
 _MAX_STRUCTURED_TEXT_BYTES = 4 * 1024 * 1024  # 4 MiB
+_MAX_GFA_BYTES = 8 * 1024 * 1024  # 8 MiB
 
 
 type FileSystemPath = str | PathLike[str]
@@ -74,9 +76,9 @@ async def serve_file(file_path: FileSystemPath, *, inline: bool = False) -> Resp
     """Return an appropriate FastAPI Response for a file based on its MIME type.
 
     Text-based files (including bioinformatics formats) are read inline with
-    format-specific limits: 4 MiB for structured text previews (Newick and
-    multiple sequence alignments) and 10 MiB otherwise. Binary files (images,
-    PDFs, etc.) are streamed via FileResponse.
+    format-specific limits: 4 MiB for Newick/MSA, 8 MiB for GFA, and 10 MiB
+    for other text. Binary files (images, PDFs, etc.) are streamed via
+    FileResponse.
 
     Args:
         file_path: Absolute path to the file. Must already be validated as safe.
@@ -94,16 +96,23 @@ async def serve_file(file_path: FileSystemPath, *, inline: bool = False) -> Resp
 
     is_newick = suffix in _NEWICK_EXTENSIONS
     is_msa = suffix in _MSA_EXTENSIONS
-    is_structured_text = is_newick or is_msa
+    is_gfa = suffix in _GFA_EXTENSIONS
+    is_structured_text = is_newick or is_msa or is_gfa
     is_text = is_structured_text or (
         (mime_type and mime_type.startswith('text/')) or suffix in _TEXT_EXTENSIONS or mime_type == 'application/json'
     )
 
     if is_text:
         size = await asyncio.to_thread(lambda: file_path.stat().st_size)
-        max_bytes = _MAX_STRUCTURED_TEXT_BYTES if is_structured_text else _MAX_TEXT_BYTES
+        if is_gfa:
+            max_bytes, label = _MAX_GFA_BYTES, 'GFA file'
+        elif is_newick:
+            max_bytes, label = _MAX_STRUCTURED_TEXT_BYTES, 'Newick file'
+        elif is_msa:
+            max_bytes, label = _MAX_STRUCTURED_TEXT_BYTES, 'MSA file'
+        else:
+            max_bytes, label = _MAX_TEXT_BYTES, 'File'
         if size > max_bytes:
-            label = 'Newick file' if is_newick else 'MSA file' if is_msa else 'File'
             raise HTTPException(
                 HTTP_413_CONTENT_TOO_LARGE,
                 f'{label} too large to preview ({size:,} bytes; limit {max_bytes:,}). Download the file instead.',
