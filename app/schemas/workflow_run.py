@@ -217,6 +217,51 @@ class FilePreviewRegionRequest(BaseModel):
     resolution: int | None = Field(default=None, gt=0)
 
 
+class FileTablePreviewMetaRequest(BaseModel):
+    """Metadata lookup for a CSV or TSV in the active run generation."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    path: str = Field(min_length=1, max_length=4096)
+    generation: int = Field(ge=1)
+
+
+class TablePreviewSort(BaseModel):
+    """One server-side table sort key."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    column: str = Field(min_length=1, max_length=1024)
+    direction: Literal['asc', 'desc']
+
+
+class TablePreviewFilter(BaseModel):
+    """One bounded, type-aware table filter."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    column: str = Field(min_length=1, max_length=1024)
+    operator: Literal['contains', 'equals', 'not_equals', 'gt', 'gte', 'lt', 'lte', 'is_null', 'is_not_null']
+    value: str | None = Field(default=None, max_length=1024)
+
+
+class FileTablePreviewQueryRequest(FileTablePreviewMetaRequest):
+    """A projected, paginated table-preview query."""
+
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1)
+    columns: list[str] = Field(min_length=1)
+    sort: TablePreviewSort | None = None
+    filters: list[TablePreviewFilter] = Field(default_factory=list)
+
+
+class FileTablePreviewProfileRequest(FileTablePreviewMetaRequest):
+    """On-demand summary for one table column."""
+
+    column: str = Field(min_length=1, max_length=1024)
+    filters: list[TablePreviewFilter] = Field(default_factory=list)
+
+
 class OutputFileItem(BaseModel):
     """One output file in a workflow-run file tree."""
 

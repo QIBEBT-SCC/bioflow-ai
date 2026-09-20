@@ -39,6 +39,9 @@ from app.schemas.workflow_run import (
     FileContentRequest,
     FilePreviewMetaRequest,
     FilePreviewRegionRequest,
+    FileTablePreviewMetaRequest,
+    FileTablePreviewProfileRequest,
+    FileTablePreviewQueryRequest,
     MonitorPublic,
     NodeRunPublic,
     NodeRunRecord,
@@ -53,6 +56,13 @@ from app.schemas.workflow_run import (
 )
 from app.services.file_preview.service import run_preview
 from app.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
+from app.services.table_preview import (
+    TablePreviewError,
+    profile_column,
+    query_table,
+    table_file_kind,
+    table_metadata,
+)
 from app.services.workflow import runs
 from app.services.workflow.compiler import WorkflowCompileError
 from app.utils.file_browser import build_file_tree, serve_file
@@ -450,6 +460,78 @@ async def get_run_file_preview_region(
         end2=body.end2,
         resolution=body.resolution,
     )
+
+
+def _require_table_file(path: AsyncPath) -> None:
+    """Reject non-tabular extensions before loading the file."""
+    try:
+        table_file_kind(Path(str(path)))
+    except TablePreviewError as error:
+        raise HTTPException(415, str(error)) from error
+
+
+@run_router.post('/{uid}/files/preview/table/meta')
+async def get_run_table_preview_meta(
+    uid: uuid.UUID,
+    body: FileTablePreviewMetaRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Return CSV/TSV schema metadata inferred by Polars."""
+    run = _owned_run(session, uid, current_user)
+    _, path, _ = await _preview_file(run, body.path, body.generation, session)
+    _require_table_file(path)
+    try:
+        return await asyncio.to_thread(table_metadata, Path(str(path)))
+    except TablePreviewError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@run_router.post('/{uid}/files/preview/table/query')
+async def query_run_table_preview(
+    uid: uuid.UUID,
+    body: FileTablePreviewQueryRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Return one projected page after server-side filtering and sorting."""
+    run = _owned_run(session, uid, current_user)
+    _, path, _ = await _preview_file(run, body.path, body.generation, session)
+    _require_table_file(path)
+    try:
+        return await asyncio.to_thread(
+            query_table,
+            Path(str(path)),
+            offset=body.offset,
+            limit=body.limit,
+            columns=body.columns,
+            sort=body.sort.model_dump() if body.sort else None,
+            filters=[item.model_dump() for item in body.filters],
+        )
+    except TablePreviewError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@run_router.post('/{uid}/files/preview/table/profile')
+async def profile_run_table_column(
+    uid: uuid.UUID,
+    body: FileTablePreviewProfileRequest,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> dict:
+    """Compute an on-demand summary of one CSV/TSV column."""
+    run = _owned_run(session, uid, current_user)
+    _, path, _ = await _preview_file(run, body.path, body.generation, session)
+    _require_table_file(path)
+    try:
+        return await asyncio.to_thread(
+            profile_column,
+            Path(str(path)),
+            column=body.column,
+            filters=[item.model_dump() for item in body.filters],
+        )
+    except TablePreviewError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 @node_router.get('')
