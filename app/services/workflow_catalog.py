@@ -29,65 +29,88 @@ async def create_workflow(session: Session, workflow: Workflow) -> Workflow:
     """Persist and index one workflow template."""
     with committing(session):
         workflow_crud.insert(session, workflow)
+        await _index_workflow(workflow)
     session.refresh(workflow)
-    # await _index_workflows([workflow])
     return workflow
 
 
 async def create_workflows(session: Session, workflows: Sequence[Workflow]) -> list[Workflow]:
-    """Persist a batch of workflow templates in one transaction, then index them."""
+    """Persist and index a batch before committing the database transaction."""
     with committing(session):
         saved_workflows = [workflow_crud.insert(session, workflow) for workflow in workflows]
+        for workflow in saved_workflows:
+            await _index_workflow(workflow)
     for workflow in saved_workflows:
         session.refresh(workflow)
-    # await _index_workflows(saved_workflows)
     return saved_workflows
 
 
-def update_workflow(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Workflow:
+async def update_workflow(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Workflow:
     """Update a workflow template in one database transaction."""
     with committing(session):
         workflow = workflow_crud.update(session, uid, data)
         if workflow is None:
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
+        await _index_workflow(workflow, replace=True)
     session.refresh(workflow)
     return workflow
 
 
 async def delete_workflow(session: Session, uid: UUIDLike) -> None:
-    """Delete a workflow template, then remove its vector projection."""
+    """Delete a workflow and its vector projection before committing."""
     with committing(session):
-        if not workflow_crud.delete(session, uid):
+        workflow = workflow_crud.get(session, uid)
+        if workflow is None:
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
-
-    vectorstore = MilvusVectorStore(
-        collection_name='WorkflowCollection',
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    await vectorstore.adelete(
-        filter_expression='wf_uid == {uid}',
-        filter_params={'uid': str(uid)},
-    )
+        workflow_crud.delete(session, uid)
+        await _delete_workflow_index(str(workflow.uid))
 
 
-async def _index_workflows(workflows: Sequence[Workflow]) -> None:
-    """Add workflow description projections to the vector index."""
-    if not workflows:
-        return
-
+async def _index_workflow(workflow: Workflow, *, replace: bool = False) -> None:
+    """Write the description before removing an existing projection."""
     vectorstore = MilvusVectorStore(
         collection_name='WorkflowCollection',
         embedding_function=qwen3_embedding(),
         uri=get_settings().knowledge_base.MILVUS_URL,
         hybrid=True,
     )
-    documents = [
-        Document(
-            page_content=workflow.description,
-            metadata={'wf_uid': str(workflow.uid), 'name': workflow.name},
-        )
-        for workflow in workflows
-    ]
+    document = Document(
+        page_content=workflow.description,
+        metadata={
+            'wf_uid': str(workflow.uid),
+            'name': workflow.name,
+            'wf_type': int(workflow.wf_type),
+            'owner_id': workflow.owner_id,
+            'public': workflow.public,
+        },
+    )
     async with vectorstore:
-        await vectorstore.aadd_documents(documents)
+        ids = await vectorstore.aadd_documents([document])
+        if len(ids) != 1:
+            message = 'Workflow vector insertion did not return exactly one ID'
+            raise ValueError(message)
+        if replace:
+            new_ids = [int(value) for value in ids]
+            try:
+                await vectorstore.adelete(
+                    filter_expression='wf_uid == {uid} and pk not in {ids}',
+                    filter_params={'uid': str(workflow.uid), 'ids': new_ids},
+                )
+            except Exception:
+                # Do not retain a duplicate if replacing the old projection fails.
+                await vectorstore.adelete(
+                    filter_expression='wf_uid == {uid} and pk in {ids}',
+                    filter_params={'uid': str(workflow.uid), 'ids': new_ids},
+                )
+                raise
+
+
+async def _delete_workflow_index(uid: str) -> None:
+    """Remove the vector projection before committing the SQL deletion."""
+    vectorstore = MilvusVectorStore(
+        collection_name='WorkflowCollection',
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    async with vectorstore:
+        await vectorstore.adelete(filter_expression='wf_uid == {uid}', filter_params={'uid': uid})

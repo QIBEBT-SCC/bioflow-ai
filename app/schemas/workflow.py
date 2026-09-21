@@ -15,6 +15,11 @@ class WorkflowCreateProp(BaseModel):
     public: bool
 
 
+class WorkflowPortSimple(BaseModel):
+    id: str
+    name: str
+
+
 class WorkflowSimple(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,6 +27,9 @@ class WorkflowSimple(BaseModel):
     name: str
     description: str
     execution_scope: ExecutionScope
+    wf_type: WorkflowType
+    inputs: list[WorkflowPortSimple]
+    outputs: list[WorkflowPortSimple]
 
 
 class WorkflowPublic(BaseModel):
@@ -38,6 +46,8 @@ class WorkflowPublic(BaseModel):
 
 
 class WorkflowUpdate(BaseModel):
+    description: str | None = None
+    public: bool | None = None
     name: str | None = None
     execution_scope: ExecutionScope | None = None
     workflow: WorkflowDefinition | None = None

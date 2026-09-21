@@ -35,6 +35,7 @@ from app.schemas.workflow_run import (
     WorkflowRunStatistics,
 )
 from app.services.workflow.compiler import CompileContext, compile_run
+from app.services.workflow.subgraphs import inject_run_data
 from app.utils.input_format import to_safe_path_segment
 from app.utils.system import random_uid, utc_now
 
@@ -419,20 +420,19 @@ def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
             .order_by(NodeRun.position_index)
         )
     )
-    by_definition = {node.definition_node_id: node for node in nodes}
-    graph_nodes = []
-    for definition in run.workflow.nodes:
-        node_dict = definition.model_dump(mode='json')
-        node_run = by_definition.get(definition.id)
-        if node_run is not None:
-            node_dict.setdefault('data', {})['run_data'] = NodeRunData(
-                uid=node_run.uid,
-                status=node_run.status,
-                create_time=node_run.create_time,
-                start_time=node_run.start_time,
-                end_time=node_run.end_time,
+    graph_nodes = inject_run_data(
+        run.workflow,
+        {
+            node.definition_node_id: NodeRunData(
+                uid=node.uid,
+                status=node.status,
+                create_time=node.create_time,
+                start_time=node.start_time,
+                end_time=node.end_time,
             ).model_dump(mode='json')
-        graph_nodes.append(node_dict)
+            for node in nodes
+        },
+    )
     return WorkflowRunPublic(
         **WorkflowRunRecord.model_validate(run).model_dump(),
         nodes=graph_nodes,

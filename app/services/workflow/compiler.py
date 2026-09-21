@@ -15,6 +15,7 @@ from app.services.workflow.executors import (
     prepare_node,
     supported_node_types,
 )
+from app.services.workflow.subgraphs import flatten_workflow, validate_interface_handles
 
 
 class WorkflowCompileError(ValueError):
@@ -47,7 +48,13 @@ def _parse_target_handle(edge: Edge) -> str:
     return value
 
 
-def _validate_graph(workflow: WorkflowDefinition) -> tuple[dict[str, Node], list[Edge], list[str]]:
+def _validate_graph(
+    workflow: WorkflowDefinition, *, require_inputs: bool = False
+) -> tuple[dict[str, Node], list[Edge], list[str]]:
+    try:
+        workflow = flatten_workflow(workflow, require_inputs=require_inputs)
+    except ValueError as error:
+        raise WorkflowCompileError(str(error)) from error
     node_map: dict[str, Node] = {}
     for node in workflow.nodes:
         if not node.id:
@@ -118,7 +125,11 @@ def compile_run(
 
     The caller owns the surrounding transaction.  Nothing is published here.
     """
-    node_map, edges, order = _validate_graph(workflow)
+    try:
+        validate_interface_handles(workflow, session)
+    except ValueError as error:
+        raise WorkflowCompileError(str(error)) from error
+    node_map, edges, order = _validate_graph(workflow, require_inputs=True)
     node_runs: dict[str, NodeRun] = {}
 
     for position_index, node_id in enumerate(order, start=1):

@@ -9,9 +9,13 @@ from app.core.auth import MemberDep, UserDep
 from app.core.session import SessionDep
 from app.models.workflow import Workflow
 from app.schemas.common import Paginated
+from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.user_config import UserRole
 from app.schemas.workflow import WorkflowCreateProp, WorkflowPublic, WorkflowSimple, WorkflowUpdate
+from app.schemas.workflow_config import WorkflowType
 from app.services import workflow_catalog
+from app.services.workflow.compiler import validate_workflow
+from app.services.workflow.subgraphs import validate_interface_handles
 
 router = APIRouter()
 
@@ -20,6 +24,7 @@ router = APIRouter()
 async def get_workflows(
     session: SessionDep,
     current_user: UserDep,
+    wf_type: WorkflowType | None = None,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
 ) -> Paginated[WorkflowSimple]:
@@ -29,6 +34,7 @@ async def get_workflows(
         limit,
         offset,
         current_user.id,
+        wf_type=wf_type,
         include_private=current_user.role == UserRole.ADMIN,
         include_owned=current_user.role >= UserRole.MEMBER,
     )
@@ -60,7 +66,7 @@ async def save_workflow(
     if wf_crud.workflow_name_exists(session, workflow_prop.name):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='name already exists!')
 
-    # TODO: 合法性检查
+    _validate_definition(workflow_prop.workflow, workflow_prop.wf_type, workflow_prop.description, session)
 
     uid = uuid7()
     workflow = Workflow(
@@ -99,8 +105,32 @@ async def update_workflow(
     _current_user: UserDep,
 ) -> str:
     """Update an existing workflow's name and/or definition."""
+    existing = wf_crud.get(session, uid)
+    if existing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Workflow not found')
+    _validate_definition(
+        data.workflow or existing.workflow,
+        existing.wf_type,
+        data.description if data.description is not None else existing.description,
+        session,
+    )
     try:
-        workflow_catalog.update_workflow(session, uid, data)
+        await workflow_catalog.update_workflow(session, uid, data)
     except workflow_catalog.WorkflowCatalogNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     return uid
+
+
+def _validate_definition(
+    workflow: WorkflowDefinition, wf_type: WorkflowType, description: str, session: SessionDep
+) -> None:
+    if wf_type == WorkflowType.SUBMODULE and (not description.strip() or workflow.interface is None):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, 'Subgraphs require a description and interface definition'
+        )
+    if workflow.interface is not None or any(node.type == 'subgraph' for node in workflow.nodes):
+        try:
+            validate_workflow(workflow)
+            validate_interface_handles(workflow, session)
+        except ValueError as error:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error

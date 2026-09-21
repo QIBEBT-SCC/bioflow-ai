@@ -107,7 +107,7 @@ def _stage_update(
 
 
 @tool('finalize_workflow_fix', parse_docstring=True)
-def finalize_workflow_fix(
+async def finalize_workflow_fix(
     mode: Literal['save', 'no_change'],
     summary: str,
     runtime: ToolRuntime[WorkflowFixContext, WorkflowFixState],
@@ -190,7 +190,7 @@ def finalize_workflow_fix(
     temporary_path, final_path, update_path = _stage_update(runtime, summary)
     try:
         with Session(engine) as session:
-            workflow_catalog.update_workflow(
+            await workflow_catalog.update_workflow(
                 session,
                 runtime.context.workflow_uid,
                 WorkflowUpdate(workflow=definition),

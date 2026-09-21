@@ -57,6 +57,12 @@ from app.schemas.workflow_run import (
     WorkflowRunPublic,
     WorkflowRunStatistics,
 )
+from app.services.annotation_preview import (
+    ANNOTATION_KINDS,
+    AnnotationPreviewError,
+    annotation_metadata,
+    annotation_region,
+)
 from app.services.file_preview.service import run_preview
 from app.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
 from app.services.signal_preview import (
@@ -430,6 +436,18 @@ async def get_run_file_preview_meta(
                 'default_chromosome': None,
                 'has_more_chromosomes': False,
             }
+    if kind in ANNOTATION_KINDS:
+        try:
+            return await asyncio.to_thread(annotation_metadata, Path(str(path)), kind, body.query)
+        except AnnotationPreviewError as error:
+            return {
+                'kind': kind,
+                'supported': False,
+                'reason': str(error),
+                'chromosomes': [],
+                'default_chromosome': None,
+                'has_more_chromosomes': False,
+            }
     try:
         return await run_preview(base, path, 'meta', query=body.query)
     except HTTPException as error:
@@ -481,6 +499,18 @@ async def get_run_file_preview_region(
                 body.bins,
             )
         except SignalPreviewError as error:
+            raise HTTPException(422, str(error)) from error
+    if kind in ANNOTATION_KINDS:
+        try:
+            return await asyncio.to_thread(
+                annotation_region,
+                Path(str(path)),
+                kind,
+                body.chrom,
+                body.start,
+                body.end,
+            )
+        except AnnotationPreviewError as error:
             raise HTTPException(422, str(error)) from error
     return await run_preview(
         base,

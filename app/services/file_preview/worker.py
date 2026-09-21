@@ -31,6 +31,11 @@ class PreviewError(Exception):
 
 def file_kind(path: Path) -> str:
     """Choose a parser without sniffing arbitrary binary content as text."""
+    name = path.name.lower()
+    if name.endswith(('.gff.gz', '.gff3.gz')):
+        return 'gff'
+    if name.endswith(('.gtf.gz', '.gtt.gz')):
+        return 'gtf'
     suffix = path.suffix.lower()
     if suffix in {'.bw', '.bigwig'}:
         return 'bigwig'
@@ -42,6 +47,10 @@ def file_kind(path: Path) -> str:
         return 'bedgraph'
     if suffix in {'.wig', '.wiggle'}:
         return 'wig'
+    if suffix in {'.gff', '.gff3'}:
+        return 'gff'
+    if suffix in {'.gtf', '.gtt'}:
+        return 'gtf'
     if suffix in {'.hic', '.cool', '.mcool'}:
         return suffix[1:]
     raise PreviewError('unsupported', 'This file format has no genomic preview.')
