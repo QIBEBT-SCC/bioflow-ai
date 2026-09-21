@@ -75,8 +75,12 @@ def to_simple(workflow: Workflow) -> dict:
         'description': workflow.description,
         'execution_scope': workflow.execution_scope,
         'wf_type': workflow.wf_type,
-        'inputs': [{'id': port.id, 'name': port.name} for port in interface.inputs] if interface is not None else [],
-        'outputs': [{'id': port.id, 'name': port.name} for port in interface.outputs] if interface is not None else [],
+        'inputs': [{'id': port.id, 'name': port.name, 'description': port.description} for port in interface.inputs]
+        if interface is not None
+        else [],
+        'outputs': [{'id': port.id, 'name': port.name, 'description': port.description} for port in interface.outputs]
+        if interface is not None
+        else [],
     }
 
 
@@ -148,10 +152,14 @@ def get_page(
                 'execution_scope': execution_scope,
                 'wf_type': workflow_type,
                 'inputs': (
-                    [{'id': port.id, 'name': port.name} for port in interface.inputs] if interface is not None else []
+                    [{'id': port.id, 'name': port.name, 'description': port.description} for port in interface.inputs]
+                    if interface is not None
+                    else []
                 ),
                 'outputs': (
-                    [{'id': port.id, 'name': port.name} for port in interface.outputs] if interface is not None else []
+                    [{'id': port.id, 'name': port.name, 'description': port.description} for port in interface.outputs]
+                    if interface is not None
+                    else []
                 ),
             }
         )

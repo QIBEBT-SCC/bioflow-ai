@@ -18,6 +18,7 @@ class WorkflowCreateProp(BaseModel):
 class WorkflowPortSimple(BaseModel):
     id: str
     name: str
+    description: str = ''
 
 
 class WorkflowSimple(BaseModel):

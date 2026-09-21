@@ -47,12 +47,14 @@ class PortTarget(BaseModel):
 class InterfaceInput(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    description: str = ''
     targets: list[PortTarget] = Field(min_length=1)
 
 
 class InterfaceOutput(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    description: str = ''
     source: PortTarget
 
 
