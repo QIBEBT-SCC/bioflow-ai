@@ -47,6 +47,25 @@ async def get_workflows(
     )
 
 
+@router.get('/search')
+async def search_subgraphs(
+    session: SessionDep,
+    current_user: UserDep,
+    q: Annotated[str, Query(min_length=1, max_length=512)],
+    limit: Annotated[int, Query(ge=1, le=20)] = 20,
+) -> list[WorkflowSimple]:
+    """Search accessible saved subgraphs by semantic similarity."""
+    workflows = await workflow_catalog.search_subgraphs(
+        session,
+        q,
+        current_user.id,
+        include_private=current_user.role == UserRole.ADMIN,
+        include_owned=current_user.role >= UserRole.MEMBER,
+        limit=limit,
+    )
+    return [WorkflowSimple.model_validate(wf_crud.to_simple(workflow)) for workflow in workflows]
+
+
 @router.get('/{uid}')
 async def get_workflow(uid: str, session: SessionDep, _current_user: UserDep) -> WorkflowPublic:
     """Get a workflow by its UID."""

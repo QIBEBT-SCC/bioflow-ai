@@ -1,5 +1,8 @@
+from collections.abc import Sequence
+
 from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import SQLColumnExpression
 
 from app.models.workflow import Workflow
 from app.schemas.workflow import WorkflowUpdate
@@ -50,6 +53,58 @@ def workflow_name_exists(session: Session, name: str) -> bool:
     return session.scalar(statement) is not None
 
 
+def _visibility_condition(
+    user_id: int,
+    *,
+    include_private: bool,
+    include_owned: bool,
+) -> SQLColumnExpression[bool]:
+    if include_private:
+        return true()
+    if include_owned:
+        return or_(Workflow.public, Workflow.owner_id == user_id)
+    return Workflow.public
+
+
+def to_simple(workflow: Workflow) -> dict:
+    """Return the list/search projection for one workflow."""
+    interface = workflow.workflow.interface
+    return {
+        'uid': workflow.uid,
+        'name': workflow.name,
+        'description': workflow.description,
+        'execution_scope': workflow.execution_scope,
+        'wf_type': workflow.wf_type,
+        'inputs': [{'id': port.id, 'name': port.name} for port in interface.inputs] if interface is not None else [],
+        'outputs': [{'id': port.id, 'name': port.name} for port in interface.outputs] if interface is not None else [],
+    }
+
+
+def get_all_by_uid(
+    session: Session,
+    uids: Sequence[UUIDLike],
+    user_id: int,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
+    wf_type: WorkflowType | None = None,
+) -> list[Workflow]:
+    """Return accessible workflows in the same relevance order as the requested UIDs."""
+    if not uids:
+        return []
+    normalized_uids = list(dict.fromkeys(as_uuid(uid) for uid in uids))
+    condition = _visibility_condition(
+        user_id,
+        include_private=include_private,
+        include_owned=include_owned,
+    )
+    if wf_type is not None:
+        condition = and_(condition, Workflow.wf_type == wf_type)
+    statement = select(Workflow).where(condition, Workflow.uid.in_(normalized_uids))
+    workflows = {workflow.uid: workflow for workflow in session.scalars(statement).all()}
+    return [workflows[uid] for uid in normalized_uids if uid in workflows]
+
+
 def get_page(
     session: Session,
     limit: int,
@@ -61,12 +116,11 @@ def get_page(
     wf_type: WorkflowType | None = None,
 ) -> tuple[list[dict], int]:
     """Return a page of workflows accessible to a user together with the total count."""
-    if include_private:
-        condition = true()
-    elif include_owned:
-        condition = or_(Workflow.public, Workflow.owner_id == user_id)
-    else:
-        condition = Workflow.public
+    condition = _visibility_condition(
+        user_id,
+        include_private=include_private,
+        include_owned=include_owned,
+    )
     if wf_type is not None:
         condition = and_(condition, Workflow.wf_type == wf_type)
     columns = (

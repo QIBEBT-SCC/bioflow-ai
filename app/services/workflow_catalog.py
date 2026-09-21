@@ -1,6 +1,7 @@
 """Application services for workflow-template persistence and indexing."""
 
 from collections.abc import Sequence
+from uuid import UUID
 
 from langchain_core.documents import Document
 from sqlalchemy.orm import Session
@@ -9,12 +10,14 @@ import app.crud.workflow as workflow_crud
 from app.core.config import get_settings
 from app.models.workflow import Workflow
 from app.schemas.workflow import WorkflowUpdate
+from app.schemas.workflow_config import WorkflowType
 from app.services._transaction import committing
 from app.utils.identifiers import UUIDLike
 from llm.models import qwen3_embedding
 from llm.vectorstores import MilvusVectorStore
 
 _WORKFLOW_NOT_FOUND = 'Workflow not found'
+WORKFLOW_COLLECTION = 'WorkflowCollection'
 
 
 class WorkflowCatalogError(Exception):
@@ -23,6 +26,53 @@ class WorkflowCatalogError(Exception):
 
 class WorkflowCatalogNotFoundError(WorkflowCatalogError):
     """A requested workflow template does not exist."""
+
+
+async def search_subgraphs(
+    session: Session,
+    query: str,
+    user_id: int,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
+    limit: int = 20,
+) -> list[Workflow]:
+    """Find accessible saved subgraphs by description-vector similarity."""
+    normalized_query = query.strip()
+    if not normalized_query:
+        return []
+    filters = [f'wf_type == {int(WorkflowType.SUBMODULE)}']
+    if not include_private:
+        filters.append(f'(public == true or owner_id == {user_id})' if include_owned else 'public == true')
+    vectorstore = MilvusVectorStore(
+        collection_name=WORKFLOW_COLLECTION,
+        embedding_function=qwen3_embedding(),
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    search_query = (
+        f'Instruct: Find saved workflow subgraphs relevant to the requested function\nQuery:{normalized_query}'
+    )
+    async with vectorstore:
+        documents = await vectorstore.asimilarity_search(
+            search_query,
+            k=limit,
+            filter_expression=' and '.join(filters),
+            weights=(1.0, 0.0),
+        )
+    valid_uids = [
+        UUID(document.metadata.get('wf_uid'))
+        for document in documents
+        if isinstance(document.metadata.get('wf_uid'), str)
+    ]
+    return workflow_crud.get_all_by_uid(
+        session,
+        valid_uids,
+        user_id,
+        include_private=include_private,
+        include_owned=include_owned,
+        wf_type=WorkflowType.SUBMODULE,
+    )
 
 
 async def create_workflow(session: Session, workflow: Workflow) -> Workflow:
@@ -63,13 +113,20 @@ async def delete_workflow(session: Session, uid: UUIDLike) -> None:
         if workflow is None:
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
         workflow_crud.delete(session, uid)
-        await _delete_workflow_index(str(workflow.uid))
+
+        vectorstore = MilvusVectorStore(
+            collection_name=WORKFLOW_COLLECTION,
+            uri=get_settings().knowledge_base.MILVUS_URL,
+            hybrid=True,
+        )
+        async with vectorstore:
+            await vectorstore.adelete(filter_expression='wf_uid == {uid}', filter_params={'uid': str(workflow.uid)})
 
 
 async def _index_workflow(workflow: Workflow, *, replace: bool = False) -> None:
     """Write the description before removing an existing projection."""
     vectorstore = MilvusVectorStore(
-        collection_name='WorkflowCollection',
+        collection_name=WORKFLOW_COLLECTION,
         embedding_function=qwen3_embedding(),
         uri=get_settings().knowledge_base.MILVUS_URL,
         hybrid=True,
@@ -103,14 +160,3 @@ async def _index_workflow(workflow: Workflow, *, replace: bool = False) -> None:
                     filter_params={'uid': str(workflow.uid), 'ids': new_ids},
                 )
                 raise
-
-
-async def _delete_workflow_index(uid: str) -> None:
-    """Remove the vector projection before committing the SQL deletion."""
-    vectorstore = MilvusVectorStore(
-        collection_name='WorkflowCollection',
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    async with vectorstore:
-        await vectorstore.adelete(filter_expression='wf_uid == {uid}', filter_params={'uid': uid})
