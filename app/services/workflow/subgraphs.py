@@ -99,23 +99,6 @@ def flatten_workflow(workflow: WorkflowDefinition, *, require_inputs: bool = Fal
                 required_targets.append((f'{"/".join(path) or "root"}.{port.name}', targets))
             for port in graph.interface.outputs:
                 outputs[port.id] = resolve(port.source.node_id, port.source.handle, 'output')
-            for parameter in graph.interface.parameters:
-                target_graph = graph
-                target = None
-                for index, node_id in enumerate(parameter.node_path):
-                    target = next((node for node in target_graph.nodes if node.id == node_id), None)
-                    if target is None:
-                        _fail(f'{path}: missing parameter target {parameter.name}')
-                    if index < len(parameter.node_path) - 1:
-                        if target.type != 'subgraph':
-                            _fail(f'{path}: invalid parameter path {parameter.name}')
-                        target_graph = WorkflowDefinition.model_validate(target.data.get('workflow'))
-                if (
-                    target is None
-                    or parameter.field not in target.data
-                    or parameter.field in {'run_data', 'workflow', 'tool_uid', 'source_uid'}
-                ):
-                    _fail(f'{path}: invalid parameter field {parameter.name}')
         return inputs, outputs
 
     visit(workflow, ())

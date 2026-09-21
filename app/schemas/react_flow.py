@@ -56,13 +56,6 @@ class InterfaceOutput(BaseModel):
     source: PortTarget
 
 
-class InterfaceParameter(BaseModel):
-    id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    node_path: list[str] = Field(min_length=1)
-    field: str = Field(min_length=1)
-
-
 class InterfacePositions(BaseModel):
     inputs: Position
     outputs: Position
@@ -72,12 +65,11 @@ class WorkflowInterface(BaseModel):
     positions: InterfacePositions | None = None
     inputs: list[InterfaceInput] = Field(default_factory=list)
     outputs: list[InterfaceOutput] = Field(default_factory=list)
-    parameters: list[InterfaceParameter] = Field(default_factory=list)
 
     @model_validator(mode='after')
     def unique_ids(self) -> 'WorkflowInterface':
         """Port identities are independent of their editable display names."""
-        for ports in (self.inputs, self.outputs, self.parameters):
+        for ports in (self.inputs, self.outputs):
             if len({port.id for port in ports}) != len(ports):
                 message = 'Duplicate interface ID'
                 raise ValueError(message)
