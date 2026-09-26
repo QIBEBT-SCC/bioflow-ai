@@ -52,19 +52,6 @@ from llm.vectorstores import MilvusVectorStore
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
-SUMMARY_SYS = """You are an expert summarizer creating a concise log of previously completed web research to prevent redundant work.
-Analyze the provided context of `web_searcher` and `web_reader` tool calls. Your task is to create a historical record of what has been searched and what was learned from the pages that were actually **read**.
-Group the results under the specific search query that led to them.
-
-**Strictly adhere to the following nested format for your output:**
-
-*   **Query:** "[Insert the exact search query text here]"
-    *   **Link:** [The URL that was read]
-    *   **Extracted Information:** [A summary of the key information from that page. If the content was irrelevant or unhelpful, state "No useful information found."]
-
-*If multiple pages were read for a single query, list each one as a separate "Link" entry under that query.*
-"""
-
 SELECT_IMAGE_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, analysis data, etc., into individual nodes. Now, what we need to do is encapsulate a new node.
 To achieve this, your first task is to **find available Docker images** based on the user's description, which will serve as the foundation for encapsulation.
