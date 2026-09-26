@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.orm import Session
 from starlette import status
 from uuid_extensions import uuid7
 
@@ -10,6 +11,7 @@ from app.core.session import SessionDep
 from app.models.workflow import Workflow
 from app.schemas.common import Paginated
 from app.schemas.react_flow import WorkflowDefinition
+from app.schemas.user import CurrentUser
 from app.schemas.user_config import UserRole
 from app.schemas.workflow import WorkflowCreateProp, WorkflowPublic, WorkflowSimple, WorkflowUpdate
 from app.schemas.workflow_config import WorkflowType
@@ -18,6 +20,16 @@ from app.services.workflow.compiler import validate_workflow
 from app.services.workflow.subgraphs import validate_interface_handles
 
 router = APIRouter()
+
+
+def _get_workflow_for_user(session: Session, uid: str, user: CurrentUser, *, edit: bool = False) -> Workflow:
+    """Apply the list visibility rule and restrict writes to owners or admins."""
+    workflow = wf_crud.get(session, uid)
+    is_admin = user.role == UserRole.ADMIN
+    is_owner = user.role >= UserRole.MEMBER and workflow is not None and workflow.owner_id == user.id
+    if workflow is None or not (is_admin or is_owner or (not edit and workflow.public)):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Workflow not found')
+    return workflow
 
 
 @router.get('')
@@ -67,11 +79,9 @@ async def search_subgraphs(
 
 
 @router.get('/{uid}')
-async def get_workflow(uid: str, session: SessionDep, _current_user: UserDep) -> WorkflowPublic:
+async def get_workflow(uid: str, session: SessionDep, current_user: UserDep) -> WorkflowPublic:
     """Get a workflow by its UID."""
-    workflow = wf_crud.get(session, uid)
-    if workflow is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Workflow not found')
+    workflow = _get_workflow_for_user(session, uid, current_user)
     return WorkflowPublic.model_validate(workflow)
 
 
@@ -107,9 +117,10 @@ async def save_workflow(
 async def delete_workflow(
     uid: str,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: MemberDep,
 ) -> None:
     """Delete a workflow by its UID."""
+    _get_workflow_for_user(session, uid, current_user, edit=True)
     try:
         await workflow_catalog.delete_workflow(session, uid)
     except workflow_catalog.WorkflowCatalogNotFoundError as error:
@@ -121,12 +132,10 @@ async def update_workflow(
     uid: str,
     data: WorkflowUpdate,
     session: SessionDep,
-    _current_user: UserDep,
+    current_user: MemberDep,
 ) -> str:
     """Update an existing workflow's name and/or definition."""
-    existing = wf_crud.get(session, uid)
-    if existing is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Workflow not found')
+    existing = _get_workflow_for_user(session, uid, current_user, edit=True)
     _validate_definition(
         data.workflow or existing.workflow,
         existing.wf_type,
