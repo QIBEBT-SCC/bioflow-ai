@@ -465,6 +465,7 @@ def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
         **record,
         nodes=graph_nodes,
         edges=run.workflow.edges,
+        interface=run.workflow.interface,
         node_statistics=_node_statistics(nodes),
     )
 

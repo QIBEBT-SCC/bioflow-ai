@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.react_flow import Edge
+from app.schemas.react_flow import Edge, WorkflowInterface
 from app.schemas.workflow_config import ToolOutput
 
 
@@ -109,6 +109,7 @@ class WorkflowRunPublic(WorkflowRunRecord):
 
     nodes: list[dict[str, Any]] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
+    interface: WorkflowInterface | None = None
     node_statistics: NodeRunStatistics = Field(default_factory=NodeRunStatistics)
 
 
