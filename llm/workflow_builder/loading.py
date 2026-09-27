@@ -12,6 +12,7 @@ from app.utils.input_format import build_command_template
 from llm.states import BuildEdge, BuildNode, WorkflowDraft
 from llm.utils.node_schema import PROCESSORS, RESOURCES
 from llm.workflow_builder.node_ids import canonicalize_build_graph, has_canonical_node_ids
+from llm.workflow_builder.subgraphs import effective_nodes, remap_interface
 
 
 class WorkflowLoadError(ValueError):
@@ -86,6 +87,19 @@ def _registered_node(node_id: str, node_type: str, data: dict) -> BuildNode | No
 
 
 def _fixed_node(node_id: str, node_type: str, data: dict) -> BuildNode | None:
+    if node_type == 'subgraph':
+        child = WorkflowDefinition.model_validate(data.get('workflow'))
+        if child.interface is None:
+            message = f'Subgraph {node_id} has no interface.'
+            raise WorkflowLoadError(message)
+        return BuildNode(
+            id=node_id,
+            name=str(data.get('name') or 'Subgraph'),
+            type='subgraph',
+            input_handles=[Handle(name=port.id, description=port.description) for port in child.interface.inputs],
+            output_handles=[Handle(name=port.id, description=port.description) for port in child.interface.outputs],
+            data=dict(data),
+        )
     if node_type in {'code_bash', 'code_python', 'code_R'}:
         language = {'code_bash': 'Bash', 'code_python': 'Python', 'code_R': 'R'}[node_type]
         return BuildNode(
@@ -147,6 +161,11 @@ def load_workflow_draft(
         except ValueError as error:
             raise WorkflowLoadError(str(error)) from error
 
+    try:
+        nodes = effective_nodes(nodes, edges)
+    except ValueError as error:
+        raise WorkflowLoadError(str(error)) from error
+
     scope = 'project_level' if execution_scope == ExecutionScope.PROJECT_LEVEL else 'sample_level'
     return LoadedWorkflowDraft(
         draft=WorkflowDraft(
@@ -156,6 +175,7 @@ def load_workflow_draft(
             execution_scope=scope,
             nodes=nodes,
             edges=edges,
+            interface=remap_interface(workflow.interface, id_mapping),
             next_node_index=len(nodes) + 1,
         ),
         node_id_mapping=id_mapping,

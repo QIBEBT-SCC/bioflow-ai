@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, Literal
 
 from langchain_core.messages import ToolMessage
@@ -408,6 +409,19 @@ def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectCon
 
 
 async def _search_nodes(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+    normalized_query = query.casefold()
+    named_processors = [
+        {'name': name, 'description': schema['description']}
+        for name, schema in PROCESSORS.items()
+        if any(
+            re.search(rf'(?<![a-z0-9_]){re.escape(alias)}(?![a-z0-9_])', normalized_query)
+            for alias in {name.casefold(), schema['name'].casefold()}
+        )
+    ]
+    if named_processors:
+        content = f'<UtilityNodes>\n{json.dumps({"processors": named_processors, "codes": []})}\n</UtilityNodes>'
+        return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
+
     results = await retrieve_auxiliary_nodes(query)
 
     if not results:

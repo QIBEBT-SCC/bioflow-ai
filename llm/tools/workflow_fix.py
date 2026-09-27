@@ -14,11 +14,14 @@ from app.core.session import engine
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.workflow import WorkflowUpdate
 from app.services import workflow_catalog
+from app.services.workflow.compiler import validate_workflow
+from app.services.workflow.subgraphs import validate_interface_handles
 from app.utils.system import utc_now
 from llm.context import WorkflowFixContext
 from llm.states import BuildEdge, BuildNode, WorkflowFixState
 from llm.workflow_builder.node_ids import canonicalize_build_graph, compose_node_id_mappings
 from llm.workflow_builder.serialization import build_workflow_definition
+from llm.workflow_builder.subgraphs import effective_nodes, remap_interface, validate_editing_edges
 from llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 
 
@@ -28,6 +31,8 @@ def _validation_errors(nodes: list[BuildNode], edges: list[BuildEdge]) -> list[s
         errors.append('The workflow cannot be empty.')
     if orphans := check_orphan_edges(edges):
         errors.append(f'The workflow has {len(orphans)} orphan edge(s).')
+    errors.extend(validate_editing_edges(nodes, edges))
+    nodes = effective_nodes(nodes, edges) if not errors else nodes
 
     nodes_by_id = {node.id: node for node in nodes}
     if len(nodes_by_id) != len(nodes):
@@ -171,10 +176,34 @@ async def finalize_workflow_fix(
         original_to_editing = {node.id: node.id for node in original.nodes}
     saved_to_original = compose_node_id_mappings(original_to_editing, editing_to_saved)
     definition = _preserve_canvas_metadata(
-        build_workflow_definition(canonical_nodes, canonical_edges),
+        build_workflow_definition(
+            canonical_nodes,
+            canonical_edges,
+            remap_interface(
+                original.interface,
+                {
+                    original_id: editing_to_saved[editing_id]
+                    for original_id, editing_id in original_to_editing.items()
+                    if editing_id in editing_to_saved
+                },
+            ),
+        ),
         original,
         saved_to_original,
     )
+    if {'subgraph', 'collect_file_collection'} & {node.type for node in definition.nodes}:
+        try:
+            validate_workflow(definition)
+            with Session(engine) as session:
+                validate_interface_handles(definition, session)
+        except ValueError as error:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(content=f'Cannot save the workflow: {error}', tool_call_id=runtime.tool_call_id)
+                    ]
+                }
+            )
     if definition.model_dump(mode='json') == original.model_dump(mode='json'):
         return Command(
             update={

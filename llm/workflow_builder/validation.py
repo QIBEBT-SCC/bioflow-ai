@@ -37,6 +37,13 @@ def validate_node_addition(
     if draft is None:
         return 'Create or select a workflow draft before adding nodes.'
 
+    if state.get('subgraph_purpose') == 'foreach' and node_type in {
+        'collect_file_collection',
+        'sample_mark',
+        'project_mark',
+    }:
+        return f'{node_type} is unavailable inside a ForEach subgraph.'
+
     scope = draft.execution_scope
     if scope == 'sample_level' and node_type == 'project_mark':
         return 'Cannot add `project_mark` to a sample-level workflow. Use `sample_mark` instead.'

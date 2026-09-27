@@ -36,6 +36,8 @@ Your ultimate task is to use the `write_plan` tool to submit a complete analysis
 The plan will serve as a reference for the downstream workflow-build-agent during actual execution. Use your bioinformatics expertise to supplement necessary analytical steps, select appropriate tools, explain non-obvious design decisions, and define correct workflow execution boundaries.
 Leave specific tool parameters, exact tool outputs, and filenames for the workflow-building agent to determine through practical exploration.
 
+When one workflow dynamically produces an unknown number of files (for example, bin FASTA files) and each needs the same further analysis, keep this as a per-file ForEach subgraph stage inside that workflow. Distinguish it from running the whole workflow once per registered sample and from collecting outputs of separate sample runs in a project-level workflow. Describe the single-file subgraph task, its item input, any shared inputs, and the result needed for later analysis; let the builder choose the actual glob after inspecting the producing tool.
+
 Before drafting or updating a plan, select the most appropriate available skill based on the user's request and call `load_skill` to read its detailed instructions. Then complete the task according to that skill's workflow and the plan-writing requirements below.
 
 ## How to write plan

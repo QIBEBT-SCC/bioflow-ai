@@ -6,6 +6,7 @@ from langchain.agents import AgentState
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 
+from app.schemas.react_flow import WorkflowInterface
 from app.schemas.tool_config import FileMount, ImageConfig, ParamDefine
 from app.schemas.tools import Handle
 from llm.tools.test_run_report import TestRunReport
@@ -144,6 +145,7 @@ class WorkflowDraft(BaseModel):
     execution_scope: Literal['sample_level', 'project_level'] = 'sample_level'
     nodes: list[BuildNode] = Field(default_factory=list)
     edges: list[BuildEdge] = Field(default_factory=list)
+    interface: WorkflowInterface | None = None
     next_node_index: int = Field(default=1, ge=1)
 
 
@@ -161,8 +163,19 @@ class BuildState(AgentState, total=False):
     workflow_drafts: dict[str, WorkflowDraft]
 
     workflow_uids: Annotated[list[uuid.UUID], operator.add]
+    new_subgraphs: Annotated[list[uuid.UUID], operator.add]
     new_tools: Annotated[list[uuid.UUID], operator.add]
     new_dbs: Annotated[list[int], operator.add]
+
+
+class SubgraphBuildState(BuildState, total=False):
+    subgraph_outputs: list[dict[str, Any]]
+    subgraph_outputs_set: bool
+    subgraph_uid: uuid.UUID
+    subgraph_creation_id: str
+    subgraph_purpose: Literal['ordinary', 'foreach']
+    return_to_parent: bool
+    parent_request: str
 
 
 class WorkflowFixState(BuildState, total=False):

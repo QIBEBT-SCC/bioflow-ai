@@ -1,6 +1,6 @@
 """Serialization helpers for workflow-builder state."""
 
-from app.schemas.react_flow import Edge, Node, WorkflowDefinition
+from app.schemas.react_flow import Edge, Node, WorkflowDefinition, WorkflowInterface
 from app.schemas.workflow_config import ExecutionScope
 from llm.states import BuildEdge, BuildNode
 from llm.workflow_builder.drafts import WorkflowScope
@@ -19,7 +19,9 @@ def format_execution_scope(scope: ExecutionScope | int) -> str:
         return f'UNKNOWN({scope})'
 
 
-def build_workflow_definition(exist_nodes: list[BuildNode], exist_edges: list[BuildEdge]) -> WorkflowDefinition:
+def build_workflow_definition(
+    exist_nodes: list[BuildNode], exist_edges: list[BuildEdge], interface: WorkflowInterface | None = None
+) -> WorkflowDefinition:
     """Convert builder nodes and edges into the ReactFlow workflow definition."""
     nodes = []
     for n in exist_nodes:
@@ -57,4 +59,4 @@ def build_workflow_definition(exist_nodes: list[BuildNode], exist_edges: list[Bu
         )
         edges.append(edge)
 
-    return WorkflowDefinition(nodes=nodes, edges=edges)
+    return WorkflowDefinition(nodes=nodes, edges=edges, interface=interface)

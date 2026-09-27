@@ -77,10 +77,17 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
     changes: list[dict[str, Any]] = []
     if run.agent_name == AgentName.WORKFLOW_BUILDER.value:
         workflow_uids = [str(value) for value in values.get('workflow_uids') or []]
+        subgraph_uids = [str(value) for value in values.get('new_subgraphs') or []]
         tool_uids = [str(value) for value in values.get('new_tools') or []]
         database_ids = [int(value) for value in values.get('new_dbs') or []]
-        result.update(workflow_uids=workflow_uids, tool_uids=tool_uids, database_ids=database_ids)
+        result.update(
+            workflow_uids=workflow_uids,
+            subgraph_uids=subgraph_uids,
+            tool_uids=tool_uids,
+            database_ids=database_ids,
+        )
         changes.extend({'resource': 'workflow', 'uid': uid, 'project_id': run.project_id} for uid in workflow_uids)
+        changes.extend({'resource': 'workflow', 'uid': uid} for uid in subgraph_uids)
         changes.extend({'resource': 'tool', 'uid': uid} for uid in tool_uids)
         changes.extend({'resource': 'database', 'id': value} for value in database_ids)
         if values.get('samples_changed'):

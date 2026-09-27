@@ -6,7 +6,11 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy.orm import Session
 
+from app.core.session import engine
+from app.services.workflow.compiler import validate_workflow
+from app.services.workflow.subgraphs import validate_interface_handles
 from llm.context import ProjectContext
 from llm.states import BuildEdge, BuildNode
 from llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
@@ -22,6 +26,8 @@ from llm.workflow_builder.messages import (
 )
 from llm.workflow_builder.node_ids import remove_node_from_build_graph
 from llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
+from llm.workflow_builder.serialization import build_workflow_definition
+from llm.workflow_builder.subgraphs import effective_nodes, validate_editing_edges
 from llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 
 
@@ -538,7 +544,7 @@ def _update_workflow_metadata(
 def _view_workflow(runtime: ToolRuntime[ProjectContext]) -> Command:
     if runtime.state.get('exist_nodes', []):
         nodes = []
-        for node in runtime.state.get('exist_nodes', []):
+        for node in effective_nodes(runtime.state.get('exist_nodes', []), runtime.state.get('exist_edges', [])):
             node_summary = {
                 'id': node.id,
                 'name': node.name,
@@ -564,7 +570,7 @@ def _view_workflow(runtime: ToolRuntime[ProjectContext]) -> Command:
 
 
 def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
-    for n in runtime.state.get('exist_nodes', []):
+    for n in effective_nodes(runtime.state.get('exist_nodes', []), runtime.state.get('exist_edges', [])):
         if n.id == node_id:
             if n.type.startswith('code_'):
                 content = json.dumps(
@@ -611,6 +617,18 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
         exist_edges,
         node_id,
     )
+    if problems := validate_editing_edges(remaining_nodes, remaining_edges):
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='Cannot delete node; repair dependent edges first: ' + '; '.join(problems),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+    remaining_nodes = effective_nodes(remaining_nodes, remaining_edges)
 
     # Build deletion report
     if removed_edges:
@@ -634,54 +652,22 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
         'Remaining node IDs were preserved.'
     )
 
-    return Command(
-        update={
-            'exist_nodes': Overwrite(remaining_nodes),
-            'exist_edges': Overwrite(remaining_edges),
-            'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
-        }
-    )
+    update: dict[str, Any] = {
+        'exist_nodes': Overwrite(remaining_nodes),
+        'exist_edges': Overwrite(remaining_edges),
+        'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
+    }
+    if 'subgraph_outputs' in runtime.state:
+        kept_outputs = [output for output in runtime.state['subgraph_outputs'] if output['source_node'] != node_id]
+        update['subgraph_outputs'] = kept_outputs
+        if len(kept_outputs) != len(runtime.state['subgraph_outputs']):
+            update['subgraph_outputs_set'] = False
+    return Command(update=update)
 
 
 def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     exist_edges: list[BuildEdge] = runtime.state.get('exist_edges', [])
-
-    nodes_by_id = {n.id: n for n in exist_nodes}
-    errors: list[str] = []
-    for i, item in enumerate(params.edges, 1):
-        src = nodes_by_id.get(item.source_node)
-        tgt = nodes_by_id.get(item.target_node)
-        if src is None:
-            errors.append(f"  edge {i}: source node '{item.source_node}' does not exist.")
-            continue
-        if tgt is None:
-            errors.append(f"  edge {i}: target node '{item.target_node}' does not exist.")
-            continue
-        src_handles = {h.name for h in src.output_handles}
-        if item.source_handle not in src_handles:
-            errors.append(
-                f"  edge {i}: source '{item.source_node}' has no output handle "
-                f"'{item.source_handle}'. Available: {sorted(src_handles)}."
-            )
-        tgt_handles = {h.name for h in tgt.input_handles}
-        if item.target_handle not in tgt_handles:
-            errors.append(
-                f"  edge {i}: target '{item.target_node}' has no input handle "
-                f"'{item.target_handle}'. Available: {sorted(tgt_handles)}."
-            )
-
-    if errors:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='fix_edge rejected, no changes applied:\n' + '\n'.join(errors),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
 
     cleaned_edges = [] if params.replace_all else [e for e in exist_edges if e.target_node is not None]
     removed = len(exist_edges) if params.replace_all else len(exist_edges) - len(cleaned_edges)
@@ -695,6 +681,18 @@ def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Co
         for item in params.edges
     ]
     cleaned_edges.extend(new_edges)
+    if errors := validate_editing_edges(exist_nodes, cleaned_edges):
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='fix_edge rejected, no changes applied:\n' + '\n'.join(errors),
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
+    projected_nodes = effective_nodes(exist_nodes, cleaned_edges)
 
     added_lines = '\n'.join(
         f'  + {item.source_node}[{item.source_handle}] -> {item.target_node}[{item.target_handle}]'
@@ -705,6 +703,7 @@ def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Co
 
     return Command(
         update={
+            'exist_nodes': Overwrite(projected_nodes),
             'exist_edges': Overwrite(cleaned_edges),
             'messages': [ToolMessage(content=msg, tool_call_id=runtime.tool_call_id)],
         }
@@ -767,6 +766,24 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
 
     validation_errors = []
     for draft in drafts.values():
+        if {'subgraph', 'collect_file_collection'} & {node.type for node in draft.nodes}:
+            boundary_errors = validate_editing_edges(draft.nodes, draft.edges)
+            validation_errors.extend(f'- {draft.draft_id} ("{draft.name}"): {problem}' for problem in boundary_errors)
+            for node in draft.nodes:
+                if node.type == 'subgraph':
+                    connected = {edge.target_handle for edge in draft.edges if edge.target_node == node.id}
+                    missing = {handle.name for handle in node.input_handles} - connected
+                    if missing:
+                        boundary_errors.append(f'{node.id} lacks inputs {sorted(missing)}')
+                        validation_errors.append(f'- {draft.draft_id}: {boundary_errors[-1]}')
+            if not boundary_errors:
+                try:
+                    definition = build_workflow_definition(draft.nodes, draft.edges, draft.interface)
+                    validate_workflow(definition)
+                    with Session(engine) as session:
+                        validate_interface_handles(definition, session)
+                except ValueError as error:
+                    validation_errors.append(f'- {draft.draft_id} ("{draft.name}"): {error}')
         node_ids = [node.id for node in draft.nodes]
         if len(node_ids) != len(set(node_ids)):
             validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has duplicate node IDs.')

@@ -25,7 +25,7 @@ async def save_workflow_drafts(drafts: list[WorkflowDraft], user_id: int) -> lis
                 edges = draft.edges
             else:
                 nodes, edges, _ = canonicalize_build_graph(draft.nodes, draft.edges)
-            workflow_define = build_workflow_definition(nodes, edges)
+            workflow_define = build_workflow_definition(nodes, edges, draft.interface)
             workflow = Workflow(
                 name=f'{now.strftime("%y%m%d")}_{draft.name}(AI)',
                 description=draft.description,

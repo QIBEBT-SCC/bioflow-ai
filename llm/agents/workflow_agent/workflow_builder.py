@@ -14,6 +14,7 @@ from llm.states import BuildState
 from llm.tools.human import ask_human
 from llm.tools.managers import (
     resource_node_manager,
+    subgraph_node_manager,
     tool_node_manager,
     utility_node_manager,
     workflow_manager,
@@ -100,6 +101,11 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息数据分析师, 正在操作一�
     - `delete_node`: 从活动工作流面板中移除现有节点
     - `fix_edge`: 替换活动工作流面板中的孤立边
     - `save_all_workflows`: 每个工作流完成后, 将所有工作流草稿保存到数据库中
+- `subgraph_node_manager` — 检索、查看、创建或添加可复用子图
+    - `search`、`view`: 检查已有子图及输入输出接口
+    - `create`: 委派独立智能体创建并立即保存子图, 返回真实 UID
+    - `add`: 按 UID 把子图快照作为节点添加到当前工作流草稿
+    - 流程内动态产生未知数量文件时, 先阅读 `using-foreach-subgraphs` 技能; 将文件收集节点的 collection 输出接到子图的逐项输入, 批量结果从 results_folder 继续分析
 
 在执行具体操作前, 通过 `action="help"` 详细了解各个交互工具中具体操作的参数格式, 如:
 - `tool_node_manager(action="help", params={"action": "search"}`): 查看 `search` 操作的具体参数
@@ -183,6 +189,7 @@ metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
 
 WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work', 'ask_human'}
 WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
+    'subgraph_node_manager': {'create', 'add'},
     'tool_node_manager': {'add', 'update_args', 'create', 'search'},
     'resource_node_manager': {'create_db', 'add'},
     'utility_node_manager': {
@@ -223,6 +230,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             [
                 tool_node_manager,
                 resource_node_manager,
+                subgraph_node_manager,
                 utility_node_manager,
                 workflow_manager,
                 summarize_work,
@@ -253,6 +261,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         [
             tool_node_manager,
             resource_node_manager,
+            subgraph_node_manager,
             utility_node_manager,
             workflow_manager,
             summarize_work,

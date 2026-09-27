@@ -79,6 +79,8 @@ WORKFLOW_MANAGERS = {
     'resource_node_manager': 'resource_node',
     'utility_node_manager': 'utility_node',
     'workflow_manager': 'workflow',
+    'subgraph_node_manager': 'subgraph',
+    'subgraph_interface_manager': 'subgraph',
 }
 
 WORKFLOW_OPERATIONS = {
@@ -105,6 +107,10 @@ WORKFLOW_OPERATIONS = {
     'delete_node': 'delete',
     'fix_edge': 'fix',
     'save_all_workflows': 'save',
+    'add_subgraph_inputs': 'add',
+    'remove_subgraph_inputs': 'delete',
+    'set_subgraph_outputs': 'update',
+    'save_subgraph': 'save',
 }
 
 SUBJECT_FIELDS = (
@@ -116,6 +122,7 @@ SUBJECT_FIELDS = (
     'node_id',
     'draft_id',
     'selected_id',
+    'uid',
 )
 
 
