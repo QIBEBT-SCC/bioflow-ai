@@ -60,9 +60,9 @@ def collect_file_collection(*, inputs: dict[str, TaskInput], pattern: str, outpu
     if source is None:
         message = 'collect_file_collection requires folder_path'
         raise ValueError(message)
-    folder_value, _ = get_node_output(source.source_uid, source.source_k)
+    folder_value, sample_name = get_node_output(source.source_uid, source.source_k)
     manifest = freeze_file_collection(folder_value=folder_value, pattern=pattern, output_dir=output_dir)
-    return ToolOutput(result={'collection': manifest})
+    return ToolOutput(result={'collection': manifest}, sample_name=sample_name)
 
 
 def read_collection(path: str) -> list[dict[str, str]]:

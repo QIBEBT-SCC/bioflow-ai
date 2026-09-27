@@ -140,7 +140,7 @@ def prepare_node(
     if node_type == 'resource_frozen_path':
         return PreparedExecutor(
             executor_name=node_type,
-            kwargs={'path': data['path']},
+            kwargs={'path': data['path'], 'sample_name': data['sample_name']},
             name='foreach_input',
             track_progress=False,
         )
@@ -409,7 +409,9 @@ def prepare_node(
 _EXECUTORS: dict[str, Callable[..., ToolOutput]] = {
     'tool': execute_tool,
     'resource_file': load_file,
-    'resource_frozen_path': lambda *, path: ToolOutput(result={'file_path': path}),
+    'resource_frozen_path': lambda *, path, sample_name: ToolOutput(
+        result={'file_path': path}, sample_name=sample_name
+    ),
     'resource_text_file': create_text_file,
     'resource_sequence': load_sequence,
     'resource_db': load_bio_db,

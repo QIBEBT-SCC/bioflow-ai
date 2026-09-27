@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.session import engine
+from app.models.resource import Sample
 from app.models.workflow import NodeRun, WorkflowRun
 from app.schemas.react_flow import Edge, Node, WorkflowDefinition
 from app.schemas.workflow_config import ToolOutput
@@ -23,21 +25,31 @@ from app.services.workflow.subgraphs import definition_id
 from app.utils.system import random_uid, utc_now
 
 
-def _source_value(session: Session, ref: dict[str, str]) -> str:
+def _source_value(session: Session, ref: dict[str, str]) -> tuple[str, str | None]:
     source = session.get(NodeRun, uuid.UUID(ref['source_uid']))
     if source is None or source.status != NodeRunStatus.SUCCEEDED or source.tool_output is None:
         message = 'ForEach input source has not succeeded'
         raise ValueError(message)
     if ref['source_k'] == 'workdir' and source.base_dir:
-        return source.base_dir
+        return source.base_dir, source.tool_output.sample_name
     value = source.tool_output.all_files().get(ref['source_k'])
     if value is None:
         message = f'ForEach source lacks output {ref["source_k"]!r}'
         raise ValueError(message)
-    return str(value)
+    return str(value), source.tool_output.sample_name
 
 
-def _child_graph(graph: WorkflowDefinition, paths: dict[str, str]) -> WorkflowDefinition:
+def _child_sample_name(base_name: str | None, item_name: str, index: int) -> str:
+    """Give one file a stable name based on its upstream sample and filename."""
+    stem = re.sub(r'[^A-Za-z0-9._-]', '_', Path(item_name).stem).strip('._-') or f'item_{index + 1}'
+    if not base_name:
+        return stem
+    if stem == base_name or stem.startswith(tuple(f'{base_name}{separator}' for separator in '._-')):
+        return stem
+    return f'{base_name}.{stem}'
+
+
+def _child_graph(graph: WorkflowDefinition, paths: dict[str, str], sample_name: str) -> WorkflowDefinition:
     """Bind each exposed child input to a persisted, ordinary DAG source."""
     child = graph.model_copy(deep=True)
     if child.interface is None:
@@ -46,7 +58,13 @@ def _child_graph(graph: WorkflowDefinition, paths: dict[str, str]) -> WorkflowDe
     for index, port in enumerate(child.interface.inputs):
         source_id = f'@foreach/input/{index}'
         child.nodes.append(
-            Node(id=source_id, type='resource_frozen_path', data={'path': paths[port.id]}, dragHandle='', zIndex=0)
+            Node(
+                id=source_id,
+                type='resource_frozen_path',
+                data={'path': paths[port.id], 'sample_name': sample_name},
+                dragHandle='',
+                zIndex=0,
+            )
         )
         for target_index, target in enumerate(port.targets):
             child.edges.append(
@@ -65,8 +83,15 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
     plan = node.prepared_data.copy()
     kwargs = plan['kwargs']
     refs = kwargs['inputs']
-    paths = {key: _source_value(session, ref) for key, ref in refs.items()}
-    items = read_collection(paths.pop('collection'))
+    sources = {key: _source_value(session, ref) for key, ref in refs.items()}
+    collection_path, base_sample_name = sources.pop('collection')
+    items = read_collection(collection_path)
+    paths = {key: path for key, (path, _) in sources.items()}
+    if not base_sample_name:
+        base_sample_name = next((name for _, name in sources.values() if name), None)
+    if not base_sample_name and parent.sample_uid is not None:
+        sample = session.get(Sample, parent.sample_uid)
+        base_sample_name = sample.sample_name if sample else None
     graph = WorkflowDefinition.model_validate(kwargs['workflow'])
     if graph.interface is None:
         message = 'ForEach child has no interface'
@@ -74,7 +99,7 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
     if len({port.id for port in graph.interface.inputs}) != len(graph.interface.inputs):
         message = 'Duplicate ForEach input port'
         raise ValueError(message)
-    node.prepared_data = {**plan, 'items': items, 'shared_paths': paths}
+    node.prepared_data = {**plan, 'items': items, 'shared_paths': paths, 'base_sample_name': base_sample_name}
     node.status = NodeRunStatus.RUNNING
     node.start_time = utc_now()
     parent.status = RunStatus.RUNNING
@@ -217,8 +242,13 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
             if child.start_time is not None:
                 continue
             item = node.prepared_data['items'][child.item_index]
+            base_sample_name = node.prepared_data.get('base_sample_name')
+            if not base_sample_name and child.sample_uid is not None:
+                sample = session.get(Sample, child.sample_uid)
+                base_sample_name = sample.sample_name if sample else None
+            sample_name = _child_sample_name(base_sample_name, item['name'], child.item_index)
             paths = {**node.prepared_data['shared_paths'], node.prepared_data['kwargs']['item_port_id']: item['path']}
-            graph = _child_graph(child.workflow, paths)
+            graph = _child_graph(child.workflow, paths, sample_name)
             child.workflow = graph
             child.start_time = utc_now()
             compile_run(
@@ -228,7 +258,7 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
                 CompileContext(
                     project_id=child.project_id,
                     sample_uid=child.sample_uid,
-                    sample_name=None,
+                    sample_name=sample_name,
                     output_base=child.base_dir,
                 ),
                 allow_internal_frozen_paths=True,
