@@ -277,6 +277,8 @@ def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> Nod
         project_id=run.project_id,
         workflow_uid=run.workflow_uid,
         sample_uid=run.sample_uid,
+        parent_node_uid=run.parent_node_uid,
+        item_name=run.item_name,
         create_time=node.create_time,
         start_time=node.start_time,
         end_time=node.end_time,
@@ -420,21 +422,47 @@ def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
             .order_by(NodeRun.position_index)
         )
     )
+    item_statistics: dict[str, dict[str, int]] = {}
+    foreach_uids = [node.uid for node in nodes if node.node_type == 'foreach']
+    if foreach_uids:
+        started = WorkflowRun.start_time.is_not(None)
+        child_rows = session.execute(
+            select(WorkflowRun.parent_node_uid, WorkflowRun.status, started, WorkflowRun.settled, func.count())
+            .where(WorkflowRun.parent_node_uid.in_(foreach_uids), WorkflowRun.parent_generation == run.generation)
+            .group_by(WorkflowRun.parent_node_uid, WorkflowRun.status, started, WorkflowRun.settled)
+        )
+        for parent_uid, status, has_started, settled, count in child_rows:
+            counts = item_statistics.setdefault(
+                str(parent_uid), {'total': 0, 'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
+            )
+            counts['total'] += count
+            state = status.value if settled else ('running' if has_started else 'pending')
+            counts[state] += count
     graph_nodes = inject_run_data(
         run.workflow,
         {
             node.definition_node_id: NodeRunData(
                 uid=node.uid,
+                run_uid=run.uid,
                 status=node.status,
                 create_time=node.create_time,
                 start_time=node.start_time,
                 end_time=node.end_time,
+                item_statistics=item_statistics.get(str(node.uid)),
             ).model_dump(mode='json')
             for node in nodes
         },
     )
+    record = WorkflowRunRecord.model_validate(run).model_dump()
+    if run.parent_node_uid is not None:
+        parent_node = session.get(NodeRun, run.parent_node_uid)
+        if parent_node is not None:
+            parent = session.get(WorkflowRun, parent_node.run_uid)
+            record['parent_run_uid'] = parent_node.run_uid
+            record['parent_run_name'] = parent.name if parent is not None else None
+            record['parent_node_name'] = parent_node.name
     return WorkflowRunPublic(
-        **WorkflowRunRecord.model_validate(run).model_dump(),
+        **record,
         nodes=graph_nodes,
         edges=run.workflow.edges,
         node_statistics=_node_statistics(nodes),
@@ -451,7 +479,7 @@ def list_runs(
     limit: int = 20,
 ) -> PaginatedWorkflowRuns:
     """Return workflow runs for the requested owner and project."""
-    filters = []
+    filters = [WorkflowRun.parent_node_uid.is_(None)]
     if owner_id is not None:
         filters.append(WorkflowRun.owner_id == owner_id)
     if project_id is not None:
@@ -473,7 +501,7 @@ def list_runs(
 
 def run_statistics(session: Session, *, owner_id: int | None, project_id: int | None = None) -> WorkflowRunStatistics:
     """Aggregate workflow-run states."""
-    filters = []
+    filters = [WorkflowRun.parent_node_uid.is_(None)]
     if owner_id is not None:
         filters.append(WorkflowRun.owner_id == owner_id)
     if project_id is not None:

@@ -58,6 +58,7 @@ class WorkflowRun(Base):
     __tablename__ = 'workflow_runs'
     __table_args__ = (
         Index('ix_workflow_runs_owner_created', 'owner_id', 'create_time'),
+        Index('uq_workflow_runs_foreach_item', 'parent_node_uid', 'parent_generation', 'item_key', unique=True),
         Index(
             'uq_workflow_runs_sample',
             'project_id',
@@ -85,6 +86,11 @@ class WorkflowRun(Base):
         default=None,
     )
     sample_uid: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(Sample.uid, ondelete='SET NULL'), default=None)
+    parent_node_uid: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('workflow_node_runs.uid', ondelete='CASCADE'), default=None)
+    parent_generation: Mapped[int | None] = mapped_column(default=None)
+    item_key: Mapped[str | None] = mapped_column(default=None)
+    item_index: Mapped[int | None] = mapped_column(default=None)
+    item_name: Mapped[str | None] = mapped_column(default=None)
     base_dir: Mapped[str]
     workflow: Mapped[WorkflowDefinition] = mapped_column(PydanticJson(WorkflowDefinition), nullable=False)
     status: Mapped[RunStatus] = mapped_column(
@@ -99,6 +105,7 @@ class WorkflowRun(Base):
 
     node_runs: Mapped[list['NodeRun']] = relationship(
         back_populates='run',
+        foreign_keys='NodeRun.run_uid',
         cascade='all, delete-orphan',
         passive_deletes=True,
     )
@@ -142,7 +149,7 @@ class NodeRun(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(default=None)
     end_time: Mapped[datetime | None] = mapped_column(default=None)
 
-    run: Mapped[WorkflowRun] = relationship(back_populates='node_runs')
+    run: Mapped[WorkflowRun] = relationship(back_populates='node_runs', foreign_keys=[run_uid])
 
 
 class NodeDependency(Base):

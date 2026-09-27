@@ -27,6 +27,11 @@ class SimpleSchema(BaseModel):
     pass
 
 
+class FileCollectionSchema(BaseModel):
+    pattern: str = Field(min_length=1)
+    subfolder_prefix: str = Field(default='item', pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+
+
 # 处理器节点
 class ArtifactMarkSchema(BaseModel):
     mark_name: str = Field(min_length=1, max_length=50, pattern=r'^[a-z][a-z0-9_]*$')
@@ -194,6 +199,13 @@ class TextFileResourceSchema(BaseModel):
 
 
 PROCESSORS: dict[str, NodeSchema] = {
+    'collect_file_collection': {
+        'name': 'ForEach',
+        'description': 'Select files from a directory by one relative glob pattern. Connect collection to one input of a subgraph; its other inputs are shared. subfolder_prefix names each child directory.',
+        'args': FileCollectionSchema,
+        'input_handles': [Handle(name='folder_path', description='Upstream directory')],
+        'output_handles': [Handle(name='collection', description='Versioned file collection manifest')],
+    },
     'project_mark': {
         'name': 'Project Mark',
         'description': 'Registers one project-level workflow output immediately when this node succeeds. Use only in project-level workflows. Later workflows load it with `proj:<mark_name>`. The mapping is stored with normal project files but tagged as dynamic, and is cleared when its producer workflow reruns.',

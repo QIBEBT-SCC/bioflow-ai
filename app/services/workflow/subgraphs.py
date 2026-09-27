@@ -130,7 +130,7 @@ def inject_run_data(workflow: WorkflowDefinition, by_definition: dict[str, dict[
         for node in graph['nodes']:
             node_path = (*path, node['id'])
             node['data'].pop('run_data', None)
-            if node['type'] == 'subgraph':
+            if node['type'] == 'subgraph' and definition_id(node_path) not in by_definition:
                 descendants = visit(node['data']['workflow'], node_path)
                 node['data']['run_data'] = {'status': aggregate_status(descendants)}
                 statuses.extend(descendants)
@@ -160,6 +160,16 @@ def validate_interface_handles(graph: WorkflowDefinition, session: Session) -> N
                 if tool is not None:
                     public = ToolNodePublic.model_validate(tool)
                     names = {handle.name for handle in getattr(public, f'{direction}_handles')}
+            elif node.type == 'foreach':
+                child = WorkflowDefinition.model_validate(node.data['workflow'])
+                names = (
+                    {'collection'}
+                    | {port.id for port in child.interface.inputs if port.id != node.data['item_port_id']}
+                    if direction == 'input' and child.interface is not None
+                    else {'results_folder'}
+                    if direction == 'output'
+                    else set()
+                )
             elif node.type in {'code_R', 'code_python', 'code_bash', 'downstream_summary'}:
                 names = (
                     {'input_files'}
@@ -174,5 +184,5 @@ def validate_interface_handles(graph: WorkflowDefinition, session: Session) -> N
                 message = f'Node {node.id}: unknown exposed {direction} handle {target.handle!r}'
                 raise SubgraphError(message)
     for node in graph.nodes:
-        if node.type == 'subgraph':
+        if node.type in {'subgraph', 'foreach'}:
             validate_interface_handles(WorkflowDefinition.model_validate(node.data['workflow']), session)

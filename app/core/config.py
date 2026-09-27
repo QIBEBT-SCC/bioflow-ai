@@ -157,6 +157,12 @@ class CeleryConfig(BaseSectionConfig):
     BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
 
 
+class WorkflowConfig(BaseSectionConfig):
+    """System-wide execution limits for workflow coordination."""
+
+    MAX_PARALLEL_ITEMS: int = Field(default=4, ge=1)
+
+
 class MinerUConfig(BaseSectionConfig):
     API_URL: str = 'https://api.mineru.app'
     API_KEY: SecretStr = SecretStr('')
@@ -206,6 +212,7 @@ class Settings(BaseSettings):
     code: CodeConfig = CodeConfig()
     code_agent: CodeAgentConfig = CodeAgentConfig()
     celery: CeleryConfig = CeleryConfig()
+    workflow: WorkflowConfig = WorkflowConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
     pdf_parser: PDFParserConfig = PDFParserConfig()
     develop: DevelopConfig = DevelopConfig()

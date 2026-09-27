@@ -1,5 +1,6 @@
 """Validation and durable compilation of workflow definitions."""
 
+import re
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.workflow import NodeDependency, NodeRun, WorkflowOutbox, WorkflowRun
 from app.schemas.react_flow import Edge, Node, WorkflowDefinition
 from app.schemas.workflow_run import NodeRunStatus, RunStatus
+from app.services.workflow.batch_graph import lower_batch_subgraphs
 from app.services.workflow.executors import (
     PRESENTATION_NODE_TYPES,
     ExecutorContext,
@@ -49,7 +51,7 @@ def _parse_target_handle(edge: Edge) -> str:
 
 
 def _validate_graph(
-    workflow: WorkflowDefinition, *, require_inputs: bool = False
+    workflow: WorkflowDefinition, *, require_inputs: bool = False, allow_internal_frozen_paths: bool = False
 ) -> tuple[dict[str, Node], list[Edge], list[str]]:
     try:
         workflow = flatten_workflow(workflow, require_inputs=require_inputs)
@@ -66,6 +68,37 @@ def _validate_graph(
         if node.type not in supported_node_types() | PRESENTATION_NODE_TYPES:
             message = f'Node {node.id}: unsupported executor type {node.type!r}'
             raise WorkflowCompileError(message)
+        if node.type == 'resource_frozen_path' and (
+            not allow_internal_frozen_paths or not node.id.startswith('@foreach/input/')
+        ):
+            message = f'Node {node.id}: fixed-path sources are reserved for ForEach child runs'
+            raise WorkflowCompileError(message)
+        if node.type == 'collect_file_collection':
+            pattern = node.data.get('pattern')
+            prefix = node.data.get('subfolder_prefix', 'item')
+            if not isinstance(pattern, str) or not pattern.strip():
+                message = f'Node {node.id}: pattern must be a non-empty glob string'
+                raise WorkflowCompileError(message)
+            if not isinstance(prefix, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', prefix) is None:
+                message = f'Node {node.id}: subfolder prefix must be a safe directory name'
+                raise WorkflowCompileError(message)
+        if node.type == 'foreach':
+            child = WorkflowDefinition.model_validate(node.data['workflow'])
+            item_port_id = node.data.get('item_port_id')
+            if child.interface is None or item_port_id not in {port.id for port in child.interface.inputs}:
+                message = f'Node {node.id}: child workflow needs a current-file input'
+                raise WorkflowCompileError(message)
+
+            def check_descendants(graph: WorkflowDefinition, owner_id: str) -> None:
+                for nested in graph.nodes:
+                    if nested.type in {'foreach', 'collect_file_collection', 'sample_mark', 'project_mark'}:
+                        message = f'Node {owner_id}: {nested.type} is unavailable inside ForEach'
+                        raise WorkflowCompileError(message)
+                    if nested.type == 'subgraph':
+                        check_descendants(WorkflowDefinition.model_validate(nested.data['workflow']), owner_id)
+
+            check_descendants(child, node.id)
+            _validate_graph(child)
         node_map[node.id] = node
 
     executable_order = [node_id for node_id, node in node_map.items() if node.type not in PRESENTATION_NODE_TYPES]
@@ -112,7 +145,7 @@ def _validate_graph(
 
 def validate_workflow(workflow: WorkflowDefinition) -> list[str]:
     """Validate a workflow and return its stable topological definition order."""
-    return _validate_graph(workflow)[2]
+    return _validate_graph(lower_batch_subgraphs(workflow))[2]
 
 
 def compile_run(
@@ -120,16 +153,21 @@ def compile_run(
     run: WorkflowRun,
     workflow: WorkflowDefinition,
     context: CompileContext,
+    *,
+    allow_internal_frozen_paths: bool = False,
 ) -> list[NodeRun]:
     """Compile a workflow into NodeRun, dependency and root Outbox rows.
 
     The caller owns the surrounding transaction.  Nothing is published here.
     """
     try:
-        validate_interface_handles(workflow, session)
+        compiled_workflow = lower_batch_subgraphs(workflow)
+        validate_interface_handles(compiled_workflow, session)
     except ValueError as error:
         raise WorkflowCompileError(str(error)) from error
-    node_map, edges, order = _validate_graph(workflow, require_inputs=True)
+    node_map, edges, order = _validate_graph(
+        compiled_workflow, require_inputs=True, allow_internal_frozen_paths=allow_internal_frozen_paths
+    )
     node_runs: dict[str, NodeRun] = {}
 
     for position_index, node_id in enumerate(order, start=1):
@@ -196,13 +234,14 @@ def compile_run(
         node_run.prepared_data = prepared.as_json()
         if not source_nodes_by_target[node_id]:
             node_run.status = NodeRunStatus.READY
-            session.add(
-                WorkflowOutbox(
-                    run_uid=run.uid,
-                    node_run_uid=node_run.uid,
-                    generation=run.generation,
+            if node_run.node_type != 'foreach':
+                session.add(
+                    WorkflowOutbox(
+                        run_uid=run.uid,
+                        node_run_uid=node_run.uid,
+                        generation=run.generation,
+                    )
                 )
-            )
 
     if not node_runs:
         run.status = RunStatus.SUCCEEDED

@@ -156,7 +156,9 @@ def _validate_definition(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, 'Subgraphs require a description and interface definition'
         )
-    if workflow.interface is not None or any(node.type == 'subgraph' for node in workflow.nodes):
+    if workflow.interface is not None or any(
+        node.type in {'subgraph', 'foreach', 'resource_frozen_path'} for node in workflow.nodes
+    ):
         try:
             validate_workflow(workflow)
             validate_interface_handles(workflow, session)

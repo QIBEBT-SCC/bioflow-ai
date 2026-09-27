@@ -11,7 +11,7 @@ from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.status import (
@@ -262,6 +262,48 @@ def list_run_node_runs(
 ) -> list[NodeRunRecord]:
     """List current-generation node executions for one workflow run."""
     return runs.list_node_runs_for_run(session, _owned_run(session, uid, current_user))
+
+
+@run_router.get('/{uid}/foreach/{node_uid}/items')
+def list_foreach_items(
+    uid: uuid.UUID,
+    node_uid: uuid.UUID,
+    session: SessionDep,
+    current_user: MemberDep,
+    status: RunStatus | None = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict:
+    """Page through one parent's child runs without embedding their graphs."""
+    parent = _owned_run(session, uid, current_user)
+    node = session.get(NodeRun, node_uid)
+    if node is None or node.run_uid != uid or node.generation != parent.generation or node.node_type != 'foreach':
+        raise HTTPException(HTTP_404_NOT_FOUND, 'ForEach node not found')
+    query = select(WorkflowRun).where(
+        WorkflowRun.parent_node_uid == node_uid,
+        WorkflowRun.parent_generation == parent.generation,
+    )
+    if status is not None:
+        query = query.where(WorkflowRun.status == status)
+    total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+    children = session.scalars(query.order_by(WorkflowRun.item_index).offset(offset).limit(limit)).all()
+    return {
+        'total': total,
+        'offset': offset,
+        'limit': limit,
+        'has_more': offset + limit < total,
+        'data': [
+            {
+                'key': child.item_key,
+                'name': child.item_name,
+                'run_uid': str(child.uid),
+                'status': child.status.value,
+                'started': child.start_time is not None,
+                'settled': child.settled,
+            }
+            for child in children
+        ],
+    }
 
 
 @run_router.get('/{uid}')

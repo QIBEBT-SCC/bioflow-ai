@@ -97,6 +97,10 @@ pid_limit = 256
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/1"
 
+[workflow]
+# Maximum active child runs per ForEach node. Applied by the workflow dispatcher.
+max_parallel_items = 4
+
 [knowledge_base]
 milvus_url = "http://localhost:19530"
 embedding_model = "Qwen/Qwen3-Embedding-4B"

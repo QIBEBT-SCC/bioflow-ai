@@ -570,12 +570,13 @@ def _add_processor(
     if error := validate_mark_storage_conflict(processor_name, arguments, runtime):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
-    if error := check_edge_handles(input_edges, PROCESSORS[processor_name]['input_handles'], exist_nodes):
+    input_handles = PROCESSORS[processor_name]['input_handles']
+    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
         return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     # Call custom edge_check if defined in schema
     if edge_check := PROCESSORS[processor_name].get('edge_check'):  # noqa: SIM102
-        if error := edge_check(input_edges, PROCESSORS[processor_name]['input_handles']):
+        if error := edge_check(input_edges, input_handles):
             return Command(
                 update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
             )
@@ -584,7 +585,7 @@ def _add_processor(
         id=node_id,
         name=PROCESSORS[processor_name]['name'],
         type=processor_name,
-        input_handles=PROCESSORS[processor_name]['input_handles'],
+        input_handles=input_handles,
         output_handles=PROCESSORS[processor_name]['output_handles'],
         data=arguments,
     )

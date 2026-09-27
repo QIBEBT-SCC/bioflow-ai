@@ -193,6 +193,8 @@ def _all_predecessors_succeeded(session: Session, node_uid: uuid.UUID) -> bool:
 
 
 def _ensure_outbox(session: Session, node: NodeRun) -> None:
+    if node.node_type == 'foreach':
+        return
     outbox = session.scalar(select(WorkflowOutbox).where(WorkflowOutbox.node_run_uid == node.uid))
     if outbox is None:
         session.add(
@@ -207,6 +209,14 @@ def _ensure_outbox(session: Session, node: NodeRun) -> None:
 def _settle_run_if_complete(session: Session, run_uid: uuid.UUID, generation: int) -> bool:
     run = session.get(WorkflowRun, run_uid, with_for_update=True)
     if run is None or run.generation != generation:
+        return False
+    unsettled_children = session.scalar(
+        select(func.count(WorkflowRun.uid))
+        .join(NodeRun, WorkflowRun.parent_node_uid == NodeRun.uid)
+        .where(NodeRun.run_uid == run_uid, NodeRun.generation == generation, WorkflowRun.settled.is_(False))
+    )
+    if unsettled_children:
+        run.settled = False
         return False
     active = session.scalar(
         select(func.count(NodeRun.uid)).where(
@@ -284,7 +294,16 @@ def mark_node_failed(node_run_uid: uuid.UUID, generation: int, error: BaseExcept
     now = utc_now()
     with Session(engine) as session, session.begin():
         node = session.get(NodeRun, node_run_uid, with_for_update=True)
-        if node is None or node.generation != generation or node.status != NodeRunStatus.RUNNING:
+        if (
+            node is None
+            or node.generation != generation
+            or node.status
+            not in (
+                {NodeRunStatus.RUNNING, NodeRunStatus.READY}
+                if node is not None and node.node_type == 'foreach'
+                else {NodeRunStatus.RUNNING}
+            )
+        ):
             return False
         run = session.get(WorkflowRun, node.run_uid, with_for_update=True)
         if run is None or run.generation != generation:
@@ -295,6 +314,16 @@ def mark_node_failed(node_run_uid: uuid.UUID, generation: int, error: BaseExcept
         node.end_time = now
         run.status = RunStatus.FAILED
         run.settled = False
+        if node.node_type == 'foreach':
+            session.execute(
+                update(WorkflowRun)
+                .where(
+                    WorkflowRun.parent_node_uid == node.uid,
+                    WorkflowRun.parent_generation == generation,
+                    WorkflowRun.start_time.is_(None),
+                )
+                .values(status=RunStatus.FAILED, settled=True, end_time=now)
+            )
 
         descendants = _descendant_ids(session, node.uid)
         if descendants:
@@ -337,6 +366,7 @@ def recover_runtime(*, stale_after: timedelta, run_uids: Iterable[uuid.UUID] | N
 
         stale_statement = select(NodeRun.uid, NodeRun.generation).where(
             NodeRun.status == NodeRunStatus.RUNNING,
+            NodeRun.node_type != 'foreach',
             NodeRun.heartbeat_at < cutoff,
         )
         stale_nodes = list(session.execute(stale_statement))

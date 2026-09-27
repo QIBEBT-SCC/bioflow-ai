@@ -18,7 +18,7 @@ class Node(NodeBase):
     @model_validator(mode='after')
     def validate_subgraph(self) -> 'Node':
         """Validate embedded definitions while retaining ordinary node-specific data."""
-        if self.type == 'subgraph':
+        if self.type in {'subgraph', 'foreach'}:
             self.data = SubgraphData.model_validate(self.data).model_dump(mode='json')
         return self
 

@@ -70,10 +70,12 @@ class NodeRunData(BaseModel):
     """Runtime information injected into a workflow node."""
 
     uid: uuid.UUID
+    run_uid: uuid.UUID | None = None
     status: NodeRunStatus
     create_time: datetime | None = None
     start_time: datetime | None = None
     end_time: datetime | None = None
+    item_statistics: dict[str, int] | None = None
 
 
 class WorkflowRunRecord(BaseModel):
@@ -88,6 +90,12 @@ class WorkflowRunRecord(BaseModel):
     project_id: int | None
     workflow_uid: uuid.UUID | None
     sample_uid: uuid.UUID | None
+    parent_node_uid: uuid.UUID | None = None
+    parent_run_uid: uuid.UUID | None = None
+    parent_run_name: str | None = None
+    parent_node_name: str | None = None
+    item_key: str | None = None
+    item_name: str | None = None
     base_dir: str
     status: RunStatus
     settled: bool
@@ -122,6 +130,8 @@ class NodeRunRecord(BaseModel):
     project_id: int | None
     workflow_uid: uuid.UUID | None
     sample_uid: uuid.UUID | None
+    parent_node_uid: uuid.UUID | None = None
+    item_name: str | None = None
     create_time: datetime | None
     start_time: datetime | None
     end_time: datetime | None

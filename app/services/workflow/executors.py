@@ -5,6 +5,7 @@ publishes one generic task and dispatches to this registry inside the worker.
 Node implementations are plain Python callables and have no Celery lifecycle.
 """
 
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 import app.crud.tools.tool as tool_crud
 from app.schemas.react_flow import Node, TaskInput
 from app.schemas.workflow_config import ToolOutput
+from app.services.workflow.collection import collect_file_collection
 from app.tasks.archive_operation import compress, decompress
 from app.tasks.code import execute_bash, execute_python, execute_r
 from app.tasks.file_operation import (
@@ -132,6 +134,14 @@ def prepare_node(
                 'sample_name': context.sample_name,
             },
             name='read_file',
+            track_progress=False,
+        )
+
+    if node_type == 'resource_frozen_path':
+        return PreparedExecutor(
+            executor_name=node_type,
+            kwargs={'path': data['path']},
+            name='foreach_input',
             track_progress=False,
         )
 
@@ -283,6 +293,68 @@ def prepare_node(
             track_progress=False,
         )
 
+    if node_type == 'collect_file_collection':
+        pattern = data.get('pattern')
+        if not isinstance(pattern, str) or not pattern.strip():
+            message = f'Node {node.id}: pattern must be a non-empty glob string'
+            raise ExecutorConfigurationError(message)
+        prefix = data.get('subfolder_prefix', 'item')
+        if not isinstance(prefix, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', prefix) is None:
+            message = f'Node {node.id}: subfolder prefix must be a safe directory name'
+            raise ExecutorConfigurationError(message)
+        if 'folder_path' not in inputs or isinstance(inputs['folder_path'], list):
+            message = f'Node {node.id}: exactly one upstream folder is required'
+            raise ExecutorConfigurationError(message)
+        output_dir = _output_dir(context, 'file_collection')
+        return PreparedExecutor(
+            executor_name=node_type,
+            kwargs={'inputs': inputs, 'pattern': pattern.strip(), 'output_dir': output_dir},
+            name=str(data.get('name') or 'ForEach'),
+            base_dir=output_dir,
+        )
+
+    if node_type == 'foreach':
+        from app.schemas.react_flow import WorkflowDefinition
+
+        child = WorkflowDefinition.model_validate(data.get('workflow'))
+        interface = child.interface
+        item_port_id = data.get('item_port_id')
+        if interface is None or item_port_id not in {port.id for port in interface.inputs}:
+            message = f'Node {node.id}: child workflow needs a current-file input'
+            raise ExecutorConfigurationError(message)
+        if 'collection' not in inputs or isinstance(inputs['collection'], list):
+            message = f'Node {node.id}: exactly one ForEach collection is required'
+            raise ExecutorConfigurationError(message)
+        for port in interface.inputs:
+            if port.id == item_port_id:
+                continue
+            if port.id not in inputs or isinstance(inputs[port.id], list):
+                message = f'Node {node.id}: shared input {port.name!r} requires one edge'
+                raise ExecutorConfigurationError(message)
+
+        def check_child(graph: WorkflowDefinition) -> None:
+            for child_node in graph.nodes:
+                if child_node.type in {'foreach', 'sample_mark', 'project_mark'}:
+                    message = f'Node {node.id}: {child_node.type} is unavailable inside ForEach'
+                    raise ExecutorConfigurationError(message)
+                if child_node.type == 'subgraph':
+                    check_child(WorkflowDefinition.model_validate(child_node.data['workflow']))
+
+        check_child(child)
+        return PreparedExecutor(
+            executor_name='foreach',
+            kwargs={
+                'inputs': inputs,
+                'workflow': child.model_dump(mode='json'),
+                'item_port_id': item_port_id,
+                'subfolder_prefix': data['subfolder_prefix'] or 'item',
+                'output_dir': _output_dir(context, 'foreach'),
+            },
+            name=str(data.get('name') or 'ForEach'),
+            track_progress=False,
+            base_dir=_output_dir(context, 'foreach'),
+        )
+
     indexed_executors: dict[str, tuple[str, dict[str, Any], str]] = {
         'rename_file': (
             'rename_file',
@@ -337,6 +409,7 @@ def prepare_node(
 _EXECUTORS: dict[str, Callable[..., ToolOutput]] = {
     'tool': execute_tool,
     'resource_file': load_file,
+    'resource_frozen_path': lambda *, path: ToolOutput(result={'file_path': path}),
     'resource_text_file': create_text_file,
     'resource_sequence': load_sequence,
     'resource_db': load_bio_db,
@@ -353,6 +426,7 @@ _EXECUTORS: dict[str, Callable[..., ToolOutput]] = {
     'select_file_in_folder': select_file,
     'read_file_content': read_file_content,
     'join_path': join_path,
+    'collect_file_collection': collect_file_collection,
     'rename_file': rename_file,
     'compress': compress,
     'decompress': decompress,
@@ -369,6 +443,7 @@ def supported_node_types() -> frozenset[str]:
         {
             'tool',
             'resource_file',
+            'resource_frozen_path',
             'resource_text_file',
             'resource_sequence',
             'resource_db',
@@ -385,6 +460,8 @@ def supported_node_types() -> frozenset[str]:
             'select_file_in_folder',
             'read_file_content',
             'join_path',
+            'collect_file_collection',
+            'foreach',
             'rename_file',
             'compress',
             'decompress',
