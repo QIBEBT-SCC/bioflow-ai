@@ -35,7 +35,7 @@ from app.schemas.workflow_run import (
     WorkflowRunStatistics,
 )
 from app.services.workflow.compiler import CompileContext, compile_run
-from app.services.workflow.subgraphs import inject_run_data
+from app.services.workflow.subgraphs import flatten_workflow, inject_run_data
 from app.utils.input_format import to_safe_path_segment
 from app.utils.system import random_uid, utc_now
 
@@ -413,6 +413,57 @@ def _node_statistics(nodes: list[NodeRun]) -> NodeRunStatistics:
     )
 
 
+def build_preview_data(run: WorkflowRun, nodes: list[NodeRun]) -> dict[str, dict[str, str | int]]:
+    """Project current-generation file outputs onto presentation nodes without reading file contents."""
+    node_by_definition = {node.definition_node_id: node for node in nodes}
+    preview_by_definition: dict[str, dict[str, str | int]] = {}
+    flat_graph = flatten_workflow(run.workflow)
+    flat_nodes = {node.id: node for node in flat_graph.nodes}
+    for edge in flat_graph.edges:
+        target = flat_nodes.get(edge.target)
+        if target is None or target.type != 'image_preview':
+            continue
+        source = node_by_definition.get(edge.source)
+        if (
+            source is None
+            or source.generation != run.generation
+            or source.status not in {NodeRunStatus.SUCCEEDED, NodeRunStatus.FAILED, NodeRunStatus.BLOCKED}
+        ):
+            continue
+        preview: dict[str, str | int] = {'run_uid': str(run.uid), 'generation': run.generation}
+        if source.status != NodeRunStatus.SUCCEEDED:
+            preview['error'] = 'upstream_failed'
+        else:
+            output_key = edge.sourceHandle.removeprefix(f'{edge.source}-out-')
+            value = source.tool_output.result.get(output_key) if source.tool_output else None
+            if value is None:
+                preview['error'] = 'missing_path'
+            else:
+                try:
+                    path = Path(value)
+                    base = Path(run.base_dir).resolve()
+                    resolved = (path if path.is_absolute() else base / path).resolve()
+                    if not resolved.is_relative_to(base):
+                        preview['error'] = 'outside_run'
+                    elif resolved.suffix.lower() not in {
+                        '.png',
+                        '.jpg',
+                        '.jpeg',
+                        '.webp',
+                        '.gif',
+                        '.svg',
+                        '.avif',
+                        '.bmp',
+                    }:
+                        preview['error'] = 'unsupported_format'
+                    else:
+                        preview['path'] = resolved.relative_to(base).as_posix()
+                except (OSError, RuntimeError):
+                    preview['error'] = 'outside_run'
+        preview_by_definition[edge.target] = preview
+    return preview_by_definition
+
+
 def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
     """Build a current-generation graph with NodeRun data injected by stable definition ID."""
     nodes = list(
@@ -452,6 +503,7 @@ def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
             ).model_dump(mode='json')
             for node in nodes
         },
+        build_preview_data(run, nodes),
     )
     record = WorkflowRunRecord.model_validate(run).model_dump()
     if run.parent_node_uid is not None:

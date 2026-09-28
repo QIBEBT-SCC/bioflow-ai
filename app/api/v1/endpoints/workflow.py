@@ -184,7 +184,7 @@ def _validate_definition(
             status.HTTP_422_UNPROCESSABLE_ENTITY, 'Subgraphs require a description and interface definition'
         )
     if workflow.interface is not None or any(
-        node.type in {'subgraph', 'foreach', 'resource_frozen_path'} for node in workflow.nodes
+        node.type in {'subgraph', 'foreach', 'resource_frozen_path', 'image_preview'} for node in workflow.nodes
     ):
         try:
             validate_workflow(workflow)

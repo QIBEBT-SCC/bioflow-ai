@@ -42,7 +42,7 @@ from app.tasks.run_tool import execute_tool
 from app.tasks.summary_task.summary import build_downstream_summary
 from app.utils.input_format import to_safe_path_segment
 
-PRESENTATION_NODE_TYPES = frozenset({'note'})
+PRESENTATION_NODE_TYPES = frozenset({'note', 'image_preview'})
 
 
 class ExecutorConfigurationError(ValueError):

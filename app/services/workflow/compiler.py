@@ -107,16 +107,24 @@ def _validate_graph(
     indegree = dict.fromkeys(executable_ids, 0)
     bindings: set[tuple[str, str, str, str]] = set()
     validated_edges: list[Edge] = []
+    preview_targets: set[str] = set()
 
     for edge in workflow.edges:
         if edge.source not in node_map or edge.target not in node_map:
             message = f'Edge {edge.id}: source or target node does not exist'
             raise WorkflowCompileError(message)
-        if edge.source not in executable_ids or edge.target not in executable_ids:
-            message = f'Edge {edge.id}: presentation-only nodes cannot carry data dependencies'
+        target = node_map[edge.target]
+        if edge.source not in executable_ids or (edge.target not in executable_ids and target.type != 'image_preview'):
+            message = f'Edge {edge.id}: invalid presentation node connection'
             raise WorkflowCompileError(message)
         source_key = _parse_source_handle(edge)
         target_key = _parse_target_handle(edge)
+        if target.type == 'image_preview':
+            if target_key != 'image_path' or edge.target in preview_targets:
+                message = f'Edge {edge.id}: image preview accepts one image_path input'
+                raise WorkflowCompileError(message)
+            preview_targets.add(edge.target)
+            continue
         binding = (edge.source, source_key, edge.target, target_key)
         if binding in bindings:
             message = f'Edge {edge.id}: duplicate parameter binding'

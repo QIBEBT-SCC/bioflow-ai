@@ -56,6 +56,7 @@ def flatten_workflow(workflow: WorkflowDefinition, *, require_inputs: bool = Fal
                 copied = node.model_copy(deep=True)
                 copied.id = uid
                 copied.data.pop('run_data', None)
+                copied.data.pop('preview_data', None)
                 flat_nodes.append(copied)
 
         def resolve(node_id: str, handle: str, direction: str) -> list[tuple[str, str]]:
@@ -66,6 +67,8 @@ def flatten_workflow(workflow: WorkflowDefinition, *, require_inputs: bool = Fal
                 if handle not in ports:
                     _fail(f'{path}: unknown {direction} port {node_id}.{handle}')
                 return ports[handle]
+            if nodes[node_id].type in {'note', 'image_preview'} and direction == 'output':
+                _fail(f'{path}: presentation nodes cannot be interface outputs')
             if nodes[node_id].type == 'note':
                 _fail(f'{path}: notes cannot carry interface bindings')
             return [(definition_id((*path, node_id)), handle)]
@@ -122,7 +125,11 @@ def aggregate_status(statuses: list[str]) -> str:
     return next((status for status in ('queued', 'ready', 'pending') if status in statuses), 'pending')
 
 
-def inject_run_data(workflow: WorkflowDefinition, by_definition: dict[str, dict[str, Any]]) -> list[dict]:
+def inject_run_data(
+    workflow: WorkflowDefinition,
+    by_definition: dict[str, dict[str, Any]],
+    preview_by_definition: dict[str, dict[str, Any]] | None = None,
+) -> list[dict]:
     """Decorate the immutable run snapshot, including all nested descendants."""
 
     def visit(graph: dict, path: tuple[str, ...]) -> list[str]:
@@ -130,6 +137,9 @@ def inject_run_data(workflow: WorkflowDefinition, by_definition: dict[str, dict[
         for node in graph['nodes']:
             node_path = (*path, node['id'])
             node['data'].pop('run_data', None)
+            node['data'].pop('preview_data', None)
+            if preview := (preview_by_definition or {}).get(definition_id(node_path)):
+                node['data']['preview_data'] = preview
             if node['type'] == 'subgraph' and definition_id(node_path) not in by_definition:
                 descendants = visit(node['data']['workflow'], node_path)
                 node['data']['run_data'] = {'status': aggregate_status(descendants)}
@@ -176,6 +186,8 @@ def validate_interface_handles(graph: WorkflowDefinition, session: Session) -> N
                     if direction == 'input'
                     else ({'output_folder'} if node.type != 'downstream_summary' else set())
                 )
+            elif node.type == 'image_preview':
+                names = {'image_path'} if direction == 'input' else set()
             else:
                 schema = PROCESSORS.get(node.type) or RESOURCES.get(node.type.removeprefix('resource_'))
                 if schema:
