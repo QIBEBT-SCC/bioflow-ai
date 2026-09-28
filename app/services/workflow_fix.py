@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -11,11 +12,13 @@ from sqlalchemy.orm import Session
 import app.crud.agent as agent_crud
 import app.crud.workflow as workflow_crud
 from app.models.agent import AgentRun
-from app.models.workflow import WorkflowRun
+from app.models.workflow import NodeRun, WorkflowRun
+from app.schemas.react_flow import WorkflowDefinition
 from llm.workflow_builder.loading import load_workflow_draft
 
 MISSING_TEMPLATE_ERROR = 'The source run is not linked to a workflow template, so it cannot be fixed automatically.'
 TEMPLATE_NOT_FOUND_ERROR = 'The source workflow template no longer exists.'
+SOURCE_PATH_NOT_FOUND_ERROR = 'The source batch subgraph no longer matches the current workflow template.'
 
 
 @dataclass(frozen=True)
@@ -60,13 +63,42 @@ def prepare_workflow_fix(
         except (OSError, UnicodeError):
             logger.warning('Workflow diagnosis report {} is unavailable; continuing Fix without it.', report_path)
     diagnosis_run_uid = diagnosis.uid if diagnosis is not None and diagnosis_report is not None else None
-    if source_run.workflow_uid is None:
+    template_run = source_run
+    source_subgraph_path: list[str] = []
+    if source_run.parent_node_uid is not None:
+        parent_node = session.get(NodeRun, source_run.parent_node_uid)
+        parent_run = session.get(WorkflowRun, parent_node.run_uid) if parent_node else None
+        if (
+            parent_node is None
+            or parent_run is None
+            or parent_node.generation != source_run.parent_generation
+            or parent_run.generation != source_run.parent_generation
+            or parent_node.node_type != 'foreach'
+        ):
+            raise ValueError(SOURCE_PATH_NOT_FOUND_ERROR)
+        template_run = parent_run
+        runtime_id = parent_node.definition_node_id
+        source_subgraph_path = (
+            [unquote(part) for part in runtime_id.removeprefix('@subgraph/').split('/')]
+            if runtime_id.startswith('@subgraph/')
+            else [runtime_id]
+        )
+    if template_run.workflow_uid is None:
         raise ValueError(MISSING_TEMPLATE_ERROR)
-    workflow = workflow_crud.get(session, source_run.workflow_uid)
+    workflow = workflow_crud.get(session, template_run.workflow_uid)
     if workflow is None:
         raise ValueError(TEMPLATE_NOT_FOUND_ERROR)
     if workflow.owner_id != fix_run.agent_session.owner_id:
         raise ValueError(TEMPLATE_NOT_FOUND_ERROR)
+    graph = workflow.workflow
+    run_graph = template_run.workflow
+    for node_id in source_subgraph_path:
+        target = next((node for node in graph.nodes if node.id == node_id and node.type == 'subgraph'), None)
+        run_target = next((node for node in run_graph.nodes if node.id == node_id and node.type == 'subgraph'), None)
+        if target is None or run_target is None or target.data.get('source_uid') != run_target.data.get('source_uid'):
+            raise ValueError(SOURCE_PATH_NOT_FOUND_ERROR)
+        graph = WorkflowDefinition.model_validate(target.data['workflow'])
+        run_graph = WorkflowDefinition.model_validate(run_target.data['workflow'])
 
     loaded = load_workflow_draft(
         workflow.workflow,
@@ -78,8 +110,13 @@ def prepare_workflow_fix(
     draft = loaded.draft
     state: dict[str, Any] = {
         'target_workflow_uid': str(workflow.uid),
+        'source_subgraph_path': source_subgraph_path,
         'original_workflow': workflow.workflow.model_dump(mode='json'),
         'original_node_id_mapping': loaded.node_id_mapping,
+        'subgraph_stack': [],
+        'subgraph_source_baselines': {},
+        'changed_subgraph_paths': [],
+        'changed_workflow_uids': [],
         'active_workflow_id': draft.draft_id,
         'workflow_drafts': {draft.draft_id: draft},
         'exist_nodes': draft.nodes,

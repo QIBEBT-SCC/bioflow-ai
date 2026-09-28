@@ -181,9 +181,14 @@ class SubgraphBuildState(BuildState, total=False):
 class WorkflowFixState(BuildState, total=False):
     diagnosis_run_uid: str | None
     target_workflow_uid: str
+    source_subgraph_path: list[str]
     diagnosis_report: str | None
     original_workflow: dict[str, Any]
     original_node_id_mapping: dict[str, str]
+    subgraph_stack: list[dict[str, Any]]
+    subgraph_source_baselines: dict[str, dict[str, Any]]
+    changed_subgraph_paths: list[list[str]]
+    changed_workflow_uids: list[str]
     fix_completed: bool
     workflow_changed: bool
     update_path: str | None

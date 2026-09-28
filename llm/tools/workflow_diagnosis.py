@@ -13,7 +13,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import app.crud.project_file_mapping as project_file_mapping_crud
@@ -22,7 +22,8 @@ from app.core.session import engine
 from app.models.workflow import NodeRun, WorkflowRun
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.tool_config import ImageConfig
-from app.schemas.workflow_run import NodeRunStatus
+from app.schemas.workflow_run import NodeRunStatus, RunStatus
+from app.services.workflow.subgraphs import definition_id
 from app.utils.container import ContainerMount, run_command
 from llm.context import WorkflowDiagnosisContext
 from llm.utils.formatters import format_json
@@ -36,6 +37,7 @@ COMMAND_KILL_GRACE_SECONDS = 5
 MAX_CAPTURE_BYTES = 64 * 1024
 MAX_RETURN_CHARS = 40_000
 RETURN_HEAD_CHARS = 30_000
+MAX_CHILD_PAGE = 100
 _CAPTURE_FILE_BLOCKS = math.ceil(MAX_CAPTURE_BYTES / 512)
 _WRAPPER_METADATA = re.compile(
     r'^__BIOFLOW_DIAG_STATUS__=(?P<status>\d+)\n'
@@ -122,107 +124,256 @@ def _compact_node_data(data: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def _workflow_payload(source_run_uid: str, include_node_id: str | None = None) -> dict[str, Any]:
+def _descendant_run(session: Session, root: WorkflowRun, uid: uuid.UUID) -> WorkflowRun | None:
+    """Only expose runs linked by current-generation ForEach parent nodes."""
+    child = session.get(WorkflowRun, uid)
+    current = child
+    for _ in range(33):
+        if current is None or current.owner_id != root.owner_id or current.project_id != root.project_id:
+            return None
+        if current.uid == root.uid:
+            return child
+        if current.parent_node_uid is None:
+            return None
+        parent_node = session.get(NodeRun, current.parent_node_uid)
+        if parent_node is None or parent_node.generation != current.parent_generation:
+            return None
+        current = session.get(WorkflowRun, parent_node.run_uid)
+        if current is None or current.generation != parent_node.generation:
+            return None
+    return None
+
+
+def _selected_run(session: Session, context: WorkflowDiagnosisContext, child_run_uid: str | None) -> WorkflowRun:
+    root = _current_run(session, context)
+    if context.source_generation is not None and root.generation != context.source_generation:
+        code = 'generation_changed'
+        raise _evidence_error(code, 'The source run generation changed; start a new diagnosis.')
+    if not child_run_uid:
+        return root
     try:
-        run_uid = uuid.UUID(source_run_uid)
-    except ValueError:
-        return {'error': 'Workflow execution not found.'}
-    with Session(engine) as session:
-        run = session.get(WorkflowRun, run_uid)
-        if run is None:
-            return {'error': 'Workflow execution not found.'}
-        workflow = run.workflow
-        node_runs = list(
-            session.scalars(
-                select(NodeRun)
-                .where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
-                .order_by(NodeRun.position_index)
+        child = _descendant_run(session, root, uuid.UUID(child_run_uid))
+    except ValueError as error:
+        code = 'run_not_found'
+        raise _evidence_error(code, 'Invalid child run UID.') from error
+    if child is None:
+        code = 'access_denied'
+        raise _evidence_error(code, 'Child run does not belong to this source run generation.')
+    return child
+
+
+def _workflow_payload(
+    context: WorkflowDiagnosisContext,
+    action: str,
+    include_node_id: str | None = None,
+    subgraph_path: list[str] | None = None,
+    child_run_uid: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    *,
+    failed_only: bool = False,
+) -> dict[str, Any]:
+    if offset < 0 or not 1 <= limit <= MAX_CHILD_PAGE:
+        return {'error': 'offset must be nonnegative and limit must be between 1 and 100.'}
+    try:
+        with Session(engine) as session:
+            run = _selected_run(session, context, child_run_uid)
+            graph = run.workflow
+            path = tuple(subgraph_path or ())
+            for segment in path:
+                container = next((node for node in graph.nodes if node.id == segment and node.type == 'subgraph'), None)
+                if container is None:
+                    return {'error': f'Subgraph path not found: {list(path)}'}
+                graph = WorkflowDefinition.model_validate(container.data['workflow'])
+            node_runs = list(
+                session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation))
             )
-        )
-        run_payload = {
-            'uid': str(run.uid),
-            'generation': run.generation,
-            'name': run.name,
-            'workflow_uid': str(run.workflow_uid) if run.workflow_uid else None,
-            'project_id': run.project_id,
-            'status': run.status.value,
-            'settled': run.settled,
-            'base_dir': run.base_dir,
-            'create_time': run.create_time,
-            'start_time': run.start_time,
-            'end_time': run.end_time,
-        }
-        node_run_payloads = {
-            node_run.definition_node_id: {
-                'node_run_uid': str(node_run.uid),
-                'name': node_run.name,
-                'tool_uid': str(node_run.tool_uid) if node_run.tool_uid else None,
-                'status': node_run.status.value,
-                'base_dir': node_run.base_dir,
-                'commands': node_run.commands,
-                'error_message': node_run.error_message,
-                'tool_output': node_run.tool_output.model_dump(mode='json') if node_run.tool_output else None,
-                'create_time': node_run.create_time,
-                'queued_at': node_run.queued_at,
-                'start_time': node_run.start_time,
-                'heartbeat_at': node_run.heartbeat_at,
-                'end_time': node_run.end_time,
+            by_id = {node.definition_node_id: node for node in node_runs}
+            if action == 'children':
+                if not include_node_id:
+                    return {'error': 'node_id is required for action=children.'}
+                control = by_id.get(definition_id((*path, include_node_id)))
+                if control is None or control.node_type != 'foreach':
+                    return {'error': 'No ForEach control task exists for this node.'}
+                filters = [WorkflowRun.parent_node_uid == control.uid, WorkflowRun.parent_generation == run.generation]
+                if failed_only:
+                    filters.append(WorkflowRun.status == RunStatus.FAILED)
+                children = list(
+                    session.scalars(
+                        select(WorkflowRun).where(*filters).order_by(WorkflowRun.item_index).offset(offset).limit(limit)
+                    )
+                )
+                return {
+                    'parent_run_uid': str(run.uid),
+                    'parent_generation': run.generation,
+                    'subgraph_path': list(path),
+                    'node_id': include_node_id,
+                    'total': session.scalar(select(func.count()).select_from(WorkflowRun).where(*filters)) or 0,
+                    'offset': offset,
+                    'children': [
+                        {
+                            'run_uid': str(item.uid),
+                            'item_index': item.item_index,
+                            'item_name': item.item_name,
+                            'generation': item.generation,
+                            'status': item.status.value,
+                            'base_dir': item.base_dir,
+                        }
+                        for item in children
+                    ],
+                }
+            statuses = {node.definition_node_id: node.status for node in node_runs}
+            positions = {node.definition_node_id: node.position_index for node in node_runs}
+            parents, descendants = _parents_and_children(graph)
+            local_statuses = {
+                node.id: statuses[definition_id((*path, node.id))]
+                for node in graph.nodes
+                if definition_id((*path, node.id)) in statuses
             }
-            for node_run in node_runs
-        }
-        statuses = {node_run.definition_node_id: node_run.status for node_run in node_runs}
-        positions = {node_run.definition_node_id: node_run.position_index for node_run in node_runs}
-        workflow_uid = run.workflow_uid
-
-    schedule = execution_labels(workflow, statuses, positions)
-    parents, children = _parents_and_children(workflow)
-    requested_runtime_id = include_node_id
-
-    nodes: list[dict[str, Any]] = []
-    for node in workflow.nodes:
-        if requested_runtime_id and node.id != requested_runtime_id:
-            continue
-        node_run = node_run_payloads.get(node.id)
-        nodes.append(
-            {
-                'runtime_node_id': node.id,
-                'template_node_id': node.id if workflow_uid else None,
-                'template_mapping': 'stable_definition_id' if workflow_uid else None,
-                'type': node.type,
-                'data': node.data if requested_runtime_id else _compact_node_data(node.data),
-                'task': node_run,
-                'schedule': schedule.get(node.id),
-                'upstream_runtime_node_ids': sorted(parents.get(node.id, ())),
-                'downstream_runtime_node_ids': sorted(children.get(node.id, ())),
+            local_positions = {
+                node.id: positions[definition_id((*path, node.id))]
+                for node in graph.nodes
+                if definition_id((*path, node.id)) in positions
             }
-        )
-    mapped = {node.id for node in workflow.nodes}
-    return {
-        'run': run_payload,
-        'nodes': nodes,
-        'edges': [edge.model_dump(mode='json') for edge in workflow.edges] if not requested_runtime_id else None,
-        'unmapped_tasks': [payload for node_id, payload in node_run_payloads.items() if node_id not in mapped],
-        **({'error': f'Node not found: {include_node_id}'} if include_node_id and not nodes else {}),
-    }
+            schedule = execution_labels(graph, local_statuses, local_positions)
+            nodes = []
+            for node in graph.nodes:
+                if include_node_id and node.id != include_node_id:
+                    continue
+                runtime_id = definition_id((*path, node.id))
+                task = by_id.get(runtime_id)
+                if task is None and node.type == 'subgraph':
+                    prefix = definition_id((*path, node.id, ''))
+                    internal = [item for key, item in by_id.items() if key.startswith(prefix)]
+                    task_status = (
+                        'failed'
+                        if any(item.status == NodeRunStatus.FAILED for item in internal)
+                        else (
+                            'blocked'
+                            if any(item.status == NodeRunStatus.BLOCKED for item in internal)
+                            else 'running'
+                            if any(item.status == NodeRunStatus.RUNNING for item in internal)
+                            else 'succeeded'
+                            if internal and all(item.status == NodeRunStatus.SUCCEEDED for item in internal)
+                            else 'pending'
+                        )
+                    )
+                else:
+                    task_status = task.status.value if task else 'presentation_only'
+                payload: dict[str, Any] = {
+                    'node_id': node.id,
+                    'template_node_id': node.id if not node.id.startswith('@foreach/input/') else None,
+                    'runtime_node_id': runtime_id,
+                    'subgraph_path': list(path),
+                    'type': node.type,
+                    'status': task_status,
+                    'upstream_node_ids': sorted(parents.get(node.id, ())),
+                    'downstream_node_ids': sorted(descendants.get(node.id, ())),
+                    'schedule': schedule.get(node.id),
+                }
+                if node.type == 'subgraph' and payload['schedule'] is not None:
+                    payload['schedule']['execution_reason'] = task_status
+                if node.type == 'subgraph':
+                    payload['child_path'] = [*path, node.id]
+                    payload['source_uid'] = node.data.get('source_uid')
+                    child_interface = WorkflowDefinition.model_validate(node.data['workflow']).interface
+                    payload['input_ports'] = [port.id for port in child_interface.inputs] if child_interface else []
+                    payload['output_ports'] = [port.id for port in child_interface.outputs] if child_interface else []
+                    payload['batch'] = task is not None and task.node_type == 'foreach'
+                if include_node_id:
+                    payload['data'] = (
+                        {key: value for key, value in node.data.items() if key != 'workflow'}
+                        if node.type == 'subgraph'
+                        else node.data
+                    )
+                    payload['task'] = (
+                        {
+                            'node_run_uid': str(task.uid),
+                            'status': task.status.value,
+                            'base_dir': task.base_dir,
+                            'commands': task.commands,
+                            'error_message': task.error_message,
+                            'tool_output': task.tool_output.model_dump(mode='json') if task.tool_output else None,
+                        }
+                        if task
+                        else None
+                    )
+                nodes.append(payload)
+            node_total = len(nodes)
+            failed_node_ids = [node['node_id'] for node in nodes if node['status'] == 'failed']
+            if action == 'overview':
+                listed_nodes = [node for node in nodes if node['status'] == 'failed'] if failed_only else nodes
+                listed_total = len(listed_nodes)
+                nodes = listed_nodes[offset : offset + limit]
+                shown_ids = {node['node_id'] for node in nodes}
+                visible_edges = [
+                    edge.model_dump(mode='json')
+                    for edge in graph.edges
+                    if edge.source in shown_ids or edge.target in shown_ids
+                ]
+            else:
+                listed_total = node_total
+                visible_edges = None
+            return {
+                'run': {
+                    'uid': str(run.uid),
+                    'generation': run.generation,
+                    'name': run.name,
+                    'workflow_uid': str(run.workflow_uid) if run.workflow_uid else None,
+                    'status': run.status.value,
+                    'base_dir': run.base_dir,
+                    'item_index': run.item_index,
+                    'item_name': run.item_name,
+                },
+                'subgraph_path': list(path),
+                'nodes': nodes,
+                'node_total': node_total,
+                'listed_total': listed_total,
+                'failed_node_ids': failed_node_ids[:MAX_CHILD_PAGE],
+                'failed_node_count': len(failed_node_ids),
+                'offset': offset if action == 'overview' else None,
+                'next_offset': offset + limit if action == 'overview' and offset + limit < listed_total else None,
+                'edges': visible_edges,
+                'edge_total': len(graph.edges),
+                **({'error': f'Node not found: {include_node_id}'} if include_node_id and not nodes else {}),
+            }
+    except EvidenceSourceError as error:
+        return {'error': {'code': error.code, 'message': str(error)}}
 
 
 @tool('workflow_reader', parse_docstring=True)
 def workflow_reader(
-    action: Literal['overview', 'node'],
+    action: Literal['overview', 'node', 'children'],
     runtime: ToolRuntime[WorkflowDiagnosisContext],
     node_id: str | None = None,
+    subgraph_path: list[str] | None = None,
+    child_run_uid: str | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    *,
+    failed_only: bool = False,
 ) -> str:
     """Read the run's immutable workflow snapshot and exact task execution mapping.
 
     Args:
         action: ``overview`` returns all nodes, edges, task states and scheduler order;
             ``node`` returns complete data and evidence for one runtime or template node id.
-        node_id: Runtime node id or inferred template node id, required for ``node``.
+        node_id: Node ID local to ``subgraph_path``; required for ``node`` and ``children``.
+        subgraph_path: Nested subgraph node IDs to enter in the selected run.
+        child_run_uid: ForEach child run UID returned by ``children``.
+        offset: First node or child item to list.
+        limit: Maximum nodes or child items to list (1 to 100).
+        failed_only: Only list failed nodes or ForEach child runs.
     """
     if action == 'node' and not node_id:
         return format_json({'error': 'node_id is required for action=node.'})
     runtime.stream_writer({'info': f'Reading workflow execution: {action}'})
-    return format_json(_workflow_payload(runtime.context.source_run_uid, node_id if action == 'node' else None))
+    return format_json(
+        _workflow_payload(
+            runtime.context, action, node_id, subgraph_path, child_run_uid, offset, limit, failed_only=failed_only
+        ),
+        max_chars=None,
+    )
 
 
 # ============ Run Command =============
@@ -292,13 +443,21 @@ def _current_run(session: Session, context: WorkflowDiagnosisContext) -> Any:
 def resolve_evidence_source(source: str, context: WorkflowDiagnosisContext) -> ResolvedEvidence:
     """Resolve one logical evidence reference without accepting arbitrary host paths."""
     with Session(engine) as session:
-        run = _current_run(session, context)
+        run = _selected_run(session, context, None)
 
         if source == 'run:current':
             path, kind = _validated_path(run.base_dir, source)
             if kind != 'directory':
                 msg = 'invalid_run_path'
                 raise _evidence_error(msg, 'The current run path is not a directory.')
+            return ResolvedEvidence(source=source, path=path, kind=kind)
+
+        if source.startswith('run:child:'):
+            child = _selected_run(session, context, source.removeprefix('run:child:'))
+            path, kind = _validated_path(child.base_dir, source)
+            if kind != 'directory':
+                code = 'invalid_run_path'
+                raise _evidence_error(code, 'The child run path is not a directory.')
             return ResolvedEvidence(source=source, path=path, kind=kind)
 
         if source.startswith('sample:'):
@@ -344,7 +503,7 @@ def resolve_evidence_source(source: str, context: WorkflowDiagnosisContext) -> R
     msg = 'invalid_source'
     raise _evidence_error(
         msg,
-        'source must be exactly `run:current`, `sample:<tag>`, or `proj:<keyword>`.',
+        'source must be `run:current`, `run:child:<uid>`, `sample:<tag>`, or `proj:<keyword>`.',
     )
 
 
@@ -415,7 +574,7 @@ def run_evidence_command(
     inspect it with ``file /app/data/input`` when the type is not already known.
 
     Args:
-        source: Exactly ``run:current``, ``sample:<tag>``, or ``proj:<keyword>``.
+        source: ``run:current``, ``run:child:<uid>``, ``sample:<tag>``, or ``proj:<keyword>``.
         command: Shell inspection command using ``/app/data/input`` as the evidence path.
     """
     try:

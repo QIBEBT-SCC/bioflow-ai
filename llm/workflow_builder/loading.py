@@ -131,6 +131,7 @@ def load_workflow_draft(
     description: str,
     execution_scope: ExecutionScope,
     session: Session,
+    preserve_ids: bool = False,
 ) -> LoadedWorkflowDraft:
     """Restore a persisted definition as the single active Fix draft."""
     nodes: list[BuildNode] = []
@@ -153,7 +154,7 @@ def load_workflow_draft(
         )
         for edge in workflow.edges
     ]
-    if has_canonical_node_ids(nodes):
+    if preserve_ids or has_canonical_node_ids(nodes):
         id_mapping = {node.id: node.id for node in nodes}
     else:
         try:

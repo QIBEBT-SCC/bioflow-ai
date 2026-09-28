@@ -46,6 +46,7 @@ class WorkflowDiagnosisContext(ProjectContext):
     source_run_uid: str
     workflow_uid: str | None = None
     run_base_dir: str | None = None
+    source_generation: int | None = None
 
 
 class WorkflowFixContext(ProjectContext):
@@ -53,6 +54,7 @@ class WorkflowFixContext(ProjectContext):
     source_run_uid: str
     workflow_uid: str
     diagnosis_run_uid: str | None
+    source_generation: int | None = None
 
 
 class FolderContext(BaseContext):

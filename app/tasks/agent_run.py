@@ -173,6 +173,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             source_run_uid: uuid.UUID | None = None
             source_run_base_dir: str | None = None
             source_workflow_uid: uuid.UUID | None = None
+            source_generation: int | None = None
             if agent_name in {AgentName.WORKFLOW_DIAGNOSER, AgentName.WORKFLOW_FIXER}:
                 target = agent_crud.get_run_target(session, run.uid)
                 if target is None:
@@ -183,6 +184,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 source_run_uid = source_run.uid
                 source_run_base_dir = source_run.base_dir
                 source_workflow_uid = source_run.workflow_uid
+                source_generation = source_run.generation
 
         started = await _transition(
             redis,
@@ -252,6 +254,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                         source_run_uid=str(source_run_uid),
                         workflow_uid=str(source_workflow_uid) if source_workflow_uid else None,
                         run_base_dir=source_run_base_dir,
+                        source_generation=source_generation,
                     )
                 elif agent_name == AgentName.WORKFLOW_FIXER:
                     if source_run_uid is None:
@@ -276,6 +279,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                         source_run_uid=str(source_run_uid),
                         workflow_uid=str(prepared.workflow_uid),
                         diagnosis_run_uid=str(prepared.diagnosis_run_uid) if prepared.diagnosis_run_uid else None,
+                        source_generation=source_generation,
                     )
                     if not resume_payload:
                         fix_messages = history
@@ -310,6 +314,23 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                                 )
                             )
                             fix_messages = [*history[:-1], diagnosis_message, current_message]
+                        if prepared.state.get('source_subgraph_path'):
+                            source_path = prepared.state['source_subgraph_path']
+                            root_id = prepared.node_id_mapping.get(source_path[0], source_path[0])
+                            fix_messages = [
+                                *fix_messages[:-1],
+                                HumanMessage(
+                                    content=(
+                                        '<source_subgraph_path>\n'
+                                        f'{[root_id, *source_path[1:]]}\n'
+                                        'The selected failed run is a ForEach child. The main template is loaded. '
+                                        'Enter this subgraph path to repair its source definition; do not copy '
+                                        'bound paths from the child run into the template.\n'
+                                        '</source_subgraph_path>'
+                                    )
+                                ),
+                                current_message,
+                            ]
                         agent_input = {
                             **prepared.state,
                             'messages': fix_messages,

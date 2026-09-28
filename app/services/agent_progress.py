@@ -130,7 +130,11 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
             workflow_changed=changed,
             diagnosis_run_uid=values.get('diagnosis_run_uid'),
             update_path=values.get('update_path'),
+            changed_workflow_uids=values.get('changed_workflow_uids') or [],
         )
         if changed and workflow_uid:
-            changes.append({'resource': 'workflow', 'uid': str(workflow_uid), 'project_id': run.project_id})
+            changes.extend(
+                {'resource': 'workflow', 'uid': str(uid), 'project_id': run.project_id}
+                for uid in dict.fromkeys(values.get('changed_workflow_uids') or [workflow_uid])
+            )
     return result, changes
