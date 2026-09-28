@@ -33,6 +33,10 @@ class WorkflowSimple(BaseModel):
     outputs: list[WorkflowPortSimple]
 
 
+class WorkflowSearchResult(WorkflowSimple):
+    relevance_score: float
+
+
 class WorkflowPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
@@ -13,13 +14,20 @@ from app.schemas.common import Paginated
 from app.schemas.react_flow import WorkflowDefinition
 from app.schemas.user import CurrentUser
 from app.schemas.user_config import UserRole
-from app.schemas.workflow import WorkflowCreateProp, WorkflowPublic, WorkflowSimple, WorkflowUpdate
+from app.schemas.workflow import (
+    WorkflowCreateProp,
+    WorkflowPublic,
+    WorkflowSearchResult,
+    WorkflowSimple,
+    WorkflowUpdate,
+)
 from app.schemas.workflow_config import WorkflowType
 from app.services import workflow_catalog
 from app.services.workflow.compiler import validate_workflow
 from app.services.workflow.subgraphs import validate_interface_handles
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _get_workflow_for_user(session: Session, uid: str, user: CurrentUser, *, edit: bool = False) -> Workflow:
@@ -39,6 +47,7 @@ async def get_workflows(
     wf_type: WorkflowType | None = None,
     offset: int = 0,
     limit: Annotated[int, Query(le=20)] = 20,
+    q: Annotated[str, Query(max_length=512)] = '',
 ) -> Paginated[WorkflowSimple]:
     """Get a paginated list of workflows for the current user."""
     workflows, total = wf_crud.get_page(
@@ -49,6 +58,7 @@ async def get_workflows(
         wf_type=wf_type,
         include_private=current_user.role == UserRole.ADMIN,
         include_owned=current_user.role >= UserRole.MEMBER,
+        q=q,
     )
     return Paginated(
         total=total,
@@ -65,17 +75,34 @@ async def search_subgraphs(
     current_user: UserDep,
     q: Annotated[str, Query(min_length=1, max_length=512)],
     limit: Annotated[int, Query(ge=1, le=20)] = 20,
-) -> list[WorkflowSimple]:
-    """Search accessible saved subgraphs by semantic similarity."""
-    workflows = await workflow_catalog.search_subgraphs(
-        session,
-        q,
-        current_user.id,
-        include_private=current_user.role == UserRole.ADMIN,
-        include_owned=current_user.role >= UserRole.MEMBER,
-        limit=limit,
-    )
-    return [WorkflowSimple.model_validate(wf_crud.to_simple(workflow)) for workflow in workflows]
+    wf_type: Annotated[str | None, Query(pattern='^(all|0|1)$')] = None,
+) -> list[WorkflowSearchResult]:
+    """Search visible workflow descriptions; omitted type retains the subgraph default."""
+    if wf_type is None:
+        selected_type = WorkflowType.SUBMODULE
+    elif wf_type == 'all':
+        selected_type = None
+    else:
+        selected_type = WorkflowType(int(wf_type))
+    try:
+        matches = await workflow_catalog.search_workflows(
+            session,
+            q,
+            current_user.id,
+            include_private=current_user.role == UserRole.ADMIN,
+            include_owned=current_user.role >= UserRole.MEMBER,
+            wf_type=selected_type,
+            limit=limit,
+        )
+    except Exception as error:
+        logger.exception('Workflow semantic search failed')
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, 'Semantic search is temporarily unavailable'
+        ) from error
+    return [
+        WorkflowSearchResult.model_validate({**wf_crud.to_simple(workflow), 'relevance_score': score})
+        for workflow, score in matches
+    ]
 
 
 @router.get('/{uid}')

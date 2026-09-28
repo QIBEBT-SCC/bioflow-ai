@@ -38,10 +38,35 @@ async def search_subgraphs(
     limit: int = 20,
 ) -> list[Workflow]:
     """Find accessible saved subgraphs by description-vector similarity."""
+    return [
+        workflow
+        for workflow, _score in await search_workflows(
+            session,
+            query,
+            user_id,
+            include_private=include_private,
+            include_owned=include_owned,
+            wf_type=WorkflowType.SUBMODULE,
+            limit=limit,
+        )
+    ]
+
+
+async def search_workflows(
+    session: Session,
+    query: str,
+    user_id: int,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
+    wf_type: WorkflowType | None = None,
+    limit: int = 20,
+) -> list[tuple[Workflow, float]]:
+    """Find accessible workflows and retain their vector relevance scores."""
     normalized_query = query.strip()
     if not normalized_query:
         return []
-    filters = [f'wf_type == {int(WorkflowType.SUBMODULE)}']
+    filters = [f'wf_type == {int(wf_type)}'] if wf_type is not None else []
     if not include_private:
         filters.append(f'(public == true or owner_id == {user_id})' if include_owned else 'public == true')
     vectorstore = MilvusVectorStore(
@@ -50,29 +75,31 @@ async def search_subgraphs(
         uri=get_settings().knowledge_base.MILVUS_URL,
         hybrid=True,
     )
-    search_query = (
-        f'Instruct: Find saved workflow subgraphs relevant to the requested function\nQuery:{normalized_query}'
-    )
+    target = 'workflow subgraphs' if wf_type == WorkflowType.SUBMODULE else 'bioinformatics workflows'
+    search_query = f'Instruct: Find saved {target} relevant to the requested function\nQuery:{normalized_query}'
     async with vectorstore:
-        documents = await vectorstore.asimilarity_search(
+        matches = await vectorstore.asimilarity_search_with_score(
             search_query,
             k=limit,
             filter_expression=' and '.join(filters),
             weights=(1.0, 0.0),
         )
-    valid_uids = [
-        UUID(document.metadata.get('wf_uid'))
-        for document in documents
-        if isinstance(document.metadata.get('wf_uid'), str)
-    ]
-    return workflow_crud.get_all_by_uid(
+    scores: dict[UUID, float] = {}
+    for document, score in matches:
+        try:
+            uid = UUID(str(document.metadata['wf_uid']))
+        except (KeyError, ValueError, TypeError):
+            continue
+        scores.setdefault(uid, score)
+    workflows = workflow_crud.get_all_by_uid(
         session,
-        valid_uids,
+        list(scores),
         user_id,
         include_private=include_private,
         include_owned=include_owned,
-        wf_type=WorkflowType.SUBMODULE,
+        wf_type=wf_type,
     )
+    return [(workflow, scores[workflow.uid]) for workflow in workflows]
 
 
 async def create_workflow(session: Session, workflow: Workflow) -> Workflow:

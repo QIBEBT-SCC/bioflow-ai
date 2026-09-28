@@ -118,6 +118,7 @@ def get_page(
     include_private: bool = False,
     include_owned: bool = True,
     wf_type: WorkflowType | None = None,
+    q: str = '',
 ) -> tuple[list[dict], int]:
     """Return a page of workflows accessible to a user together with the total count."""
     condition = _visibility_condition(
@@ -127,6 +128,10 @@ def get_page(
     )
     if wf_type is not None:
         condition = and_(condition, Workflow.wf_type == wf_type)
+    normalized_query = q.strip()
+    if normalized_query:
+        escaped_query = normalized_query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        condition = and_(condition, Workflow.name.ilike(f'%{escaped_query}%', escape='\\'))
     columns = (
         Workflow.uid,
         Workflow.name,
@@ -136,7 +141,7 @@ def get_page(
     )
     include_interface = wf_type == WorkflowType.SUBMODULE
     page_stmt = select(*columns, *((Workflow.workflow,) if include_interface else ())).where(condition)
-    page_stmt = page_stmt.offset(offset).limit(limit)
+    page_stmt = page_stmt.order_by(Workflow.uid.desc()).offset(offset).limit(limit)
     count_stmt = select(func.count()).select_from(Workflow).where(condition)
 
     result = session.execute(page_stmt).all()
