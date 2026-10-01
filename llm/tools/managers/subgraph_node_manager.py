@@ -24,6 +24,7 @@ from llm.states import BuildEdge, BuildNode, SubgraphBuildState, WorkflowDraft
 from llm.tools.managers.subgraph_interface_manager import NamedPort
 from llm.utils.formatters import format_validation_error, manager_help_command
 from llm.utils.session import workflow_thread_id
+from llm.workflow_builder.foreach_manifest import foreach_manifest_contract
 from llm.workflow_builder.node_ids import allocate_node_id
 from llm.workflow_builder.serialization import to_execution_scope
 from llm.workflow_builder.subgraphs import effective_nodes, validate_editing_edges
@@ -251,17 +252,23 @@ def _add(values: AddSubgraph, runtime: ToolRuntime[ProjectContext]) -> Command:
     if problems := validate_editing_edges(proposed_nodes, proposed_edges):
         return _message(runtime, 'Cannot add subgraph: ' + '; '.join(problems))
     node = effective_nodes(proposed_nodes, proposed_edges)[-1]
+    response: dict[str, Any] = {
+        'node_id': node_id,
+        'name': item.name,
+        'inputs': [p.model_dump() for p in interface.inputs],
+        'outputs': [h.name for h in node.output_handles],
+    }
+    if any(
+        edge.source_handle == 'collection'
+        and (source := next((candidate for candidate in existing_nodes if candidate.id == edge.source_node), None))
+        is not None
+        and source.type == 'collect_file_collection'
+        for edge in candidate_edges
+    ):
+        response['foreach_manifest_contract'] = foreach_manifest_contract(item.workflow)
     return _message(
         runtime,
-        json.dumps(
-            {
-                'node_id': node_id,
-                'name': item.name,
-                'inputs': [p.model_dump() for p in interface.inputs],
-                'outputs': [h.name for h in node.output_handles],
-            },
-            ensure_ascii=False,
-        ),
+        json.dumps(response, ensure_ascii=False),
         exist_nodes=[node],
         exist_edges=candidate_edges,
         next_node_index=next_index,

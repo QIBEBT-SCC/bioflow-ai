@@ -23,6 +23,37 @@ Choose the right batch boundary:
 
 ForEach children cannot contain another collection/ForEach or `sample_mark` / `project_mark`. Keep cross-item aggregation after the batch stage.
 
+## Results manifest for downstream CODE
+
+`subgraph_node_manager.add` returns a `foreach_manifest_contract` when the collection is connected. Its `output_ports` list gives the saved subgraph's stable output IDs and display names. Use the ID, not the name, as the key in `items[].outputs`. The manifest is created only when ForEach runs; its absence during workflow construction is expected and does not require a question to the user.
+
+When a downstream CODE node needs per-item exports, read the contract returned by `subgraph_node_manager.add`; for a subgraph already on the panel, inspect its interface with `workflow_manager.view_node`. Put the required output port ID and the manifest lookup rule in the `add_new_code.request`. Check that the generated code reads `manifest.json` through `items[].outputs[port ID]` and resolves each value relative to `results_folder` before connecting downstream nodes. If it guesses a directory layout or filename suffix, regenerate the CODE node using the contract. Do not ask the user for a runtime manifest instance to learn this schema.
+
+The `results_folder/manifest.json` format is version 1. It has an `items` array in collection order. Every item has `key`, `name`, `relative_path` (original collection input), `subfolder`, `status`, `run_uid`, and `outputs`. For a successful item, `outputs` maps each exported subgraph output **ID** to a path relative to `results_folder`. A file export maps to its copied file; a directory export maps to its copied directory. Failed items have no exported output paths.
+
+For example, if the subgraph interface declares `id="output_1", name="bin_record"` and the selected source file is named `bin_record.tsv`, one item can look like this:
+
+```json
+{
+  "version": 1,
+  "items": [
+    {
+      "key": "9a36da116c7910d809ccf555",
+      "name": "bin.1.fa",
+      "relative_path": "bins/bin.1.fa",
+      "subfolder": "bin_1",
+      "status": "succeeded",
+      "run_uid": "00000000-0000-0000-0000-000000000001",
+      "outputs": {
+        "output_1": "bin_1/d8c675a41ff88f6c9253b318/bin_record.tsv"
+      }
+    }
+  ]
+}
+```
+
+This is an example, not a path template. The middle directory is an opaque port-specific directory, not `output_1`. For a TSV merge, iterate `items`, select `status == "succeeded"`, resolve `results_folder / item.outputs["output_1"]`, and validate that each resolved path is the expected file. Do not recursively search for matching basenames or require a suffix like `output_1/bin_record.tsv`. Check the actual output ID returned for the subgraph before writing the downstream CODE request, then inspect the generated code for this mapping. The file collector fails when its glob matches no files, so a zero-item manifest is not a normal runtime case.
+
 ## Example: bin FASTA annotation
 
 ```text

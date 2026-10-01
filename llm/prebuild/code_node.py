@@ -1,20 +1,24 @@
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, Field
 
 from app.schemas.code import CodeMetadataPublic, CodeMetadataRequest
+from app.schemas.react_flow import WorkflowDefinition
 from llm.context import BaseContext
 from llm.models import get_coding_model
 from llm.prebuild.json_output import json_output
 from llm.states import BuildEdge, BuildNode
 from llm.utils.code_node_contract import BASH_CODE_CONTRACT, PYTHON_CODE_CONTRACT, R_CODE_CONTRACT
+from llm.workflow_builder.foreach_manifest import foreach_manifest_contract
 
 if TYPE_CHECKING:
     from llm.llm_client import LLMMetadata
 
 BASH_CODE_SYSTEM = f"""You are a senior Bash engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
+When an input has a format_contract, follow its schema and path rule exactly. Never infer manifest fields or
+export paths from output display names, folder names, or filename suffixes.
 First assess whether the request is eligible for this Bash-only node. Generate exactly one complete Bash script only
 when the entire requested deterministic workflow transformation is eligible.
 
@@ -30,6 +34,8 @@ when the entire requested deterministic workflow transformation is eligible.
 
 PYTHON_CODE_SYSTEM = f"""You are a senior Python engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
+When an input has a format_contract, follow its schema and path rule exactly. Never infer manifest fields or
+export paths from output display names, folder names, or filename suffixes.
 Generate exactly one complete Python 3.13 script for the requested bounded, deterministic workflow transformation.
 
 {PYTHON_CODE_CONTRACT}
@@ -43,6 +49,8 @@ Generate exactly one complete Python 3.13 script for the requested bounded, dete
 
 R_CODE_SYSTEM = f"""You are a senior R engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
+When an input has a format_contract, follow its schema and path rule exactly. Never infer manifest fields or
+export paths from output display names, folder names, or filename suffixes.
 Generate exactly one complete R 4.4.3 script for the requested bounded, deterministic workflow transformation.
 
 {R_CODE_CONTRACT}
@@ -73,6 +81,7 @@ class CodeInput(BaseModel):
     source_node: str = Field(description='Upstream workflow node name')
     source_handle: str = Field(description='Upstream output handle name')
     description: str = Field(description='Description of the upstream output')
+    format_contract: dict[str, Any] | None = Field(default=None, description='Structured input format, when available')
 
 
 class BashCodeResult(BaseModel):
@@ -137,12 +146,29 @@ def build_code_inputs(
             msg = f'upstream node "{upstream_node.id}" has no output handle named "{upstream_edge.source_handle}"'
             raise ValueError(msg)
 
+        format_contract = None
+        if (
+            upstream_node.type == 'subgraph'
+            and source_handle.name == 'results_folder'
+            and any(
+                item.target_node == upstream_node.id
+                and item.source_handle == 'collection'
+                and (source := nodes_by_id.get(item.source_node)) is not None
+                and source.type == 'collect_file_collection'
+                for item in exist_edges
+            )
+        ):
+            format_contract = foreach_manifest_contract(
+                WorkflowDefinition.model_validate(upstream_node.data['workflow'])
+            )
+
         inputs.append(
             CodeInput(
                 parameter=parameter,
                 source_node=upstream_node.name,
                 source_handle=source_handle.name,
                 description=source_handle.description,
+                format_contract=format_contract,
             )
         )
 
@@ -156,7 +182,7 @@ def build_code_inputs(
 def _format_request(request: str, inputs: list[CodeInput]) -> str:
     return (
         f'<requirement>\n{request.strip()}\n</requirement>\n\n'
-        f'<input_contract>\n{json.dumps([item.model_dump() for item in inputs], ensure_ascii=False, indent=2)}\n'
+        f'<input_contract>\n{json.dumps([item.model_dump(exclude_none=True) for item in inputs], ensure_ascii=False, indent=2)}\n'
         f'</input_contract>'
     )
 

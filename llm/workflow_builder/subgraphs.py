@@ -60,7 +60,12 @@ def effective_nodes(nodes: list[BuildNode], edges: list[BuildEdge]) -> list[Buil
             message = f'Subgraph {node.id} has more than one ForEach input'
             raise ValueError(message)
         output_handles = (
-            [Handle(name='results_folder', description='Folder of per-item results and manifest.json')]
+            [
+                Handle(
+                    name='results_folder',
+                    description='Folder with manifest.json v1; each item.outputs[child output port ID] is a relative export path',
+                )
+            ]
             if batch_edges
             else [Handle(name=port.id, description=port.description) for port in child.interface.outputs]
         )
