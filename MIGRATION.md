@@ -7,7 +7,7 @@ and production databases are not modified by the migration.
 ## Stages
 
 - [x] 1. Capture CLI, OpenAPI, model, and static-check baselines.
-- [ ] 2. Move Python code into the installable `src/bioflow_ai` package.
+- [x] 2. Move Python code into the installable `src/bioflow_ai` package.
 - [ ] 3. Separate process runtime and infrastructure from CLI commands.
 - [ ] 4. Group business services and LLM helpers by responsibility.
 - [ ] 5. Extract development, evaluation, and initialization business logic.

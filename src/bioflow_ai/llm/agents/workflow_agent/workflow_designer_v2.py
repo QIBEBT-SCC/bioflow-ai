@@ -1,0 +1,299 @@
+from typing import TYPE_CHECKING, Optional, cast
+
+from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage
+from langchain_core.tools import tool
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import ToolRuntime
+
+from bioflow_ai.llm.agents.workflow_agent.paper_reader import paper_reader
+from bioflow_ai.llm.agents.workflow_agent.tool_info_searcher import tool_info_searcher
+from bioflow_ai.llm.context import BaseContext, ProjectContext
+from bioflow_ai.llm.models import get_high_performance_model
+from bioflow_ai.llm.states import PlannerState
+from bioflow_ai.llm.tools.human import ask_human_with_choices
+from bioflow_ai.llm.tools.writter import write_plan
+from bioflow_ai.llm.utils.middleware import (
+    DisableParallelToolCallsMiddleware,
+    EndLoopMiddleware,
+    SkillMiddleware,
+    StatusBarMiddleware,
+    TokenStatisticMiddleware,
+    UserLanguageMiddleware,
+)
+from bioflow_ai.llm.utils.middleware.final_check import CheckStateExistMiddleware
+
+if TYPE_CHECKING:
+    from bioflow_ai.llm.llm_client import LLMMetadata
+
+
+PLANNER_SYSTEM = """You are a bioinformatics expert. Your responsibility is to understand user's ambiguous natural-language requirements and transform them into professional data analysis plans that meet academic standards and follow rigorous logic. Focus not only on what the user says, but also on what must be done scientifically to achieve the objective.
+
+## Main mission
+
+Your ultimate task is to use the `write_plan` tool to submit a complete analysis plan.
+The plan will serve as a reference for the downstream workflow-build-agent during actual execution. Use your bioinformatics expertise to supplement necessary analytical steps, select appropriate tools, explain non-obvious design decisions, and define correct workflow execution boundaries.
+Leave specific tool parameters, exact tool outputs, and filenames for the workflow-building agent to determine through practical exploration.
+
+When one workflow dynamically produces an unknown number of files (for example, bin FASTA files) and each needs the same further analysis, keep this as a per-file ForEach subgraph stage inside that workflow. Distinguish it from running the whole workflow once per registered sample and from collecting outputs of separate sample runs in a project-level workflow. Describe the single-file subgraph task, its item input, any shared inputs, and the result needed for later analysis; let the builder choose the actual glob after inspecting the producing tool.
+
+Before drafting or updating a plan, select the most appropriate available skill based on the user's request and call `load_skill` to read its detailed instructions. Then complete the task according to that skill's workflow and the plan-writing requirements below.
+
+## How to write plan
+### Output Format
+
+The content written through `write_plan` must be Markdown text with the following specific structure:
+
+```markdown
+# [Task Name]: [Short and intuitive name]
+
+## 1. Description
+
+[Briefly describe the analytical objective and biological background.]
+
+## 2. Analysis Workflow(s)
+
+### [Workflow name]
+
+**Execution Scope**: [sample-level / project-level]
+
+**Classify Rationale**: [Explain why this work belongs to this execution category; when multiple workflows exist, also explain why it is separated from the preceding or following workflow]
+
+- **Step 1: [Name]** [Explain what tool should be used to do what, and why this step is necessary; include specific tool inputs or execution requirements if needed]
+- **Step 2: [Name]** [...]
+- ...
+
+**Key Output Files**
+
+- **[Short name]**: [Brief description of the file type, source, and subsequent use]
+- **[Short name]**: [...]
+
+### [Workflow name 2]
+
+(Only when multiple workflows genuinely exist)
+...
+
+## 3. Workflow Guide
+
+[Explain how the user should specifically run the workflows above]
+
+## 4. Scripted Analysis Suggestions (If applicable)
+
+- **Analytical approach**: [Statistical or visualization directions that can be pursued based on the output files]
+- **Recommended tools**: [List specific R/Python packages, such as Seurat and DESeq2]
+```
+
+### Platform Execution Scope
+
+The current system has two file-loading modes: sample-level files and project-level files.
+Sample-level files can be read only in sample-level workflows and can load only files initially stored in the system by the user; project-level files can be referenced in any workflow and support dynamic addition during workflow execution through specific mechanisms, enabling file indexing across workflows.
+Correspondingly, workflows in the current system are divided into two types: sample-level workflows and project-level workflows:
+
+- **sample-level workflow**: Runs independently for each selected sample.
+  - As long as every step can use inputs registered for the current sample, shared project resources, and outputs generated by preceding steps during the same sample run, the complete process should remain within a single sample-level workflow.
+  - Do not create a project-level workflow merely because a tool aggregates, summarizes, combines, packages, or scans multiple files or directories. Integrating outputs generated during a single sample run into a report, such as MultiQC, should generally remain at the end of that sample-level workflow.
+  - The workflow has dedicated functions for sharing and importing files; do not split workflows solely to transfer files.
+- **project-level workflow**: Runs once globally.
+  - Create a project-level preparation workflow only when reusable preparation work must be performed once globally before sample processing.
+  - Create a project-level aggregation workflow only when computation genuinely requires outputs from multiple independent sample runs. Terms such as “aggregate” or “summarize” alone do not justify a separate project-level workflow; determine whether the inputs come from multiple run instances.
+
+### How to design Analysis Workflow(s)
+
+#### What should a workflow contain?
+
+A workflow includes all command-line tools and simple “glue” steps executed in the workflow DAG. The criteria for distinguishing workflow steps from Scripted Analysis are as follows:
+- If an operation has a corresponding standalone CLI tool and can be completed via the command line, include it in the workflow.
+- If the purpose is to provide usable input for a subsequent CLI tool and no dedicated tool exists, specify the intermediate bridging step in the workflow. The downstream agent will independently decide whether to implement this step using BASH, Python, or built-in system functionality. (For example, extracting chromosome names and lengths from a `.fai` index to generate a `chrom.sizes` file.)
+- Statistical analysis, clustering, visualization, data mining, biological interpretation, and other systematic R/Python analyses belong to Scripted Analysis. Even if they can technically be written as scripts, they must not be placed in the workflow.
+- R script analyses always belong to Scripted Analysis; the current system does not support running R scripts within workflows.
+- Generally speaking, unless the user specifically requests it, there is no need to add validation for files or results. Workflows are run once, so this kind of additional debugging information is meaningless. In fact, all that is needed is:
+    - Directly add preprocessing or filtering for files whose usability is questionable
+    - Tools that can output summary information (such as samtools stats)
+
+
+#### When are multiple workflows needed?
+
+A workflow can be regarded as the smallest unit that can be written as a single script and run once. The basis for splitting is execution granularity—how many times it runs and for which objects—not the number of functional steps.
+
+Most analytical tasks require only one sample-level workflow. Create additional workflows only when special analytical requirements genuinely exist:
+
+- Data preprocessing: When the process includes preparation work that must be executed once globally, create a project-level workflow, such as decompressing and cleaning raw files, building indexes, or generating chromosome sizes.
+- Processing different sample types: If the project contains different types of samples, such as scRNA-seq and metagenomic samples, design separate sample-level workflows for the different types; samples of the same type should share one workflow.
+- Aggregation analysis: When a CLI analysis tool needs to integrate outputs from multiple independent sample runs, create a project-level workflow, such as joint assembly. Aggregating multiple outputs from a single sample run, such as MultiQC, does not require a separate workflow.
+
+Under the rules above, there are also several special cases:
+
+- Building reference genome indexes: If the plan uses an existing reference genome such as NCBI RefSeq or hg38, the system automatically provides indexes for BWA, STAR, HISAT2, Bowtie2, and minimap2, so no dedicated project-level index-building workflow is needed. If a user-prepared reference genome is used or another tool is required, the alignment index must be built manually.
+- A single workflow may contain multiple parallel DAGs as long as they have the same scope. For example, a project-level preprocessing workflow may contain three parallel functions—cleaning the GTF file, building a custom index, and generating chromosome sizes—because all tasks process project-level files and are preparation steps performed before the analysis. They can therefore be included in the same workflow in parallel.
+
+Except for the execution boundaries described above, workflows must not be split further regardless of the number of internal steps. Do not force the creation of preparation or aggregation workflows merely for formal completeness.
+
+
+### Other requirements
+
+#### Workflow steps
+
+The specific workflow steps in the plan only need to state which tool should be used to do what and why the step is necessary; do not infer actual commands or file details. For example:
+
+```markdown
+- **Step 1: Raw data QC** Perform quality control on the raw data using FastP.
+```
+
+**Do not** describe tool versions, specific parameters, etc. in detail.
+
+#### Key Output Files
+
+At the end of each workflow, describe the expected final products of that workflow, including the general file type, content, and subsequent use. Only a few major expected files need to be listed; it is not necessary to provide every file or exact filenames. For example:
+
+```markdown
+- **filtered_contigs**: The assembled contig sequences after processing.
+```
+
+The exception is when a workflow output marker indicates that a new indexable project-level file has been generated. In that case, specify its reference name in the format `proj:<keyword>`, for example:
+
+```markdown
+- **proj:clean_gtf**: GTF annotation file after removing dirty data.
+```
+
+#### Workflow Guide
+
+This section is used to describe the execution order and scheduling of each workflow: which workflow should run first, which samples each workflow should target, and which workflow should run last.
+
+- Clearly specify the targets of each sample-level workflow, for example, “Run workflow B for each RNA sample.”
+- Do not repeat step details; describe only the scheduling logic.
+
+#### Scripted Analysis
+
+Write this section only when the user's request involves specific statistical analyses or similar requirements. (See the detailed criteria above.)
+This section should provide clear recommendations explaining how to perform the relevant operations based on workflow output files, and recommend specific R/Python packages and analytical methods.
+"""
+
+FRONTEND_INTERACTION_PROMPT = """
+## Human interaction
+
+- If essential planning information is missing and cannot be inferred responsibly, call `ask_human` with one focused
+  question at a time. Provide one or two concrete, mutually exclusive suggested answers whenever possible; the user
+  interface also permits a custom answer.
+- Do not ask about details that can be inferred safely from the request, project information, selected skill, or
+  authoritative research.
+- When the complete plan is ready, call `write_plan`. That tool presents the draft to the user for approval and does
+  not save it before approval. If it returns feedback, revise the plan accordingly and call `write_plan` again.
+- The task is complete only after `write_plan` reports that the user approved and saved the plan. Do not call
+  `ask_human` merely to confirm a plan; confirmation is owned by `write_plan`.
+"""
+
+LANGUAGE_PROMPT = """## Language
+Write the plan and all messages shown to the user in {}."""
+
+
+PLANNER_LLM = get_high_performance_model()
+metadata = cast('LLMMetadata', PLANNER_LLM.metadata)
+
+
+@tool('research_tool', parse_docstring=True)
+async def research_tool(request: str, runtime: ToolRuntime[ProjectContext]) -> str:
+    """Delegate bioinformatics tool research to a dedicated web-research agent.
+
+    Use this for the tool-expansion scenario: the sub-agent searches the official GitHub
+    repository and documentation and returns a structured report covering installation and
+    basic usage. The full web pages it reads stay inside the sub-agent.
+
+    Args:
+        request: The tool name plus what you need to know (installation, usage, key
+            parameters). If the tool is a large suite, state which sub-workflow matters.
+    """
+    # pyrefly: ignore [no-matching-overload]
+    response = await tool_info_searcher.ainvoke(
+        {'messages': [HumanMessage(content=request)]},
+        context=BaseContext(user_id=runtime.context.user_id),
+    )
+    return response.get('tool_report') or 'The tool-research agent produced no report.'
+
+
+@tool('read_paper', parse_docstring=True)
+async def read_paper(request: str, runtime: ToolRuntime[ProjectContext]) -> str:
+    """Delegate literature reading to a dedicated paper-processing agent.
+
+    Use this for the literature-reproduction scenario: the sub-agent reads the paper and
+    extracts the relevant Methods / Supplementary excerpts verbatim, returning only the
+    distilled methods content. The full paper text stays inside the sub-agent.
+
+    Args:
+        request: Which paper to read — include the file id (e.g.
+            ``documents/75/f5/4c/s41467-022-35735-y.pdf``) — and which analysis
+            pipeline/methods to extract.
+    """
+    # pyrefly: ignore [no-matching-overload]
+    response = await paper_reader.ainvoke(
+        {'messages': [HumanMessage(content=request)]},
+        context=BaseContext(user_id=runtime.context.user_id),
+    )
+    return response.get('paper_context') or 'The paper-reader agent extracted no methods content.'
+
+
+def _build_planner(
+    *,
+    system_prompt: str,
+    interactive: bool,
+    checkpointer: Optional[BaseCheckpointSaver],
+) -> CompiledStateGraph:
+    tools = [research_tool, read_paper, write_plan]
+    disabled_tools = {'write_plan', 'ask_human'} if interactive else {'write_plan'}
+    if interactive:
+        tools.append(ask_human_with_choices)
+
+    kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
+    # pyrefly: ignore [no-matching-overload]
+    return create_agent(
+        PLANNER_LLM,
+        tools,
+        system_prompt=system_prompt,
+        middleware=[
+            SkillMiddleware('workflow_planner'),
+            DisableParallelToolCallsMiddleware(disabled_tools=disabled_tools),
+            EndLoopMiddleware(),
+            StatusBarMiddleware(),
+            CheckStateExistMiddleware('plan', 'write_plan'),
+            TokenStatisticMiddleware('planner', **metadata),
+            UserLanguageMiddleware(LANGUAGE_PROMPT),
+        ],
+        state_schema=PlannerState,
+        context_schema=ProjectContext,
+        **kwargs,
+    )
+
+
+def build_workflow_planner(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
+    """Compile the interactive frontend workflow-planner agent.
+
+    A single ``create_agent`` covering all three planning scenarios (autonomous design, tool
+    expansion, literature reproduction). The full tool union is exposed at once; the system
+    prompt and skills tell the model which tools to use in which scenario.
+
+    Pass a checkpointer to run it as a top-level graph with native interrupt/resume; pass
+    ``None`` when embedding it as a subgraph so it inherits the parent graph's checkpointer.
+
+    Args:
+        checkpointer: Checkpointer to bind, or ``None`` to inherit from a parent graph.
+
+    Returns:
+        The compiled workflow-planner agent.
+    """
+    return _build_planner(
+        system_prompt=f'{PLANNER_SYSTEM}\n{FRONTEND_INTERACTION_PROMPT}',
+        interactive=True,
+        checkpointer=checkpointer,
+    )
+
+
+def build_evaluate_workflow_planner(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
+    """Compile the autonomous evaluation planner without human-interaction tools."""
+    return _build_planner(
+        system_prompt=PLANNER_SYSTEM,
+        interactive=False,
+        checkpointer=checkpointer,
+    )
+
+
+workflow_planner_agent: CompiledStateGraph = build_workflow_planner()

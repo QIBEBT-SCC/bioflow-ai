@@ -58,7 +58,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bioflow-ai = "script.cli:cli"
+bioflow-ai = "bioflow_ai.cli.main:cli"
 
 [project.optional-dependencies]
 podman = [
@@ -74,7 +74,7 @@ url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 default = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["app", "llm", "script"]
+packages = ["src/bioflow_ai"]
 
 [tool.uv]
 package = true
@@ -137,7 +137,7 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402"]
-"script/**.py" = ["T201"]
+"src/bioflow_ai/cli/**.py" = ["T201"]
 "test/**.py" = ["T201"]
 "tests/**.py" = ["D100", "D101", "D102", "D103", "D104", "S101"]
 
@@ -146,7 +146,7 @@ convention = "google"
 ignore-var-parameters = true  # ignore missing documentation for *args and **kwargs parameters
 
 [tool.pyrefly]
-project-includes = ["app/", "llm/", "script/"]
+project-includes = ["src/bioflow_ai/"]
 
 
 [tool.pyrefly.errors]

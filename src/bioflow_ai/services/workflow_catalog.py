@@ -1,0 +1,189 @@
+"""Application services for workflow-template persistence and indexing."""
+
+from collections.abc import Sequence
+from uuid import UUID
+
+from langchain_core.documents import Document
+from sqlalchemy.orm import Session
+
+import bioflow_ai.crud.workflow as workflow_crud
+from bioflow_ai.core.config import get_settings
+from bioflow_ai.llm.models import qwen3_embedding
+from bioflow_ai.llm.vectorstores import MilvusVectorStore
+from bioflow_ai.models.workflow import Workflow
+from bioflow_ai.schemas.workflow import WorkflowUpdate
+from bioflow_ai.schemas.workflow_config import WorkflowType
+from bioflow_ai.services._transaction import committing
+from bioflow_ai.utils.identifiers import UUIDLike
+
+_WORKFLOW_NOT_FOUND = 'Workflow not found'
+WORKFLOW_COLLECTION = 'WorkflowCollection'
+
+
+class WorkflowCatalogError(Exception):
+    """Base exception for workflow-catalog operations."""
+
+
+class WorkflowCatalogNotFoundError(WorkflowCatalogError):
+    """A requested workflow template does not exist."""
+
+
+async def search_subgraphs(
+    session: Session,
+    query: str,
+    user_id: int,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
+    limit: int = 20,
+) -> list[Workflow]:
+    """Find accessible saved subgraphs by description-vector similarity."""
+    return [
+        workflow
+        for workflow, _score in await search_workflows(
+            session,
+            query,
+            user_id,
+            include_private=include_private,
+            include_owned=include_owned,
+            wf_type=WorkflowType.SUBMODULE,
+            limit=limit,
+        )
+    ]
+
+
+async def search_workflows(
+    session: Session,
+    query: str,
+    user_id: int,
+    *,
+    include_private: bool = False,
+    include_owned: bool = True,
+    wf_type: WorkflowType | None = None,
+    limit: int = 20,
+) -> list[tuple[Workflow, float]]:
+    """Find accessible workflows and retain their vector relevance scores."""
+    normalized_query = query.strip()
+    if not normalized_query:
+        return []
+    filters = [f'wf_type == {int(wf_type)}'] if wf_type is not None else []
+    if not include_private:
+        filters.append(f'(public == true or owner_id == {user_id})' if include_owned else 'public == true')
+    vectorstore = MilvusVectorStore(
+        collection_name=WORKFLOW_COLLECTION,
+        embedding_function=qwen3_embedding(),
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    target = 'workflow subgraphs' if wf_type == WorkflowType.SUBMODULE else 'bioinformatics workflows'
+    search_query = f'Instruct: Find saved {target} relevant to the requested function\nQuery:{normalized_query}'
+    async with vectorstore:
+        matches = await vectorstore.asimilarity_search_with_score(
+            search_query,
+            k=limit,
+            filter_expression=' and '.join(filters),
+            weights=(1.0, 0.0),
+        )
+    scores: dict[UUID, float] = {}
+    for document, score in matches:
+        try:
+            uid = UUID(str(document.metadata['wf_uid']))
+        except (KeyError, ValueError, TypeError):
+            continue
+        scores.setdefault(uid, score)
+    workflows = workflow_crud.get_all_by_uid(
+        session,
+        list(scores),
+        user_id,
+        include_private=include_private,
+        include_owned=include_owned,
+        wf_type=wf_type,
+    )
+    return [(workflow, scores[workflow.uid]) for workflow in workflows]
+
+
+async def create_workflow(session: Session, workflow: Workflow) -> Workflow:
+    """Persist and index one workflow template."""
+    with committing(session):
+        workflow_crud.insert(session, workflow)
+        await _index_workflow(workflow)
+    session.refresh(workflow)
+    return workflow
+
+
+async def create_workflows(session: Session, workflows: Sequence[Workflow]) -> list[Workflow]:
+    """Persist and index a batch before committing the database transaction."""
+    with committing(session):
+        saved_workflows = [workflow_crud.insert(session, workflow) for workflow in workflows]
+        for workflow in saved_workflows:
+            await _index_workflow(workflow)
+    for workflow in saved_workflows:
+        session.refresh(workflow)
+    return saved_workflows
+
+
+async def update_workflow(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Workflow:
+    """Update a workflow template in one database transaction."""
+    with committing(session):
+        workflow = workflow_crud.update(session, uid, data)
+        if workflow is None:
+            raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
+        await _index_workflow(workflow, replace=True)
+    session.refresh(workflow)
+    return workflow
+
+
+async def delete_workflow(session: Session, uid: UUIDLike) -> None:
+    """Delete a workflow and its vector projection before committing."""
+    with committing(session):
+        workflow = workflow_crud.get(session, uid)
+        if workflow is None:
+            raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
+        workflow_crud.delete(session, uid)
+
+        vectorstore = MilvusVectorStore(
+            collection_name=WORKFLOW_COLLECTION,
+            uri=get_settings().knowledge_base.MILVUS_URL,
+            hybrid=True,
+        )
+        async with vectorstore:
+            await vectorstore.adelete(filter_expression='wf_uid == {uid}', filter_params={'uid': str(workflow.uid)})
+
+
+async def _index_workflow(workflow: Workflow, *, replace: bool = False) -> None:
+    """Write the description before removing an existing projection."""
+    vectorstore = MilvusVectorStore(
+        collection_name=WORKFLOW_COLLECTION,
+        embedding_function=qwen3_embedding(),
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    document = Document(
+        page_content=workflow.description,
+        metadata={
+            'wf_uid': str(workflow.uid),
+            'name': workflow.name,
+            'wf_type': int(workflow.wf_type),
+            'owner_id': workflow.owner_id,
+            'public': workflow.public,
+        },
+    )
+    async with vectorstore:
+        ids = await vectorstore.aadd_documents([document])
+        if len(ids) != 1:
+            message = 'Workflow vector insertion did not return exactly one ID'
+            raise ValueError(message)
+        if replace:
+            new_ids = [int(value) for value in ids]
+            try:
+                await vectorstore.adelete(
+                    filter_expression='wf_uid == {uid} and pk not in {ids}',
+                    filter_params={'uid': str(workflow.uid), 'ids': new_ids},
+                )
+            except Exception:
+                # Do not retain a duplicate if replacing the old projection fails.
+                await vectorstore.adelete(
+                    filter_expression='wf_uid == {uid} and pk in {ids}',
+                    filter_params={'uid': str(workflow.uid), 'ids': new_ids},
+                )
+                raise
