@@ -1,10 +1,10 @@
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from anyio import Path
 from sqlalchemy.orm import Session
 
-from bioflow_ai.services.initialization import tui
+from bioflow_ai.services.progress import ProgressIterator, with_progress
 
 MAX_PASSWORD_BYTES = 128
 
@@ -52,53 +52,17 @@ class PresetDatabaseInitResult:
 
 async def init_preset_database_records(
     *,
+    admin: AdminInitResult,
     drop_old: bool = True,
-    show_progress: bool = True,
+    progress: ProgressIterator | None = None,
 ) -> PresetDatabaseInitResult:
     """Initialize preset database records in dependency order."""
     return PresetDatabaseInitResult(
-        admin=await init_admin(),
-        images=await init_images(drop_old=drop_old, show_progress=show_progress),
+        admin=admin,
+        images=await init_images(drop_old=drop_old, progress=progress),
         docs=await init_docs(drop_old=drop_old),
-        tools=await init_tools(drop_old=drop_old, show_progress=show_progress),
+        tools=await init_tools(drop_old=drop_old, progress=progress),
     )
-
-
-async def init_admin() -> AdminInitResult:
-    """Prompt for and create an administrator when the user table is empty."""
-    from pydantic import SecretStr
-    from sqlalchemy import select
-
-    from bioflow_ai.infrastructure.database import engine
-    from bioflow_ai.models.user import User
-    from bioflow_ai.schemas.user import UserCreate
-    from bioflow_ai.schemas.user_config import UserRole
-    from bioflow_ai.services.identity import user as user_service
-
-    with Session(engine) as session:
-        existing = session.scalar(select(User))
-        if existing is not None:
-            return AdminInitResult(created=False)
-
-        def required(value: str) -> bool | str:
-            return True if value.strip() else 'This field is required.'
-
-        email = (await tui.prompt_text_async('Administrator email', validate=required)).strip().casefold()
-        username = (await tui.prompt_text_async('Administrator username', default='admin', validate=required)).strip()
-        password = await tui.prompt_password_async(
-            'Administrator password (any strength, required, maximum 128 UTF-8 bytes)',
-            validate=lambda value: (
-                required(value)
-                if len(value.encode()) <= MAX_PASSWORD_BYTES
-                else 'The password cannot exceed 128 UTF-8 bytes.'
-            ),
-        )
-        user_service.create_user(
-            session,
-            UserCreate(username=username, email=email, password=SecretStr(password)),
-            role=UserRole.ADMIN,
-        )
-        return AdminInitResult(created=True)
 
 
 async def _ensure_preset_file(filename: str) -> PresetFileResult:
@@ -116,13 +80,12 @@ async def _ensure_preset_file(filename: str) -> PresetFileResult:
     return PresetFileResult(path=parquet_file, downloaded=True)
 
 
-async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> PresetImportResult:
+async def init_images(*, drop_old: bool = True, progress: ProgressIterator | None = None) -> PresetImportResult:
     """Initialize the image database and image vector index."""
     import orjson
     import polars as pl
     from langchain_core.documents import Document
     from pydantic import ValidationError
-    from tqdm import tqdm
 
     import bioflow_ai.crud.tools.image as image_crud
     from bioflow_ai.core.config import get_settings
@@ -168,7 +131,7 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
         for image in images:
             session.refresh(image)
 
-    for i in tqdm(range(0, len(images), BATCH_SIZE), disable=not show_progress):
+    for i in with_progress(range(0, len(images), BATCH_SIZE), progress):
         batch_images = images[i : i + BATCH_SIZE]
 
         docs = [
@@ -233,13 +196,12 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
     )
 
 
-async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> PresetImportResult:
+async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None = None) -> PresetImportResult:
     """Initialize the tool database and tool vector index."""
     import orjson
     import polars as pl
     from langchain_core.documents import Document
     from pydantic import ValidationError
-    from tqdm import tqdm
 
     import bioflow_ai.crud.tools.tool as tool_crud
     import bioflow_ai.crud.tools.tool_tag as tag_crud
@@ -308,7 +270,7 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
         tools = tool_crud.insert_all(session, tools)
         session.commit()
 
-        for i in tqdm(range(0, len(tools), BATCH_SIZE), disable=not show_progress):
+        for i in with_progress(range(0, len(tools), BATCH_SIZE), progress):
             batch_tools = tools[i : i + BATCH_SIZE]
 
             docs = [
@@ -335,11 +297,10 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     )
 
 
-async def rebuild_auxiliary_node_index(*, show_progress: bool = True) -> None:
+async def rebuild_auxiliary_node_index(*, progress: ProgressIterator | None = None) -> None:
     """Rebuild the shared static-processor and reusable-CODE index."""
     from langchain_core.documents import Document
     from sqlalchemy import select
-    from tqdm import tqdm
 
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.database import engine
@@ -373,30 +334,40 @@ async def rebuild_auxiliary_node_index(*, show_progress: bool = True) -> None:
         codes = session.scalars(select(CodeDefine).order_by(CodeDefine.name)).all()
 
     documents = [*processor_docs, *(code_index_document(code) for code in codes)]
-    for index in tqdm(range(0, len(documents), BATCH_SIZE), disable=not show_progress):
+    for index in with_progress(range(0, len(documents), BATCH_SIZE), progress):
         async with vectorstore:
             await vectorstore.aadd_documents(documents[index : index + BATCH_SIZE])
 
 
-async def initialize_preset_database(confirm: Callable[..., Awaitable[bool]]) -> bool | None:
-    """Prompt for and initialize preset SQL records and vector collections."""
-    tui.render_section(
-        'System Preset Data',
-        'Initialize the administrator account, tool database, and tool/image/auxiliary-node vector indexes.',
-    )
-    if not await confirm('Initialize system preset data and vector indexes?', default=True):
-        tui.render_notice('Preset data initialization skipped.', style='#94a3b8')
-        return None
+def administrator_exists() -> bool:
+    """Return whether initialization already has an administrator record."""
+    from sqlalchemy import select
 
-    try:
-        from bioflow_ai.infrastructure.database import create_db_and_tables
+    from bioflow_ai.infrastructure.database import engine
+    from bioflow_ai.models.user import User
 
-        create_db_and_tables()
-        result = await init_preset_database_records(drop_old=True, show_progress=False)
-        await rebuild_auxiliary_node_index(show_progress=False)
-    except Exception as exc:
-        tui.render_notice(f'Preset data initialization failed: {exc}', style='#ef4444')
-        return False
+    with Session(engine) as session:
+        return session.scalar(select(User)) is not None
 
-    tui.render_preset_database_summary(result)
-    return True
+
+async def init_admin(data: 'UserCreate | None' = None) -> AdminInitResult:
+    """Create the initial administrator from explicitly supplied credentials."""
+    from sqlalchemy import select
+
+    from bioflow_ai.infrastructure.database import engine
+    from bioflow_ai.models.user import User
+    from bioflow_ai.schemas.user_config import UserRole
+    from bioflow_ai.services.identity import user as user_service
+
+    with Session(engine) as session:
+        if session.scalar(select(User)) is not None:
+            return AdminInitResult(created=False)
+        if data is None:
+            message = 'Administrator credentials are required for an empty user table.'
+            raise ValueError(message)
+        user_service.create_user(session, data, role=UserRole.ADMIN)
+        return AdminInitResult(created=True)
+
+
+if TYPE_CHECKING:
+    from bioflow_ai.schemas.user import UserCreate

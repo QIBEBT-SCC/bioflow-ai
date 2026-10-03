@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tqdm import tqdm
-
 from bioflow_ai.llm.observability.trajectories import iter_trajectory_events
+from bioflow_ai.services.progress import ProgressIterator, with_progress
 
 INTERRUPTED_STATUS = 'INTERRUPTED'
 NODE_STATS_COLUMNS = (
@@ -112,7 +111,9 @@ def _load_records(db_path: Path) -> list[dict[str, Any]]:
         con.close()
 
 
-def export_node_stats(db_path: Path, trajectory_root: Path, output_path: Path, *, show_progress: bool = False) -> int:
+def export_node_stats(
+    db_path: Path, trajectory_root: Path, output_path: Path, *, progress: ProgressIterator | None = None
+) -> int:
     """Export current node-generation attempts and saved test-run/configuration model usage to CSV."""
     db_path = db_path.expanduser().resolve()
     output_path = output_path.expanduser().resolve()
@@ -125,7 +126,7 @@ def export_node_stats(db_path: Path, trajectory_root: Path, output_path: Path, *
 
     records = _load_records(db_path)
     rows: list[dict[str, Any]] = []
-    for record in tqdm(records, desc='Exporting node stats', unit='run', dynamic_ncols=True, disable=not show_progress):
+    for record in with_progress(records, progress):
         thread_id = str(record['thread_id'])
         test_run = _agent_run_stats(trajectory_root, 'test_run', thread_id)
         generator = _agent_run_stats(trajectory_root, 'tool_generator', thread_id)

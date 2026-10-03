@@ -8,9 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tqdm import tqdm
-
 from bioflow_ai.llm.observability.trajectories import iter_trajectory_events
+from bioflow_ai.services.progress import ProgressIterator, with_progress
 
 TEST_RUN_AGENT = 'test_run'
 WRITE_REPORT_TOOL = 'write_tool_report'
@@ -239,7 +238,7 @@ def export_test_run_reports(
     db_path: Path,
     output_path: Path,
     *,
-    show_progress: bool = False,
+    progress: ProgressIterator | None = None,
 ) -> TestRunReportExportResult:
     """Export tool lookup IDs mapped to their own or referenced structured test-run report."""
     trajectory_root = trajectory_root.expanduser().resolve()
@@ -260,13 +259,7 @@ def export_test_run_reports(
     run_ids: set[str] = set()
     event_count = 0
     events = iter_trajectory_events(trajectory_root, agent_name=TEST_RUN_AGENT)
-    for event in tqdm(
-        events,
-        desc='Exporting test-run reports',
-        unit='event',
-        dynamic_ncols=True,
-        disable=not show_progress,
-    ):
+    for event in with_progress(events, progress):
         if not isinstance(event, dict) or event.get('agent') != TEST_RUN_AGENT:
             msg = 'Invalid test-run trajectory event.'
             raise ValueError(msg)

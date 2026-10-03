@@ -10,7 +10,7 @@ and production databases are not modified by the migration.
 - [x] 2. Move Python code into the installable `src/bioflow_ai` package.
 - [x] 3. Separate process runtime and infrastructure from CLI commands.
 - [x] 4. Group business services and LLM helpers by responsibility.
-- [ ] 5. Extract development, evaluation, and initialization business logic.
+- [x] 5. Extract development, evaluation, and initialization business logic.
 - [ ] 6. Verify packaging, contracts, resources, and update documentation.
 
 Each stage is committed separately. `tests/fixtures/layout_baseline.json` stores
@@ -50,3 +50,17 @@ together, then start new runs/checkpoints. Do not let workers from both import
 namespaces consume the same queues during cutover. Keep existing workflow/tool
 records and runtime files. Queue or checkpoint cleanup is a separate operational
 action, not an installation side effect.
+
+## Stage 5 verification
+
+Business logic now lives in development, evaluation, initialization, and export
+services. CLI prompts, Rich output, progress bars, and Click exception conversion
+remain in the CLI package; services accept optional presentation callbacks.
+
+- 18 offline tests pass, including actual discovery of all seven Celery tasks,
+  unchanged queue routes, four checkpoint type round trips, preview subprocess
+  execution, temporary DuckDB updates, fake-model completion/interruption/failure,
+  editable skills, and atomic trajectory export failure handling.
+- CLI/OpenAPI/ORM baseline digests match exactly.
+- Pyrefly remains at 74 existing errors; migration introduces no new errors.
+- No external model requests or production service mutations were performed.

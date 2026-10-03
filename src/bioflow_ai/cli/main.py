@@ -57,7 +57,7 @@ def workflow_dispatcher(*, stale_after: int) -> None:
 @cli.command(name='auto-init')
 def auto_init() -> None:
     """Run the interactive system initialization wizard."""
-    from bioflow_ai.cli.auto_init import run_auto_init
+    from bioflow_ai.cli.initialization.wizard import run_auto_init
 
     run_auto_init()
 

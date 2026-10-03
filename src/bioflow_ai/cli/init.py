@@ -2,21 +2,22 @@ import asyncio
 from typing import Literal
 
 import click
-from anyio import Path
 from loguru import logger
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from bioflow_ai.services.initialization.database import (
-    AdminInitResult,
-    PresetImportResult,
+from bioflow_ai.cli.initialization.database import (
     init_admin,
-    init_docs,
     init_images,
     init_preset_database_records,
     init_tools,
     rebuild_auxiliary_node_index,
 )
+from bioflow_ai.cli.render import create_iterator_renderer
+from bioflow_ai.services.initialization.database import (
+    AdminInitResult,
+    PresetImportResult,
+    init_docs,
+)
+from bioflow_ai.services.initialization.indexes import rebuild_image_index, rebuild_tool_index
 
 
 def _log_admin_result(result: AdminInitResult) -> None:
@@ -39,122 +40,6 @@ def _log_import_result(result: PresetImportResult) -> None:
         logger.warning(f'{result.name} validation failed for {result.validation_error_count} records.')
     if result.warning_count:
         logger.warning(f'{result.name} completed with {result.warning_count} warnings.')
-
-
-async def rebuild_image_index() -> None:
-    """重建镜像向量索引."""
-    from langchain_core.documents import Document
-    from tqdm import tqdm
-
-    from bioflow_ai.core.config import get_settings
-    from bioflow_ai.infrastructure.database import engine
-    from bioflow_ai.llm.models import qwen3_embedding
-    from bioflow_ai.llm.vectorstores import MilvusVectorStore
-    from bioflow_ai.models.tools import ToolImage
-
-    embedding = qwen3_embedding()
-    vectorstore = MilvusVectorStore(
-        embedding_function=embedding,
-        collection_name='ImageCollection',
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        drop_old=True,
-    )
-
-    with Session(engine) as session:
-        statement = select(
-            ToolImage.uid,
-            ToolImage.name,
-            ToolImage.description,
-        )
-        results = session.execute(statement).all()
-
-    images_to_add = []
-    empty_images = []
-    batch_size = 10
-
-    for image_data in tqdm(results, total=len(results)):
-        if image_data.description:
-            images_to_add.append(
-                Document(
-                    page_content=image_data.description,
-                    metadata={
-                        'image_uid': str(image_data.uid),
-                        'name': image_data.name,
-                    },
-                )
-            )
-
-            if len(images_to_add) >= batch_size:
-                async with vectorstore:
-                    await vectorstore.aadd_documents(images_to_add)
-                images_to_add = []
-        else:
-            empty_images.append(str(image_data.uid))
-
-    if images_to_add:
-        async with vectorstore:
-            await vectorstore.aadd_documents(images_to_add)
-
-    if empty_images:
-        empty_file = Path('empty_images.txt')
-        await empty_file.write_text('\n'.join(empty_images) + '\n')
-
-
-async def rebuild_tool_index() -> None:
-    """重建工具库向量索引."""
-    from langchain_core.documents import Document
-    from tqdm import tqdm
-
-    from bioflow_ai.core.config import get_settings
-    from bioflow_ai.infrastructure.database import engine
-    from bioflow_ai.llm.models import qwen3_embedding
-    from bioflow_ai.llm.vectorstores import MilvusVectorStore
-    from bioflow_ai.models.tools import ToolDefine
-
-    embedding = qwen3_embedding()
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=embedding,
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-        drop_old=True,
-    )
-
-    with Session(engine) as session:
-        statement = select(ToolDefine)
-        results = session.scalars(statement).all()
-
-    docs_to_add = []
-    empty_tools = []
-    batch_size = 10
-
-    for tool_data in tqdm(results, total=len(results)):
-        if tool_data.description:
-            docs_to_add.append(
-                Document(
-                    page_content=tool_data.description,
-                    metadata={
-                        'image_uid': str(tool_data.image_uid),
-                        'tool_uid': str(tool_data.uid),
-                        'name': tool_data.name,
-                    },
-                )
-            )
-
-            if len(docs_to_add) >= batch_size:
-                async with vectorstore:
-                    await vectorstore.aadd_documents(docs_to_add)
-                docs_to_add = []
-        else:
-            empty_tools.append(str(tool_data.uid))
-
-    if docs_to_add:
-        async with vectorstore:
-            await vectorstore.aadd_documents(docs_to_add)
-
-    if empty_tools:
-        empty_file = Path('empty_tools.txt')
-        await empty_file.write_text('\n'.join(empty_tools) + '\n')
 
 
 @click.group()
@@ -242,11 +127,11 @@ def rebuild_index_cmd(collections: Literal['all', 'tool', 'processor', 'image'])
     async def _run() -> None:
         if collections in ('all', 'image'):
             logger.info('Rebuild image index...')
-            await rebuild_image_index()
+            await rebuild_image_index(progress=create_iterator_renderer())
 
         if collections in ('all', 'tool'):
             logger.info('Rebuild tool index...')
-            await rebuild_tool_index()
+            await rebuild_tool_index(progress=create_iterator_renderer())
 
         if collections in ('all', 'processor'):
             logger.info('Rebuild auxiliary node index...')

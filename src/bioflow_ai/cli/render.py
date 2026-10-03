@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from langgraph.types import CustomStreamPart, MessagesStreamPart, UpdatesStreamPart
@@ -7,6 +8,9 @@ from rich.padding import Padding
 from rich.panel import Panel
 from rich.pretty import Pretty
 from rich.text import Text
+from tqdm import tqdm
+
+from bioflow_ai.services.progress import ProgressCallback, ProgressIterator
 
 if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, ToolMessage
@@ -14,6 +18,30 @@ if TYPE_CHECKING:
 TOOL_CONTENT_PREVIEW = 200
 REASONING_CONTENT_PREVIEW = 200
 SUBGRAPH_INDENT = 4
+
+
+def create_iterator_renderer(
+    *, description: str | None = None, unit: str = 'it', dynamic_ncols: bool = False
+) -> ProgressIterator:
+    """Keep terminal progress bars at the CLI presentation boundary."""
+
+    def render[T](items: Iterable[T]) -> Iterable[T]:
+        return tqdm(items, desc=description, unit=unit, dynamic_ncols=dynamic_ncols)
+
+    return render
+
+
+def create_progress_renderer() -> ProgressCallback:
+    """Create one terminal presentation callback for a service invocation."""
+    console = Console()
+
+    def render(event: str, payload: Any) -> None:
+        if event == 'chunk':
+            print_stream_chunk(console, payload)
+        elif event == 'interrupt':
+            console.print(payload)
+
+    return render
 
 
 def print_stream_chunk(

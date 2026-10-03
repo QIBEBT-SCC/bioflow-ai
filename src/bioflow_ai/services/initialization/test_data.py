@@ -1,10 +1,8 @@
 import subprocess
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from bioflow_ai.services.initialization import tui
 from bioflow_ai.services.initialization.common import proxy_environment, resolve_path
 
 if TYPE_CHECKING:
@@ -36,49 +34,16 @@ def inspect_test_data(network: 'NetworkConfig', storage: 'StorageConfig') -> Tes
     )
 
 
-def initialize_test_data(
-    network: 'NetworkConfig',
-    storage: 'StorageConfig',
-    confirm: Callable[..., bool],
-) -> bool | None:
-    """Prompt for and optionally synchronize the configured test dataset."""
+def sync_test_data(network: 'NetworkConfig', storage: 'StorageConfig') -> None:
+    """Synchronize the configured test dataset without collecting user input."""
     inspection = inspect_test_data(network, storage)
-
-    tui.render_section('Test Data', 'Optionally synchronize the BioFlowAI test dataset from Hugging Face.')
-    tui.console.print(f'[bold]Test data path:[/bold] {inspection.path}')
-    tui.console.print(f'[bold]Download proxy:[/bold] {inspection.proxy_text}')
-
-    if inspection.path_is_file:
-        tui.render_notice(f'The test data path exists but is not a directory: {inspection.path}', style='#ef4444')
-        return False
-
-    if inspection.has_existing_data:
-        default_download = False
-        prompt = 'The test data directory is not empty. Synchronize or update it?'
-    else:
-        default_download = True
-        prompt = 'Download the test dataset?'
-
-    if not confirm(prompt, default=default_download):
-        tui.render_notice('Test data download skipped.', style='#94a3b8')
-        return None
-
     command = ['uvx', 'hf', 'sync', TESTDATA_SOURCE, str(inspection.path)]
-    tui.console.print()
-    tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {" ".join(command)}')
-
     try:
         inspection.path.mkdir(parents=True, exist_ok=True)
         result = subprocess.run(command, check=False, env=proxy_environment(network))
-    except FileNotFoundError:
-        tui.render_notice('uvx was not found. Install uv and try again: https://docs.astral.sh/uv/', style='#ef4444')
-        return False
-
+    except FileNotFoundError as error:
+        message = 'uvx was not found. Install uv and try again: https://docs.astral.sh/uv/'
+        raise ValueError(message) from error
     if result.returncode != 0:
-        tui.render_notice(
-            f'Test data download failed; uvx hf sync exited with code {result.returncode}.', style='#ef4444'
-        )
-        return False
-
-    tui.render_notice(f'Test data synchronized to {inspection.path}.', style='#10b981')
-    return True
+        message = f'Test data download failed; uvx hf sync exited with code {result.returncode}.'
+        raise ValueError(message)
