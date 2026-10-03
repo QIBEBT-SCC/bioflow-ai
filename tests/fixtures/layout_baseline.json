@@ -1,0 +1,9 @@
+{
+  "cli": "7bf168a6235295e630cc95015a04a61493245504b5ae6f223a3254eb43cb934c",
+  "openapi": "a49ab25754c7645ebd13fdb27367887500804dcd521236c812bcb0012f0329f2",
+  "models": "96008913998baf109827b6d0c0d66f81d9b7a3d0d313cc9d7fbd3d1a5974ea26",
+  "source_commit": "1cfa198c365d81a8bd587a76c168a5a06f8781d1",
+  "openapi_paths": 135,
+  "openapi_operations": 180,
+  "model_tables": 36
+}
