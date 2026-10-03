@@ -4,8 +4,7 @@ from contextlib import suppress
 from docker.types import Mount
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.utils.container._general import (
+from bioflow_ai.infrastructure.containers._general import (
     CONTAINER_ROOT_USER,
     ContainerMount,
     ContainerProcessLaunch,
@@ -15,6 +14,7 @@ from bioflow_ai.utils.container._general import (
     build_process_arguments,
     resolve_container_user,
 )
+from bioflow_ai.schemas.tool_config import ImageConfig
 
 
 def _convert_to_podman_mount(mounts: list[ContainerMount]) -> list[dict]:
@@ -31,11 +31,11 @@ def _convert_to_docker_mount(mounts: list[ContainerMount]) -> list[Mount]:
 def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
     """Create container by image."""
     if get_settings().docker.CONTAINER == 'podman':
-        from bioflow_ai.utils.container.podman import create_container
+        from bioflow_ai.infrastructure.containers.podman import create_container
 
         container_id = create_container(image, _convert_to_podman_mount(mounts))
     else:
-        from bioflow_ai.utils.container.docker import create_container
+        from bioflow_ai.infrastructure.containers.docker import create_container
 
         container_id = create_container(image, _convert_to_docker_mount(mounts))  # pyrefly: ignore [bad-argument-type]
 
@@ -102,11 +102,11 @@ def run_command(
             - output (str): The standard output and standard error content after command execution.
     """
     if get_settings().docker.CONTAINER == 'podman':
-        from bioflow_ai.utils.container.podman import run_podman
+        from bioflow_ai.infrastructure.containers.podman import run_podman
 
         status, output = run_podman(image_cfg, command, _convert_to_podman_mount(mounts), workdir, user=user)
     else:
-        from bioflow_ai.utils.container.docker import run_docker
+        from bioflow_ai.infrastructure.containers.docker import run_docker
 
         status, output = run_docker(
             image_cfg,
@@ -174,7 +174,7 @@ def run_command_background(  # noqa: ANN201
 ):
     """后台运行容器命令, 实时 yield 资源占用统计, 自动分发到 podman 或 docker."""
     if get_settings().docker.CONTAINER == 'podman':
-        from bioflow_ai.utils.container.podman import run_podman_background
+        from bioflow_ai.infrastructure.containers.podman import run_podman_background
 
         yield from run_podman_background(
             image_cfg,
@@ -185,7 +185,7 @@ def run_command_background(  # noqa: ANN201
             user=user,
         )
     else:
-        from bioflow_ai.utils.container.docker import run_docker_background
+        from bioflow_ai.infrastructure.containers.docker import run_docker_background
 
         yield from run_docker_background(
             image_cfg,
@@ -200,11 +200,11 @@ def run_command_background(  # noqa: ANN201
 def run_command_in_container(container_id: str, command: str, workdir: str | None = None) -> tuple[int, str]:
     """在已经创建的容器中运行命令."""
     if get_settings().docker.CONTAINER == 'docker':
-        from bioflow_ai.utils.container.docker import run_docker_by_id
+        from bioflow_ai.infrastructure.containers.docker import run_docker_by_id
 
         code, out = run_docker_by_id(container_id, command, workdir)
     else:
-        from bioflow_ai.utils.container.podman import run_podman_by_id
+        from bioflow_ai.infrastructure.containers.podman import run_podman_by_id
 
         code, out = run_podman_by_id(container_id, command, workdir)
 
@@ -214,11 +214,11 @@ def run_command_in_container(container_id: str, command: str, workdir: str | Non
 def remove_container(container_id: str) -> None:
     """移除指定容器."""
     if get_settings().docker.CONTAINER == 'docker':
-        from bioflow_ai.utils.container.docker import remove_container
+        from bioflow_ai.infrastructure.containers.docker import remove_container
 
         remove_container(container_id)
     else:
-        from bioflow_ai.utils.container.podman import remove_container
+        from bioflow_ai.infrastructure.containers.podman import remove_container
 
         remove_container(container_id)
 

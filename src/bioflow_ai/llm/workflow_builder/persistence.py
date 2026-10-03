@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.states import WorkflowDraft
 from bioflow_ai.llm.workflow_builder.node_ids import canonicalize_build_graph, has_canonical_node_ids
 from bioflow_ai.llm.workflow_builder.serialization import build_workflow_definition, to_execution_scope

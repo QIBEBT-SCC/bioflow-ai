@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.auth import UserDep
-from bioflow_ai.core.session import SessionDep, engine
+from bioflow_ai.infrastructure.database import SessionDep, engine
 from bioflow_ai.models.agent import AgentRun, AgentSession
 from bioflow_ai.schemas.agent import (
     TERMINAL_AGENT_RUN_STATUSES,
@@ -288,7 +288,7 @@ def cancel_agent_run(
     session: SessionDep,
     current_user: UserDep,
 ) -> AgentRunPublic:
-    from bioflow_ai.cli.worker import celery_app
+    from bioflow_ai.runtime.celery_app import celery_app
 
     try:
         run = agent_service.get_owned_run(session, run_uid, current_user.id)

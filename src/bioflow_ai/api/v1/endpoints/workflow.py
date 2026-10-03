@@ -8,7 +8,7 @@ from uuid_extensions import uuid7
 
 import bioflow_ai.crud.workflow as wf_crud
 from bioflow_ai.core.auth import MemberDep, UserDep
-from bioflow_ai.core.session import SessionDep
+from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.common import Paginated
 from bioflow_ai.schemas.react_flow import WorkflowDefinition

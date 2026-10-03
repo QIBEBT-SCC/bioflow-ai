@@ -2,8 +2,8 @@ from fastapi import HTTPException, Request
 from starlette import status
 
 from bioflow_ai.core.auth import UserDep
-from bioflow_ai.core.session import SessionDep
 from bioflow_ai.crud import workflow as workflow_crud
+from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.models.project import Project
 from bioflow_ai.schemas.user import CurrentUser
 from bioflow_ai.schemas.user_config import UserRole

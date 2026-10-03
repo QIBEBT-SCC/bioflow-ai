@@ -9,9 +9,9 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.tools import ToolDefine
 from bioflow_ai.schemas.tools import ToolTaskInfo
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate

@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.workflow_builder.drafts import get_workflow_drafts
 
 if TYPE_CHECKING:

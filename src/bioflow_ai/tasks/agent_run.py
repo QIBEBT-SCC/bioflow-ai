@@ -15,13 +15,13 @@ from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
-from bioflow_ai.cli.worker import celery_app
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowDiagnosisContext, WorkflowFixContext
 from bioflow_ai.llm.prebuild.dispatch import AGENTS, RouteTask
 from bioflow_ai.models.agent import AgentMessage, AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
+from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType, AgentName, AgentRunStatus
 from bioflow_ai.services import agent as agent_service
 from bioflow_ai.services import workflow_fix as workflow_fix_service

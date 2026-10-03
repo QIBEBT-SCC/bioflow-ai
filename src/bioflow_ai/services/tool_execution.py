@@ -9,11 +9,11 @@ from typing import Any
 
 from loguru import logger
 
+from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_background
+from bioflow_ai.infrastructure.containers.mount_paths import resolve_mount_path
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.output_validation import all_output_paths_exist, missing_output_paths
-from bioflow_ai.utils.container import ContainerMount, run_command, run_command_background
-from bioflow_ai.utils.container.mount_paths import resolve_mount_path
 from bioflow_ai.utils.input_format import PartialFormatter, build_command_template
 
 MOUNTLIST_PREFIX = 'mountlist:'

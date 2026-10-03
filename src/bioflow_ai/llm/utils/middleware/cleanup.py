@@ -6,7 +6,7 @@ from langgraph.runtime import Runtime
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.utils.container import remove_container
+from bioflow_ai.infrastructure.containers import remove_container
 
 
 class ClearContainerMiddleware(AgentMiddleware):

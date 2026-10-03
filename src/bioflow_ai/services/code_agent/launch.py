@@ -4,10 +4,7 @@ import json
 from pathlib import Path
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.schemas.coding_agent import CodingAgentProvider
-from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.services.code_agent.settings import read_settings
-from bioflow_ai.utils.container import (
+from bioflow_ai.infrastructure.containers import (
     ContainerMount,
     ContainerProcessLaunch,
     ContainerProcessSpec,
@@ -15,6 +12,9 @@ from bioflow_ai.utils.container import (
     build_container_process_launch,
     resolve_container_user,
 )
+from bioflow_ai.schemas.coding_agent import CodingAgentProvider
+from bioflow_ai.schemas.tool_config import ImageConfig
+from bioflow_ai.services.code_agent.settings import read_settings
 
 CODEX_IMAGE = ImageConfig.from_str('docker.io/aye1032/codex-acp:1.10.0-bioflow.2')
 OPENCODE_IMAGE = ImageConfig.from_str('docker.io/aye1032/opencode-acp:1.18.29-bioflow')

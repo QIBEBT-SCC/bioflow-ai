@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.code as code_crud
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext, WorkflowFixContext
 from bioflow_ai.llm.prebuild.code_node import (
     build_code_inputs,

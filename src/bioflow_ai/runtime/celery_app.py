@@ -1,11 +1,9 @@
-import os
-
 from celery import Celery
 from celery.signals import worker_process_init
 from redis import Redis
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 
 monitor_redis_client = Redis.from_url(get_settings().persistent.cache.MONITOR_CACHE.unicode_string())
 celery_app = Celery(
@@ -52,26 +50,3 @@ def on_worker_process_init(**kwargs) -> None:  # noqa: ARG001
     """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
     engine.dispose()
 
-
-def agent_main(*, concurrency: int = 1) -> None:
-    """Start the shared long-running agent worker for LangGraph and ACP queues."""
-    args = [
-        'worker',
-        f'--loglevel={get_settings().logger.CELERY_LEVEL}',
-        '--queues=agent,acp',
-        f'--concurrency={concurrency}',
-    ]
-    celery_app.worker_main(argv=args)
-
-
-def execution_main(*, concurrency: int = 4) -> None:
-    """Start the shared worker for workflow nodes and one-off resource jobs."""
-    args = [
-        'worker',
-        f'--loglevel={get_settings().logger.CELERY_LEVEL}',
-        '--queues=workflow-v2,resource',
-        f'--concurrency={concurrency}',
-        '--prefetch-multiplier=1',
-        f'--hostname=execution-{os.getpid()}@%h',
-    ]
-    celery_app.worker_main(argv=args)

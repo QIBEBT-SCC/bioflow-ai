@@ -5,7 +5,7 @@ Run with the dispatcher and workers stopped: uv run python -m bioflow_ai.cli.mig
 
 from sqlalchemy import inspect, text
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 
 
 def main() -> None:

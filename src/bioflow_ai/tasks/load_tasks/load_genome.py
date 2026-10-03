@@ -6,25 +6,25 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.resource.reference_genome as genome_crud
-from bioflow_ai.cli.worker import celery_app
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
-from bioflow_ai.models.resource import ReferenceGenomes
-from bioflow_ai.schemas.react_flow import TaskInput
-from bioflow_ai.schemas.resource import GenomeUpdate
-from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.schemas.workflow_config import ToolOutput
-from bioflow_ai.services.resource import reference_genome as genome_service
-from bioflow_ai.services.workflow.execution_context import get_node_output
-from bioflow_ai.utils.api.ncbi_datasets import (
+from bioflow_ai.infrastructure.containers import ContainerMount, run_command
+from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.infrastructure.external.ncbi_datasets import (
     NCBIAssemblyDataReport,
     download_genome_data,
     get_species_info,
     search_reference_genomes,
     search_reference_genomes_by_tax_id,
 )
-from bioflow_ai.utils.container import ContainerMount, run_command
-from bioflow_ai.utils.network import download_gz_files
+from bioflow_ai.infrastructure.transfers.network import download_gz_files
+from bioflow_ai.models.resource import ReferenceGenomes
+from bioflow_ai.runtime.celery_app import celery_app
+from bioflow_ai.schemas.react_flow import TaskInput
+from bioflow_ai.schemas.resource import GenomeUpdate
+from bioflow_ai.schemas.tool_config import ImageConfig
+from bioflow_ai.schemas.workflow_config import ToolOutput
+from bioflow_ai.services.resource import reference_genome as genome_service
+from bioflow_ai.services.workflow.execution_context import get_node_output
 
 GENOME_PATH = get_settings().persistent.storage.GENOME_PATH
 MAX_THREAD = get_settings().persistent.resource.MAX_THREAD

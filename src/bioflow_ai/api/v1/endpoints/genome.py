@@ -5,8 +5,13 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 
 import bioflow_ai.crud.resource.reference_genome as genome_crud
 from bioflow_ai.core.auth import AdminDep, UserDep
-from bioflow_ai.core.redis_client import monitor_redis_client
-from bioflow_ai.core.session import SessionDep
+from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.external.ncbi_datasets import (
+    get_species_info,
+    search_reference_genomes,
+    search_reference_genomes_by_tax_id,
+)
+from bioflow_ai.infrastructure.redis.client import monitor_redis_client
 from bioflow_ai.models.resource import ReferenceGenomes
 from bioflow_ai.schemas.resource import (
     CeleryTaskResponse,
@@ -20,11 +25,6 @@ from bioflow_ai.schemas.resource import (
 )
 from bioflow_ai.services.resource import reference_genome as genome_service
 from bioflow_ai.tasks.load_tasks.load_genome import build_genome_index_admin_task, download_genome_admin_task
-from bioflow_ai.utils.api.ncbi_datasets import (
-    get_species_info,
-    search_reference_genomes,
-    search_reference_genomes_by_tax_id,
-)
 
 reference_router = APIRouter()
 

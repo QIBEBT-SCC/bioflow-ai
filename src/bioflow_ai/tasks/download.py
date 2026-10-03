@@ -3,7 +3,7 @@ from urllib.parse import unquote, urlparse
 
 import aiofiles
 
-from bioflow_ai.utils.ftp import DownloadInfo, download_http_files
+from bioflow_ai.infrastructure.transfers.ftp import DownloadInfo, download_http_files
 
 
 async def download_raw_data(

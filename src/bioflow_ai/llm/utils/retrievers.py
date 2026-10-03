@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.tools.tool as tool_crud
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper, HasUid
 from bioflow_ai.llm.vectorstores import MilvusVectorStore

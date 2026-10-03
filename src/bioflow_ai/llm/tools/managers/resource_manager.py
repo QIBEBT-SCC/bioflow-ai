@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.resource.bio_db as db_crud
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.utils.formatters import (

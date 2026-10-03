@@ -4,7 +4,7 @@ from langchain_core.messages import UsageMetadata
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.setting import LLMStatistic
 from bioflow_ai.services import llm_setting as setting_service
 

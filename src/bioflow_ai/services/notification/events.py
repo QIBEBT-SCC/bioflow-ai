@@ -2,7 +2,7 @@ import uuid
 
 from redis.asyncio import Redis
 
-from bioflow_ai.core.redis_client import notification_redis_client
+from bioflow_ai.infrastructure.redis.client import notification_redis_client
 from bioflow_ai.schemas.notification import NotificationEvent, NotificationEventDefinition, NotificationEventType
 from bioflow_ai.utils.system import utc_now
 

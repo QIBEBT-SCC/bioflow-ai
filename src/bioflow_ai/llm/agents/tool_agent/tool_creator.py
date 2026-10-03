@@ -23,7 +23,8 @@ import bioflow_ai.crud.tools.tool_doc as doc_crud
 import bioflow_ai.crud.tools.tool_group as group_crud
 import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.containers import run_command_async
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.agents.tool_agent.config_generator import config_generate_agent
 from bioflow_ai.llm.agents.tool_agent.report_generator_v2 import test_run_agent
 from bioflow_ai.llm.agents.tool_agent.searcher import search_image_agent
@@ -41,7 +42,6 @@ from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
 from bioflow_ai.schemas.tool_config import ToolType
 from bioflow_ai.schemas.tools import ToolNodePublic
-from bioflow_ai.utils.container import run_command_async
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

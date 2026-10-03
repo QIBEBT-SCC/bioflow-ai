@@ -7,7 +7,7 @@ Historical run snapshots are intentionally left unchanged.
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.workflow import NodeRun, Workflow, WorkflowRun
 from bioflow_ai.schemas.react_flow import Edge, WorkflowDefinition
 from bioflow_ai.services.workflow.compiler import validate_workflow

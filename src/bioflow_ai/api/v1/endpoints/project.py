@@ -6,12 +6,12 @@ from fastapi.responses import FileResponse, Response
 from starlette.status import HTTP_400_BAD_REQUEST, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 from bioflow_ai.core.auth import AdminDep, MemberDep, UserDep
-from bioflow_ai.core.session import SessionDep
 from bioflow_ai.crud import project as project_crud
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud import projetc_tag as tag_crud
 from bioflow_ai.crud import workflow as wf_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.models.resource import Sample, SampleFiles
 from bioflow_ai.schemas.agent_file import AgentFilePublic, AgentFileUpdate
 from bioflow_ai.schemas.common import Paginated

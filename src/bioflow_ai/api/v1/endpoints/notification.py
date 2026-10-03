@@ -3,7 +3,7 @@ from typing import Annotated, TypeAlias
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from bioflow_ai.core.auth import AdminDep
-from bioflow_ai.core.session import SessionDep
+from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.schemas.notification import (
     NOTIFICATION_TEST_EVENT,
     NotificationChannelCreate,

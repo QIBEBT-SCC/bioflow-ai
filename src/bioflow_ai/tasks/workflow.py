@@ -7,7 +7,7 @@ from functools import partial
 from celery import Task
 from loguru import logger
 
-from bioflow_ai.cli.worker import celery_app
+from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.services.workflow import runtime
 from bioflow_ai.services.workflow.execution_context import node_execution_context
 from bioflow_ai.services.workflow.executors import execute_prepared_node

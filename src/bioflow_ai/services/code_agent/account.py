@@ -6,8 +6,8 @@ import tempfile
 from pathlib import Path
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.infrastructure.containers import resolve_container_user
 from bioflow_ai.schemas.coding_agent import CodingAgentProvider, OpenCodeModelProvider, OpenCodeSettings
-from bioflow_ai.utils.container import resolve_container_user
 
 CODEX_CONFIG = 'cli_auth_credentials_store = "file"\nforced_login_method = "chatgpt"\n'
 OPENCODE_MODEL_PROVIDERS: tuple[OpenCodeModelProvider, ...] = (

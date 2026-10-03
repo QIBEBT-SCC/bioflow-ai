@@ -91,9 +91,9 @@ CODE_CONTRACTS = {
 }
 
 SCRIPT_NAMES = {
-    CodeNodeType.BASH: 'bioflow_ai.cli.sh',
-    CodeNodeType.PYTHON: 'bioflow_ai.cli.py',
-    CodeNodeType.R: 'bioflow_ai.cli.R',
+    CodeNodeType.BASH: 'script.sh',
+    CodeNodeType.PYTHON: 'script.py',
+    CodeNodeType.R: 'script.R',
 }
 
 

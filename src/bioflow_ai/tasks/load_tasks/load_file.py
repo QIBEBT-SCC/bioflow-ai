@@ -3,9 +3,9 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.output_validation import output_path_exists
 from bioflow_ai.services.workflow.execution_context import get_prefix, resolve_path

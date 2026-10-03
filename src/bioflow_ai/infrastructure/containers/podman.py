@@ -10,8 +10,8 @@ from podman import PodmanClient  # pyrefly: ignore [missing-import]
 from podman.errors import ImageNotFound  # pyrefly: ignore [missing-import]
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.infrastructure.containers._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
 from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.utils.container._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
 from bioflow_ai.utils.system import get_cpu_cores
 
 

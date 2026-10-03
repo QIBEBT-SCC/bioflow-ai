@@ -7,12 +7,12 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.resource.bio_db as db_crud
-from bioflow_ai.cli.worker import celery_app
-from bioflow_ai.core.redis_client import monitor_redis_client
+from bioflow_ai.infrastructure.redis.client import monitor_redis_client
+from bioflow_ai.infrastructure.redis.operations import decode_redis_value, get_bio_db_download_task_key
 from bioflow_ai.models.resource import BioDb
+from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.resource import BioDbDownloadResponse, BioDbDownloadStatus, BioDbDownloadStatusResponse
 from bioflow_ai.services._transaction import committing
-from bioflow_ai.utils.redis import decode_redis_value, get_bio_db_download_task_key
 from bioflow_ai.utils.system import random_uid
 
 if TYPE_CHECKING:

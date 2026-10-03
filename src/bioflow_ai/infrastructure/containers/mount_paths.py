@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
-from bioflow_ai.core.session import engine
-from bioflow_ai.utils.container import ContainerMount
+from bioflow_ai.infrastructure.containers import ContainerMount
+from bioflow_ai.infrastructure.database import engine
 
 PROJECT_SAMPLES_ROOT = '/data/project_samples'
 PROJECT_REFERENCE_ROOT = '/data/project_reference'

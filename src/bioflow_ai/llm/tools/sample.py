@@ -10,14 +10,14 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import SampleState
 from bioflow_ai.models.resource import Sample, SampleFiles
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.services import project_file_mapping as project_file_mapping_service
 from bioflow_ai.services import sample as sample_service
-from bioflow_ai.utils.container import ContainerMount, run_command_async
 
 
 def _truncate_output(output: str) -> str:

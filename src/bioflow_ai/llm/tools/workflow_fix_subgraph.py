@@ -10,8 +10,8 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud import workflow as workflow_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowFixContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowFixState
 from bioflow_ai.llm.workflow_builder.loading import load_workflow_draft

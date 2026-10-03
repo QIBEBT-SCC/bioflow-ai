@@ -4,7 +4,7 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from loguru import logger
 
-from bioflow_ai.utils.file.storage import read_text_file
+from bioflow_ai.infrastructure.object_storage.files import read_text_file
 
 
 @tool(parse_docstring=True)

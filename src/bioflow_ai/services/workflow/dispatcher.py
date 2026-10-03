@@ -7,7 +7,7 @@ from loguru import logger
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.workflow import NodeRun, WorkflowOutbox, WorkflowRun
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, OutboxStatus
 from bioflow_ai.services.workflow.runtime import recover_runtime

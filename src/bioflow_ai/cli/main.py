@@ -14,8 +14,8 @@ def cli() -> None:
 @click.option('--log', 'enable_request_log', is_flag=True, help='Enable request body logging middleware.')
 def api(*, enable_request_log: bool) -> None:
     """Start the FastAPI API server."""
-    from bioflow_ai.cli.server import main
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
+    from bioflow_ai.runtime.server import main
 
     init_logging()
     main(log_requests=enable_request_log)
@@ -25,8 +25,8 @@ def api(*, enable_request_log: bool) -> None:
 @click.option('--concurrency', type=click.IntRange(min=1), default=1, show_default=True)
 def agent_worker(*, concurrency: int) -> None:
     """Start the shared isolated Celery worker for web agent and ACP runs."""
-    from bioflow_ai.cli.worker import agent_main
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
+    from bioflow_ai.runtime.worker import agent_main
 
     init_logging()
     agent_main(concurrency=concurrency)
@@ -36,8 +36,8 @@ def agent_worker(*, concurrency: int) -> None:
 @click.option('--concurrency', type=click.IntRange(min=1), default=4, show_default=True)
 def execution_worker(*, concurrency: int) -> None:
     """Start the shared Celery worker for DAG nodes and resource preparation."""
-    from bioflow_ai.cli.worker import execution_main
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
+    from bioflow_ai.runtime.worker import execution_main
 
     init_logging()
     execution_main(concurrency=concurrency)
@@ -47,8 +47,8 @@ def execution_worker(*, concurrency: int) -> None:
 @click.option('--stale-after', type=click.IntRange(min=30), default=300, show_default=True)
 def workflow_dispatcher(*, stale_after: int) -> None:
     """Start the durable Outbox dispatcher and recovery scanner."""
-    from bioflow_ai.cli.workflow_dispatcher import main
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
+    from bioflow_ai.runtime.workflow_dispatcher import main
 
     init_logging()
     main(stale_after_seconds=stale_after)

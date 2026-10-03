@@ -63,8 +63,8 @@ def test_api_and_model_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 
     settings = config.Settings()
     monkeypatch.setattr(config, 'get_settings', lambda: settings)
-    from bioflow_ai.cli.server import app
     from bioflow_ai.models import Base
+    from bioflow_ai.runtime.server import app
 
     # Importing the application does not run its lifespan or contact services.
     assert _digest(app.openapi()) == BASELINE['openapi']

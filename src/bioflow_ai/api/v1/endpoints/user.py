@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, status
 
 from bioflow_ai.core.auth import AdminDep
-from bioflow_ai.core.redis_client import RedisDep
-from bioflow_ai.core.session import SessionDep
 from bioflow_ai.crud import user as user_crud
+from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.user import (
     AdminUserCreate,
     PasswordReset,

@@ -291,9 +291,9 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUI
     """获取工具镜像并复用或创建对应的帮助文档."""
     import bioflow_ai.crud.tools.image as image_crud
     import bioflow_ai.crud.tools.tool_doc as doc_crud
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.containers import run_command
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.tools import ToolHelpDoc
-    from bioflow_ai.utils.container import run_command
 
     with Session(engine) as session:
         tool_image = image_crud.get_by_name(session, tool_name)
@@ -356,9 +356,9 @@ async def _cleanup_threads(
     普通重置保留持久化轨迹; delete_trajectories=true 时同步删除对应轨迹.
     """
     from bioflow_ai.core.config import get_settings
+    from bioflow_ai.infrastructure.containers import remove_container
     from bioflow_ai.llm.utils.session import delete_checkpoint
     from bioflow_ai.llm.utils.trajectory_store import delete_trajectory_run
-    from bioflow_ai.utils.container import remove_container
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -896,7 +896,7 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
 
     import bioflow_ai.crud.tools.tool as tool_crud
     from bioflow_ai.core.config import get_settings
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
 
     con = duckdb.connect(DB_PATH)
@@ -1044,7 +1044,7 @@ def statistic() -> None:
 @click.group()
 def cli() -> None:
     """Developer tools."""
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
 
     init_logging()
 

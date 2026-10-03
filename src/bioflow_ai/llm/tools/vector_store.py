@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.tools.tool as tool_crud
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.utils.formatters import search_nodes_formatter
 from bioflow_ai.llm.utils.retrievers import retrieve_documents

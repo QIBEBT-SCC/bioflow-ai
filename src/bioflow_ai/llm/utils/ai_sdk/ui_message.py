@@ -3,7 +3,7 @@
 基于 Vercel AI SDK v6 文档: https://v6.ai-sdk.dev/docs/reference/ai-sdk-core/ui-message
 """
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field

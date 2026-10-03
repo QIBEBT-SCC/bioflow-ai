@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 
+from bioflow_ai.api.middleware import AuthCookieCleanupMiddleware, LogRequestMiddleware
 from bioflow_ai.api.v1.endpoints import (
     agent,
     auth,
@@ -26,12 +27,11 @@ from bioflow_ai.api.v2.endpoints import workflow as workflow_v2
 from bioflow_ai.core.auth import get_current_active_user, require_role
 from bioflow_ai.core.authorization import authorize_project_request, authorize_workflow_request
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.redis_client import close_cache_regis, notification_redis_client, setup_cache_redis
-from bioflow_ai.core.s3_client import init_bucket
-from bioflow_ai.core.session import create_db_and_tables
+from bioflow_ai.infrastructure.database import create_db_and_tables
+from bioflow_ai.infrastructure.object_storage.client import init_bucket
+from bioflow_ai.infrastructure.redis.client import close_cache_regis, notification_redis_client, setup_cache_redis
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services.notification.gateway import NotificationGateway
-from bioflow_ai.utils.middleware import AuthCookieCleanupMiddleware, LogRequestMiddleware
 
 meta = metadata('bioflow-ai')
 

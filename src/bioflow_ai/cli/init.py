@@ -47,7 +47,7 @@ async def rebuild_image_index() -> None:
     from tqdm import tqdm
 
     from bioflow_ai.core.config import get_settings
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.models import qwen3_embedding
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.tools import ToolImage
@@ -106,7 +106,7 @@ async def rebuild_tool_index() -> None:
     from tqdm import tqdm
 
     from bioflow_ai.core.config import get_settings
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.models import qwen3_embedding
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.tools import ToolDefine
@@ -160,7 +160,7 @@ async def rebuild_tool_index() -> None:
 @click.group()
 def cli() -> None:
     """Database initialization and management tool."""
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
 
     init_logging()
 

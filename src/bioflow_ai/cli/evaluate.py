@@ -78,7 +78,7 @@ def _update_interrupted_project(session: Session, project_id: int, question: str
 
 def _mark_project_interrupted(project_id: int, interrupt_value: Any) -> str:
     """Persist workflow interrupt metadata on its evaluate project."""
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
 
     question = _get_interrupt_question(interrupt_value)
     with Session(engine) as session:
@@ -244,7 +244,7 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
 
     import bioflow_ai.crud.workflow as wf_crud
     import bioflow_ai.services.project_workflow as proj_wf_service
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.workflow import ProjectWorkflow, Workflow
 
@@ -302,7 +302,7 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
     """Remove evaluate-generated project contents while retaining the project itself."""
     from sqlalchemy import delete, select
 
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.project import ProjectFileMapping
     from bioflow_ai.models.resource import Sample, SampleFiles
     from bioflow_ai.models.workflow import WorkflowRun
@@ -338,7 +338,7 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
 
 def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, str]:
     import bioflow_ai.services.project as project_service
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.project import Project
     from bioflow_ai.schemas.project import ProjectCreateProp
 
@@ -650,7 +650,7 @@ def _log_created_records(result: WorkflowGenerationResult) -> None:
 
     import bioflow_ai.crud.resource.bio_db as db_crud
     import bioflow_ai.crud.tools.tool as tool_crud
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
 
     with Session(engine) as session:
         if result.new_tool_uids:
@@ -680,7 +680,7 @@ def _send_run_task(
 ) -> None:
     import bioflow_ai.crud.project_workflow as proj_wf_crud
     import bioflow_ai.services.project_workflow as proj_wf_service
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
 
     con.execute(
         """
@@ -796,7 +796,7 @@ async def wf_eval(
 @click.group()
 def cli() -> None:
     """Command for agent evaluate."""
-    from bioflow_ai.utils.logger import init_logging
+    from bioflow_ai.infrastructure.logging import init_logging
 
     init_logging()
 

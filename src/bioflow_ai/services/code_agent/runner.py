@@ -22,6 +22,7 @@ from acp.stdio import spawn_agent_process
 from redis.asyncio import Redis
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.infrastructure.containers import remove_container_process
 from bioflow_ai.llm.utils.code_node_contract import SCRIPT_NAMES, code_agent_workspace_instructions
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.coding_agent import CodingAgentProvider
@@ -31,7 +32,6 @@ from bioflow_ai.services.code_agent import session as session_store
 from bioflow_ai.services.code_agent.acp import CodeAgentClient
 from bioflow_ai.services.code_agent.launch import build_agent_launch
 from bioflow_ai.tasks.code import normalize_python_dependencies, normalize_r_dependencies
-from bioflow_ai.utils.container import remove_container_process
 
 DEVICE_CODE_PATTERN = re.compile(r'\b[A-Z0-9]{4}-[A-Z0-9]{4}\b')
 

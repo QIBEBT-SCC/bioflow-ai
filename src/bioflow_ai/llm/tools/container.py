@@ -10,12 +10,12 @@ from langgraph.types import Command
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_async
+from bioflow_ai.infrastructure.containers.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import TestRunContext
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.services import tool_catalog
-from bioflow_ai.utils.container import ContainerMount, run_command, run_command_async
-from bioflow_ai.utils.container.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
 
 MAX_CHAR = 3000
 DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')

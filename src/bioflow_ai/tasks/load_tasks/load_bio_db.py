@@ -6,18 +6,18 @@ from celery import Task
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from bioflow_ai.cli.worker import celery_app, monitor_redis_client
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.containers import CONTAINER_ROOT_USER, ContainerMount, run_command
+from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.infrastructure.redis.operations import decode_redis_value, get_bio_db_download_task_key
 from bioflow_ai.models.resource import BioDb
+from bioflow_ai.runtime.celery_app import celery_app, monitor_redis_client
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate
 from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.workflow.execution_context import update_node
-from bioflow_ai.utils.container import CONTAINER_ROOT_USER, ContainerMount, run_command
 from bioflow_ai.utils.input_format import to_safe_path_segment
-from bioflow_ai.utils.redis import decode_redis_value, get_bio_db_download_task_key
 from bioflow_ai.utils.system import utc_now
 
 BIO_DB_CONTAINER_PATH = '/data/db'

@@ -7,9 +7,9 @@ from fastapi import Depends, HTTPException, Request
 from starlette import status
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.redis_client import RedisDep
-from bioflow_ai.core.session import SessionDep
 from bioflow_ai.crud import user as user_crud
+from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.user import CurrentUser
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services import auth as auth_service

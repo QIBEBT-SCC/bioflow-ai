@@ -1,14 +1,13 @@
 import base64
 import io
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
 from botocore.exceptions import ClientError
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.s3_client import s3_client
-from bioflow_ai.utils.file.hash import calculate_base64_sha256, calculate_file_sha256
+from bioflow_ai.infrastructure.object_storage.client import s3_client
 
 
 class ObjectStorageError(Exception):

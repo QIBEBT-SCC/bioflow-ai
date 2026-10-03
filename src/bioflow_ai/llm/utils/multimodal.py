@@ -14,9 +14,9 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from loguru import logger
 
+from bioflow_ai.infrastructure.object_storage.files import download_file_as_base64, upload_file_from_base64
 from bioflow_ai.llm.utils.ai_sdk.ui_message import FileUIPart, ReasoningUIPart, TextUIPart, UIMessage
 from bioflow_ai.utils.file import calculate_base64_sha256
-from bioflow_ai.utils.file.storage import download_file_as_base64, upload_file_from_base64
 from bioflow_ai.utils.pdf import parse_pdf
 
 

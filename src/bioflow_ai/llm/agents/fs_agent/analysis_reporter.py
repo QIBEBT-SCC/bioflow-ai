@@ -4,6 +4,7 @@ from langchain.agents import AgentState, create_agent
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 
+from bioflow_ai.infrastructure.containers import run_command_in_container
 from bioflow_ai.llm.context import FolderContext
 from bioflow_ai.llm.models import get_coding_model
 from bioflow_ai.llm.utils.middleware import (
@@ -13,7 +14,6 @@ from bioflow_ai.llm.utils.middleware import (
     TokenStatisticMiddleware,
 )
 from bioflow_ai.llm.utils.middleware.final_check import CheckTaskReportMiddleware
-from bioflow_ai.utils.container import run_command_in_container
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

@@ -8,7 +8,7 @@ from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command, node_formatter

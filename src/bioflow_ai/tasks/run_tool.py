@@ -3,7 +3,7 @@ from typing import Any
 
 from loguru import logger
 
-from bioflow_ai.cli.worker import monitor_redis_client
+from bioflow_ai.runtime.celery_app import monitor_redis_client
 from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput

@@ -11,7 +11,7 @@ from loguru import logger
 from sqlalchemy import distinct, func, select, update
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowOutbox, WorkflowRun
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import ACTIVE_NODE_STATUSES, NodeRunStatus, NodeRunUpdate, RunStatus

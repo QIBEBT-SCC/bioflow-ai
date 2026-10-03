@@ -45,7 +45,7 @@ def calculate_file_md5(file_path: str | Path, chunk_size: int = 8192) -> str:
                 md5_hash.update(chunk)
     except FileNotFoundError:
         return ''
-    except Exception as e:
+    except Exception:
         return ''
 
     return md5_hash.hexdigest()

@@ -69,7 +69,7 @@ async def init_admin() -> AdminInitResult:
     from pydantic import SecretStr
     from sqlalchemy import select
 
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.user import User
     from bioflow_ai.schemas.user import UserCreate
     from bioflow_ai.schemas.user_config import UserRole
@@ -126,7 +126,7 @@ async def init_images(*, drop_old: bool = True, show_progress: bool = True) -> P
 
     import bioflow_ai.crud.tools.image as image_crud
     from bioflow_ai.core.config import get_settings
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.models import qwen3_embedding
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.tools import ToolImage
@@ -196,7 +196,7 @@ async def init_docs(*, drop_old: bool = True) -> PresetImportResult:
     from pydantic import ValidationError
 
     import bioflow_ai.crud.tools.tool_doc as doc_crud
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.tools import ToolHelpDoc
     from bioflow_ai.schemas.tools import ToolHelpDocImport
 
@@ -244,7 +244,7 @@ async def init_tools(*, drop_old: bool = True, show_progress: bool = True) -> Pr
     import bioflow_ai.crud.tools.tool as tool_crud
     import bioflow_ai.crud.tools.tool_tag as tag_crud
     from bioflow_ai.core.config import get_settings
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.models import qwen3_embedding
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.tools import ToolDefine
@@ -342,7 +342,7 @@ async def rebuild_auxiliary_node_index(*, show_progress: bool = True) -> None:
     from tqdm import tqdm
 
     from bioflow_ai.core.config import get_settings
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.models import qwen3_embedding
     from bioflow_ai.llm.utils.node_schema import PROCESSORS
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
@@ -389,7 +389,7 @@ async def initialize_preset_database(confirm: Callable[..., Awaitable[bool]]) ->
         return None
 
     try:
-        from bioflow_ai.core.session import create_db_and_tables
+        from bioflow_ai.infrastructure.database import create_db_and_tables
 
         create_db_and_tables()
         result = await init_preset_database_records(drop_old=True, show_progress=False)

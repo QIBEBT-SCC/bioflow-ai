@@ -11,8 +11,8 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.infrastructure.containers.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
 from bioflow_ai.llm.context import TestRunContext
-from bioflow_ai.utils.container.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
 
 
 def resolve_test_run_path(container_path: str, test_run_id: str) -> Path:

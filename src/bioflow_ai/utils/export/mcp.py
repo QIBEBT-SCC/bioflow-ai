@@ -38,7 +38,7 @@ def _collect_snapshot() -> list[dict[str, Any]]:
     """Read a consistent PostgreSQL snapshot for the standalone MCP catalog."""
     from sqlalchemy import select
 
-    from bioflow_ai.core.session import engine
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc, ToolImage
     from bioflow_ai.schemas.tools import ToolDefinitionImport
     from bioflow_ai.utils.input_format import build_command_template

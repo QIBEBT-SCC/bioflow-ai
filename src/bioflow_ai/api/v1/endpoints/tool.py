@@ -9,8 +9,8 @@ import bioflow_ai.crud.tools.tool_doc as doc_crud
 import bioflow_ai.crud.tools.tool_group as group_crud
 import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.core.auth import AdminDep, MemberDep
-from bioflow_ai.core.redis_client import RedisDep
-from bioflow_ai.core.session import SessionDep
+from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.common import Paginated
 from bioflow_ai.schemas.tools import (
     DockerToolCreate,

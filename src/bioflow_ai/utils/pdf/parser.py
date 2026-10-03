@@ -6,14 +6,14 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud.resource import file as file_crud
+from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.infrastructure.external import open_mineru
+from bioflow_ai.infrastructure.object_storage import files as storage
 from bioflow_ai.llm.utils.retrievers import insert_documents
 from bioflow_ai.models.resource import File
 from bioflow_ai.services.resource import file as file_service
-from bioflow_ai.utils.file import storage
 from bioflow_ai.utils.file.hash import calculate_base64_sha256
-from bioflow_ai.utils.pdf import open_mineru
 
 
 async def parse_pdf(base64_data: str, file_name: str) -> str:

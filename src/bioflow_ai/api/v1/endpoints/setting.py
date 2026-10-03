@@ -12,7 +12,7 @@ import bioflow_ai.crud.setting.llm_setting as setting_crud
 import bioflow_ai.crud.setting.llm_statistic as statistic_crud
 from bioflow_ai.core.auth import AdminDep
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import SessionDep
+from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.llm.models import invalidate_model_cache
 from bioflow_ai.models.setting import (
     DEEPSEEK_REASONING_EFFORTS,

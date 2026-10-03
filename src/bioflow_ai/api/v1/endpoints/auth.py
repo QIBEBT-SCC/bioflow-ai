@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from bioflow_ai.core.auth import AuthSessionDep, UserDep, validate_request_origin
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.redis_client import RedisDep
-from bioflow_ai.core.session import SessionDep
+from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.auth import LoginRequest
 from bioflow_ai.schemas.user import PasswordUpdate, UserPublic
 from bioflow_ai.services import auth as auth_service

@@ -11,9 +11,9 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud import user as user_crud
 from bioflow_ai.crud import workflow as workflow_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode, SubgraphBuildState, WorkflowDraft
 from bioflow_ai.llm.tools.managers.subgraph_interface_manager import NamedPort

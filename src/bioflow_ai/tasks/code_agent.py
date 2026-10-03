@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 
-from bioflow_ai.cli.worker import celery_app
+from bioflow_ai.runtime.celery_app import celery_app
 
 
 @celery_app.task

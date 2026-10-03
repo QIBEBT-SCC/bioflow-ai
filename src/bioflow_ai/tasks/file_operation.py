@@ -9,8 +9,8 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from bioflow_ai.core.session import engine
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.resource import Sample
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.react_flow import TaskInput

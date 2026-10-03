@@ -11,7 +11,7 @@ import bioflow_ai.crud.resource.bio_db as db_crud
 import bioflow_ai.crud.tools.image as image_crud
 import bioflow_ai.crud.tools.tool as tool_crud
 import bioflow_ai.crud.tools.tool_group as group_crud
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.resource import BioDb
 from bioflow_ai.models.tools import ToolGroup
 from bioflow_ai.services import tool_catalog

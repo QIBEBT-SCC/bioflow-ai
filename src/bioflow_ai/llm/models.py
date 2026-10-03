@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from bioflow_ai.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort, is_deepseek_provider
 from bioflow_ai.services import llm_setting as setting_service

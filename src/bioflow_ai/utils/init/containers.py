@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from bioflow_ai.core.config import Settings
-from bioflow_ai.utils import health_check
+from bioflow_ai.infrastructure import health_check
 from bioflow_ai.utils.init import tui
 from bioflow_ai.utils.init.common import run_command
 from bioflow_ai.utils.init.ports import UpdatePort

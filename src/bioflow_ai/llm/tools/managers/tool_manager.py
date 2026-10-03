@@ -12,7 +12,8 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.tools.tool as tool_crud
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.infrastructure.redis.operations import open_catalog_generation_guard
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext
 from bioflow_ai.llm.prebuild.chains import check_update_args
@@ -30,7 +31,6 @@ from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
 from bioflow_ai.llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.utils.input_format import build_command_template
-from bioflow_ai.utils.redis import open_catalog_generation_guard
 
 
 class SearchToolSchema(BaseModel):

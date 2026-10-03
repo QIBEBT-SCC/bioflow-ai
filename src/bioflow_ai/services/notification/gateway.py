@@ -9,7 +9,7 @@ from redis.exceptions import ResponseError
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.notification.channel as channel_crud
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.schemas.notification import NotificationEvent, RuntimeNotificationChannel
 from bioflow_ai.services.notification.channels import runtime_channels_for_event
 from bioflow_ai.services.notification.events import NOTIFICATION_EVENT_TTL_SECONDS, NOTIFICATION_STREAM

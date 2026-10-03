@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from bioflow_ai.core.auth import AdminDep
-from bioflow_ai.core.redis_client import RedisDep
+from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.coding_agent import (
     CodexAgentSettings,
     CodexLoginPublic,

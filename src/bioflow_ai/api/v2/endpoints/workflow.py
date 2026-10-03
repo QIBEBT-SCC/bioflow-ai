@@ -23,11 +23,11 @@ from starlette.status import (
 )
 
 from bioflow_ai.core.auth import MemberDep
-from bioflow_ai.core.redis_client import monitor_redis_client
-from bioflow_ai.core.session import SessionDep
 from bioflow_ai.crud import project_workflow as project_workflow_crud
 from bioflow_ai.crud import workflow as workflow_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.redis.client import monitor_redis_client
 from bioflow_ai.models.project import Project
 from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.project_workflow import WorkflowRunResult

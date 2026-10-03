@@ -11,7 +11,7 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNP
 import bioflow_ai.crud.resource.bio_db as db_crud
 import bioflow_ai.crud.resource.sample as sample_crud
 from bioflow_ai.core.auth import AdminDep, UserDep
-from bioflow_ai.core.session import SessionDep, engine
+from bioflow_ai.infrastructure.database import SessionDep, engine
 from bioflow_ai.models.resource import BioDb
 from bioflow_ai.schemas.common import Paginated
 from bioflow_ai.schemas.resource import (

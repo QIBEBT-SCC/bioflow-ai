@@ -5,7 +5,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from sqlalchemy.orm import Session
 from uuid_extensions import uuid7str
 
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.services import llm_setting as setting_service
 
 

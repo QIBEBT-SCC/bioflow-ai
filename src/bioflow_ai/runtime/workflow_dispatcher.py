@@ -6,7 +6,7 @@ import time
 
 from loguru import logger
 
-from bioflow_ai.core.session import create_db_and_tables
+from bioflow_ai.infrastructure.database import create_db_and_tables
 from bioflow_ai.services.workflow.dispatcher import dispatch_pending, recover
 from bioflow_ai.services.workflow.foreach import advance_foreach
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.setting.llm_provider as provider_crud
 import bioflow_ai.crud.setting.llm_setting as setting_crud
-from bioflow_ai.core.session import engine
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.setting import LLMModel, LLMProvider, ModelRole, ProviderType
 from bioflow_ai.services import llm_setting as setting_service
 from bioflow_ai.utils.init import tui
