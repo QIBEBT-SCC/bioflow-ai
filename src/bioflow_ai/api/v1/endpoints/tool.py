@@ -31,8 +31,9 @@ from bioflow_ai.schemas.tools import (
     ToolTaskInfo,
     ToolUsagePublic,
 )
-from bioflow_ai.services import tool_cache, tool_catalog
-from bioflow_ai.services.image_references import DuplicateImageUrlError
+from bioflow_ai.services.tools import cache as tool_cache
+from bioflow_ai.services.tools import catalog as tool_catalog
+from bioflow_ai.services.tools.image_references import DuplicateImageUrlError
 
 router = APIRouter()
 tag_router = APIRouter()

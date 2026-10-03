@@ -14,8 +14,8 @@ from bioflow_ai.schemas.user import (
     UserUpdate,
 )
 from bioflow_ai.schemas.user_config import UserRole
-from bioflow_ai.services import auth as auth_service
-from bioflow_ai.services import user as user_service
+from bioflow_ai.services.identity import auth as auth_service
+from bioflow_ai.services.identity import user as user_service
 
 router = APIRouter()
 

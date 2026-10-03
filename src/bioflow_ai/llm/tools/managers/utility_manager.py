@@ -34,7 +34,7 @@ from bioflow_ai.llm.workflow_builder.validation import (
 )
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.tools import Handle
-from bioflow_ai.services.code_catalog import CODE_NODE_KIND
+from bioflow_ai.services.code.catalog import CODE_NODE_KIND
 
 # ---- Schemas ----
 

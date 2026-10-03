@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING, cast
 from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import BaseContext
+from bioflow_ai.llm.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.tools.human import ask_human
 from bioflow_ai.llm.tools.web_search import WebResearchState, web_run
 from bioflow_ai.llm.tools.writter import write_report
-from bioflow_ai.llm.utils.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

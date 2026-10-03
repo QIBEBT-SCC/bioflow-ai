@@ -1,11 +1,11 @@
 import asyncio
 from pathlib import Path
 
-from bioflow_ai.utils.init import tui
-from bioflow_ai.utils.init.config import create_settings
-from bioflow_ai.utils.init.containers import initialize_project_containers
-from bioflow_ai.utils.init.database import initialize_preset_database
-from bioflow_ai.utils.init.test_data import initialize_test_data
+from bioflow_ai.services.initialization import tui
+from bioflow_ai.services.initialization.config import create_settings
+from bioflow_ai.services.initialization.containers import initialize_project_containers
+from bioflow_ai.services.initialization.database import initialize_preset_database
+from bioflow_ai.services.initialization.test_data import initialize_test_data
 
 
 def _confirm(message: str, *, default: bool) -> bool:
@@ -50,7 +50,7 @@ def run_auto_init() -> None:
     provider_ready = None
     if container_ready is not False and database_ready is not False:
         # Import after config.toml has been created so the database engine uses the new settings.
-        from bioflow_ai.utils.init.providers import initialize_llm_providers
+        from bioflow_ai.services.initialization.providers import initialize_llm_providers
 
         provider_ready = initialize_llm_providers()
 

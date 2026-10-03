@@ -20,8 +20,8 @@ from bioflow_ai.schemas.coding_agent import (
     CodingAgentAvailability,
     CodingAgentProviderAvailability,
 )
-from bioflow_ai.services.code_agent import account as account_service
-from bioflow_ai.services.code_agent import session as session_store
+from bioflow_ai.services.code.agent import account as account_service
+from bioflow_ai.services.code.agent import session as session_store
 from bioflow_ai.tasks.code import normalize_python_dependencies, normalize_r_dependencies
 
 router = APIRouter()

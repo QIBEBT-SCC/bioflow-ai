@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
 from bioflow_ai.schemas.workflow_run import RunStatus
-from bioflow_ai.utils.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_command_template
 
 
 class ToolTagPublic(BaseModel):

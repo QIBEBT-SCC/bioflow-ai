@@ -16,8 +16,8 @@ from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import SampleState
 from bioflow_ai.models.resource import Sample, SampleFiles
 from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.services import project_file_mapping as project_file_mapping_service
-from bioflow_ai.services import sample as sample_service
+from bioflow_ai.services.projects import file_mapping as project_file_mapping_service
+from bioflow_ai.services.resource import sample as sample_service
 
 
 def _truncate_output(output: str) -> str:

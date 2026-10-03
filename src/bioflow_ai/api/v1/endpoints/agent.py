@@ -35,8 +35,8 @@ from bioflow_ai.schemas.agent import (
 )
 from bioflow_ai.schemas.agent_file import AgentFilePublic
 from bioflow_ai.schemas.user_config import UserRole
-from bioflow_ai.services import agent as agent_service
-from bioflow_ai.services import agent_file as agent_file_service
+from bioflow_ai.services.agents import files as agent_file_service
+from bioflow_ai.services.agents import sessions as agent_service
 
 session_router = APIRouter()
 run_router = APIRouter()

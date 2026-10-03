@@ -11,7 +11,7 @@ from bioflow_ai.schemas.skill import (
     SkillResourceUpdate,
     SkillUpdate,
 )
-from bioflow_ai.services import skill_catalog
+from bioflow_ai.services.skills import catalog as skill_catalog
 
 router = APIRouter()
 

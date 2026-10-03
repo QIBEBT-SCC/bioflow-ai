@@ -40,7 +40,7 @@ from bioflow_ai.tasks.load_tasks.load_genome import load_hg38, load_mm39, load_n
 from bioflow_ai.tasks.load_tasks.static_value import set_value
 from bioflow_ai.tasks.run_tool import execute_tool
 from bioflow_ai.tasks.summary_task.summary import build_downstream_summary
-from bioflow_ai.utils.input_format import to_safe_path_segment
+from bioflow_ai.utils.file.paths import to_safe_path_segment
 
 PRESENTATION_NODE_TYPES = frozenset({'note', 'image_preview'})
 

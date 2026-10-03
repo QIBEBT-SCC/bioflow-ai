@@ -12,7 +12,7 @@ from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.user import CurrentUser
 from bioflow_ai.schemas.user_config import UserRole
-from bioflow_ai.services import auth as auth_service
+from bioflow_ai.services.identity import auth as auth_service
 
 _UNSAFE_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
 

@@ -9,6 +9,17 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from bioflow_ai.llm.context import ProjectContext
+from bioflow_ai.llm.middleware import (
+    DisableParallelToolCallsMiddleware,
+    SaveMessagesMiddleware,
+    SkillMiddleware,
+    StatusBarMiddleware,
+    TodoMiddleware,
+    TokenStatisticMiddleware,
+    UserLanguageMiddleware,
+    WorkflowBuilderProgressMiddleware,
+)
+from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.states import BuildState
 from bioflow_ai.llm.tools.human import ask_human
@@ -19,17 +30,6 @@ from bioflow_ai.llm.tools.managers import (
     utility_node_manager,
     workflow_manager,
 )
-from bioflow_ai.llm.utils.middleware import (
-    DisableParallelToolCallsMiddleware,
-    SaveMessagesMiddleware,
-    SkillMiddleware,
-    StatusBarMiddleware,
-    TodoMiddleware,
-    TokenStatisticMiddleware,
-    UserLanguageMiddleware,
-    WorkflowBuilderProgressMiddleware,
-)
-from bioflow_ai.llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

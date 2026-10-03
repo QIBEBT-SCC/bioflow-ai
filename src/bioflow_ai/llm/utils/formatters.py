@@ -10,7 +10,7 @@ from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
-from bioflow_ai.utils.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_command_template
 from bioflow_ai.utils.jsonable import dumps_jsonable
 
 if TYPE_CHECKING:

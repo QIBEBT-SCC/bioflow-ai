@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING, Optional, cast
 from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import WorkflowDiagnosisContext
-from bioflow_ai.llm.models import get_high_performance_model
-from bioflow_ai.llm.states import WorkflowDiagnosisState
-from bioflow_ai.llm.tools.workflow_diagnosis import run_evidence_command, workflow_reader, write_diagnosis
-from bioflow_ai.llm.utils.middleware import (
+from bioflow_ai.llm.middleware import (
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
 )
+from bioflow_ai.llm.models import get_high_performance_model
+from bioflow_ai.llm.states import WorkflowDiagnosisState
+from bioflow_ai.llm.tools.workflow_diagnosis import run_evidence_command, workflow_reader, write_diagnosis
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver

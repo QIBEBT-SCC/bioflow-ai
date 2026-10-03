@@ -10,11 +10,7 @@ from langgraph.prebuilt import ToolRuntime
 from bioflow_ai.llm.agents.workflow_agent.paper_reader import paper_reader
 from bioflow_ai.llm.agents.workflow_agent.tool_info_searcher import tool_info_searcher
 from bioflow_ai.llm.context import BaseContext, ProjectContext
-from bioflow_ai.llm.models import get_high_performance_model
-from bioflow_ai.llm.states import PlannerState
-from bioflow_ai.llm.tools.human import ask_human_with_choices
-from bioflow_ai.llm.tools.writter import write_plan
-from bioflow_ai.llm.utils.middleware import (
+from bioflow_ai.llm.middleware import (
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
     SkillMiddleware,
@@ -22,7 +18,11 @@ from bioflow_ai.llm.utils.middleware import (
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
 )
-from bioflow_ai.llm.utils.middleware.final_check import CheckStateExistMiddleware
+from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
+from bioflow_ai.llm.models import get_high_performance_model
+from bioflow_ai.llm.states import PlannerState
+from bioflow_ai.llm.tools.human import ask_human_with_choices
+from bioflow_ai.llm.tools.writter import write_plan
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

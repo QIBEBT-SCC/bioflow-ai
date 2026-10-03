@@ -14,8 +14,8 @@ import bioflow_ai.crud.tools.tool_group as group_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.resource import BioDb
 from bioflow_ai.models.tools import ToolGroup
-from bioflow_ai.services import tool_catalog
 from bioflow_ai.services.resource import bio_db as db_service
+from bioflow_ai.services.tools import catalog as tool_catalog
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper

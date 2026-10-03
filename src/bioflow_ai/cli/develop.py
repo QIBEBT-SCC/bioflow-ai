@@ -14,7 +14,7 @@ from anyio import Path
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from bioflow_ai.llm.utils.lc.tracing import configure_langsmith_tracing
+from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
@@ -334,7 +334,7 @@ async def _tool_agent_session(
                 ('bioflow_ai.llm.states', 'BuildNode'),
                 ('bioflow_ai.llm.states', 'WorkflowDraft'),
                 ('bioflow_ai.llm.tools.test_run_report', 'TestRunReport'),
-                ('bioflow_ai.llm.utils.middleware.todo', 'Todo'),
+                ('bioflow_ai.llm.middleware.todo', 'Todo'),
                 ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
             ]
         )
@@ -357,8 +357,8 @@ async def _cleanup_threads(
     """
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.containers import remove_container
+    from bioflow_ai.llm.observability.trajectories import delete_trajectory_run
     from bioflow_ai.llm.utils.session import delete_checkpoint
-    from bioflow_ai.llm.utils.trajectory_store import delete_trajectory_run
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -518,8 +518,8 @@ async def init_tools(index: int | None = None, *, langsmith_tracing: bool = Fals
     from langchain_core.messages import HumanMessage
     from rich.console import Console
 
+    from bioflow_ai.cli.render import print_stream_chunk
     from bioflow_ai.llm.context import CreateToolContext
-    from bioflow_ai.llm.utils.render import print_stream_chunk
     from bioflow_ai.schemas.notification import NotificationEventType
 
     if TYPE_CHECKING:
@@ -704,8 +704,8 @@ async def create_tool_manually(
     from langchain_core.messages import HumanMessage
     from rich.console import Console
 
+    from bioflow_ai.cli.render import print_stream_chunk
     from bioflow_ai.llm.context import CreateToolContext
-    from bioflow_ai.llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -797,8 +797,8 @@ async def continue_run(
     from langgraph.types import Command
     from rich.console import Console
 
+    from bioflow_ai.cli.render import print_stream_chunk
     from bioflow_ai.llm.context import CreateToolContext
-    from bioflow_ai.llm.utils.render import print_stream_chunk
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -1158,7 +1158,7 @@ def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
 )
 def export(*, upload: bool, db: tuple[str, ...]) -> None:
     """Export database data."""
-    from bioflow_ai.utils.export.database import export_docs, export_images, export_tools
+    from bioflow_ai.services.export.database import export_docs, export_images, export_tools
 
     db_map = {
         'images': export_images,
@@ -1183,7 +1183,7 @@ def export(*, upload: bool, db: tuple[str, ...]) -> None:
 )
 def export_mcp_cmd(output: FilePath, *, upload: bool) -> None:
     """Export the local MCP tool knowledge database."""
-    from bioflow_ai.utils.export.mcp import export_mcp_database
+    from bioflow_ai.services.export.mcp import export_mcp_database
 
     try:
         result = export_mcp_database(output, upload=upload)
@@ -1227,8 +1227,8 @@ def export_node_stats_cmd(db_path: FilePath, input_dir: FilePath | None, output:
 
     Token counts cover saved test_run and tool_generator model calls. Missing usage is blank.
     """
-    from bioflow_ai.llm.utils.trajectory_store import get_trajectory_root
-    from bioflow_ai.utils.export.node_generation_stats import export_node_stats
+    from bioflow_ai.llm.observability.trajectories import get_trajectory_root
+    from bioflow_ai.services.export.node_generation_stats import export_node_stats
 
     trajectory_root = input_dir or get_trajectory_root()
     try:
@@ -1261,8 +1261,8 @@ def export_node_stats_cmd(db_path: FilePath, input_dir: FilePath | None, output:
 )
 def export_test_run_reports_cmd(db_path: FilePath, input_dir: FilePath | None, output: FilePath) -> None:
     """Export first-submission and validated report text for recorded tool entries."""
-    from bioflow_ai.llm.utils.trajectory_store import get_trajectory_root
-    from bioflow_ai.utils.export.test_run_reports import export_test_run_reports
+    from bioflow_ai.llm.observability.trajectories import get_trajectory_root
+    from bioflow_ai.services.export.test_run_reports import export_test_run_reports
 
     trajectory_root = input_dir or get_trajectory_root()
     try:
@@ -1315,7 +1315,7 @@ def compact_trajectories_cmd(
     overwrite: bool,
 ) -> None:
     """Compact raw agent JSON events into events/runs Parquet datasets."""
-    from bioflow_ai.llm.utils.trajectory_store import get_trajectory_root
+    from bioflow_ai.llm.observability.trajectories import get_trajectory_root
 
     resolved_input = input_dir or str(get_trajectory_root())
     resolved_output = output_dir or _default_trajectory_dataset_path()

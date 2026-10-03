@@ -36,7 +36,7 @@ from bioflow_ai.schemas.workflow_run import (
 )
 from bioflow_ai.services.workflow.compiler import CompileContext, compile_run
 from bioflow_ai.services.workflow.subgraphs import flatten_workflow, inject_run_data
-from bioflow_ai.utils.input_format import to_safe_path_segment
+from bioflow_ai.utils.file.paths import to_safe_path_segment
 from bioflow_ai.utils.system import random_uid, utc_now
 
 STORAGE_PATH = get_settings().persistent.storage.STORAGE_PATH

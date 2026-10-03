@@ -17,7 +17,7 @@ from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate
 from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.workflow.execution_context import update_node
-from bioflow_ai.utils.input_format import to_safe_path_segment
+from bioflow_ai.utils.file.paths import to_safe_path_segment
 from bioflow_ai.utils.system import utc_now
 
 BIO_DB_CONTAINER_PATH = '/data/db'

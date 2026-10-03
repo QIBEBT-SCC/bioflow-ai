@@ -23,10 +23,10 @@ from bioflow_ai.models.agent import AgentMessage, AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType, AgentName, AgentRunStatus
-from bioflow_ai.services import agent as agent_service
-from bioflow_ai.services import workflow_fix as workflow_fix_service
-from bioflow_ai.services.agent_executor import execute_agent_graph
-from bioflow_ai.services.agent_progress import event_payload, result_payload
+from bioflow_ai.services.agents import sessions as agent_service
+from bioflow_ai.services.agents.execution import execute_agent_graph
+from bioflow_ai.services.agents.progress import event_payload, result_payload
+from bioflow_ai.services.workflow import fix as workflow_fix_service
 from bioflow_ai.utils.system import utc_now
 
 HEARTBEAT_INTERVAL_SECONDS = 10
@@ -46,7 +46,7 @@ def _checkpoint_serializer() -> JsonPlusRedisSerializer:
             ('bioflow_ai.llm.states', 'BuildNode'),
             ('bioflow_ai.llm.states', 'WorkflowDraft'),
             ('bioflow_ai.llm.tools.test_run_report', 'TestRunReport'),
-            ('bioflow_ai.llm.utils.middleware.todo', 'Todo'),
+            ('bioflow_ai.llm.middleware.todo', 'Todo'),
             ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
         ]
     )

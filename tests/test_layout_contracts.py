@@ -87,7 +87,7 @@ def test_api_and_model_contracts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 
 def test_repository_resources() -> None:
     from bioflow_ai.core.paths import DEPLOY_DIR, PRESETS_DIR, SKILLS_DIR
-    from bioflow_ai.llm.skill_catalog import discover_agent_skills
+    from bioflow_ai.services.skills.definitions import discover_agent_skills
 
     assert (PRESETS_DIR / 'sql' / '03_create_table.sql').is_file()
     assert (DEPLOY_DIR / 'docker' / 'docker-compose.yml').is_file()

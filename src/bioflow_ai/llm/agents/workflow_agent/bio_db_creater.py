@@ -4,14 +4,10 @@ from typing import TYPE_CHECKING, Annotated, cast
 from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import BaseContext
+from bioflow_ai.llm.middleware import DisableParallelToolCallsMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.tools.database import create_biodb, search_local_image
 from bioflow_ai.llm.tools.web_search import WebResearchState, web_run
-from bioflow_ai.llm.utils.middleware import (
-    DisableParallelToolCallsMiddleware,
-    EndLoopMiddleware,
-    TokenStatisticMiddleware,
-)
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

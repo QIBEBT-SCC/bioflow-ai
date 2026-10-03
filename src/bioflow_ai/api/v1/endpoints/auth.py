@@ -9,8 +9,8 @@ from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.auth import LoginRequest
 from bioflow_ai.schemas.user import PasswordUpdate, UserPublic
-from bioflow_ai.services import auth as auth_service
-from bioflow_ai.services import user as user_service
+from bioflow_ai.services.identity import auth as auth_service
+from bioflow_ai.services.identity import user as user_service
 
 router = APIRouter()
 

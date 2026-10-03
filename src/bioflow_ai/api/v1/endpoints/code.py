@@ -18,7 +18,7 @@ from bioflow_ai.schemas.code import (
     SimpleCodePublic,
 )
 from bioflow_ai.schemas.common import Paginated
-from bioflow_ai.services import code_catalog
+from bioflow_ai.services.code import catalog as code_catalog
 
 router = APIRouter()
 

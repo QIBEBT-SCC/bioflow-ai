@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.models import get_long_context_model
+from bioflow_ai.llm.observability.token_usage import store_token_usage
 from bioflow_ai.llm.prebuild.json_output import json_output
-from bioflow_ai.llm.utils.token import store_token_usage
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

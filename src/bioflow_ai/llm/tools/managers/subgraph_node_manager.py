@@ -28,7 +28,7 @@ from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.tools import Handle
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.schemas.workflow_config import WorkflowType
-from bioflow_ai.services import workflow_catalog
+from bioflow_ai.services.workflow import catalog as workflow_catalog
 
 
 class SearchSubgraph(BaseModel):

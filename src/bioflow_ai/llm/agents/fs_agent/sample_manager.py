@@ -6,6 +6,15 @@ from langchain.agents import create_agent
 
 from bioflow_ai.llm.agents.fs_agent.analysis_reporter import AGENT_LLM
 from bioflow_ai.llm.context import ProjectContext
+from bioflow_ai.llm.middleware import (
+    DisableParallelToolCallsMiddleware,
+    EndLoopMiddleware,
+    SampleManagerProgressMiddleware,
+    StatusBarMiddleware,
+    TokenStatisticMiddleware,
+    UserLanguageMiddleware,
+)
+from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import SampleState
 from bioflow_ai.llm.tools.human import ask_human_with_choices
@@ -18,15 +27,6 @@ from bioflow_ai.llm.tools.sample import (
     set_base_dir,
     write_conclusion,
 )
-from bioflow_ai.llm.utils.middleware import (
-    DisableParallelToolCallsMiddleware,
-    EndLoopMiddleware,
-    SampleManagerProgressMiddleware,
-    StatusBarMiddleware,
-    TokenStatisticMiddleware,
-    UserLanguageMiddleware,
-)
-from bioflow_ai.llm.utils.middleware.final_check import CheckStateExistMiddleware
 
 if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware

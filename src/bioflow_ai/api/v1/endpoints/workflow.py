@@ -22,7 +22,7 @@ from bioflow_ai.schemas.workflow import (
     WorkflowUpdate,
 )
 from bioflow_ai.schemas.workflow_config import WorkflowType
-from bioflow_ai.services import workflow_catalog
+from bioflow_ai.services.workflow import catalog as workflow_catalog
 from bioflow_ai.services.workflow.compiler import validate_workflow
 from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
 

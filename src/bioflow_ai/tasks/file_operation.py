@@ -15,11 +15,11 @@ from bioflow_ai.models.resource import Sample
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.workflow_config import ToolOutput
-from bioflow_ai.services import project_file_mapping as project_file_mapping_service
-from bioflow_ai.services import sample as sample_service
-from bioflow_ai.services.output_validation import output_path_exists
+from bioflow_ai.services.projects import file_mapping as project_file_mapping_service
+from bioflow_ai.services.resource import sample as sample_service
 from bioflow_ai.services.workflow.execution_context import get_node_output, get_prefix
-from bioflow_ai.utils.input_format import to_safe_path_segment
+from bioflow_ai.services.workflow.output_validation import output_path_exists
+from bioflow_ai.utils.file.paths import to_safe_path_segment
 
 PROJECT_FILE_KEYWORD_MAX_LENGTH = 50
 TEXT_FILE_CONTENT_MAX_BYTES = 5 * 1024 * 1024

@@ -7,7 +7,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from bioflow_ai.utils.init.database import (
+from bioflow_ai.services.initialization.database import (
     AdminInitResult,
     PresetImportResult,
     init_admin,

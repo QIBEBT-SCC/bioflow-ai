@@ -13,7 +13,7 @@ from bioflow_ai.infrastructure.containers import ContainerMount
 from bioflow_ai.llm.context import ToolGeneratorContext
 from bioflow_ai.llm.tools.test_run_report import TestRunReport, resolve_test_run_input_path, resolve_test_run_path
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig
-from bioflow_ai.services.tool_execution import (
+from bioflow_ai.services.tools.execution import (
     DockerToolExecution,
     DockerToolExecutionConfig,
     DockerToolExecutionResult,

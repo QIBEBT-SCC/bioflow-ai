@@ -39,12 +39,12 @@ from bioflow_ai.schemas.resource import (
     SampleUpdate,
 )
 from bioflow_ai.schemas.user_config import UserRole
-from bioflow_ai.services import agent_file as agent_file_service
-from bioflow_ai.services import project as project_service
-from bioflow_ai.services import project_file_mapping as project_file_mapping_service
-from bioflow_ai.services import project_workflow as project_workflow_service
-from bioflow_ai.services import sample as sample_service
-from bioflow_ai.utils.file_browser import serve_file
+from bioflow_ai.services.agents import files as agent_file_service
+from bioflow_ai.services.file_preview.browser import serve_file
+from bioflow_ai.services.projects import file_mapping as project_file_mapping_service
+from bioflow_ai.services.projects import project as project_service
+from bioflow_ai.services.projects import workflows as project_workflow_service
+from bioflow_ai.services.resource import sample as sample_service
 
 router = APIRouter()
 tag_router = APIRouter()

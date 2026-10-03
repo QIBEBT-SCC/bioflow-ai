@@ -15,7 +15,7 @@ from bioflow_ai.infrastructure.containers.mount_paths import PROJECT_DATA_ROOTS,
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import TestRunContext
 from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.services import tool_catalog
+from bioflow_ai.services.tools import catalog as tool_catalog
 
 MAX_CHAR = 3000
 DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')

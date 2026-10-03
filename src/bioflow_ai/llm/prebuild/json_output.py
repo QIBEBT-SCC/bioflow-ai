@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.llm_client import LLMMetadata
-from bioflow_ai.llm.utils.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
+from bioflow_ai.llm.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
 
 if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware

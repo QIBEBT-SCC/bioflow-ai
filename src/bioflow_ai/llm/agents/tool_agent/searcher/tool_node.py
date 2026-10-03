@@ -5,10 +5,10 @@ from langchain.agents import create_agent
 from langgraph.graph import MessagesState
 
 from bioflow_ai.llm.context import BaseContext
+from bioflow_ai.llm.middleware import TokenStatisticMiddleware
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import read_tool_doc, select_tool
 from bioflow_ai.llm.tools.vector_store import search_tools_by_function
-from bioflow_ai.llm.utils.middleware import TokenStatisticMiddleware
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:

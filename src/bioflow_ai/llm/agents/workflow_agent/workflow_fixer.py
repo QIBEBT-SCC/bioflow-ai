@@ -6,6 +6,17 @@ from typing import TYPE_CHECKING, Optional, cast
 from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import WorkflowFixContext
+from bioflow_ai.llm.middleware import (
+    CheckStateExistMiddleware,
+    DisableParallelToolCallsMiddleware,
+    SaveMessagesMiddleware,
+    SkillMiddleware,
+    StatusBarMiddleware,
+    TokenStatisticMiddleware,
+    UserLanguageMiddleware,
+    WorkflowBuilderProgressMiddleware,
+    WorkflowFixScopeMiddleware,
+)
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.states import WorkflowFixState
 from bioflow_ai.llm.tools.managers import (
@@ -17,17 +28,6 @@ from bioflow_ai.llm.tools.managers import (
 from bioflow_ai.llm.tools.workflow_diagnosis import run_evidence_command, workflow_reader
 from bioflow_ai.llm.tools.workflow_fix import finalize_workflow_fix
 from bioflow_ai.llm.tools.workflow_fix_subgraph import fix_subgraph
-from bioflow_ai.llm.utils.middleware import (
-    CheckStateExistMiddleware,
-    DisableParallelToolCallsMiddleware,
-    SaveMessagesMiddleware,
-    SkillMiddleware,
-    StatusBarMiddleware,
-    TokenStatisticMiddleware,
-    UserLanguageMiddleware,
-    WorkflowBuilderProgressMiddleware,
-    WorkflowFixScopeMiddleware,
-)
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver

@@ -17,10 +17,10 @@ from bioflow_ai.schemas.coding_agent import (
     OpenCodeCredentialsCreate,
     OpenCodeSettings,
 )
-from bioflow_ai.services.code_agent import account as account_service
-from bioflow_ai.services.code_agent import login as login_store
-from bioflow_ai.services.code_agent import session as session_store
-from bioflow_ai.services.code_agent import settings as settings_service
+from bioflow_ai.services.code.agent import account as account_service
+from bioflow_ai.services.code.agent import login as login_store
+from bioflow_ai.services.code.agent import session as session_store
+from bioflow_ai.services.code.agent import settings as settings_service
 
 router = APIRouter()
 

@@ -4,7 +4,7 @@ from starlette.responses import Response
 from starlette.status import HTTP_401_UNAUTHORIZED
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.services.auth import CSRF_COOKIE, LEGACY_AUTH_COOKIES, SESSION_COOKIE
+from bioflow_ai.services.identity.auth import CSRF_COOKIE, LEGACY_AUTH_COOKIES, SESSION_COOKIE
 
 
 class AuthCookieCleanupMiddleware(BaseHTTPMiddleware):

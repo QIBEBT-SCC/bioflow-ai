@@ -12,7 +12,7 @@ from bioflow_ai.llm.workflow_builder.subgraphs import effective_nodes, remap_int
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.tools import Handle, ToolNodePublic
 from bioflow_ai.schemas.workflow_config import ExecutionScope
-from bioflow_ai.utils.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_command_template
 
 
 class WorkflowLoadError(ValueError):

@@ -14,7 +14,7 @@ from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper, HasUid
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.document import ParentDocument
 from bioflow_ai.schemas.tools import ToolNodePublic
-from bioflow_ai.services.code_catalog import AUXILIARY_NODE_COLLECTION
+from bioflow_ai.services.code.catalog import AUXILIARY_NODE_COLLECTION
 
 
 async def insert_documents(document_content: str, doc_id: str) -> None:

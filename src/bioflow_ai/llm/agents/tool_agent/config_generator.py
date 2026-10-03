@@ -7,10 +7,7 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from bioflow_ai.llm.context import BaseContext, ToolGeneratorContext
-from bioflow_ai.llm.models import get_high_performance_model
-from bioflow_ai.llm.states import ToolGeneratorState
-from bioflow_ai.llm.tools.tool_validation import validate_tool_config
-from bioflow_ai.llm.utils.middleware import (
+from bioflow_ai.llm.middleware import (
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
@@ -19,6 +16,9 @@ from bioflow_ai.llm.utils.middleware import (
     SkillMiddleware,
     TokenStatisticMiddleware,
 )
+from bioflow_ai.llm.models import get_high_performance_model
+from bioflow_ai.llm.states import ToolGeneratorState
+from bioflow_ai.llm.tools.tool_validation import validate_tool_config
 from bioflow_ai.schemas.tool_config import FileMount, ParamDefine
 
 if TYPE_CHECKING:

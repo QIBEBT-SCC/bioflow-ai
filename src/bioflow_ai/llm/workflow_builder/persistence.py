@@ -11,7 +11,7 @@ from bioflow_ai.llm.workflow_builder.node_ids import canonicalize_build_graph, h
 from bioflow_ai.llm.workflow_builder.serialization import build_workflow_definition, to_execution_scope
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.workflow_config import WorkflowType
-from bioflow_ai.services import workflow_catalog
+from bioflow_ai.services.workflow import catalog as workflow_catalog
 
 
 async def save_workflow_drafts(drafts: list[WorkflowDraft], user_id: int) -> list[Workflow]:

@@ -6,6 +6,17 @@ from typing import TYPE_CHECKING
 from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import ProjectContext
+from bioflow_ai.llm.middleware import (
+    DisableParallelToolCallsMiddleware,
+    SkillMiddleware,
+    StatusBarMiddleware,
+    TodoMiddleware,
+    UserLanguageMiddleware,
+    WorkflowBuilderProgressMiddleware,
+)
+from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
+from bioflow_ai.llm.middleware.parent_handoff import ParentHandoffMiddleware
+from bioflow_ai.llm.middleware.subgraph_scope import SubgraphBuilderScopeMiddleware
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.states import SubgraphBuildState
 from bioflow_ai.llm.tools.human import ask_human
@@ -17,17 +28,6 @@ from bioflow_ai.llm.tools.managers import (
 )
 from bioflow_ai.llm.tools.managers.subgraph_interface_manager import subgraph_interface_manager
 from bioflow_ai.llm.tools.managers.subgraph_node_manager import subgraph_node_manager
-from bioflow_ai.llm.utils.middleware import (
-    DisableParallelToolCallsMiddleware,
-    SkillMiddleware,
-    StatusBarMiddleware,
-    TodoMiddleware,
-    UserLanguageMiddleware,
-    WorkflowBuilderProgressMiddleware,
-)
-from bioflow_ai.llm.utils.middleware.final_check import CheckStateExistMiddleware
-from bioflow_ai.llm.utils.middleware.parent_handoff import ParentHandoffMiddleware
-from bioflow_ai.llm.utils.middleware.subgraph_scope import SubgraphBuilderScopeMiddleware
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph

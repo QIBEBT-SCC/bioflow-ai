@@ -3,8 +3,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
+from bioflow_ai.llm.pricing import find_model_price
 from bioflow_ai.models.setting import ModelRole, ProviderType, ReasoningEffort
-from bioflow_ai.utils.model_pricing import find_model_price
 
 
 # ==================== LLMProvider Schemas ====================

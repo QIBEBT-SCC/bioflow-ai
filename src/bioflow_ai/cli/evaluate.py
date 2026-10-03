@@ -14,7 +14,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.llm.utils.lc.tracing import configure_langsmith_tracing
+from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
 MISSING_PROJECT_TAG = 'missing'
@@ -243,7 +243,7 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
     from sqlalchemy import select
 
     import bioflow_ai.crud.workflow as wf_crud
-    import bioflow_ai.services.project_workflow as proj_wf_service
+    import bioflow_ai.services.projects.workflows as proj_wf_service
     from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.workflow import ProjectWorkflow, Workflow
@@ -337,7 +337,7 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
 
 
 def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, str]:
-    import bioflow_ai.services.project as project_service
+    import bioflow_ai.services.projects.project as project_service
     from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.project import Project
     from bioflow_ai.schemas.project import ProjectCreateProp
@@ -389,10 +389,10 @@ async def _get_sample_info(user_input: HumanMessage, project_id: int, workdir: s
     from rich.console import Console
     from uuid_extensions import uuid7str
 
+    from bioflow_ai.cli.render import print_stream_chunk
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.llm.agents.fs_agent.sample_manager import build_evaluate_sample_agent
     from bioflow_ai.llm.context import ProjectContext
-    from bioflow_ai.llm.utils.render import print_stream_chunk
 
     sample_file = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}' / 'SAMPLES.md'
     if await sample_file.exists():
@@ -511,10 +511,10 @@ async def _generate_plan(human_input: list[HumanMessage], project_id: int, workd
     from rich.console import Console
     from uuid_extensions import uuid7str
 
+    from bioflow_ai.cli.render import print_stream_chunk
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.llm.agents.workflow_agent.workflow_designer_v2 import build_evaluate_workflow_planner
     from bioflow_ai.llm.context import ProjectContext
-    from bioflow_ai.llm.utils.render import print_stream_chunk
 
     plan_file = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}' / 'PLAN.md'
     if await plan_file.exists():
@@ -561,9 +561,9 @@ async def _generate_workflow(
     from langchain_core.runnables import RunnableConfig
     from rich.console import Console
 
+    from bioflow_ai.cli.render import print_stream_chunk
     from bioflow_ai.llm.agents.workflow_agent.workflow_builder import build_workflow_builder
     from bioflow_ai.llm.context import ProjectContext
-    from bioflow_ai.llm.utils.render import print_stream_chunk
     from bioflow_ai.llm.utils.session import delete_checkpoint
 
     console = Console()
@@ -679,7 +679,7 @@ def _send_run_task(
     output_dir: str,
 ) -> None:
     import bioflow_ai.crud.project_workflow as proj_wf_crud
-    import bioflow_ai.services.project_workflow as proj_wf_service
+    import bioflow_ai.services.projects.workflows as proj_wf_service
     from bioflow_ai.infrastructure.database import engine
 
     con.execute(
@@ -759,7 +759,7 @@ async def wf_eval(
                     ('bioflow_ai.llm.states', 'BuildNode'),
                     ('bioflow_ai.llm.states', 'WorkflowDraft'),
                     ('bioflow_ai.llm.tools.test_run_report', 'TestRunReport'),
-                    ('bioflow_ai.llm.utils.middleware.todo', 'Todo'),
+                    ('bioflow_ai.llm.middleware.todo', 'Todo'),
                     ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
                 ]
             )

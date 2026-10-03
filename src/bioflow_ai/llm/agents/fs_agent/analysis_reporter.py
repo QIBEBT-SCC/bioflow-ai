@@ -6,14 +6,14 @@ from langgraph.prebuilt import ToolRuntime
 
 from bioflow_ai.infrastructure.containers import run_command_in_container
 from bioflow_ai.llm.context import FolderContext
-from bioflow_ai.llm.models import get_coding_model
-from bioflow_ai.llm.utils.middleware import (
+from bioflow_ai.llm.middleware import (
     DisableParallelToolCallsMiddleware,
     StatusBarMiddleware,
     TodoMiddleware,
     TokenStatisticMiddleware,
 )
-from bioflow_ai.llm.utils.middleware.final_check import CheckTaskReportMiddleware
+from bioflow_ai.llm.middleware.final_check import CheckTaskReportMiddleware
+from bioflow_ai.llm.models import get_coding_model
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

@@ -8,7 +8,7 @@ from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate
-from bioflow_ai.services.tool_execution import (
+from bioflow_ai.services.tools.execution import (
     DockerToolExecutionConfig,
     ResolvedToolInput,
     execute_docker_tool,

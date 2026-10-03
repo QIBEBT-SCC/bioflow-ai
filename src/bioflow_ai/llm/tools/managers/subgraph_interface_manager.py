@@ -27,7 +27,7 @@ from bioflow_ai.llm.workflow_builder.validation import check_orphan_edges, valid
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.react_flow import Edge, Node, WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import WorkflowType
-from bioflow_ai.services import workflow_catalog
+from bioflow_ai.services.workflow import catalog as workflow_catalog
 from bioflow_ai.services.workflow.compiler import validate_workflow
 from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
 

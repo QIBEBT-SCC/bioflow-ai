@@ -16,6 +16,7 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.infrastructure.redis.operations import open_catalog_generation_guard
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext
+from bioflow_ai.llm.middleware.limit import MaxRetriesError
 from bioflow_ai.llm.prebuild.chains import check_update_args
 from bioflow_ai.llm.states import BuildEdge, BuildNode, CreateToolState
 from bioflow_ai.llm.utils.formatters import (
@@ -24,13 +25,12 @@ from bioflow_ai.llm.utils.formatters import (
     node_formatter,
     search_nodes_formatter,
 )
-from bioflow_ai.llm.utils.middleware.limit import MaxRetriesError
 from bioflow_ai.llm.utils.session import workflow_thread_id
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
 from bioflow_ai.llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 from bioflow_ai.schemas.tools import ToolNodePublic
-from bioflow_ai.utils.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_command_template
 
 
 class SearchToolSchema(BaseModel):

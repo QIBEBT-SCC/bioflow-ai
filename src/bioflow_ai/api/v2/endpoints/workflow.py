@@ -57,27 +57,38 @@ from bioflow_ai.schemas.workflow_run import (
     WorkflowRunPublic,
     WorkflowRunStatistics,
 )
-from bioflow_ai.services.annotation_preview import (
+from bioflow_ai.services.file_preview.annotation import (
     ANNOTATION_KINDS,
     AnnotationPreviewError,
     annotation_metadata,
     annotation_region,
 )
+from bioflow_ai.services.file_preview.browser import build_file_tree, serve_file
 from bioflow_ai.services.file_preview.service import run_preview
-from bioflow_ai.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
-from bioflow_ai.services.signal_preview import TEXT_SIGNAL_KINDS, SignalPreviewError, signal_metadata, signal_region
-from bioflow_ai.services.table_preview import (
+from bioflow_ai.services.file_preview.signal import (
+    TEXT_SIGNAL_KINDS,
+    SignalPreviewError,
+    signal_metadata,
+    signal_region,
+)
+from bioflow_ai.services.file_preview.table import (
     TablePreviewError,
     profile_column,
     query_table,
     table_file_kind,
     table_metadata,
 )
-from bioflow_ai.services.vcf_preview import VcfPreviewError, query_vcf, vcf_file_kind, vcf_metadata, vcf_record_detail
+from bioflow_ai.services.file_preview.vcf import (
+    VcfPreviewError,
+    query_vcf,
+    vcf_file_kind,
+    vcf_metadata,
+    vcf_record_detail,
+)
+from bioflow_ai.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
 from bioflow_ai.services.workflow import runs
 from bioflow_ai.services.workflow.compiler import WorkflowCompileError
-from bioflow_ai.utils.file_browser import build_file_tree, serve_file
-from bioflow_ai.utils.input_format import to_safe_path_segment
+from bioflow_ai.utils.file.paths import to_safe_path_segment
 
 if TYPE_CHECKING:
     from bioflow_ai.models.resource import Sample
