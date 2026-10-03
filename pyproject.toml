@@ -84,6 +84,7 @@ override-dependencies = [
 
 [tool.ruff]
 line-length = 120
+src = ["src"]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -154,6 +155,7 @@ bad-override = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["integration: requires isolated temporary external services"]
 
 [dependency-groups]
 dev = [

@@ -57,3 +57,26 @@ uv run bioflow-ai agent-worker
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser. If a default port is already in use, the initializer selects an available port and displays it in the terminal.
+
+## Backend development
+
+Python code lives in the installable `src/bioflow_ai` package. API, models, schemas,
+and CRUD retain their layers; business services are grouped by domain. Process
+entry points live in `runtime`, terminal interaction in `cli`, shared connections
+and container support in `infrastructure`, and agents and workflow generation in `llm`.
+
+Continue running from the cloned repository with `uv sync` and `uv run`.
+`uv run python -m bioflow_ai` is equivalent to `uv run bioflow-ai`. Repository
+resources remain in `presets` (including editable skills) and `deploy`; they are
+not bundled in the wheel. Configuration, runtime data, and export paths retain
+their working-directory and settings rules.
+
+```bash
+uv run python -m pytest
+uv run python -m ruff check src tests
+uv run python -m pyrefly check
+uv build
+```
+
+See [the migration record](MIGRATION.md) for validation results, module mappings,
+existing static diagnostics, and the API/dispatcher/worker cutover procedure.

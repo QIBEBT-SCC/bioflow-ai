@@ -166,6 +166,20 @@ def test_compose_and_settings_resources(monkeypatch: pytest.MonkeyPatch, tmp_pat
         assert './presets/sql:/docker-entrypoint-initdb.d' in compose['services']['postgres-db']['volumes']
 
 
+def test_preset_import_resource_location(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from bioflow_ai.services.initialization import database
+    from bioflow_ai.services.initialization.database import _ensure_preset_file
+
+    presets = tmp_path / 'repository' / 'presets'
+    presets.mkdir(parents=True)
+    (presets / 'images.parquet').write_bytes(b'fixture')
+    monkeypatch.setattr(database, 'PRESETS_DIR', presets)
+    monkeypatch.chdir(tmp_path)
+    result = asyncio.run(_ensure_preset_file('images.parquet'))
+    assert result.path == str(presets / 'images.parquet')
+    assert not result.downloaded
+
+
 def test_editable_skills(tmp_path: Path) -> None:
     from bioflow_ai.services.skills.catalog import SkillCatalogError, create_skill, get_resource, update_resource
 

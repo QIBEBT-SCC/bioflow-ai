@@ -1,0 +1,989 @@
+{
+  "app": [
+    "bioflow_ai"
+  ],
+  "app.api": [
+    "bioflow_ai.api"
+  ],
+  "app.api.v1": [
+    "bioflow_ai.api.v1"
+  ],
+  "app.api.v1.endpoints": [
+    "bioflow_ai.api.v1.endpoints"
+  ],
+  "app.api.v1.endpoints.agent": [
+    "bioflow_ai.api.v1.endpoints.agent"
+  ],
+  "app.api.v1.endpoints.auth": [
+    "bioflow_ai.api.v1.endpoints.auth"
+  ],
+  "app.api.v1.endpoints.code": [
+    "bioflow_ai.api.v1.endpoints.code"
+  ],
+  "app.api.v1.endpoints.code_agent": [
+    "bioflow_ai.api.v1.endpoints.code_agent"
+  ],
+  "app.api.v1.endpoints.coding_agents": [
+    "bioflow_ai.api.v1.endpoints.coding_agents"
+  ],
+  "app.api.v1.endpoints.genome": [
+    "bioflow_ai.api.v1.endpoints.genome"
+  ],
+  "app.api.v1.endpoints.notification": [
+    "bioflow_ai.api.v1.endpoints.notification"
+  ],
+  "app.api.v1.endpoints.project": [
+    "bioflow_ai.api.v1.endpoints.project"
+  ],
+  "app.api.v1.endpoints.resource": [
+    "bioflow_ai.api.v1.endpoints.resource"
+  ],
+  "app.api.v1.endpoints.setting": [
+    "bioflow_ai.api.v1.endpoints.setting"
+  ],
+  "app.api.v1.endpoints.skill": [
+    "bioflow_ai.api.v1.endpoints.skill"
+  ],
+  "app.api.v1.endpoints.tool": [
+    "bioflow_ai.api.v1.endpoints.tool"
+  ],
+  "app.api.v1.endpoints.user": [
+    "bioflow_ai.api.v1.endpoints.user"
+  ],
+  "app.api.v1.endpoints.workflow": [
+    "bioflow_ai.api.v1.endpoints.workflow"
+  ],
+  "app.api.v2": [
+    "bioflow_ai.api.v2"
+  ],
+  "app.api.v2.endpoints": [
+    "bioflow_ai.api.v2.endpoints"
+  ],
+  "app.api.v2.endpoints.workflow": [
+    "bioflow_ai.api.v2.endpoints.workflow"
+  ],
+  "app.core": [
+    "bioflow_ai.core"
+  ],
+  "app.core.auth": [
+    "bioflow_ai.core.auth"
+  ],
+  "app.core.authorization": [
+    "bioflow_ai.core.authorization"
+  ],
+  "app.core.config": [
+    "bioflow_ai.core.config"
+  ],
+  "app.core.redis_client": [
+    "bioflow_ai.infrastructure.redis.client"
+  ],
+  "app.core.s3_client": [
+    "bioflow_ai.infrastructure.object_storage.client"
+  ],
+  "app.core.secret_cipher": [
+    "bioflow_ai.core.secret_cipher"
+  ],
+  "app.core.session": [
+    "bioflow_ai.infrastructure.database"
+  ],
+  "app.crud": [
+    "bioflow_ai.crud"
+  ],
+  "app.crud.agent": [
+    "bioflow_ai.crud.agent"
+  ],
+  "app.crud.code": [
+    "bioflow_ai.crud.code"
+  ],
+  "app.crud.notification": [
+    "bioflow_ai.crud.notification"
+  ],
+  "app.crud.notification.channel": [
+    "bioflow_ai.crud.notification.channel"
+  ],
+  "app.crud.project": [
+    "bioflow_ai.crud.project"
+  ],
+  "app.crud.project_file_mapping": [
+    "bioflow_ai.crud.project_file_mapping"
+  ],
+  "app.crud.project_workflow": [
+    "bioflow_ai.crud.project_workflow"
+  ],
+  "app.crud.projetc_tag": [
+    "bioflow_ai.crud.projetc_tag"
+  ],
+  "app.crud.resource": [
+    "bioflow_ai.crud.resource"
+  ],
+  "app.crud.resource.bio_db": [
+    "bioflow_ai.crud.resource.bio_db"
+  ],
+  "app.crud.resource.file": [
+    "bioflow_ai.crud.resource.file"
+  ],
+  "app.crud.resource.reference_genome": [
+    "bioflow_ai.crud.resource.reference_genome"
+  ],
+  "app.crud.resource.sample": [
+    "bioflow_ai.crud.resource.sample"
+  ],
+  "app.crud.setting": [
+    "bioflow_ai.crud.setting"
+  ],
+  "app.crud.setting.llm_model": [
+    "bioflow_ai.crud.setting.llm_model"
+  ],
+  "app.crud.setting.llm_provider": [
+    "bioflow_ai.crud.setting.llm_provider"
+  ],
+  "app.crud.setting.llm_setting": [
+    "bioflow_ai.crud.setting.llm_setting"
+  ],
+  "app.crud.setting.llm_statistic": [
+    "bioflow_ai.crud.setting.llm_statistic"
+  ],
+  "app.crud.tools": [
+    "bioflow_ai.crud.tools"
+  ],
+  "app.crud.tools.image": [
+    "bioflow_ai.crud.tools.image"
+  ],
+  "app.crud.tools.tool": [
+    "bioflow_ai.crud.tools.tool"
+  ],
+  "app.crud.tools.tool_doc": [
+    "bioflow_ai.crud.tools.tool_doc"
+  ],
+  "app.crud.tools.tool_group": [
+    "bioflow_ai.crud.tools.tool_group"
+  ],
+  "app.crud.tools.tool_tag": [
+    "bioflow_ai.crud.tools.tool_tag"
+  ],
+  "app.crud.user": [
+    "bioflow_ai.crud.user"
+  ],
+  "app.crud.workflow": [
+    "bioflow_ai.crud.workflow"
+  ],
+  "app.models": [
+    "bioflow_ai.models"
+  ],
+  "app.models.agent": [
+    "bioflow_ai.models.agent"
+  ],
+  "app.models.base": [
+    "bioflow_ai.models.base"
+  ],
+  "app.models.code": [
+    "bioflow_ai.models.code"
+  ],
+  "app.models.decorator": [
+    "bioflow_ai.models.decorator"
+  ],
+  "app.models.decorator.special_field": [
+    "bioflow_ai.models.decorator.special_field"
+  ],
+  "app.models.document": [
+    "bioflow_ai.models.document"
+  ],
+  "app.models.notification": [
+    "bioflow_ai.models.notification"
+  ],
+  "app.models.project": [
+    "bioflow_ai.models.project"
+  ],
+  "app.models.resource": [
+    "bioflow_ai.models.resource"
+  ],
+  "app.models.setting": [
+    "bioflow_ai.models.setting"
+  ],
+  "app.models.tools": [
+    "bioflow_ai.models.tools"
+  ],
+  "app.models.user": [
+    "bioflow_ai.models.user"
+  ],
+  "app.models.workflow": [
+    "bioflow_ai.models.workflow"
+  ],
+  "app.schemas": [
+    "bioflow_ai.schemas"
+  ],
+  "app.schemas.agent": [
+    "bioflow_ai.schemas.agent"
+  ],
+  "app.schemas.agent_file": [
+    "bioflow_ai.schemas.agent_file"
+  ],
+  "app.schemas.archive": [
+    "bioflow_ai.schemas.archive"
+  ],
+  "app.schemas.auth": [
+    "bioflow_ai.schemas.auth"
+  ],
+  "app.schemas.code": [
+    "bioflow_ai.schemas.code"
+  ],
+  "app.schemas.coding_agent": [
+    "bioflow_ai.schemas.coding_agent"
+  ],
+  "app.schemas.common": [
+    "bioflow_ai.schemas.common"
+  ],
+  "app.schemas.notification": [
+    "bioflow_ai.schemas.notification"
+  ],
+  "app.schemas.project": [
+    "bioflow_ai.schemas.project"
+  ],
+  "app.schemas.project_workflow": [
+    "bioflow_ai.schemas.project_workflow"
+  ],
+  "app.schemas.react_flow": [
+    "bioflow_ai.schemas.react_flow"
+  ],
+  "app.schemas.resource": [
+    "bioflow_ai.schemas.resource"
+  ],
+  "app.schemas.setting": [
+    "bioflow_ai.schemas.setting"
+  ],
+  "app.schemas.skill": [
+    "bioflow_ai.schemas.skill"
+  ],
+  "app.schemas.tool_config": [
+    "bioflow_ai.schemas.tool_config"
+  ],
+  "app.schemas.tools": [
+    "bioflow_ai.schemas.tools"
+  ],
+  "app.schemas.user": [
+    "bioflow_ai.schemas.user"
+  ],
+  "app.schemas.user_config": [
+    "bioflow_ai.schemas.user_config"
+  ],
+  "app.schemas.workflow": [
+    "bioflow_ai.schemas.workflow"
+  ],
+  "app.schemas.workflow_config": [
+    "bioflow_ai.schemas.workflow_config"
+  ],
+  "app.schemas.workflow_run": [
+    "bioflow_ai.schemas.workflow_run"
+  ],
+  "app.services": [
+    "bioflow_ai.services"
+  ],
+  "app.services._transaction": [
+    "bioflow_ai.services._transaction"
+  ],
+  "app.services.agent": [
+    "bioflow_ai.services.agents.sessions"
+  ],
+  "app.services.agent_executor": [
+    "bioflow_ai.services.agents.execution"
+  ],
+  "app.services.agent_file": [
+    "bioflow_ai.services.agents.files"
+  ],
+  "app.services.agent_progress": [
+    "bioflow_ai.services.agents.progress"
+  ],
+  "app.services.annotation_preview": [
+    "bioflow_ai.services.file_preview.annotation"
+  ],
+  "app.services.auth": [
+    "bioflow_ai.services.identity.auth"
+  ],
+  "app.services.code_agent": [
+    "bioflow_ai.services.code.agent"
+  ],
+  "app.services.code_agent.account": [
+    "bioflow_ai.services.code.agent.account"
+  ],
+  "app.services.code_agent.acp": [
+    "bioflow_ai.services.code.agent.acp"
+  ],
+  "app.services.code_agent.launch": [
+    "bioflow_ai.services.code.agent.launch"
+  ],
+  "app.services.code_agent.login": [
+    "bioflow_ai.services.code.agent.login"
+  ],
+  "app.services.code_agent.runner": [
+    "bioflow_ai.services.code.agent.runner"
+  ],
+  "app.services.code_agent.session": [
+    "bioflow_ai.services.code.agent.session"
+  ],
+  "app.services.code_agent.settings": [
+    "bioflow_ai.services.code.agent.settings"
+  ],
+  "app.services.code_catalog": [
+    "bioflow_ai.services.code.catalog"
+  ],
+  "app.services.file_preview": [
+    "bioflow_ai.services.file_preview"
+  ],
+  "app.services.file_preview.service": [
+    "bioflow_ai.services.file_preview.service"
+  ],
+  "app.services.file_preview.worker": [
+    "bioflow_ai.services.file_preview.worker"
+  ],
+  "app.services.image_references": [
+    "bioflow_ai.services.tools.image_references"
+  ],
+  "app.services.llm_setting": [
+    "bioflow_ai.services.llm_setting"
+  ],
+  "app.services.notification": [
+    "bioflow_ai.services.notification"
+  ],
+  "app.services.notification.channels": [
+    "bioflow_ai.services.notification.channels"
+  ],
+  "app.services.notification.events": [
+    "bioflow_ai.services.notification.events"
+  ],
+  "app.services.notification.gateway": [
+    "bioflow_ai.services.notification.gateway"
+  ],
+  "app.services.notification.providers": [
+    "bioflow_ai.services.notification.providers"
+  ],
+  "app.services.notification.providers.base": [
+    "bioflow_ai.services.notification.providers.base"
+  ],
+  "app.services.notification.providers.wecom": [
+    "bioflow_ai.services.notification.providers.wecom"
+  ],
+  "app.services.notification.providers.wecom.client": [
+    "bioflow_ai.services.notification.providers.wecom.client"
+  ],
+  "app.services.notification.providers.wecom.provider": [
+    "bioflow_ai.services.notification.providers.wecom.provider"
+  ],
+  "app.services.output_validation": [
+    "bioflow_ai.services.workflow.output_validation"
+  ],
+  "app.services.project": [
+    "bioflow_ai.services.projects.project"
+  ],
+  "app.services.project_file_mapping": [
+    "bioflow_ai.services.projects.file_mapping"
+  ],
+  "app.services.project_workflow": [
+    "bioflow_ai.services.projects.workflows"
+  ],
+  "app.services.resource": [
+    "bioflow_ai.services.resource"
+  ],
+  "app.services.resource.bio_db": [
+    "bioflow_ai.services.resource.bio_db"
+  ],
+  "app.services.resource.file": [
+    "bioflow_ai.services.resource.file"
+  ],
+  "app.services.resource.reference_genome": [
+    "bioflow_ai.services.resource.reference_genome"
+  ],
+  "app.services.sample": [
+    "bioflow_ai.services.resource.sample"
+  ],
+  "app.services.signal_preview": [
+    "bioflow_ai.services.file_preview.signal"
+  ],
+  "app.services.skill_catalog": [
+    "bioflow_ai.services.skills.catalog"
+  ],
+  "app.services.table_preview": [
+    "bioflow_ai.services.file_preview.table"
+  ],
+  "app.services.tool_cache": [
+    "bioflow_ai.services.tools.cache"
+  ],
+  "app.services.tool_catalog": [
+    "bioflow_ai.services.tools.catalog"
+  ],
+  "app.services.tool_execution": [
+    "bioflow_ai.services.tools.execution"
+  ],
+  "app.services.user": [
+    "bioflow_ai.services.identity.user"
+  ],
+  "app.services.vcf_preview": [
+    "bioflow_ai.services.file_preview.vcf"
+  ],
+  "app.services.workflow": [
+    "bioflow_ai.services.workflow"
+  ],
+  "app.services.workflow.batch_graph": [
+    "bioflow_ai.services.workflow.batch_graph"
+  ],
+  "app.services.workflow.collection": [
+    "bioflow_ai.services.workflow.collection"
+  ],
+  "app.services.workflow.compiler": [
+    "bioflow_ai.services.workflow.compiler"
+  ],
+  "app.services.workflow.dispatcher": [
+    "bioflow_ai.services.workflow.dispatcher"
+  ],
+  "app.services.workflow.execution_context": [
+    "bioflow_ai.services.workflow.execution_context"
+  ],
+  "app.services.workflow.executors": [
+    "bioflow_ai.services.workflow.executors"
+  ],
+  "app.services.workflow.foreach": [
+    "bioflow_ai.services.workflow.foreach"
+  ],
+  "app.services.workflow.runs": [
+    "bioflow_ai.services.workflow.runs"
+  ],
+  "app.services.workflow.runtime": [
+    "bioflow_ai.services.workflow.runtime"
+  ],
+  "app.services.workflow.subgraphs": [
+    "bioflow_ai.services.workflow.subgraphs"
+  ],
+  "app.services.workflow_catalog": [
+    "bioflow_ai.services.workflow.catalog"
+  ],
+  "app.services.workflow_fix": [
+    "bioflow_ai.services.workflow.fix"
+  ],
+  "app.tasks": [
+    "bioflow_ai.tasks"
+  ],
+  "app.tasks.agent_run": [
+    "bioflow_ai.tasks.agent_run"
+  ],
+  "app.tasks.archive_operation": [
+    "bioflow_ai.tasks.archive_operation"
+  ],
+  "app.tasks.code": [
+    "bioflow_ai.tasks.code"
+  ],
+  "app.tasks.code_agent": [
+    "bioflow_ai.tasks.code_agent"
+  ],
+  "app.tasks.download": [
+    "bioflow_ai.tasks.download"
+  ],
+  "app.tasks.file_operation": [
+    "bioflow_ai.tasks.file_operation"
+  ],
+  "app.tasks.load_tasks": [
+    "bioflow_ai.tasks.load_tasks"
+  ],
+  "app.tasks.load_tasks.load_bio_db": [
+    "bioflow_ai.tasks.load_tasks.load_bio_db"
+  ],
+  "app.tasks.load_tasks.load_file": [
+    "bioflow_ai.tasks.load_tasks.load_file"
+  ],
+  "app.tasks.load_tasks.load_genome": [
+    "bioflow_ai.tasks.load_tasks.load_genome"
+  ],
+  "app.tasks.load_tasks.static_value": [
+    "bioflow_ai.tasks.load_tasks.static_value"
+  ],
+  "app.tasks.run_tool": [
+    "bioflow_ai.tasks.run_tool"
+  ],
+  "app.tasks.summary_task": [
+    "bioflow_ai.tasks.summary_task"
+  ],
+  "app.tasks.summary_task.summary": [
+    "bioflow_ai.tasks.summary_task.summary"
+  ],
+  "app.tasks.workflow": [
+    "bioflow_ai.tasks.workflow"
+  ],
+  "app.utils": [
+    "bioflow_ai.utils"
+  ],
+  "app.utils.api": [
+    "bioflow_ai.infrastructure.external"
+  ],
+  "app.utils.api.docker_hub": [
+    "bioflow_ai.infrastructure.external.docker_hub"
+  ],
+  "app.utils.api.ncbi_datasets": [
+    "bioflow_ai.infrastructure.external.ncbi_datasets"
+  ],
+  "app.utils.container": [
+    "bioflow_ai.infrastructure.containers"
+  ],
+  "app.utils.container._general": [
+    "bioflow_ai.infrastructure.containers._general"
+  ],
+  "app.utils.container.docker": [
+    "bioflow_ai.infrastructure.containers.docker"
+  ],
+  "app.utils.container.mount_paths": [
+    "bioflow_ai.infrastructure.containers.mount_paths"
+  ],
+  "app.utils.container.podman": [
+    "bioflow_ai.infrastructure.containers.podman"
+  ],
+  "app.utils.export": [
+    "bioflow_ai.services.export"
+  ],
+  "app.utils.export.database": [
+    "bioflow_ai.services.export.database"
+  ],
+  "app.utils.export.mcp": [
+    "bioflow_ai.services.export.mcp"
+  ],
+  "app.utils.export.node_generation_stats": [
+    "bioflow_ai.services.export.node_generation_stats"
+  ],
+  "app.utils.export.test_run_reports": [
+    "bioflow_ai.services.export.test_run_reports"
+  ],
+  "app.utils.file": [
+    "bioflow_ai.utils.file"
+  ],
+  "app.utils.file.hash": [
+    "bioflow_ai.utils.file.hash"
+  ],
+  "app.utils.file.storage": [
+    "bioflow_ai.infrastructure.object_storage.files"
+  ],
+  "app.utils.file_browser": [
+    "bioflow_ai.services.file_preview.browser"
+  ],
+  "app.utils.ftp": [
+    "bioflow_ai.infrastructure.transfers.ftp"
+  ],
+  "app.utils.health_check": [
+    "bioflow_ai.infrastructure.health_check"
+  ],
+  "app.utils.identifiers": [
+    "bioflow_ai.utils.identifiers"
+  ],
+  "app.utils.init": [
+    "bioflow_ai.services.initialization"
+  ],
+  "app.utils.init.common": [
+    "bioflow_ai.services.initialization.common"
+  ],
+  "app.utils.init.config": [
+    "bioflow_ai.services.initialization.config",
+    "bioflow_ai.cli.initialization.config"
+  ],
+  "app.utils.init.containers": [
+    "bioflow_ai.services.initialization.containers",
+    "bioflow_ai.cli.initialization.containers"
+  ],
+  "app.utils.init.database": [
+    "bioflow_ai.services.initialization.database",
+    "bioflow_ai.cli.initialization.database"
+  ],
+  "app.utils.init.ports": [
+    "bioflow_ai.services.initialization.ports"
+  ],
+  "app.utils.init.providers": [
+    "bioflow_ai.services.initialization.providers",
+    "bioflow_ai.cli.initialization.providers"
+  ],
+  "app.utils.init.test_data": [
+    "bioflow_ai.services.initialization.test_data",
+    "bioflow_ai.cli.initialization.test_data"
+  ],
+  "app.utils.init.tui": [
+    "bioflow_ai.cli.initialization.tui"
+  ],
+  "app.utils.input_format": [
+    "bioflow_ai.services.tools.input_format",
+    "bioflow_ai.utils.file.paths"
+  ],
+  "app.utils.jsonable": [
+    "bioflow_ai.utils.jsonable"
+  ],
+  "app.utils.logger": [
+    "bioflow_ai.infrastructure.logging"
+  ],
+  "app.utils.middleware": [
+    "bioflow_ai.api.middleware"
+  ],
+  "app.utils.middleware.auth_cookie": [
+    "bioflow_ai.api.middleware.auth_cookie"
+  ],
+  "app.utils.middleware.log": [
+    "bioflow_ai.api.middleware.log"
+  ],
+  "app.utils.model_pricing": [
+    "bioflow_ai.llm.pricing"
+  ],
+  "app.utils.network": [
+    "bioflow_ai.infrastructure.transfers.network"
+  ],
+  "app.utils.pdf": [
+    "bioflow_ai.services.documents"
+  ],
+  "app.utils.pdf.open_mineru": [
+    "bioflow_ai.infrastructure.external.open_mineru"
+  ],
+  "app.utils.pdf.parser": [
+    "bioflow_ai.services.documents.pdf"
+  ],
+  "app.utils.redis": [
+    "bioflow_ai.infrastructure.redis.operations"
+  ],
+  "app.utils.system": [
+    "bioflow_ai.utils.system"
+  ],
+  "llm": [
+    "bioflow_ai.llm"
+  ],
+  "llm.agents.fs_agent": [
+    "bioflow_ai.llm.agents.fs_agent"
+  ],
+  "llm.agents.fs_agent.analysis_reporter": [
+    "bioflow_ai.llm.agents.fs_agent.analysis_reporter"
+  ],
+  "llm.agents.fs_agent.sample_manager": [
+    "bioflow_ai.llm.agents.fs_agent.sample_manager"
+  ],
+  "llm.agents.tool_agent": [
+    "bioflow_ai.llm.agents.tool_agent"
+  ],
+  "llm.agents.tool_agent.config_generator": [
+    "bioflow_ai.llm.agents.tool_agent.config_generator"
+  ],
+  "llm.agents.tool_agent.report_generator_v2": [
+    "bioflow_ai.llm.agents.tool_agent.report_generator_v2"
+  ],
+  "llm.agents.tool_agent.searcher": [
+    "bioflow_ai.llm.agents.tool_agent.searcher"
+  ],
+  "llm.agents.tool_agent.searcher.image": [
+    "bioflow_ai.llm.agents.tool_agent.searcher.image"
+  ],
+  "llm.agents.tool_agent.searcher.tool_node": [
+    "bioflow_ai.llm.agents.tool_agent.searcher.tool_node"
+  ],
+  "llm.agents.tool_agent.tool_creator": [
+    "bioflow_ai.llm.agents.tool_agent.tool_creator"
+  ],
+  "llm.agents.workflow_agent": [
+    "bioflow_ai.llm.agents.workflow_agent"
+  ],
+  "llm.agents.workflow_agent.bio_db_creater": [
+    "bioflow_ai.llm.agents.workflow_agent.bio_db_creater"
+  ],
+  "llm.agents.workflow_agent.paper_reader": [
+    "bioflow_ai.llm.agents.workflow_agent.paper_reader"
+  ],
+  "llm.agents.workflow_agent.subgraph_builder": [
+    "bioflow_ai.llm.agents.workflow_agent.subgraph_builder"
+  ],
+  "llm.agents.workflow_agent.tool_info_searcher": [
+    "bioflow_ai.llm.agents.workflow_agent.tool_info_searcher"
+  ],
+  "llm.agents.workflow_agent.workflow_builder": [
+    "bioflow_ai.llm.agents.workflow_agent.workflow_builder"
+  ],
+  "llm.agents.workflow_agent.workflow_designer_v2": [
+    "bioflow_ai.llm.agents.workflow_agent.workflow_designer_v2"
+  ],
+  "llm.agents.workflow_agent.workflow_diagnoser": [
+    "bioflow_ai.llm.agents.workflow_agent.workflow_diagnoser"
+  ],
+  "llm.agents.workflow_agent.workflow_fixer": [
+    "bioflow_ai.llm.agents.workflow_agent.workflow_fixer"
+  ],
+  "llm.agents.workflow_agent.workflow_generation": [
+    "bioflow_ai.llm.agents.workflow_agent.workflow_generation"
+  ],
+  "llm.context": [
+    "bioflow_ai.llm.context"
+  ],
+  "llm.llm_client": [
+    "bioflow_ai.llm.llm_client"
+  ],
+  "llm.models": [
+    "bioflow_ai.llm.models"
+  ],
+  "llm.prebuild": [
+    "bioflow_ai.llm.prebuild"
+  ],
+  "llm.prebuild.chains": [
+    "bioflow_ai.llm.prebuild.chains"
+  ],
+  "llm.prebuild.code_node": [
+    "bioflow_ai.llm.prebuild.code_node"
+  ],
+  "llm.prebuild.dispatch": [
+    "bioflow_ai.llm.prebuild.dispatch"
+  ],
+  "llm.prebuild.json_output": [
+    "bioflow_ai.llm.prebuild.json_output"
+  ],
+  "llm.skill_catalog": [
+    "bioflow_ai.services.skills.definitions"
+  ],
+  "llm.states": [
+    "bioflow_ai.llm.states"
+  ],
+  "llm.tools": [
+    "bioflow_ai.llm.tools"
+  ],
+  "llm.tools.container": [
+    "bioflow_ai.llm.tools.container"
+  ],
+  "llm.tools.database": [
+    "bioflow_ai.llm.tools.database"
+  ],
+  "llm.tools.human": [
+    "bioflow_ai.llm.tools.human"
+  ],
+  "llm.tools.images": [
+    "bioflow_ai.llm.tools.images"
+  ],
+  "llm.tools.managers": [
+    "bioflow_ai.llm.tools.managers"
+  ],
+  "llm.tools.managers.resource_manager": [
+    "bioflow_ai.llm.tools.managers.resource_manager"
+  ],
+  "llm.tools.managers.subgraph_interface_manager": [
+    "bioflow_ai.llm.tools.managers.subgraph_interface_manager"
+  ],
+  "llm.tools.managers.subgraph_node_manager": [
+    "bioflow_ai.llm.tools.managers.subgraph_node_manager"
+  ],
+  "llm.tools.managers.tool_manager": [
+    "bioflow_ai.llm.tools.managers.tool_manager"
+  ],
+  "llm.tools.managers.utility_manager": [
+    "bioflow_ai.llm.tools.managers.utility_manager"
+  ],
+  "llm.tools.managers.workflow_manager": [
+    "bioflow_ai.llm.tools.managers.workflow_manager"
+  ],
+  "llm.tools.sample": [
+    "bioflow_ai.llm.tools.sample"
+  ],
+  "llm.tools.storage": [
+    "bioflow_ai.llm.tools.storage"
+  ],
+  "llm.tools.test_run_report": [
+    "bioflow_ai.llm.tools.test_run_report"
+  ],
+  "llm.tools.tool_validation": [
+    "bioflow_ai.llm.tools.tool_validation"
+  ],
+  "llm.tools.vector_store": [
+    "bioflow_ai.llm.tools.vector_store"
+  ],
+  "llm.tools.web_search": [
+    "bioflow_ai.llm.tools.web_search"
+  ],
+  "llm.tools.workflow_diagnosis": [
+    "bioflow_ai.llm.tools.workflow_diagnosis"
+  ],
+  "llm.tools.workflow_fix": [
+    "bioflow_ai.llm.tools.workflow_fix"
+  ],
+  "llm.tools.workflow_fix_subgraph": [
+    "bioflow_ai.llm.tools.workflow_fix_subgraph"
+  ],
+  "llm.tools.writter": [
+    "bioflow_ai.llm.tools.writter"
+  ],
+  "llm.utils": [
+    "bioflow_ai.llm.utils"
+  ],
+  "llm.utils.ai_sdk": [
+    "bioflow_ai.llm.protocols.ai_sdk"
+  ],
+  "llm.utils.ai_sdk.stream_protocol": [
+    "bioflow_ai.llm.protocols.ai_sdk.stream_protocol"
+  ],
+  "llm.utils.ai_sdk.ui_message": [
+    "bioflow_ai.llm.protocols.ai_sdk.ui_message"
+  ],
+  "llm.utils.cache": [
+    "bioflow_ai.llm.utils.cache"
+  ],
+  "llm.utils.code_node_contract": [
+    "bioflow_ai.llm.utils.code_node_contract"
+  ],
+  "llm.utils.formatters": [
+    "bioflow_ai.llm.utils.formatters"
+  ],
+  "llm.utils.lc": [
+    "bioflow_ai.llm.protocols.langchain"
+  ],
+  "llm.utils.lc.messages": [
+    "bioflow_ai.llm.protocols.langchain.messages"
+  ],
+  "llm.utils.lc.tracing": [
+    "bioflow_ai.llm.observability.tracing"
+  ],
+  "llm.utils.middleware": [
+    "bioflow_ai.llm.middleware"
+  ],
+  "llm.utils.middleware.archive": [
+    "bioflow_ai.llm.middleware.archive"
+  ],
+  "llm.utils.middleware.cleanup": [
+    "bioflow_ai.llm.middleware.cleanup"
+  ],
+  "llm.utils.middleware.dynamic_managers": [
+    "bioflow_ai.llm.middleware.dynamic_managers"
+  ],
+  "llm.utils.middleware.end_loop": [
+    "bioflow_ai.llm.middleware.end_loop"
+  ],
+  "llm.utils.middleware.final_check": [
+    "bioflow_ai.llm.middleware.final_check"
+  ],
+  "llm.utils.middleware.frontend_progress": [
+    "bioflow_ai.llm.middleware.frontend_progress"
+  ],
+  "llm.utils.middleware.language": [
+    "bioflow_ai.llm.middleware.language"
+  ],
+  "llm.utils.middleware.limit": [
+    "bioflow_ai.llm.middleware.limit"
+  ],
+  "llm.utils.middleware.parent_handoff": [
+    "bioflow_ai.llm.middleware.parent_handoff"
+  ],
+  "llm.utils.middleware.skill": [
+    "bioflow_ai.llm.middleware.skill"
+  ],
+  "llm.utils.middleware.statistic": [
+    "bioflow_ai.llm.middleware.statistic"
+  ],
+  "llm.utils.middleware.statusbar": [
+    "bioflow_ai.llm.middleware.statusbar"
+  ],
+  "llm.utils.middleware.subgraph_scope": [
+    "bioflow_ai.llm.middleware.subgraph_scope"
+  ],
+  "llm.utils.middleware.todo": [
+    "bioflow_ai.llm.middleware.todo"
+  ],
+  "llm.utils.middleware.workflow_fix": [
+    "bioflow_ai.llm.middleware.workflow_fix"
+  ],
+  "llm.utils.multimodal": [
+    "bioflow_ai.llm.utils.multimodal"
+  ],
+  "llm.utils.node_schema": [
+    "bioflow_ai.llm.utils.node_schema"
+  ],
+  "llm.utils.render": [
+    "bioflow_ai.cli.render"
+  ],
+  "llm.utils.retrievers": [
+    "bioflow_ai.llm.utils.retrievers"
+  ],
+  "llm.utils.session": [
+    "bioflow_ai.llm.utils.session"
+  ],
+  "llm.utils.token": [
+    "bioflow_ai.llm.observability.token_usage"
+  ],
+  "llm.utils.tool_creation_routes": [
+    "bioflow_ai.llm.agents.tool_agent.routes"
+  ],
+  "llm.utils.trajectory_store": [
+    "bioflow_ai.llm.observability.trajectories"
+  ],
+  "llm.utils.uid_mapper": [
+    "bioflow_ai.llm.utils.uid_mapper"
+  ],
+  "llm.vectorstores": [
+    "bioflow_ai.llm.vectorstores"
+  ],
+  "llm.vectorstores.milvus": [
+    "bioflow_ai.llm.vectorstores.milvus"
+  ],
+  "llm.workflow_builder": [
+    "bioflow_ai.llm.workflow_builder"
+  ],
+  "llm.workflow_builder.code_editing": [
+    "bioflow_ai.llm.workflow_builder.code_editing"
+  ],
+  "llm.workflow_builder.drafts": [
+    "bioflow_ai.llm.workflow_builder.drafts"
+  ],
+  "llm.workflow_builder.foreach_manifest": [
+    "bioflow_ai.llm.workflow_builder.foreach_manifest"
+  ],
+  "llm.workflow_builder.loading": [
+    "bioflow_ai.llm.workflow_builder.loading"
+  ],
+  "llm.workflow_builder.messages": [
+    "bioflow_ai.llm.workflow_builder.messages"
+  ],
+  "llm.workflow_builder.node_ids": [
+    "bioflow_ai.llm.workflow_builder.node_ids"
+  ],
+  "llm.workflow_builder.persistence": [
+    "bioflow_ai.llm.workflow_builder.persistence"
+  ],
+  "llm.workflow_builder.serialization": [
+    "bioflow_ai.llm.workflow_builder.serialization"
+  ],
+  "llm.workflow_builder.subgraphs": [
+    "bioflow_ai.llm.workflow_builder.subgraphs"
+  ],
+  "llm.workflow_builder.validation": [
+    "bioflow_ai.llm.workflow_builder.validation"
+  ],
+  "script": [
+    "bioflow_ai.cli"
+  ],
+  "script.auto_init": [
+    "bioflow_ai.cli.initialization.wizard"
+  ],
+  "script.cli": [
+    "bioflow_ai.cli.main"
+  ],
+  "script.develop": [
+    "bioflow_ai.cli.develop",
+    "bioflow_ai.services.development.database",
+    "bioflow_ai.services.development.records",
+    "bioflow_ai.services.development.tool_generation",
+    "bioflow_ai.services.export.trajectories",
+    "bioflow_ai.cli.development_render",
+    "bioflow_ai.cli.errors"
+  ],
+  "script.evaluate": [
+    "bioflow_ai.cli.evaluate",
+    "bioflow_ai.services.evaluation.workflow"
+  ],
+  "script.init": [
+    "bioflow_ai.cli.init",
+    "bioflow_ai.services.initialization.indexes"
+  ],
+  "script.migrate_foreach": [
+    "bioflow_ai.cli.migrations.migrate_foreach"
+  ],
+  "script.migrate_foreach_definitions": [
+    "bioflow_ai.cli.migrations.migrate_foreach_definitions"
+  ],
+  "script.server": [
+    "bioflow_ai.runtime.server"
+  ],
+  "script.worker": [
+    "bioflow_ai.runtime.celery_app",
+    "bioflow_ai.runtime.worker"
+  ],
+  "script.workflow_dispatcher": [
+    "bioflow_ai.runtime.workflow_dispatcher"
+  ]
+}

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from anyio import Path
 from sqlalchemy.orm import Session
 
+from bioflow_ai.core.paths import PRESETS_DIR
 from bioflow_ai.services.progress import ProgressIterator, with_progress
 
 MAX_PASSWORD_BYTES = 128
@@ -67,7 +68,7 @@ async def init_preset_database_records(
 
 async def _ensure_preset_file(filename: str) -> PresetFileResult:
     """Ensure a preset parquet file exists locally."""
-    parquet_file = f'presets/{filename}'
+    parquet_file = str(PRESETS_DIR / filename)
     if await Path(parquet_file).exists():
         return PresetFileResult(path=parquet_file, downloaded=False)
 

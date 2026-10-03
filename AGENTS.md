@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Repository development guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working in this repository.
 
 ## Project Overview
 
@@ -13,8 +13,8 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 
 **Backend (FastAPI)**
 
-- `script/server.py` - Main FastAPI application entry point
-- `app/` - Application code organized by function:
+- `src/bioflow_ai/runtime/server.py` - Main FastAPI application entry point
+- `src/bioflow_ai/` - Installable application package organized by function:
     - `api/v1/endpoints/` - REST API endpoints
     - `models/` - SQLAlchemy database models
     - `schemas/` - Pydantic schemas for API validation
@@ -22,23 +22,38 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 
 **Task Queue (Celery)**
 
-- `script/worker.py` - Celery worker entry point
-- `app/tasks/` - Task implementations
+- `src/bioflow_ai/runtime/worker.py` - Celery worker entry points
+- `src/bioflow_ai/runtime/celery_app.py` - Celery instance, discovery, and routing
+- `src/bioflow_ai/tasks/` - Task implementations
+
+**Package boundaries**
+
+- `cli/` handles command parameters, prompts, presentation, and exception conversion.
+- `runtime/` starts the API, workers, and dispatcher; tasks must not import CLI modules.
+- `services/` groups business logic by responsibility. Services accept presentation callbacks
+  when needed and must not import CLI or terminal UI libraries.
+- `infrastructure/` owns database, Redis, object storage, container runtimes, and external transport.
+- `llm/` owns agents, tools, protocols, middleware, observability, and workflow generation.
+- `utils/` contains domain-independent helpers only.
+- `core/paths.py` locates repository resources in root-level `presets/` and `deploy/`.
+  Editable skills stay outside the wheel. Configuration and runtime output paths follow
+  the existing working-directory and settings rules.
 
 **Workflow System**
 
 - Node-based visual editor (React Flow on frontend)
-- Task handler registration system using decorators (`@register_handler`)
+- Frozen execution plans dispatched through a generic Celery node task
 - Supports: tool nodes, resource nodes, processor nodes, code nodes
 - DAG-based execution with dependency resolution
 
 ### Key Patterns
 
-**Task Handler Registration**
+**Node execution**
 
-- Handlers in `app/utils/workflow/handlers.py` use `@register_handler('node_type')` decorator
-- Each node type has a handler implementing `create_task_instance()` and `create_celery_task()`
-- See `docs/task_handler_regist.md` for detailed documentation
+- `services/workflow/executors.py` maps executor names to task implementations and lists
+  supported node types. `tasks/workflow.py` executes the prepared plan.
+- Keep workflow compilation, prepared input contracts, and executor registration aligned
+  when adding a node type.
 
 **Project-Workflow-Sample Model**
 
@@ -54,6 +69,9 @@ This project uses `uv` to manage the Python environment and dependencies.
 - Use `uv sync` to install or update dependencies from `pyproject.toml` and `uv.lock`.
 - Run Python modules, scripts, debugging commands, and tests through `uv run` so they execute inside the project environment.
 - Prefer commands such as `uv run python ...`, `uv run pytest ...`, `uv run ruff check ...`, and `uv run bioflow-ai ...` over invoking global Python or globally installed tools directly.
+- The equivalent module entry point is `uv run python -m bioflow_ai`.
+- Run `uv run python -m pytest` for migration contract and offline service tests.
+- See `MIGRATION.md` for the original module mapping, validation limits, and deployment cutover.
 
 ## Code Style
 

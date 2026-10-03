@@ -7,7 +7,8 @@ from typing import Any, cast
 import orjson
 from loguru import logger
 
-from bioflow_ai.services.development.database import TRAJECTORY_DATASET_DIRECTORY, TRAJECTORY_INSERT_BATCH_SIZE
+TRAJECTORY_DATASET_DIRECTORY = 'agent_datasets/trajectories'
+TRAJECTORY_INSERT_BATCH_SIZE = 500
 
 
 def default_trajectory_dataset_path() -> str:
