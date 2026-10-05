@@ -77,7 +77,7 @@ class InforSearcherState(WebResearchState, total=False):
     tool_report: str
 
 
-# pyrefly: ignore [no-matching-overload]
+# ty: ignore[no-matching-overload]
 tool_info_searcher = create_agent(
     AGENT_MODEL,
     [web_run, write_report, ask_human],

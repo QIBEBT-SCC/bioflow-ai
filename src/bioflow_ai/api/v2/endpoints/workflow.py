@@ -765,7 +765,6 @@ async def get_node_monitor(
 ) -> list[MonitorPublic]:
     """Read transient resource samples; Redis is not used for DAG correctness."""
     _owned_node(session, uid, current_user)
-    # pyrefly: ignore [not-async]
     raw_list = await monitor_redis_client.lrange(f'node-monitor-{uid}', 0, -1)
     records = [MonitorPublic.model_validate(json.loads(record)) for record in raw_list]
     if len(records) > max_points:

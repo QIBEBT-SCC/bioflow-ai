@@ -136,7 +136,7 @@ async def _cleanup_threads(
                 config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': 500}
                 response = await agent.aget_state(config, subgraphs=True)
                 try:
-                    # pyrefly: ignore [missing-attribute]
+                    # ty: ignore[unresolved-attribute]
                     container_id = cast('str', response.tasks[0].state.values.get('container_id'))
                 except (IndexError, AttributeError, KeyError, TypeError):
                     container_id = None
@@ -266,7 +266,7 @@ async def init_tools(
             )
 
             try:
-                # pyrefly: ignore [no-matching-overload]
+                # ty: ignore[no-matching-overload]
                 async for chunk in agent.astream(
                     agent_input,
                     config,
@@ -403,7 +403,7 @@ async def create_tool_manually(
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
         context = CreateToolContext(user_id=2, skip_search=True, auto_save=True, test_run_id=thread_id)
 
-        # pyrefly: ignore [no-matching-overload]
+        # ty: ignore[no-matching-overload]
         async for chunk in agent.astream(
             agent_input,
             config,
@@ -502,7 +502,7 @@ async def continue_run(
         else:
             input_message = None
         try:
-            # pyrefly: ignore [no-matching-overload]
+            # ty: ignore[no-matching-overload]
             async for chunk in agent.astream(
                 input_message,
                 config,

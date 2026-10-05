@@ -91,7 +91,7 @@ class CreateToolAgent:
 
         # sub agents
         metadata = cast('LLMMetadata', self.think_llm.metadata)
-        # pyrefly: ignore [no-matching-overload]
+        # ty: ignore[no-matching-overload]
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, select_group],
@@ -156,7 +156,6 @@ class CreateToolAgent:
             if not tools:
                 return Command(goto='get_report')
 
-        # pyrefly: ignore [no-matching-overload]
         pre_search_result = await search_exist_tool_agent.ainvoke(
             {
                 'messages': state['messages'],
@@ -246,7 +245,6 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Assigning groups to tools...'})
 
-        # pyrefly: ignore [no-matching-overload]
         response = await self.select_group_agent.ainvoke(
             {'messages': state['messages']},
             context=BaseContext(user_id=runtime.context.user_id),
@@ -261,7 +259,6 @@ class CreateToolAgent:
         writer = get_stream_writer()
         writer({'info': 'Generating tool config...'})
 
-        # pyrefly: ignore [no-matching-overload]
         result = await config_generate_agent.ainvoke(
             {
                 'messages': state['messages'],
@@ -426,8 +423,8 @@ class CreateToolAgent:
 
     def build(self, memory: Optional[BaseCheckpointSaver] = None, *, visualize: bool = False) -> CompiledStateGraph:
         """Create Tool Agent."""
-        # pyrefly: ignore [bad-specialization]
         graph = StateGraph(
+            # ty: ignore[invalid-argument-type]
             state_schema=CreateToolState,
             context_schema=CreateToolContext,
             output_schema=CreateToolOutput,
@@ -456,5 +453,5 @@ class CreateToolAgent:
             with Path('images/create_tool_agent.md').open('w') as f:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
-        # pyrefly: ignore [bad-return]
+        # ty: ignore[invalid-return-type]
         return compiled_graph

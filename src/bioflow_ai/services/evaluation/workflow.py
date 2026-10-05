@@ -413,7 +413,7 @@ async def _get_sample_info(
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': [user_input]}
 
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     async for chunk in agent.astream(
         agent_input,
         config,
@@ -496,7 +496,6 @@ async def _build_input(
             ]
         )
 
-    # pyrefly: ignore [no-matching-overload]
     task_data.setdefault('paper_file', None)
     con.execute(
         """
@@ -538,7 +537,7 @@ async def _generate_plan(
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': human_input}
 
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     async for chunk in agent.astream(
         agent_input,
         config,
@@ -604,7 +603,7 @@ async def _generate_workflow(
     state = None
     result = WorkflowGenerationResult([], [], [])
     try:
-        # pyrefly: ignore [no-matching-overload]
+        # ty: ignore[no-matching-overload]
         async for chunk in agent.astream(
             stream_input,
             config,

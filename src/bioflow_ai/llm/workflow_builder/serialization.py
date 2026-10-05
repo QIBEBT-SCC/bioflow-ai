@@ -52,7 +52,7 @@ def build_workflow_definition(
             id=f'xy-edge__{source_handle}-{target_handle}',
             animated=True,
             source=e.source_node,
-            # pyrefly: ignore [bad-argument-type]
+            # ty: ignore[invalid-argument-type]
             target=e.target_node,
             sourceHandle=source_handle,
             targetHandle=target_handle,

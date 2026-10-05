@@ -52,7 +52,7 @@ def ask_network() -> 'NetworkConfig':
         proxy_port = int(tui.prompt_text('Proxy port', default='7890', validate=validate_int))
         return NetworkConfig(
             USE_PROXY=True,
-            # pyrefly: ignore [bad-argument-type]
+            # ty: ignore[invalid-argument-type]
             PROXY_TYPE=proxy_type,
             PROXY_HOST=proxy_host,
             PROXY_PORT=proxy_port,
@@ -105,7 +105,7 @@ def ask_docker() -> 'DockerConfig':
     username = tui.prompt_text('docker.io username (optional)', default='')
     password = tui.prompt_password('docker.io password (optional)')
 
-    # pyrefly: ignore [bad-argument-type]
+    # ty: ignore[invalid-argument-type]
     return DockerConfig(CONTAINER=container, USERNAME=username, PASSWORD=password)
 
 
@@ -138,7 +138,7 @@ def ask_pdf_parser() -> 'PDFParserConfig':
     )
     batch_size = int(tui.prompt_text('Batch size (batch_size)', default='5', validate=validate_int))
 
-    # pyrefly: ignore [bad-argument-type]
+    # ty: ignore[invalid-argument-type]
     parser = PDFParserConfig(ENGINE=engine, BATCH_SIZE=batch_size)
 
     if engine == 'mineru':

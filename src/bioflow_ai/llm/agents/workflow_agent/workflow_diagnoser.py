@@ -81,7 +81,7 @@ def build_workflow_diagnoser_v2(checkpointer: Optional['BaseCheckpointSaver'] = 
     model = get_high_performance_model()
     metadata = cast('LLMMetadata', model.metadata)
     kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     return create_agent(
         model,
         [workflow_reader, run_evidence_command, write_diagnosis],

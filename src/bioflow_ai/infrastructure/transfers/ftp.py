@@ -33,7 +33,7 @@ class FTPClient:
         self.password = password
         self.timeout = timeout
 
-        self.ftp: FTP = None  # pyrefly: ignore [bad-assignment]
+        self.ftp: FTP = None  # ty: ignore[invalid-assignment]
         self._is_connected = False
 
     def __enter__(self) -> Self:  # noqa: D105
@@ -72,7 +72,7 @@ class FTPClient:
                 logger.warning(f'断开FTP连接时发生异常: {e!s}')
             finally:
                 self._is_connected = False
-                self.ftp = None  # pyrefly: ignore [bad-assignment]
+                self.ftp = None  # ty: ignore[invalid-assignment]
 
     def list_files(self, remote_path: str = '.') -> list[str]:
         """获取指定路径下的文件和目录列表.
@@ -155,7 +155,7 @@ class HTTPDownloader:
         self.semaphore = asyncio.Semaphore(max_concurrency)
         self.download_results: dict[str, bool] = {}
         self.failed_files: set[DownloadInfo] = set()
-        self.session: aiohttp.ClientSession = None  # pyrefly: ignore [bad-assignment]
+        self.session: aiohttp.ClientSession = None  # ty: ignore[invalid-assignment]
         self.position_manager = PositionManager(max_concurrency)
 
         self.global_pbar = None
@@ -281,7 +281,7 @@ class HTTPDownloader:
         if self.session and not self.session.closed:
             await self.session.close()
 
-        return results  # pyrefly: ignore [bad-return]
+        return results  # ty: ignore[invalid-return-type]
 
     async def retry_failed_files(
         self, local_dir: str, *, keep_path: bool = True, max_retries: int = 3

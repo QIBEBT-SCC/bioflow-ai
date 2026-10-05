@@ -208,7 +208,7 @@ TEST_RUN_SYSTEM = f"""你是一名专业的生物信息软件工程师。
 TEST_RUN_MODEL = get_long_context_model()
 metadata = cast('LLMMetadata', TEST_RUN_MODEL.metadata)
 
-# pyrefly: ignore [no-matching-overload]
+# ty: ignore[no-matching-overload]
 test_run_agent = create_agent(
     model=TEST_RUN_MODEL,
     tools=[

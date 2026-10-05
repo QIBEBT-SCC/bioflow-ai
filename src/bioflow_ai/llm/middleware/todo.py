@@ -371,9 +371,9 @@ def view_todos(runtime: ToolRuntime[Any, TodoState]) -> Command:
         #     continue
 
         # 保留其他所有消息
-        new_messages.append(m.model_copy())  # pyrefly: ignore [bad-argument-type]
+        new_messages.append(m.model_copy())
 
-    new_messages.append(runtime.state.get('messages')[-1].model_copy())  # pyrefly: ignore [bad-argument-type]
+    new_messages.append(runtime.state.get('messages')[-1].model_copy())
     new_messages.append(ToolMessage(content=content, tool_call_id=runtime.tool_call_id))
     return Command(
         update={
@@ -407,7 +407,7 @@ class TodoMiddleware(AgentMiddleware):
     #         return handler(request)
 
     #     new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
-    #     new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+    #     new_system_message = SystemMessage(content=new_content)
     #     return handler(request.override(system_message=new_system_message))
 
     # async def awrap_model_call(  # noqa: D102
@@ -419,7 +419,7 @@ class TodoMiddleware(AgentMiddleware):
     #         return await handler(request)
 
     #     new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
-    #     new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+    #     new_system_message = SystemMessage(content=new_content)
     #     return await handler(request.override(system_message=new_system_message))
 
     @hook_config(can_jump_to=['model'])
@@ -446,7 +446,7 @@ class TodoMiddleware(AgentMiddleware):
             'messages': [
                 ToolMessage(
                     content='TODO-list已经初始化, 禁止再次使用 add_todos 工具。',
-                    tool_call_id=last_message.tool_calls[0]['id'],  # pyrefly: ignore [missing-attribute]
+                    tool_call_id=last_message.tool_calls[0]['id'],
                 )
             ],
         }
@@ -481,7 +481,7 @@ class InitedTodoMiddleware(AgentMiddleware):
             return handler(request)
 
         new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
-        new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+        new_system_message = SystemMessage(content=new_content)  # ty: ignore[no-matching-overload]
         return handler(request.override(system_message=new_system_message))
 
     async def awrap_model_call(  # noqa: D102
@@ -493,5 +493,5 @@ class InitedTodoMiddleware(AgentMiddleware):
             return await handler(request)
 
         new_content = [*list(request.system_message.content_blocks), {'type': 'text', 'text': SYSTEM_PROMPT}]
-        new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+        new_system_message = SystemMessage(content=new_content)  # ty: ignore[no-matching-overload]
         return await handler(request.override(system_message=new_system_message))

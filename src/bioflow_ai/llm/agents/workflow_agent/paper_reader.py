@@ -53,7 +53,7 @@ class ReadPaperState(AgentState, total=False):
     paper_context: str
 
 
-# pyrefly: ignore [no-matching-overload]
+# ty: ignore[no-matching-overload]
 paper_reader = create_agent(
     AGENT_MODEL,
     [view_pdf, write_snippet, ask_human],

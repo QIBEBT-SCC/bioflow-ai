@@ -130,7 +130,7 @@ def _compile_workflow_generation(
     checkpointer: Optional[BaseCheckpointSaver] = None,
 ) -> CompiledStateGraph:
     """Compile the parent graph around already-built child graphs."""
-    # pyrefly: ignore [bad-specialization]
+    # ty: ignore[invalid-argument-type]
     graph = StateGraph(WorkflowGenerationState, context_schema=ProjectContext)
     graph.add_node('inspect_samples', inspect_samples)
     graph.add_node('sample_manager', sample_manager)
@@ -151,5 +151,5 @@ def _compile_workflow_generation(
     graph.add_edge('workflow_builder', 'finish_workflow')
     graph.add_edge('finish_workflow', END)
 
-    # pyrefly: ignore [bad-return]
+    # ty: ignore[invalid-return-type]
     return graph.compile(checkpointer=checkpointer)

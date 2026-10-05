@@ -49,7 +49,7 @@ LANGUAGE_PROMPT = 'Use {} for notes and messages shown to the user.'
 def build_subgraph_builder() -> 'CompiledStateGraph':
     """Create an isolated one-subgraph agent for the parent manager to invoke."""
     model = get_long_context_model()
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     return create_agent(
         model,
         [

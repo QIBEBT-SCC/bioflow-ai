@@ -174,4 +174,4 @@ def init_logging() -> None:
         http_logger.propagate = False
 
     # 配置loguru
-    logger.configure(**loguru_config)  # pyrefly: ignore [bad-argument-type]
+    logger.configure(**loguru_config)  # ty: ignore[invalid-argument-type]

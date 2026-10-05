@@ -462,7 +462,6 @@ async def add_file_to_project_sample(
     sample_file = SampleFiles(
         sample_uid=sample_uid,
         file_path=file_prop.file_path,
-        # pyrefly: ignore [bad-argument-type]
         tag=file_prop.tag,
         file_format='',
         file_size=0,

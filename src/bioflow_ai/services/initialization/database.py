@@ -277,7 +277,7 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
             docs = [
                 Document(
                     page_content=tool.description,
-                    # pyrefly: ignore [missing-attribute]
+                    # ty: ignore[unresolved-attribute]
                     metadata={'tool_uid': str(tool.uid), 'image_uid': str(tool.image.uid), 'name': tool.name},
                 )
                 for tool in batch_tools

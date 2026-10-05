@@ -52,7 +52,6 @@ async def _build_index_status(genome: ReferenceGenomes) -> GenomeIndexStatus:
         if getattr(genome, field, None):
             statuses[name] = IndexStatus.ready
         else:
-            # pyrefly: ignore [bad-argument-type]
             key = _redis_index_key(genome.id, name)
             task_id = await monitor_redis_client.get(key)
             if task_id:
@@ -148,7 +147,7 @@ async def download_reference(
         if request.ncbi_tax_id is not None:
             genome_meta = search_reference_genomes_by_tax_id(request.ncbi_tax_id)
         else:
-            # pyrefly: ignore [bad-argument-type]
+            # ty: ignore[invalid-argument-type]
             genome_meta = search_reference_genomes(request.species_name)
         species_info = get_species_info(genome_meta.organism.tax_id)
     except ValueError as e:
@@ -182,7 +181,6 @@ async def download_reference(
         for index_name in request.required_index:
             short = index_name.replace('_index', '')
             if short in _INDEX_NAMES:
-                # pyrefly: ignore [bad-argument-type]
                 key = _redis_index_key(existing.id, short)
                 await monitor_redis_client.set(key, task.id, ex=86400)
 
@@ -193,7 +191,6 @@ async def download_reference(
         f'({genome_meta.accession}). Use task_id to check progress.',
         ncbi_accession=genome_meta.accession,
         ncbi_tax_id=species_info.tax_id,
-        # pyrefly: ignore [bad-argument-type]
         species_name=species_info.organism_name,
     )
 

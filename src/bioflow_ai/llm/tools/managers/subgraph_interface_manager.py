@@ -81,7 +81,7 @@ async def subgraph_interface_manager(
         params: Parameters for the selected action.
     """
     if action == 'help':
-        # pyrefly: ignore [bad-argument-type]
+        # ty: ignore[invalid-argument-type]
         return manager_help_command(params, SCHEMAS, 'Inspect one subgraph interface action.', runtime.tool_call_id)
     schema = SCHEMAS.get(action)
     if action not in SCHEMAS:

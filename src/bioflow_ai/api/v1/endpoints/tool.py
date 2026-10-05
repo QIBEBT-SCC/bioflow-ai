@@ -48,7 +48,7 @@ doc_router = APIRouter()
 @tag_router.get('')
 async def get_exist_tags(session: SessionDep) -> list[ToolTagPublic]:
     """Get all existing tool tags."""
-    return list(tag_crud.get_all(session))  # type: ignore[return-value]
+    return list(tag_crud.get_all(session))  # ty: ignore[invalid-return-type]
 
 
 @group_router.post('')
@@ -58,7 +58,7 @@ async def add_group(
     _current_user: AdminDep,
 ) -> ToolGroupRecord:
     """Add a new tool group."""
-    return tool_catalog.create_group(session, group_data)  # type: ignore[return-value]
+    return tool_catalog.create_group(session, group_data)  # ty: ignore[invalid-return-type]
 
 
 @group_router.get('')
@@ -76,7 +76,7 @@ async def get_group_tools(
     offset: int = 0,
 ) -> list[SimpleToolPublic]:
     """Get tools belonging to a specific group."""
-    return tool_crud.get_all_by_group(session, parent_id, limit, offset)  # type: ignore
+    return tool_crud.get_all_by_group(session, parent_id, limit, offset)  # ty: ignore[invalid-return-type]
 
 
 # =============== image ===============
@@ -88,7 +88,7 @@ async def create_image(
 ) -> ToolImagePublic:
     """Create a new Docker image registry entry."""
     try:
-        return tool_catalog.create_image(session, image_data)  # type: ignore[return-value]
+        return tool_catalog.create_image(session, image_data)  # ty: ignore[invalid-return-type]
     except DuplicateImageUrlError as error:
         raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
 
@@ -151,7 +151,7 @@ async def update_image(
         raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
     if updated_image is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Image not found')
-    return updated_image  # type: ignore[return-value]
+    return updated_image  # ty: ignore[invalid-return-type]
 
 
 @image_router.delete('/{uid}')
@@ -190,7 +190,7 @@ async def get_doc(session: SessionDep, uid: str) -> ToolHelpDocPublic:
 async def refresh_doc(session: SessionDep, uid: str, _current_user: AdminDep) -> ToolHelpDocPublic:
     """Refresh a tool help document by re-running its help command."""
     try:
-        return tool_catalog.refresh_help_document(session, uid)  # type: ignore[return-value]
+        return tool_catalog.refresh_help_document(session, uid)  # ty: ignore[invalid-return-type]
     except tool_catalog.ToolCatalogNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
     except tool_catalog.ToolCommandExecutionError as error:
@@ -202,7 +202,7 @@ async def refresh_doc(session: SessionDep, uid: str, _current_user: AdminDep) ->
 async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _current_user: AdminDep) -> SimpleToolPublic:
     """Add a new Docker-based tool and index it in the vector store."""
     try:
-        return await tool_catalog.create_tool(session, tool_prop)  # type: ignore[return-value]
+        return await tool_catalog.create_tool(session, tool_prop)  # ty: ignore[invalid-return-type]
     except tool_catalog.ToolCatalogNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
     except tool_catalog.ToolCommandExecutionError as error:
@@ -290,7 +290,7 @@ async def update_tool(
     tool = await tool_catalog.update_tool(session, redis, tool_uid, tool_update)
     if tool is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
-    return tool  # type: ignore[return-value]
+    return tool  # ty: ignore[invalid-return-type]
 
 
 @router.patch('/{tool_uid}/ai-checked')
@@ -302,7 +302,7 @@ async def mark_tool_ai_checked(
 ) -> SimpleToolPublic:
     """Mark a tool as AI Checked while preserving its unrelated tags."""
     try:
-        return await tool_catalog.mark_tool_as_ai_checked(session, redis, tool_uid)  # type: ignore[return-value]
+        return await tool_catalog.mark_tool_as_ai_checked(session, redis, tool_uid)  # ty: ignore[invalid-return-type]
     except tool_catalog.ToolCatalogNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
     except tool_catalog.ToolCatalogConfigurationError as error:

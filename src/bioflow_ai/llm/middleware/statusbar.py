@@ -56,7 +56,7 @@ class StatusBarMiddleware(AgentMiddleware):
 
         if status:
             last_message = request.messages[-1]
-            # pyrefly: ignore [unsupported-operation]
+            # ty: ignore[unsupported-operator]
             new_content = last_message.content + f'\n[{"; ".join(status)}]'
             new_last_message = last_message.model_copy(update={'content': new_content}, deep=True)
 

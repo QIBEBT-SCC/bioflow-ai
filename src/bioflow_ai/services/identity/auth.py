@@ -121,7 +121,7 @@ async def delete_session(redis: Redis, session_id: str) -> None:
 async def revoke_user_sessions(redis: Redis, user_id: int, *, keep_digest: str | None = None) -> None:
     """Revoke all sessions for a user, optionally preserving one current session."""
     index_key = _user_sessions_key(user_id)
-    digests = await redis.smembers(index_key)  # pyrefly: ignore [not-async]
+    digests = await redis.smembers(index_key)  # ty: ignore[invalid-await]
     to_delete = digests - ({keep_digest} if keep_digest else set())
     async with redis.pipeline(transaction=True) as pipeline:
         if to_delete:

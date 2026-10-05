@@ -80,7 +80,7 @@ class SearchToolNodeState(MessagesState, total=False):
     tool_uid: str
 
 
-# pyrefly: ignore [no-matching-overload]
+# ty: ignore[no-matching-overload]
 search_exist_tool_agent = create_agent(
     model=get_agent_model(),
     tools=[

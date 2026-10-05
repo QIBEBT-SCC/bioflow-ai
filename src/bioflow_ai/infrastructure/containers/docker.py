@@ -4,10 +4,10 @@ from collections.abc import Generator
 from functools import lru_cache
 from typing import Any, Optional
 
-import docker  # pyrefly: ignore [missing-import]
+import docker
 import requests
-from docker.errors import ImageNotFound, NotFound  # pyrefly: ignore [missing-import]
-from docker.types import DeviceRequest, Mount  # pyrefly: ignore [missing-import]
+from docker.errors import ImageNotFound, NotFound
+from docker.types import DeviceRequest, Mount
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
@@ -92,7 +92,6 @@ def run_docker(
     if user is not None:
         kwargs['user'] = user
 
-    # pyrefly: ignore [no-matching-overload]
     container = client.containers.run(
         image_cfg.get_image(),
         [command],
@@ -164,7 +163,6 @@ def run_docker_background(
         kwargs['user'] = user
 
     try:
-        # pyrefly: ignore [no-matching-overload]
         container = client.containers.run(
             image_cfg.get_image(),
             [command],
@@ -182,7 +180,7 @@ def run_docker_background(
             if container.status == 'exited':
                 break
             stats = container.stats(stream=False)
-            yield calculate_docker_stats(stats)  # pyrefly: ignore [bad-argument-type]
+            yield calculate_docker_stats(stats)  # ty: ignore[invalid-argument-type]
             time.sleep(interval)
 
     finally:
@@ -227,13 +225,12 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
     container = client.containers.create(
         image_cfg.get_image(),
         command='"tail -f /dev/null"',  # 保证容器常驻
-        # pyrefly: ignore [bad-argument-type]
         mounts=mounts,
         entrypoint=['/bin/sh', '-c'],
         detach=True,
         user=CONTAINER_ROOT_USER,
         device_requests=device_requests,
-        # pyrefly: ignore [bad-argument-type]
+        # ty: ignore[invalid-argument-type]
         **kwargs,
     )
     container.start()
@@ -250,7 +247,7 @@ def create_container(image_cfg: ImageConfig, mounts: list[Mount | dict], **kwarg
 
     logger.debug(f'create container {container.name}')
 
-    # pyrefly: ignore [bad-return]
+    # ty: ignore[invalid-return-type]
     return container.id
 
 
@@ -275,9 +272,9 @@ def run_docker_by_id(container_id: str, command: str, workdir: Optional[str] = N
         except UnicodeDecodeError as e:
             result = f'{e}'
 
-    # pyrefly: ignore [missing-attribute]
+    # ty: ignore[unresolved-attribute]
     result = _strip_ansi_escape_sequences(result.strip())
-    # pyrefly: ignore [bad-return]
+    # ty: ignore[invalid-return-type]
     return code, result
 
 

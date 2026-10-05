@@ -40,7 +40,7 @@ celery_app.autodiscover_tasks(
         'bioflow_ai.tasks.code_agent',
         'bioflow_ai.tasks.workflow',
     ],
-    # pyrefly: ignore [bad-argument-type]
+    # ty: ignore[invalid-argument-type]
     None,
 )
 

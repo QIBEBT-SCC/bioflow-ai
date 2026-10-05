@@ -74,7 +74,7 @@ def _tool_schema(tool: BaseTool | dict[str, Any]) -> dict[str, Any]:
         return _jsonable(tool)
     try:
         schema = tool.get_input_schema()
-        args_schema = schema.model_json_schema()  # pyrefly: ignore [missing-attribute]
+        args_schema = schema.model_json_schema()  # ty: ignore[unresolved-attribute]
     except Exception:
         args_schema = None
     return {

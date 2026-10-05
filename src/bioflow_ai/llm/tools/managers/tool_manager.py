@@ -102,7 +102,8 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     """
     match action:
         case 'help':
-            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)  # type: ignore
+            # ty: ignore[invalid-argument-type]
+            return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
         case 'search':
             try:
                 validate_param = SearchToolSchema.model_validate(params)
@@ -221,7 +222,7 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
             delegate_human_requests=True,
         )
         try:
-            # pyrefly: ignore [no-matching-overload]
+            # ty: ignore[invalid-argument-type]
             response = await sub_agent.ainvoke(agent_input, context=context)
         except MaxRetriesError:
             logger.warning('Tool node creation exceeded the validation retry limit: {}', name)
@@ -508,7 +509,7 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
                     ]
                 }
             )
-        # pyrefly: ignore [missing-attribute]
+        # ty: ignore[unresolved-attribute]
         tool_doc: str = db_tool.help_doc.content
 
     origin_command = tool_node.command
@@ -517,7 +518,6 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
         raise ValueError(err_msg)
 
     if db_tool.modifiable_static_params:
-        # pyrefly: ignore [missing-attribute]
         origin_command = origin_command.replace(
             db_tool.modifiable_static_params, f'[{db_tool.modifiable_static_params}]'
         )

@@ -203,7 +203,6 @@ async def research_tool(request: str, runtime: ToolRuntime[ProjectContext]) -> s
         request: The tool name plus what you need to know (installation, usage, key
             parameters). If the tool is a large suite, state which sub-workflow matters.
     """
-    # pyrefly: ignore [no-matching-overload]
     response = await tool_info_searcher.ainvoke(
         {'messages': [HumanMessage(content=request)]},
         context=BaseContext(user_id=runtime.context.user_id),
@@ -224,7 +223,6 @@ async def read_paper(request: str, runtime: ToolRuntime[ProjectContext]) -> str:
             ``documents/75/f5/4c/s41467-022-35735-y.pdf``) — and which analysis
             pipeline/methods to extract.
     """
-    # pyrefly: ignore [no-matching-overload]
     response = await paper_reader.ainvoke(
         {'messages': [HumanMessage(content=request)]},
         context=BaseContext(user_id=runtime.context.user_id),
@@ -244,7 +242,7 @@ def _build_planner(
         tools.append(ask_human_with_choices)
 
     kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     return create_agent(
         PLANNER_LLM,
         tools,

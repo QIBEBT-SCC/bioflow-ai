@@ -84,7 +84,7 @@ class ParentHandoffMiddleware(AgentMiddleware):
             return request.override(tools=tools)
 
         existing_content = list(request.system_message.content_blocks) if request.system_message is not None else []
-        # pyrefly: ignore [no-matching-overload]
+        # ty: ignore[no-matching-overload]
         system_message = SystemMessage(content=[*existing_content, {'type': 'text', 'text': PARENT_HANDOFF_PROMPT}])
         return request.override(tools=tools, system_message=system_message)
 

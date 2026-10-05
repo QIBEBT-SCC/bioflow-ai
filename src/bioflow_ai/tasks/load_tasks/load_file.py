@@ -61,7 +61,7 @@ def _update_loaded_path_reference(
 
     if path_or_reference.startswith('sample:') and sample_uid is not None:
         tag = path_or_reference.split(':', 1)[1]
-        sample = sample_crud.get_with_files(session, sample_uid)  # type: ignore
+        sample = sample_crud.get_with_files(session, sample_uid)
         if sample is None:
             return
 

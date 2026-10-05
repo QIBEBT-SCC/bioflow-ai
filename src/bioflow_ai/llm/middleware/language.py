@@ -25,7 +25,7 @@ class UserLanguageMiddleware(AgentMiddleware):
             *list(request.system_message.content_blocks),
             {'type': 'text', 'text': language_prompt},
         ]
-        new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+        new_system_message = SystemMessage(content=new_content)  # ty: ignore[no-matching-overload]
         return handler(request.override(system_message=new_system_message))
 
     async def awrap_model_call(  # noqa: D102
@@ -42,5 +42,5 @@ class UserLanguageMiddleware(AgentMiddleware):
             *list(request.system_message.content_blocks),
             {'type': 'text', 'text': language_prompt},
         ]
-        new_system_message = SystemMessage(content=new_content)  # pyrefly: ignore [no-matching-overload]
+        new_system_message = SystemMessage(content=new_content)  # ty: ignore[no-matching-overload]
         return await handler(request.override(system_message=new_system_message))

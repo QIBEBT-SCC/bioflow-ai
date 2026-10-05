@@ -195,7 +195,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
         async with AsyncRedisSaver.from_conn_string(checkpoint_url) as checkpoint:
             checkpoint.serde = _checkpoint_serializer()
             await checkpoint.asetup()
-            spec = AGENTS[cast('RouteTask', agent_name.value)]
+            spec = AGENTS[agent_name.value]
             graph = spec.factory(checkpoint)
             config = RunnableConfig(
                 configurable={'thread_id': checkpoint_thread_id},

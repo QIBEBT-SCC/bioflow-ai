@@ -204,7 +204,7 @@ def _build_sample_agent(
     )
 
     kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     return create_agent(
         MANAGER_LLM,
         tools,

@@ -195,7 +195,7 @@ async def get_llm_settings(session: SessionDep, _current_user: AdminDep) -> LLMS
 
     Returns all settings, each containing the model ID, display name, API name, and provider name.
     """
-    # pyrefly: ignore [bad-return]
+    # ty: ignore[invalid-return-type]
     return setting_crud.get_all_with_details(session)
 
 
@@ -230,7 +230,7 @@ async def get_llm_statistics_overview(
     - **start_date**: optional start time; no lower bound if not provided
     - **end_date**: optional end time; no upper bound if not provided
     """
-    # pyrefly: ignore [bad-return]
+    # ty: ignore[invalid-return-type]
     return statistic_crud.get_summary(session, start_date, end_date)
 
 
@@ -254,7 +254,7 @@ async def get_llm_statistics_details(
     - **limit**: page size, default 100, max 1000
     - **offset**: pagination offset
     """
-    # pyrefly: ignore [bad-return]
+    # ty: ignore[invalid-return-type]
     return statistic_crud.get_details(session, start_date, end_date, limit, offset)
 
 

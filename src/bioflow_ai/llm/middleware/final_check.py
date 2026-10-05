@@ -114,7 +114,7 @@ class CheckStateExistMiddleware(AgentMiddleware):
 
         # 如果这是一条不带工具调用的信息, 那么说明模型直接退出了
         # 此时检查: 1、state_name 有内容; 2、updated 为真
-        if state.get(self.state_name) and state['updated']:  # type: ignore
+        if state.get(self.state_name) and state['updated']:
             return None
 
         # 当存在错误的工具调用尝试时, 模型也会解析到这里, 需要额外处理

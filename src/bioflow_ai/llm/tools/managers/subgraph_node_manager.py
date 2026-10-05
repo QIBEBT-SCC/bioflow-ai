@@ -92,7 +92,7 @@ async def subgraph_node_manager(action: str, params: dict[str, Any], runtime: To
         params: Parameters for the selected action.
     """
     if action == 'help':
-        # pyrefly: ignore [bad-argument-type]
+        # ty: ignore[invalid-argument-type]
         return manager_help_command(params, SCHEMAS, 'Inspect a subgraph action.', runtime.tool_call_id)
     schema = SCHEMAS.get(action)
     if schema is None:
@@ -186,7 +186,7 @@ async def _create(values: CreateSubgraph, runtime: ToolRuntime[ProjectContext]) 
         'subgraph_creation_id': f'{workflow_thread_id(runtime.config)}:{runtime.tool_call_id}',
     }
     child_context = runtime.context.model_copy(update={'delegate_human_requests': True})
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[invalid-argument-type]
     response = await child.ainvoke(initial, context=child_context)
     if response.get('return_to_parent'):
         return _message(

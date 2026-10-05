@@ -37,7 +37,7 @@ def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
     else:
         from bioflow_ai.infrastructure.containers.docker import create_container
 
-        container_id = create_container(image, _convert_to_docker_mount(mounts))  # pyrefly: ignore [bad-argument-type]
+        container_id = create_container(image, _convert_to_docker_mount(mounts))  # ty: ignore[invalid-argument-type]
 
     return container_id
 

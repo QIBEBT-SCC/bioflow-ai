@@ -6,8 +6,8 @@ from typing import Any, Optional
 
 import psutil
 from loguru import logger
-from podman import PodmanClient  # pyrefly: ignore [missing-import]
-from podman.errors import ImageNotFound  # pyrefly: ignore [missing-import]
+from podman import PodmanClient  # ty: ignore[unresolved-import]
+from podman.errors import ImageNotFound  # ty: ignore[unresolved-import]
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
@@ -192,7 +192,7 @@ def run_podman_background(
                     break
 
                 stat = container.stats(stream=False, decode=True)
-                yield calculate_podman_stats(stat, start_time, pid)  # pyrefly: ignore [invalid-yield]
+                yield calculate_podman_stats(stat, start_time, pid)  # ty: ignore[invalid-yield]
                 time.sleep(interval)
         finally:
             timestamp = datetime.datetime.now(datetime.UTC)

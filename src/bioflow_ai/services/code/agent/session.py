@@ -57,10 +57,10 @@ def user_sessions_key(owner_id: int) -> str:
 
 
 async def _prune_set(redis: Redis, key: str) -> int:
-    members = await redis.smembers(key)  # pyrefly: ignore [not-async]
+    members = await redis.smembers(key)  # ty: ignore[invalid-await]
     stale = [member for member in members if not await redis.exists(session_key(member))]
     if stale:
-        await redis.srem(key, *stale)  # pyrefly: ignore [not-async]
+        await redis.srem(key, *stale)  # ty: ignore[invalid-await]
     return len(members) - len(stale)
 
 
@@ -108,7 +108,7 @@ async def active_session_count(redis: Redis) -> int:
 
 async def get_owned_session(redis: Redis, session_id: uuid.UUID, owner_id: int) -> dict[str, str]:
     """Return session state only to its owning administrator."""
-    state = await redis.hgetall(session_key(session_id))  # pyrefly: ignore [not-async]
+    state = await redis.hgetall(session_key(session_id))  # ty: ignore[invalid-await]
     if not state or state.get('owner_id') != str(owner_id):
         raise CodeAgentSessionNotFoundError
     await touch_session(redis, session_id)
@@ -122,14 +122,14 @@ async def touch_session(redis: Redis, session_id: uuid.UUID | str) -> None:
     await redis.expire(command_key(session_id), config.SESSION_TTL_SECONDS)
     await redis.expire(event_key(session_id), config.EVENT_TTL_SECONDS)
     await redis.expire(GLOBAL_SESSIONS_KEY, config.SESSION_TTL_SECONDS)
-    owner_id = await redis.hget(session_key(session_id), 'owner_id')  # pyrefly: ignore [not-async]
+    owner_id = await redis.hget(session_key(session_id), 'owner_id')  # ty: ignore[invalid-await]
     if owner_id is not None:
         await redis.expire(user_sessions_key(int(owner_id)), config.SESSION_TTL_SECONDS)
 
 
 async def set_status(redis: Redis, session_id: uuid.UUID | str, status: str) -> None:
     """Update the page-visible session state."""
-    await redis.hset(session_key(session_id), 'status', status)  # pyrefly: ignore [not-async]
+    await redis.hset(session_key(session_id), 'status', status)  # ty: ignore[invalid-await]
     await touch_session(redis, session_id)
 
 
@@ -182,7 +182,7 @@ async def save_proposal(
     """Persist one pending whole-turn proposal."""
     key = proposal_key(session_id, proposal_id)
     await redis.set(key, json.dumps(payload, separators=(',', ':')), ex=get_settings().code_agent.SESSION_TTL_SECONDS)
-    await redis.hset(  # pyrefly: ignore [not-async]
+    await redis.hset(  # ty: ignore[invalid-await]
         session_key(session_id), mapping={'proposal_id': str(proposal_id), 'status': 'proposal'}
     )
 
@@ -194,7 +194,7 @@ async def decide_proposal(
     decision: str,
 ) -> None:
     """Atomically mark the current proposal and release the editor session."""
-    state = await redis.hgetall(session_key(session_id))  # pyrefly: ignore [not-async]
+    state = await redis.hgetall(session_key(session_id))  # ty: ignore[invalid-await]
     if state.get('status') != 'proposal' or state.get('proposal_id') != str(proposal_id):
         message = 'Proposal is no longer pending'
         raise CodeAgentSessionBusyError(message)

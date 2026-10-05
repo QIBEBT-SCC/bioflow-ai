@@ -112,7 +112,7 @@ def json_output[SchemaT: BaseModel](
     if metadata:
         middleware.append(TokenStatisticMiddleware(name, **metadata))
 
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     structure_agent = create_agent(
         llm,
         [_create_output_tool(schema)],

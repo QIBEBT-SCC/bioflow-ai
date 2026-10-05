@@ -50,7 +50,7 @@ async def create_login(redis: Redis, login_id: uuid.UUID, owner_id: int) -> None
         if not reserved:
             message = 'A Codex device login is already in progress'
             raise CodingAgentLoginBusyError(message)
-    await redis.hset(  # pyrefly: ignore [not-async]
+    await redis.hset(  # ty: ignore[invalid-await]
         login_key(login_id),
         mapping={'owner_id': str(owner_id), 'status': 'starting', 'cancel_requested': '0'},
     )
@@ -59,7 +59,7 @@ async def create_login(redis: Redis, login_id: uuid.UUID, owner_id: int) -> None
 
 async def get_owned_login(redis: Redis, login_id: uuid.UUID, owner_id: int) -> dict[str, str]:
     """Return one login only to the administrator who started it."""
-    state = await redis.hgetall(login_key(login_id))  # pyrefly: ignore [not-async]
+    state = await redis.hgetall(login_key(login_id))  # ty: ignore[invalid-await]
     if not state or state.get('owner_id') != str(owner_id):
         raise CodingAgentLoginNotFoundError
     return state
@@ -67,18 +67,18 @@ async def get_owned_login(redis: Redis, login_id: uuid.UUID, owner_id: int) -> d
 
 async def set_status(redis: Redis, login_id: uuid.UUID | str, status: str) -> None:
     """Update the temporary login status and refresh its TTL."""
-    await redis.hset(login_key(login_id), 'status', status)  # pyrefly: ignore [not-async]
+    await redis.hset(login_key(login_id), 'status', status)  # ty: ignore[invalid-await]
     await redis.expire(login_key(login_id), get_settings().code_agent.LOGIN_TTL_SECONDS)
 
 
 async def request_cancel(redis: Redis, login_id: uuid.UUID) -> None:
     """Set the cancellation flag consumed by the Celery login owner."""
-    await redis.hset(login_key(login_id), 'cancel_requested', '1')  # pyrefly: ignore [not-async]
+    await redis.hset(login_key(login_id), 'cancel_requested', '1')  # ty: ignore[invalid-await]
 
 
 async def cancel_requested(redis: Redis, login_id: uuid.UUID | str) -> bool:
     """Return whether the administrator cancelled this login."""
-    return await redis.hget(login_key(login_id), 'cancel_requested') == '1'  # pyrefly: ignore [not-async]
+    return await redis.hget(login_key(login_id), 'cancel_requested') == '1'  # ty: ignore[invalid-await]
 
 
 async def append_event(redis: Redis, login_id: uuid.UUID | str, event_type: str, data: dict[str, Any]) -> str:

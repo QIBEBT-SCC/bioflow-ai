@@ -257,7 +257,7 @@ def _validate_device_url(value: object) -> str:
 async def run_codex_login(login_id: uuid.UUID) -> None:
     """Complete one administrator-initiated ChatGPT device-code login."""
     redis = _redis()
-    state = await redis.hgetall(login_store.login_key(login_id))  # pyrefly: ignore [not-async]
+    state = await redis.hgetall(login_store.login_key(login_id))  # ty: ignore[invalid-await]
     if not state:
         await redis.aclose()
         return
@@ -343,7 +343,7 @@ async def run_codex_login(login_id: uuid.UUID) -> None:
 async def run_session(session_id: uuid.UUID) -> None:
     """Own one long-lived ACP subprocess and consume its Redis command stream."""
     redis = _redis()
-    state = await redis.hgetall(session_store.session_key(session_id))  # pyrefly: ignore [not-async]
+    state = await redis.hgetall(session_store.session_key(session_id))  # ty: ignore[invalid-await]
     if not state:
         await redis.aclose()
         return

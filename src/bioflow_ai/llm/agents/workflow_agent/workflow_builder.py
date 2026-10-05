@@ -224,7 +224,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         The compiled workflow-builder agent.
     """
     if checkpointer:
-        # pyrefly: ignore [no-matching-overload]
+        # ty: ignore[no-matching-overload]
         return create_agent(
             BUILDER_LLM,
             [
@@ -255,7 +255,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             context_schema=ProjectContext,
             checkpointer=checkpointer,
         )
-    # pyrefly: ignore [no-matching-overload]
+    # ty: ignore[no-matching-overload]
     return create_agent(
         BUILDER_LLM,
         [

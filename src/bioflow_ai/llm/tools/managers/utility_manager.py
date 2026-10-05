@@ -181,7 +181,7 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
 
     match action:
         case 'help':
-            # pyrefly: ignore [bad-argument-type]
+            # ty: ignore[invalid-argument-type]
             return manager_help_command(params, valid_operates, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'search':
