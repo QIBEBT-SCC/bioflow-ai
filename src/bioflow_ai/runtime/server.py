@@ -29,7 +29,12 @@ from bioflow_ai.core.authorization import authorize_project_request, authorize_w
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import create_db_and_tables
 from bioflow_ai.infrastructure.object_storage.client import init_bucket
-from bioflow_ai.infrastructure.redis.client import close_cache_regis, notification_redis_client, setup_cache_redis
+from bioflow_ai.infrastructure.redis.client import (
+    close_cache_regis,
+    notification_redis_client,
+    setup_cache_redis,
+    wait_for_cache_redis,
+)
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services.notification.gateway import NotificationGateway
 
@@ -40,6 +45,7 @@ meta = metadata('bioflow-ai')
 async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     create_db_and_tables()
     init_bucket()
+    await wait_for_cache_redis()
     main_app.state.redis = await setup_cache_redis()
     notification_gateway = NotificationGateway(notification_redis_client)
     await notification_gateway.start()
