@@ -64,6 +64,7 @@ Python code lives in the installable `src/bioflow_ai` package. API, models, sche
 and CRUD retain their layers; business services are grouped by domain. Process
 entry points live in `runtime`, terminal interaction in `cli`, shared connections
 and container support in `infrastructure`, and agents and workflow generation in `llm`.
+The project uses `uv_build` as its build backend.
 
 Continue running from the cloned repository with `uv sync` and `uv run`.
 `uv run python -m bioflow_ai` is equivalent to `uv run bioflow-ai`. Repository

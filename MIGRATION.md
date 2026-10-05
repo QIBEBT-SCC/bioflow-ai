@@ -131,3 +131,30 @@ Full workflow runs with real providers, Milvus/object storage, and production
 deployment cutover were not executed. Agent execution checks use fake models;
 no model requests, production queue cleanup, or checkpoint/data deletion occurs
 as part of this migration.
+
+## Build backend follow-up (2026-10-05)
+
+The build backend is now `uv_build>=0.12.22,<0.13`, matching the installed uv
+0.12.22 so its bundled backend can be used. Default discovery selects
+`src/bioflow_ai`. Explicit source inclusion retains repository resources and
+development documents; generated preset data and local maintenance helpers
+are excluded with recursive patterns.
+
+Verification against the previous Hatchling distributions passes:
+
+- `uv sync --frozen --extra podman`, `uv lock --check`, wheel/sdist builds,
+  and rebuilding from an extracted sdist succeed; `uv.lock` is unchanged.
+- All 357 wheel code files are byte-identical. Console entry points, Python
+  requirements, optional extras, and runtime dependency metadata match.
+- All 397 previous sdist files are retained, including SQL, editable skills,
+  Compose templates, configuration examples, and repository documents.
+  uv additionally retains the original build configuration as `pyproject.toml.orig`;
+  the normalized `pyproject.toml` has identical parsed configuration.
+- A separate temporary environment installs the wheel and imports outside the
+  checkout without an editable source path. All 26 CLI help commands, the console
+  entry point, `python -m bioflow_ai`, and the preview subprocess pass.
+- Packaging probes confirm that generated Parquet/DuckDB files and local CLI
+  maintenance code are excluded from both distributions.
+
+Checks use temporary artifacts; previously removed migration tests and scripts
+are not restored, and no production services or model providers are invoked.

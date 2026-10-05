@@ -62,6 +62,8 @@ uv run bioflow-ai agent-worker
 
 Python 代码统一放在可安装的 `src/bioflow_ai` 包中。API、模型、Schema 和 CRUD 保留现有分层，业务服务按职责归组。进程入口位于 `runtime`，终端交互位于 `cli`，共享连接和容器支持位于 `infrastructure`，Agent 与工作流生成代码位于 `llm`。
 
+项目使用 `uv_build` 作为构建后端。
+
 继续在克隆的仓库中使用 `uv sync` 和 `uv run`。`uv run python -m bioflow_ai` 与 `uv run bioflow-ai` 等价。仓库资源保留在 `presets`（包括可编辑技能）和 `deploy`，不打入 wheel。配置、运行数据和导出路径继续遵循工作目录及配置规则。
 
 ```bash
