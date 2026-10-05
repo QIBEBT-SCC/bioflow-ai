@@ -1,12 +1,9 @@
 import re
-from collections.abc import Callable
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# Forward declaration for type hint
-from bioflow_ai.llm.states import BuildEdge
 from bioflow_ai.schemas.archive import CompressionFormat, resolve_compression_format
 from bioflow_ai.schemas.tools import Handle
 
@@ -19,7 +16,6 @@ class NodeSchema(TypedDict):
     args: type[BaseModel]
     input_handles: list[Handle]
     output_handles: list[Handle]
-    edge_check: NotRequired[Callable[[list[BuildEdge], list[Handle]], str | None]]
 
 
 class SimpleSchema(BaseModel):
@@ -30,8 +26,22 @@ class FileCollectionSchema(BaseModel):
     pattern: str = Field(min_length=1)
     subfolder_prefix: str = Field(default='item', pattern=r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 
+    @field_validator('pattern')
+    @classmethod
+    def validate_pattern(cls, pattern: str) -> str:
+        """Keep the glob literal while rejecting an empty selection."""
+        if not pattern.strip():
+            message = 'pattern must be a non-empty glob string'
+            raise ValueError(message)
+        return pattern
+
 
 # 处理器节点
+class FrozenPathSchema(BaseModel):
+    path: str = Field(min_length=1)
+    sample_name: str
+
+
 class ArtifactMarkSchema(BaseModel):
     mark_name: str = Field(min_length=1, max_length=50, pattern=r'^[a-z][a-z0-9_]*$')
     description: str
@@ -405,13 +415,3 @@ RESOURCES: dict[str, NodeSchema] = {
         'output_handles': [Handle(name='value', description='string value')],
     },
 }
-
-# Import edge check functions at the end to avoid circular imports
-from bioflow_ai.llm.workflow_builder.validation import check_processor_edges, check_ncbi_genome_edges  # noqa: I001, E402
-
-# Add edge_check to all processor nodes
-for processor_name in PROCESSORS:  # noqa: PLC0206
-    PROCESSORS[processor_name]['edge_check'] = check_processor_edges
-
-# Add edge_check to ncbi_genome resource node
-RESOURCES['ncbi_genome']['edge_check'] = check_ncbi_genome_edges

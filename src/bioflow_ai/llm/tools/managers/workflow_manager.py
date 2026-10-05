@@ -6,9 +6,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy.orm import Session
 
-from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
@@ -18,14 +16,12 @@ from bioflow_ai.llm.workflow_builder.drafts import (
     next_draft_id,
     snapshot_active_workflow,
 )
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.messages import format_saved_workflows, format_workflow_drafts
 from bioflow_ai.llm.workflow_builder.node_ids import remove_node_from_build_graph
 from bioflow_ai.llm.workflow_builder.persistence import save_workflow_drafts, workflow_uids
-from bioflow_ai.llm.workflow_builder.serialization import build_workflow_definition
-from bioflow_ai.llm.workflow_builder.subgraphs import effective_nodes, validate_editing_edges
-from bioflow_ai.llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
-from bioflow_ai.services.workflow.compiler import validate_workflow
-from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
+from bioflow_ai.services.workflow.ports import effective_nodes
+from bioflow_ai.services.workflow.validation import validate_workflow
 
 
 class ViewNodeSchema(BaseModel):
@@ -525,6 +521,11 @@ def _update_workflow_metadata(
         update_data['execution_scope'] = execution_scope
     drafts[active_workflow_id] = draft.model_copy(update=update_data, deep=True)
 
+    candidate_state = {**runtime.state, 'workflow_drafts': drafts}
+    result = validate_workflow(workflow_document(candidate_state, project_id=runtime.context.project_id))
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
+
     return Command(
         update={
             'workflow_drafts': drafts,
@@ -614,12 +615,17 @@ def _delete_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
         exist_edges,
         node_id,
     )
-    if problems := validate_editing_edges(remaining_nodes, remaining_edges):
+    result = validate_workflow(
+        workflow_document(
+            runtime.state, nodes=remaining_nodes, edges=remaining_edges, project_id=runtime.context.project_id
+        )
+    )
+    if not result.valid:
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content='Cannot delete node; repair dependent edges first: ' + '; '.join(problems),
+                        content='Cannot delete node; repair dependent edges first: ' + result.message,
                         tool_call_id=runtime.tool_call_id,
                     )
                 ]
@@ -678,12 +684,15 @@ def _fix_edge(params: FixEdgeSchema, runtime: ToolRuntime[ProjectContext]) -> Co
         for item in params.edges
     ]
     cleaned_edges.extend(new_edges)
-    if errors := validate_editing_edges(exist_nodes, cleaned_edges):
+    result = validate_workflow(
+        workflow_document(runtime.state, nodes=exist_nodes, edges=cleaned_edges, project_id=runtime.context.project_id)
+    )
+    if not result.valid:
         return Command(
             update={
                 'messages': [
                     ToolMessage(
-                        content='fix_edge rejected, no changes applied:\n' + '\n'.join(errors),
+                        content='fix_edge rejected, no changes applied:\n' + result.message,
                         tool_call_id=runtime.tool_call_id,
                     )
                 ]
@@ -722,24 +731,6 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
             }
         )
 
-    empty_drafts = [draft.draft_id for draft in drafts.values() if not draft.nodes]
-    if empty_drafts:
-        return Command(
-            update={
-                'workflow_drafts': drafts,
-                'messages': [
-                    ToolMessage(
-                        content=(
-                            f'Cannot save: these workflow drafts are empty: {empty_drafts}. Switch to an intended '
-                            'draft and complete it, or use delete_workflow_draft to remove a mistaken/duplicate draft. '
-                            'Do not add placeholder nodes merely to make an unintended draft non-empty.'
-                        ),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
-
     drafts_by_name: dict[str, list[str]] = {}
     for draft in drafts.values():
         drafts_by_name.setdefault(_normalize_workflow_name(draft.name), []).append(draft.draft_id)
@@ -763,71 +754,17 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
 
     validation_errors = []
     for draft in drafts.values():
-        if {'subgraph', 'collect_file_collection'} & {node.type for node in draft.nodes}:
-            boundary_errors = validate_editing_edges(draft.nodes, draft.edges)
-            validation_errors.extend(f'- {draft.draft_id} ("{draft.name}"): {problem}' for problem in boundary_errors)
-            for node in draft.nodes:
-                if node.type == 'subgraph':
-                    connected = {edge.target_handle for edge in draft.edges if edge.target_node == node.id}
-                    missing = {handle.name for handle in node.input_handles} - connected
-                    if missing:
-                        boundary_errors.append(f'{node.id} lacks inputs {sorted(missing)}')
-                        validation_errors.append(f'- {draft.draft_id}: {boundary_errors[-1]}')
-            if not boundary_errors:
-                try:
-                    definition = build_workflow_definition(draft.nodes, draft.edges, draft.interface)
-                    validate_workflow(definition)
-                    with Session(engine) as session:
-                        validate_interface_handles(definition, session)
-                except ValueError as error:
-                    validation_errors.append(f'- {draft.draft_id} ("{draft.name}"): {error}')
-        node_ids = [node.id for node in draft.nodes]
-        if len(node_ids) != len(set(node_ids)):
-            validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has duplicate node IDs.')
-
-        orphans = check_orphan_edges(draft.edges)
-        if orphans:
-            validation_errors.append(f'- {draft.draft_id} ("{draft.name}") has {len(orphans)} orphan edge(s).')
-
-        validation_errors.extend(
-            f'- {draft.draft_id} ("{draft.name}") note {note.id}: {error}'
-            for note in draft.nodes
-            if note.type == 'note'
-            if (error := validate_note_anchor(note.data.get('anchor_node_id'), draft.nodes))
+        state = {'active_workflow_id': draft.draft_id, 'workflow_drafts': {draft.draft_id: draft}}
+        document = workflow_document(
+            state,
+            nodes=draft.nodes,
+            edges=draft.edges,
+            fresh=True,
+            project_id=runtime.context.project_id,
         )
-
-        node_types = {node.type for node in draft.nodes}
-        if draft.execution_scope == 'sample_level':
-            invalid = sorted(node_types & {'project_mark', 'resource_sample_mark_collection'})
-            if invalid:
-                validation_errors.append(
-                    f'- {draft.draft_id} ("{draft.name}") is sample-level but contains project-only nodes: {invalid}.'
-                )
-        elif 'sample_mark' in node_types:
-            validation_errors.append(
-                f'- {draft.draft_id} ("{draft.name}") is project-level but contains `sample_mark`.'
-            )
-
-        mark_names = [
-            str(node.data.get('mark_name', '')) for node in draft.nodes if node.type in {'project_mark', 'sample_mark'}
-        ]
-        duplicate_marks = sorted({name for name in mark_names if mark_names.count(name) > 1})
-        if duplicate_marks:
-            validation_errors.append(
-                f'- {draft.draft_id} ("{draft.name}") publishes duplicate mark names: {duplicate_marks}.'
-            )
-
-        if draft.execution_scope == 'project_level':
-            invalid_sample_refs = [
-                node.id
-                for node in draft.nodes
-                if node.type == 'resource_file' and str(node.data.get('file_path', '')).startswith('sample:')
-            ]
-            if invalid_sample_refs:
-                validation_errors.append(
-                    f'- {draft.draft_id} ("{draft.name}") is project-level but contains sample-bound file '
-                    f'references on nodes: {invalid_sample_refs}. Use `sample_mark_collection` for aggregation.'
-                )
+        result = validate_workflow(document)
+        if not result.valid:
+            validation_errors.append(f'- {draft.draft_id} ("{draft.name}"): {result.message}')
 
     if validation_errors:
         return Command(

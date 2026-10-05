@@ -20,15 +20,15 @@ from bioflow_ai.llm.tools.managers.subgraph_interface_manager import NamedPort
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command
 from bioflow_ai.llm.utils.session import workflow_thread_id
 from bioflow_ai.llm.workflow_builder.foreach_manifest import foreach_manifest_contract
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
-from bioflow_ai.llm.workflow_builder.serialization import to_execution_scope
-from bioflow_ai.llm.workflow_builder.subgraphs import effective_nodes, validate_editing_edges
-from bioflow_ai.llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.tools import Handle
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow import catalog as workflow_catalog
+from bioflow_ai.services.workflow.ports import effective_nodes
+from bioflow_ai.services.workflow.validation import validate_workflow
 
 
 class SearchSubgraph(BaseModel):
@@ -209,39 +209,33 @@ async def _create(values: CreateSubgraph, runtime: ToolRuntime[ProjectContext]) 
 
 def _add(values: AddSubgraph, runtime: ToolRuntime[ProjectContext]) -> Command:
     item = _accessible(values.uid, runtime.context.user_id)
-    if item is None or item.workflow.interface is None:
-        return _message(runtime, 'Subgraph not found or has no interface.')
+    if item is None:
+        return _message(runtime, 'Subgraph not found.')
     active_id = runtime.state.get('active_workflow_id')
     draft = runtime.state.get('workflow_drafts', {}).get(active_id) if active_id else None
     if draft is None:
         return _message(runtime, 'Select a workflow draft before adding a subgraph.')
-    draft = draft if isinstance(draft, WorkflowDraft) else WorkflowDraft.model_validate(draft)
-    if item.execution_scope != to_execution_scope(draft.execution_scope):
-        return _message(runtime, 'Subgraph execution scope must match the active workflow draft.')
     existing_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     existing_edges: list[BuildEdge] = runtime.state.get('exist_edges', [])
     interface = item.workflow.interface
-    input_handles = [Handle(name=port.id, description=port.description) for port in interface.inputs]
+    input_handles = [
+        Handle(name=port.id, description=port.description) for port in (interface.inputs if interface else [])
+    ]
     candidate_edges = [edge.model_copy(deep=True) for edge in values.input_edges]
-    try:
-        current_nodes = effective_nodes(existing_nodes, existing_edges)
-    except ValueError as error:
-        return _message(runtime, str(error))
-    if error := check_edge_handles(candidate_edges, input_handles, current_nodes):
-        return _message(runtime, error)
-    if error := check_tool_node_edges(candidate_edges, input_handles):
-        return _message(runtime, error)
     node_id, next_index = allocate_node_id(existing_nodes, runtime.state.get('next_node_index'))
     node = BuildNode(
         id=node_id,
         name=item.name,
         type='subgraph',
         input_handles=input_handles,
-        output_handles=[Handle(name=port.id, description=port.description) for port in interface.outputs],
+        output_handles=[
+            Handle(name=port.id, description=port.description) for port in (interface.outputs if interface else [])
+        ],
         data={
             'name': item.name,
             'description': item.description,
             'source_uid': str(item.uid),
+            'execution_scope': item.execution_scope.name.lower(),
             'workflow': item.workflow.model_dump(mode='json'),
         },
     )
@@ -249,13 +243,18 @@ def _add(values: AddSubgraph, runtime: ToolRuntime[ProjectContext]) -> Command:
         edge.target_node = node_id
     proposed_edges = [*existing_edges, *candidate_edges]
     proposed_nodes = [*existing_nodes, node]
-    if problems := validate_editing_edges(proposed_nodes, proposed_edges):
-        return _message(runtime, 'Cannot add subgraph: ' + '; '.join(problems))
+    result = validate_workflow(
+        workflow_document(
+            runtime.state, nodes=proposed_nodes, edges=proposed_edges, project_id=runtime.context.project_id
+        )
+    )
+    if not result.valid:
+        return _message(runtime, result.message)
     node = effective_nodes(proposed_nodes, proposed_edges)[-1]
     response: dict[str, Any] = {
         'node_id': node_id,
         'name': item.name,
-        'inputs': [p.model_dump() for p in interface.inputs],
+        'inputs': [p.model_dump() for p in (interface.inputs if interface else [])],
         'outputs': [h.name for h in node.output_handles],
     }
     if any(

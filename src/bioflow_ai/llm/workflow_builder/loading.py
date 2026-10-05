@@ -1,18 +1,20 @@
 """Load a persisted workflow template into workflow-builder editing state."""
 
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowDraft
-from bioflow_ai.llm.utils.node_schema import PROCESSORS, RESOURCES
 from bioflow_ai.llm.workflow_builder.node_ids import canonicalize_build_graph, has_canonical_node_ids
 from bioflow_ai.llm.workflow_builder.subgraphs import effective_nodes, remap_interface
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
-from bioflow_ai.schemas.tools import Handle, ToolNodePublic
+from bioflow_ai.schemas.tools import Handle, WorkflowToolDefinition
 from bioflow_ai.schemas.workflow_config import ExecutionScope
+from bioflow_ai.schemas.workflow_nodes import PROCESSORS, RESOURCES
+from bioflow_ai.services.tools.cache import get_tool_definitions_sync
 from bioflow_ai.services.tools.input_format import build_command_template
+from bioflow_ai.services.workflow.validation.resolution import collect_tool_uids
 
 
 class WorkflowLoadError(ValueError):
@@ -32,16 +34,16 @@ def _handle_name(handle: str, node_id: str, direction: str) -> str:
     return handle.removeprefix(prefix)
 
 
-def _tool_node(node_id: str, data: dict, session: Session) -> BuildNode:
+def _tool_node(node_id: str, data: dict, catalog: dict[str, WorkflowToolDefinition]) -> BuildNode:
     tool_uid = data.get('tool_uid')
     if not tool_uid:
         message = f'Tool node {node_id} has no tool_uid.'
         raise WorkflowLoadError(message)
-    db_tool = tool_crud.get(session, tool_uid)
+    db_tool = catalog.get(str(uuid.UUID(str(tool_uid))))
     if db_tool is None:
         message = f'Tool node {node_id} references missing tool {tool_uid}.'
         raise WorkflowLoadError(message)
-    tool = ToolNodePublic.model_validate(db_tool)
+    tool = db_tool.to_node()
     modifiable_params = data.get('modifiable_params')
     command = build_command_template(
         db_tool.command_template,
@@ -132,12 +134,15 @@ def load_workflow_draft(
     execution_scope: ExecutionScope,
     session: Session,
     preserve_ids: bool = False,
+    catalog: dict[str, WorkflowToolDefinition] | None = None,
 ) -> LoadedWorkflowDraft:
     """Restore a persisted definition as the single active Fix draft."""
+    if catalog is None:
+        catalog = get_tool_definitions_sync(session, collect_tool_uids(workflow))
     nodes: list[BuildNode] = []
     for node in workflow.nodes:
         if node.type == 'tool':
-            restored = _tool_node(node.id, node.data, session)
+            restored = _tool_node(node.id, node.data, catalog)
         else:
             restored = _registered_node(node.id, node.type, node.data) or _fixed_node(node.id, node.type, node.data)
         if restored is None:

@@ -271,6 +271,10 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
         tools = tool_crud.insert_all(session, tools)
         session.commit()
 
+        from bioflow_ai.services.tools.cache import invalidate_all_tool_definitions_sync
+
+        invalidate_all_tool_definitions_sync()
+
         for i in with_progress(range(0, len(tools), BATCH_SIZE), progress):
             batch_tools = tools[i : i + BATCH_SIZE]
 
@@ -306,9 +310,9 @@ async def rebuild_auxiliary_node_index(*, progress: ProgressIterator | None = No
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.models import qwen3_embedding
-    from bioflow_ai.llm.utils.node_schema import PROCESSORS
     from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.code import CodeDefine
+    from bioflow_ai.schemas.workflow_nodes import PROCESSORS
     from bioflow_ai.services.code.catalog import AUXILIARY_NODE_COLLECTION, PROCESSOR_NODE_KIND, code_index_document
 
     embedding = qwen3_embedding()

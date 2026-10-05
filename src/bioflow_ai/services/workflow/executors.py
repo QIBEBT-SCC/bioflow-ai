@@ -5,20 +5,23 @@ publishes one generic task and dispatches to this registry inside the worker.
 Node implementations are plain Python callables and have no Celery lifecycle.
 """
 
-import re
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import nanoid
 from sqlalchemy.orm import Session
 
-import bioflow_ai.crud.tools.tool as tool_crud
-from bioflow_ai.schemas.react_flow import Node, TaskInput
+from bioflow_ai.schemas.react_flow import Node, TaskInput, WorkflowDefinition
+from bioflow_ai.schemas.tools import WorkflowToolDefinition
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.workflow.collection import collect_file_collection
+from bioflow_ai.services.workflow.validation.registry import (
+    PRESENTATION_NODE_TYPES,
+    supported_node_types,
+)
 from bioflow_ai.tasks.archive_operation import compress, decompress
 from bioflow_ai.tasks.code import execute_bash, execute_python, execute_r
 from bioflow_ai.tasks.file_operation import (
@@ -42,8 +45,6 @@ from bioflow_ai.tasks.run_tool import execute_tool
 from bioflow_ai.tasks.summary_task.summary import build_downstream_summary
 from bioflow_ai.utils.file.paths import to_safe_path_segment
 
-PRESENTATION_NODE_TYPES = frozenset({'note', 'image_preview'})
-
 
 class ExecutorConfigurationError(ValueError):
     """A node cannot be frozen into an executable configuration."""
@@ -61,6 +62,7 @@ class ExecutorContext:
     sample_name: str | None
     output_base: str
     position_index: int
+    tool_definitions: dict[str, WorkflowToolDefinition] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,24 +93,13 @@ def prepare_node(
     inputs: dict[str, dict[str, str] | list[dict[str, str]]],
     context: ExecutorContext,
 ) -> PreparedExecutor:
-    """Validate and freeze one executable node without mutating its ID."""
+    """Freeze a node from an already-validated workflow without changing its ID."""
     data = node.data
     node_type = node.type
 
     if node_type == 'tool':
-        raw_tool_uid = data.get('tool_uid')
-        if not raw_tool_uid:
-            message = f'Node {node.id}: tool_uid is required'
-            raise ExecutorConfigurationError(message)
-        try:
-            tool_uid = uuid.UUID(str(raw_tool_uid))
-        except ValueError as error:
-            message = f'Node {node.id}: invalid tool_uid'
-            raise ExecutorConfigurationError(message) from error
-        tool = tool_crud.get(context.session, tool_uid)
-        if tool is None:
-            message = f'Node {node.id}: tool {tool_uid} not found'
-            raise ExecutorConfigurationError(message)
+        tool_uid = uuid.UUID(str(data['tool_uid']))
+        tool = context.tool_definitions[str(tool_uid)]
         output_dir = _output_dir(context, to_safe_path_segment(tool.name))
         return PreparedExecutor(
             executor_name='tool',
@@ -174,15 +165,7 @@ def prepare_node(
         )
 
     if node_type == 'resource_db':
-        raw_db_id = data.get('db_id')
-        if raw_db_id is None:
-            message = f'Node {node.id}: db_id is required'
-            raise ExecutorConfigurationError(message)
-        try:
-            db_id = int(raw_db_id)
-        except (TypeError, ValueError) as error:
-            message = f'Node {node.id}: db_id is required'
-            raise ExecutorConfigurationError(message) from error
+        db_id = int(data['db_id'])
         return PreparedExecutor(
             executor_name='resource_db',
             kwargs={'db_id': db_id},
@@ -294,17 +277,7 @@ def prepare_node(
         )
 
     if node_type == 'collect_file_collection':
-        pattern = data.get('pattern')
-        if not isinstance(pattern, str) or not pattern.strip():
-            message = f'Node {node.id}: pattern must be a non-empty glob string'
-            raise ExecutorConfigurationError(message)
-        prefix = data.get('subfolder_prefix', 'item')
-        if not isinstance(prefix, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', prefix) is None:
-            message = f'Node {node.id}: subfolder prefix must be a safe directory name'
-            raise ExecutorConfigurationError(message)
-        if 'folder_path' not in inputs or isinstance(inputs['folder_path'], list):
-            message = f'Node {node.id}: exactly one upstream folder is required'
-            raise ExecutorConfigurationError(message)
+        pattern = data['pattern']
         output_dir = _output_dir(context, 'file_collection')
         return PreparedExecutor(
             executor_name=node_type,
@@ -314,33 +287,8 @@ def prepare_node(
         )
 
     if node_type == 'foreach':
-        from bioflow_ai.schemas.react_flow import WorkflowDefinition
-
-        child = WorkflowDefinition.model_validate(data.get('workflow'))
-        interface = child.interface
-        item_port_id = data.get('item_port_id')
-        if interface is None or item_port_id not in {port.id for port in interface.inputs}:
-            message = f'Node {node.id}: child workflow needs a current-file input'
-            raise ExecutorConfigurationError(message)
-        if 'collection' not in inputs or isinstance(inputs['collection'], list):
-            message = f'Node {node.id}: exactly one ForEach collection is required'
-            raise ExecutorConfigurationError(message)
-        for port in interface.inputs:
-            if port.id == item_port_id:
-                continue
-            if port.id not in inputs or isinstance(inputs[port.id], list):
-                message = f'Node {node.id}: shared input {port.name!r} requires one edge'
-                raise ExecutorConfigurationError(message)
-
-        def check_child(graph: WorkflowDefinition) -> None:
-            for child_node in graph.nodes:
-                if child_node.type in {'foreach', 'sample_mark', 'project_mark'}:
-                    message = f'Node {node.id}: {child_node.type} is unavailable inside ForEach'
-                    raise ExecutorConfigurationError(message)
-                if child_node.type == 'subgraph':
-                    check_child(WorkflowDefinition.model_validate(child_node.data['workflow']))
-
-        check_child(child)
+        child = WorkflowDefinition.model_validate(data['workflow'])
+        item_port_id = data['item_port_id']
         return PreparedExecutor(
             executor_name='foreach',
             kwargs={
@@ -439,42 +387,6 @@ _EXECUTORS: dict[str, Callable[..., ToolOutput]] = {
 }
 
 
-def supported_node_types() -> frozenset[str]:
-    """Return all node types with an executor."""
-    return frozenset(
-        {
-            'tool',
-            'resource_file',
-            'resource_frozen_path',
-            'resource_text_file',
-            'resource_sequence',
-            'resource_db',
-            'resource_ncbi_genome',
-            'resource_GRCh38',
-            'resource_GRCm39',
-            'value_string',
-            'bind_param',
-            'copy2folder',
-            'project_mark',
-            'sample_mark',
-            'resource_sample_mark_collection',
-            'collect_mount_dirs',
-            'select_file_in_folder',
-            'read_file_content',
-            'join_path',
-            'collect_file_collection',
-            'foreach',
-            'rename_file',
-            'compress',
-            'decompress',
-            'code_bash',
-            'code_python',
-            'code_R',
-            'downstream_summary',
-        }
-    )
-
-
 def execute_prepared_node(node_run_uid: uuid.UUID, prepared_data: dict[str, Any]) -> ToolOutput:
     """Execute one frozen plan as a local Python call inside the generic task."""
     executor_name = prepared_data.get('executor_name')
@@ -499,3 +411,6 @@ def execute_prepared_node(node_run_uid: uuid.UUID, prepared_data: dict[str, Any]
         kwargs['node_run_id'] = str(node_run_uid)
     result = executor(**kwargs)
     return result if isinstance(result, ToolOutput) else ToolOutput.model_validate(result)
+
+
+__all__ = ['PRESENTATION_NODE_TYPES', 'supported_node_types']

@@ -352,3 +352,23 @@ class ToolTaskInfo(BaseModel):
     file_mounts: list[FileMount]
 
     image: ToolImagePublic
+
+
+class WorkflowToolDefinition(BaseModel):
+    """Round-trippable tool snapshot shared by editing and static analysis."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    uid: uuid.UUID
+    name: str
+    description: str
+    tags: list[ToolTagPublic]
+    command_template: str
+    dynamic_params: list[ParamDefine]
+    file_mounts: list[FileMount]
+    immutable_static_params: str | None
+    modifiable_static_params: str | None
+
+    def to_node(self) -> ToolNodePublic:
+        """Build the existing public projection without changing its wire shape."""
+        return ToolNodePublic.model_validate(self.model_dump())

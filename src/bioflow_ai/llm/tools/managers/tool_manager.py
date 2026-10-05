@@ -27,10 +27,12 @@ from bioflow_ai.llm.utils.formatters import (
 )
 from bioflow_ai.llm.utils.session import workflow_thread_id
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
-from bioflow_ai.llm.workflow_builder.validation import check_edge_handles, check_tool_node_edges
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.input_format import build_command_template
+from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
 
 
 class SearchToolSchema(BaseModel):
@@ -269,10 +271,7 @@ def _tool_creation_failed_command(name: str, request: str, runtime: ToolRuntime[
         update={
             'messages': [
                 ToolMessage(
-                    content=(
-                        'TOOL_NODE_CREATION_FAILED (non-fatal)\n'
-                        f'{warning}\n'
-                    ),
+                    content=warning,
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -290,7 +289,6 @@ def _tool_creation_handoff_command(
             'messages': [
                 ToolMessage(
                     content=(
-                        'TOOL_NODE_CREATION_HANDOFF (non-fatal)\n'
                         f'Tool node `{name}` could not continue from the original request. No tool node was created.\n'
                         f'<handoff_context>\n{parent_request}\n</handoff_context>\n'
                         'Use the verified findings above to replan the workflow. If they identify alternative tools or '
@@ -306,8 +304,10 @@ def _tool_creation_handoff_command(
 
 
 def _stale_tool_search_command(reason: str | None, runtime: ToolRuntime[ProjectContext]) -> Command:
-    detail = 'No catalog search has been recorded for this workflow.' if reason == 'missing_search' else (
-        'The tool catalog changed after the previous search.'
+    detail = (
+        'No catalog search has been recorded for this workflow.'
+        if reason == 'missing_search'
+        else ('The tool catalog changed after the previous search.')
     )
     return Command(
         update={
@@ -415,41 +415,36 @@ def _add_tool_node(
             }
         )
 
-    with Session(engine) as session:
-        db_tool = tool_crud.get(session, tool_uid)
-        if db_tool:
-            db_node = ToolNodePublic.model_validate(db_tool)
-        else:
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content='The tool corresponding to the ID was not found in the database. Please verify that the provided ID is correct, or search again to confirm whether the ID has changed.',
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ]
-                }
-            )
-
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
-    if error := check_edge_handles(input_edges, db_node.input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-    if error := check_tool_node_edges(input_edges, db_node.input_handles):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-
     node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
-        name=db_node.name,
+        name='Tool',
         type='tool',
-        input_handles=db_node.input_handles,
-        output_handles=db_node.output_handles,
-        data={'tool_uid': tool_uid, 'modifiable_params': db_node.modifiable_static_params},
-        command=db_node.complete_command,
+        input_handles=[],
+        output_handles=[],
+        data={'tool_uid': tool_uid},
     )
-
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+    document = workflow_document(
+        runtime.state,
+        nodes=[*exist_nodes, new_node],
+        edges=[*runtime.state.get('exist_edges', []), *input_edges],
+        project_id=runtime.context.project_id,
+    )
+    result = validate_workflow(document)
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
+    db_node = (document.catalog or {})[str(uuid.UUID(tool_uid))].to_node()
+    new_node = new_node.model_copy(
+        update={
+            'name': db_node.name,
+            'input_handles': db_node.input_handles,
+            'output_handles': db_node.output_handles,
+            'data': {'tool_uid': tool_uid, 'modifiable_params': db_node.modifiable_static_params},
+            'command': db_node.complete_command,
+        }
+    )
 
     return Command(
         update={
@@ -539,6 +534,18 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
             else n
             for n in exist_nodes
         ]
+
+        result = validate_workflow(
+            workflow_document(
+                runtime.state,
+                nodes=new_nodes,
+                project_id=runtime.context.project_id,
+            )
+        )
+        if not result.valid:
+            return Command(
+                update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]}
+            )
 
         return Command(
             update={

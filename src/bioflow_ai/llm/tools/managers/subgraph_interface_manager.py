@@ -16,6 +16,7 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command
 from bioflow_ai.llm.workflow_builder.drafts import snapshot_active_workflow
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.serialization import to_execution_scope
 from bioflow_ai.llm.workflow_builder.subgraphs import (
     INPUT_NODE_ID,
@@ -23,13 +24,12 @@ from bioflow_ai.llm.workflow_builder.subgraphs import (
     input_ports,
     input_source,
 )
-from bioflow_ai.llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 from bioflow_ai.models.workflow import Workflow
-from bioflow_ai.schemas.react_flow import Edge, Node, WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow import catalog as workflow_catalog
-from bioflow_ai.services.workflow.compiler import validate_workflow
-from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
+from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.services.workflow.validation.adapters import subgraph_graph
+from bioflow_ai.services.workflow.validation.resolution import resolve_workflow
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.states import BuildNode
@@ -117,6 +117,11 @@ def _add_inputs(values: AddInputs, runtime: ToolRuntime[ProjectContext]) -> Comm
         next_index += 1
     updated_nodes = [node for node in nodes if node.id != INPUT_NODE_ID]
     updated_nodes.insert(0, input_source(ports))
+    result = validate_workflow(
+        workflow_document(runtime.state, nodes=updated_nodes, project_id=runtime.context.project_id)
+    )
+    if not result.valid:
+        return _message(runtime, result.message)
     return _message(
         runtime,
         json.dumps({'source_node': INPUT_NODE_ID, 'new_inputs': added}, ensure_ascii=False),
@@ -130,22 +135,17 @@ def _remove_inputs(values: RemoveInputs, runtime: ToolRuntime[ProjectContext]) -
     unknown = requested - {port['id'] for port in ports}
     if unknown:
         return _message(runtime, f'Unknown input IDs: {sorted(unknown)}')
-    used = [
-        f'{edge.source_handle} -> {edge.target_node}.{edge.target_handle}'
-        for edge in runtime.state.get('exist_edges', [])
-        if edge.source_node == INPUT_NODE_ID and edge.source_handle in requested
-    ]
-    if used:
-        return _message(runtime, 'Disconnect these inputs first: ' + ', '.join(used))
     kept = [port for port in ports if port['id'] not in requested]
     nodes = [node for node in runtime.state.get('exist_nodes', []) if node.id != INPUT_NODE_ID]
     if kept:
         nodes.insert(0, input_source(kept))
+    result = validate_workflow(workflow_document(runtime.state, nodes=nodes, project_id=runtime.context.project_id))
+    if not result.valid:
+        return _message(runtime, result.message)
     return _message(runtime, f'Removed inputs: {sorted(requested)}', exist_nodes=Overwrite(nodes))
 
 
 def _set_outputs(values: SetOutputs, runtime: ToolRuntime[ProjectContext]) -> Command:
-    nodes = {node.id: node for node in runtime.state.get('exist_nodes', []) if node.id != INPUT_NODE_ID}
     previous = runtime.state.get('subgraph_outputs', [])
     seen_names: set[str] = set()
     seen_ids: set[str] = set()
@@ -158,9 +158,6 @@ def _set_outputs(values: SetOutputs, runtime: ToolRuntime[ProjectContext]) -> Co
         + 1
     )
     for choice in values.outputs:
-        source = nodes.get(choice.source_node)
-        if source is None or choice.source_handle not in {handle.name for handle in source.output_handles}:
-            return _message(runtime, f'Invalid output source {choice.source_node}.{choice.source_handle}')
         name = choice.name.strip()
         if not name or name.casefold() in seen_names:
             return _message(runtime, 'Subgraph output names must be unique and cannot be empty.')
@@ -188,42 +185,15 @@ def _set_outputs(values: SetOutputs, runtime: ToolRuntime[ProjectContext]) -> Co
                 'source_handle': choice.source_handle,
             }
         )
+    result = validate_workflow(workflow_document(runtime.state, outputs=outputs, project_id=runtime.context.project_id))
+    if not result.valid:
+        return _message(runtime, result.message)
     return _message(
         runtime,
         json.dumps({'outputs': outputs}, ensure_ascii=False),
         subgraph_outputs=outputs,
         subgraph_outputs_set=True,
     )
-
-
-def _validate_foreach_child(definition: WorkflowDefinition) -> None:
-    """Exercise the same lowering and compiler path used by an actual batch parent."""
-    interface = definition.interface
-    if interface is None or not interface.inputs:
-        message = 'ForEach child needs an item input'
-        raise ValueError(message)
-    collection = Node(
-        id='COLLECTION',
-        type='collect_file_collection',
-        data={'pattern': '*', 'subfolder_prefix': 'item'},
-        dragHandle='.nodeDragable',
-        zIndex=20,
-    )
-    subgraph = Node(
-        id='CHILD',
-        type='subgraph',
-        data={'name': 'Child', 'workflow': definition.model_dump(mode='json')},
-        dragHandle='.nodeDragable',
-        zIndex=20,
-    )
-    edge = Edge(
-        id='collection-child',
-        source='COLLECTION',
-        sourceHandle='COLLECTION-out-collection',
-        target='CHILD',
-        targetHandle=f'CHILD-in-{interface.inputs[0].id}',
-    )
-    validate_workflow(WorkflowDefinition(nodes=[collection, subgraph], edges=[edge]))
 
 
 async def _save_subgraph(runtime: ToolRuntime[ProjectContext]) -> Command:
@@ -249,25 +219,20 @@ async def _save_subgraph(runtime: ToolRuntime[ProjectContext]) -> Command:
         return _message(runtime, 'Subgraph name and description are required.')
     if not runtime.state.get('subgraph_outputs_set'):
         return _message(runtime, 'Call set_subgraph_outputs before saving.')
-    if orphans := check_orphan_edges(draft.edges):
-        return _message(runtime, f'Cannot save: {len(orphans)} orphan edges.')
-    for node in draft.nodes:
-        if node.type == 'note' and (error := validate_note_anchor(node.data.get('anchor_node_id'), draft.nodes)):
-            return _message(runtime, f'Note {node.id}: {error}')
-    try:
-        definition = build_subgraph_definition(
-            draft.nodes,
-            draft.edges,
-            runtime.state.get('subgraph_outputs', []),
-            foreach=runtime.state.get('subgraph_purpose') == 'foreach',
+    graph = subgraph_graph(draft.nodes, draft.edges, runtime.state.get('subgraph_outputs', []))
+    with Session(engine) as session:
+        document = resolve_workflow(
+            graph,
+            session,
+            fresh=True,
+            execution_scope=draft.execution_scope,
+            subgraph_purpose=runtime.state.get('subgraph_purpose', 'ordinary'),
+            project_id=runtime.context.project_id,
         )
-        validate_workflow(definition)
-        if runtime.state.get('subgraph_purpose') == 'foreach':
-            _validate_foreach_child(definition)
-        with Session(engine) as session:
-            validate_interface_handles(definition, session)
-    except ValueError as error:
-        return _message(runtime, f'Cannot save subgraph: {error}')
+    result = validate_workflow(document)
+    if not result.valid:
+        return _message(runtime, f'Cannot save subgraph: {result.message}')
+    definition = build_subgraph_definition(draft.nodes, draft.edges, runtime.state.get('subgraph_outputs', []))
 
     creation_id = runtime.state.get('subgraph_creation_id')
     if not creation_id:

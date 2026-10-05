@@ -285,9 +285,9 @@ async def update_tool(
     with committing(session):
         tool_crud.update(session, tool)
 
+    await tool_cache.invalidate_tool_projections(redis, tool_uid)
     if description_changed:
         await _refresh_tool_index(tool)
-    await tool_cache.invalidate_tool_projections(redis, tool_uid)
     return tool_crud.get(session, tool_uid)
 
 
@@ -339,6 +339,7 @@ async def delete_tool(
             raise ToolInUseError(workflow_count, run_count) from error
         raise
 
+    await tool_cache.invalidate_tool_projections(redis, tool_uid)
     vectorstore = MilvusVectorStore(
         collection_name='ToolCollection',
         uri=get_settings().knowledge_base.MILVUS_URL,
@@ -348,5 +349,4 @@ async def delete_tool(
         filter_expression='tool_uid == {uid}',
         filter_params={'uid': str(tool_uid)},
     )
-    await tool_cache.invalidate_tool_projections(redis, tool_uid)
     return True

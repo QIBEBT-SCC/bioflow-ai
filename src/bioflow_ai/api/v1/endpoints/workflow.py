@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -9,9 +9,10 @@ from uuid_extensions import uuid7
 import bioflow_ai.crud.workflow as wf_crud
 from bioflow_ai.core.auth import MemberDep, UserDep
 from bioflow_ai.infrastructure.database import SessionDep
+from bioflow_ai.infrastructure.redis.client import RedisDep
+from bioflow_ai.models.project import Project
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.common import Paginated
-from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.user import CurrentUser
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.schemas.workflow import (
@@ -22,12 +23,48 @@ from bioflow_ai.schemas.workflow import (
     WorkflowUpdate,
 )
 from bioflow_ai.schemas.workflow_config import WorkflowType
+from bioflow_ai.services.tools.cache import get_tool_definitions
 from bioflow_ai.services.workflow import catalog as workflow_catalog
-from bioflow_ai.services.workflow.compiler import validate_workflow
-from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
+from bioflow_ai.services.workflow.validation import ValidationResult, WorkflowDocument, validate_workflow
+from bioflow_ai.services.workflow.validation.resolution import (
+    collect_tool_uids,
+    mark_storage_conflicts,
+    resolve_workflow,
+)
+from bioflow_ai.services.workflow.validation.types import (
+    ExecutionScopeName,
+    ValidationContext,
+    WorkflowValidationRequest,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.post('/validate')
+async def validate_graph(
+    request: WorkflowValidationRequest,
+    session: SessionDep,
+    redis: RedisDep,
+    current_user: UserDep,
+) -> ValidationResult:
+    """Diagnose a submitted graph without saving it or starting a run."""
+    conflicts = {}
+    if request.project_id is not None:
+        project = session.get(Project, request.project_id)
+        if project is None or not (
+            project.public or project.owner_id == current_user.id or current_user.role == UserRole.ADMIN
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, 'Project not found')
+        conflicts = mark_storage_conflicts(session, request.project_id, request.graph)
+    definitions = await get_tool_definitions(session, redis, collect_tool_uids(request.graph))
+    return validate_workflow(
+        WorkflowDocument(
+            graph=request.graph,
+            context=ValidationContext(execution_scope=request.execution_scope, mark_conflicts=conflicts),
+            catalog=definitions,
+        )
+    )
 
 
 def _get_workflow_for_user(session: Session, uid: str, user: CurrentUser, *, edit: bool = False) -> Workflow:
@@ -122,7 +159,18 @@ async def save_workflow(
     if wf_crud.workflow_name_exists(session, workflow_prop.name):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='name already exists!')
 
-    _validate_definition(workflow_prop.workflow, workflow_prop.wf_type, workflow_prop.description, session)
+    if workflow_prop.wf_type == WorkflowType.SUBMODULE and not workflow_prop.description.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, 'Subgraphs require a description')
+    result = validate_workflow(
+        resolve_workflow(
+            {**workflow_prop.workflow.model_dump(mode='json'), 'wf_type': int(workflow_prop.wf_type)},
+            session,
+            fresh=True,
+            execution_scope=cast('ExecutionScopeName', workflow_prop.execution_scope.name.lower()),
+        )
+    )
+    if not result.valid:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, result.message)
 
     uid = uuid7()
     workflow = Workflow(
@@ -163,31 +211,21 @@ async def update_workflow(
 ) -> str:
     """Update an existing workflow's name and/or definition."""
     existing = _get_workflow_for_user(session, uid, current_user, edit=True)
-    _validate_definition(
-        data.workflow or existing.workflow,
-        existing.wf_type,
-        data.description if data.description is not None else existing.description,
-        session,
+    description = data.description if data.description is not None else existing.description
+    if existing.wf_type == WorkflowType.SUBMODULE and not description.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, 'Subgraphs require a description')
+    result = validate_workflow(
+        resolve_workflow(
+            {**(data.workflow or existing.workflow).model_dump(mode='json'), 'wf_type': int(existing.wf_type)},
+            session,
+            fresh=True,
+            execution_scope=cast('ExecutionScopeName', (data.execution_scope or existing.execution_scope).name.lower()),
+        )
     )
+    if not result.valid:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, result.message)
     try:
         await workflow_catalog.update_workflow(session, uid, data)
     except workflow_catalog.WorkflowCatalogNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     return uid
-
-
-def _validate_definition(
-    workflow: WorkflowDefinition, wf_type: WorkflowType, description: str, session: SessionDep
-) -> None:
-    if wf_type == WorkflowType.SUBMODULE and (not description.strip() or workflow.interface is None):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, 'Subgraphs require a description and interface definition'
-        )
-    if workflow.interface is not None or any(
-        node.type in {'subgraph', 'foreach', 'resource_frozen_path', 'image_preview'} for node in workflow.nodes
-    ):
-        try:
-            validate_workflow(workflow)
-            validate_interface_handles(workflow, session)
-        except ValueError as error:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error

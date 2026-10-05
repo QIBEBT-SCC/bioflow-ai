@@ -14,47 +14,15 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowFixContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowFixState
 from bioflow_ai.llm.utils.uid_mapper import generate_char_index
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import compose_node_id_mappings
 from bioflow_ai.llm.workflow_builder.serialization import build_workflow_definition
-from bioflow_ai.llm.workflow_builder.subgraphs import effective_nodes, remap_interface, validate_editing_edges
-from bioflow_ai.llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
+from bioflow_ai.llm.workflow_builder.subgraphs import remap_interface
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import WorkflowType
-from bioflow_ai.services.workflow.compiler import validate_workflow
-from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
+from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.utils.system import utc_now
-
-
-def _validation_errors(nodes: list[BuildNode], edges: list[BuildEdge]) -> list[str]:
-    errors: list[str] = []
-    if not nodes:
-        errors.append('The workflow cannot be empty.')
-    if orphans := check_orphan_edges(edges):
-        errors.append(f'The workflow has {len(orphans)} orphan edge(s).')
-    errors.extend(validate_editing_edges(nodes, edges))
-    nodes = effective_nodes(nodes, edges) if not errors else nodes
-
-    nodes_by_id = {node.id: node for node in nodes}
-    if len(nodes_by_id) != len(nodes):
-        errors.append('The workflow contains duplicate node IDs.')
-    for edge in edges:
-        source = nodes_by_id.get(edge.source_node)
-        target = nodes_by_id.get(edge.target_node or '')
-        if source is None or target is None:
-            errors.append(f'Edge {edge.source_node} -> {edge.target_node} references a missing node.')
-            continue
-        if edge.source_handle not in {handle.name for handle in source.output_handles}:
-            errors.append(f'Node {source.id} has no output handle {edge.source_handle!r}.')
-        if edge.target_handle not in {handle.name for handle in target.input_handles}:
-            errors.append(f'Node {target.id} has no input handle {edge.target_handle!r}.')
-    errors.extend(
-        f'Note {node.id}: {error}'
-        for node in nodes
-        if node.type == 'note'
-        if (error := validate_note_anchor(node.data.get('anchor_node_id'), nodes))
-    )
-    return errors
 
 
 def _preserve_canvas_metadata(
@@ -203,18 +171,6 @@ async def finalize_workflow_fix(
 
     nodes = list(runtime.state.get('exist_nodes', []))
     edges = list(runtime.state.get('exist_edges', []))
-    if errors := _validation_errors(nodes, edges):
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='Cannot save the workflow:\n' + '\n'.join(f'- {error}' for error in errors),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
-
     original = WorkflowDefinition.model_validate(runtime.state['original_workflow'])
     original_to_editing = runtime.state.get('original_node_id_mapping')
     if original_to_editing is None:
@@ -237,19 +193,10 @@ async def finalize_workflow_fix(
         original,
         saved_to_original,
     )
-    if {'subgraph', 'collect_file_collection'} & {node.type for node in definition.nodes}:
-        try:
-            validate_workflow(definition)
-            with Session(engine) as session:
-                validate_interface_handles(definition, session)
-        except ValueError as error:
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(content=f'Cannot save the workflow: {error}', tool_call_id=runtime.tool_call_id)
-                    ]
-                }
-            )
+    document = workflow_document(runtime.state, graph=definition, fresh=True)
+    result = validate_workflow(document)
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
     if definition.model_dump(mode='json') == original.model_dump(mode='json'):
         return Command(
             update={

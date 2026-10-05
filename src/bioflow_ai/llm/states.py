@@ -10,7 +10,7 @@ from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
 from bioflow_ai.schemas.react_flow import WorkflowInterface
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine
-from bioflow_ai.schemas.tools import Handle
+from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 
 
 # =====================create tool agent state==========================
@@ -118,26 +118,6 @@ class PlannerState(AgentState, total=False):
 
 
 # =====================build workflow agent state==========================
-class BuildNode(BaseModel):
-    id: str
-    name: str
-    type: str
-    input_handles: list[Handle]
-    output_handles: list[Handle]
-    data: dict[str, Any] = Field(default_factory=dict)
-    command: Optional[str] = None
-
-
-class BuildEdge(BaseModel):
-    source_node: str = Field(description='Node ID as data source (not tool or database ID)')
-    source_handle: str = Field(description='The name value of the corresponding handle on the source node')
-    target_node: Optional[str] = Field(
-        description='The ID of the target node (i.e., this node). It will be automatically assigned by the program, just leave it blank.',
-        default=None,
-    )
-    target_handle: str = Field(description='The name value of the corresponding handle on the target node')
-
-
 class WorkflowDraft(BaseModel):
     draft_id: str
     name: str

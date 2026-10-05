@@ -20,11 +20,13 @@ from bioflow_ai.llm.utils.formatters import (
     manager_help_command,
     node_formatter,
 )
-from bioflow_ai.llm.utils.node_schema import RESOURCES
 from bioflow_ai.llm.workflow_builder.drafts import snapshot_active_workflow
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
-from bioflow_ai.llm.workflow_builder.validation import check_edge_handles, validate_node_addition
+from bioflow_ai.schemas.workflow_nodes import RESOURCES
 from bioflow_ai.services.resource import bio_db as db_service
+from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
 
 
 class ViewResourceSchema(BaseModel):
@@ -326,66 +328,10 @@ def _add_resource(
     if arguments is None:
         arguments = {}
 
-    try:
-        resource_schema['args'].model_validate(arguments)
-    except ValidationError as e:
-        error_details = []
-        for error in e.errors():
-            field = ' -> '.join(str(loc) for loc in error['loc'])
-            msg = error['msg']
-            error_details.append(f'  - {field}: {msg}')
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f"Error: Invalid arguments for resource '{resource_type}':\n"
-                        + '\n'.join(error_details),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
-
-    if error := validate_node_addition(
-        runtime.state,
-        node_type=f'resource_{resource_type}',
-        arguments=arguments,
-    ):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-
-    if error := check_edge_handles(input_edges, resource_schema['input_handles'], exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-
-    # Call custom edge_check if defined in schema
-    if edge_check := resource_schema.get('edge_check'):  # noqa: SIM102
-        if error := edge_check(input_edges, resource_schema['input_handles']):
-            return Command(
-                update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
-            )
-
     node_data = {}
     match resource_type:
         case 'value_string':
-            new_node = BuildNode(
-                id=node_id,
-                name=resource_schema['name'],
-                type='value_string',
-                input_handles=[],
-                output_handles=resource_schema['output_handles'],
-                data=arguments,
-            )
-            return Command(
-                update={
-                    'exist_nodes': [new_node],
-                    'next_node_index': next_node_index,
-                    'messages': [
-                        ToolMessage(
-                            content=f'add new resource node:\n{node_formatter(new_node)}',
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ],
-                }
-            )
+            node_data = arguments
         case 'genome':
             return Command(
                 update={
@@ -400,36 +346,47 @@ def _add_resource(
         case 'ncbi_genome' | 'GRCh38' | 'GRCm39':
             node_data = {'required_index': []}
         case 'db':
-            db_id = arguments.get('db_id', -1)
-            try:
-                with Session(engine) as session:
-                    bio_db = db_service.get_bio_db(session, int(db_id))
-                    node_data = {**arguments, 'db_name': bio_db.name}
-            except Exception as exc:
-                return Command(
-                    update={
-                        'messages': [
-                            ToolMessage(
-                                content=f'Error: Invalid biological database id "{db_id}": {exc}',
-                                tool_call_id=runtime.tool_call_id,
-                            )
-                        ]
-                    }
-                )
+            node_data = arguments
         case _:
             node_data = arguments
 
     new_node = BuildNode(
         id=node_id,
         name=resource_schema['name'],
-        type=f'resource_{resource_type}',
+        type='value_string' if resource_type == 'value_string' else f'resource_{resource_type}',
         input_handles=resource_schema['input_handles'],
         output_handles=resource_schema['output_handles'],
         data=node_data,
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
+
+    if resource_type == 'db':
+        try:
+            with Session(engine) as session:
+                bio_db = db_service.get_bio_db(session, int(arguments['db_id']))
+                new_node = new_node.model_copy(update={'data': {**node_data, 'db_name': bio_db.name}}, deep=True)
+        except Exception as error:
+            return Command(
+                update={
+                    'messages': [
+                        ToolMessage(
+                            content=f'Unable to load biological database: {error}', tool_call_id=runtime.tool_call_id
+                        )
+                    ]
+                }
+            )
 
     return Command(
         update={

@@ -21,20 +21,16 @@ from bioflow_ai.llm.prebuild.code_node import (
 )
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
-from bioflow_ai.llm.utils.node_schema import PROCESSORS
 from bioflow_ai.llm.utils.retrievers import retrieve_auxiliary_nodes
 from bioflow_ai.llm.workflow_builder.code_editing import CodeEditingError, read_code_node, update_code_node
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
-from bioflow_ai.llm.workflow_builder.validation import (
-    check_code_node_edges,
-    check_edge_handles,
-    validate_mark_storage_conflict,
-    validate_node_addition,
-    validate_note_anchor,
-)
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.tools import Handle
+from bioflow_ai.schemas.workflow_nodes import PROCESSORS
 from bioflow_ai.services.code.catalog import CODE_NODE_KIND
+from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
 
 # ---- Schemas ----
 
@@ -391,6 +387,12 @@ def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectCon
             }
         )
 
+    result = validate_workflow(
+        workflow_document(runtime.state, nodes=updated_nodes, project_id=runtime.context.project_id)
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
+
     return Command(
         update={
             'exist_nodes': Overwrite(updated_nodes),
@@ -551,49 +553,8 @@ def _add_processor(
             }
         )
 
-    processor_schema = PROCESSORS[processor_name]['args']
-    if arguments is None:
-        arguments = {}
-    try:
-        processor_schema.model_validate(arguments)
-    except ValidationError as e:
-        error_details = []
-        for error in e.errors():
-            field = ' -> '.join(str(loc) for loc in error['loc'])
-            msg = error['msg']
-            error_details.append(f'  - {field}: {msg}')
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f"Error: Invalid arguments for processor '{processor_name}':\n"
-                        + '\n'.join(error_details),
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
-
-    if error := validate_node_addition(
-        runtime.state,
-        node_type=processor_name,
-        arguments=arguments,
-    ):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-
-    if error := validate_mark_storage_conflict(processor_name, arguments, runtime):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-
+    arguments = arguments or {}
     input_handles = PROCESSORS[processor_name]['input_handles']
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-
-    # Call custom edge_check if defined in schema
-    if edge_check := PROCESSORS[processor_name].get('edge_check'):  # noqa: SIM102
-        if error := edge_check(input_edges, input_handles):
-            return Command(
-                update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]}
-            )
 
     new_node = BuildNode(
         id=node_id,
@@ -604,8 +565,18 @@ def _add_processor(
         data=arguments,
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -629,11 +600,6 @@ def _add_existing_code(
 ) -> Command:
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required by this code')]
-
-    if error := check_code_node_edges(input_edges, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=error, tool_call_id=runtime.tool_call_id)]})
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     with Session(engine) as session:
         try:
@@ -692,8 +658,18 @@ def _add_existing_code(
         data=node_data,
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -717,6 +693,26 @@ async def _add_new_code(
     runtime: ToolRuntime[ProjectContext],
 ) -> Command:
     """Generate and add a CODE node in the requested language."""
+    existing = runtime.state.get('exist_nodes', [])
+    node_id, _ = allocate_node_id(existing, runtime.state.get('next_node_index'))
+    candidate = BuildNode(
+        id=node_id,
+        name='CODE',
+        type={'bash': 'code_bash', 'python': 'code_python', 'r': 'code_R'}[code_type],
+        input_handles=[Handle(name='input_files', description='CODE inputs')],
+        output_handles=[Handle(name='output_folder', description='CODE results')],
+        data={},
+    )
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*existing, candidate],
+            edges=[*runtime.state.get('exist_edges', []), *bind_candidate_edges(node_id, input_edges)],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
     if code_type == 'bash':
         return await _add_generated_bash_code(request, input_edges, runtime)
     if code_type == 'python':
@@ -732,11 +728,6 @@ async def _add_generated_bash_code(
     """Generate and add one workflow-local Bash CODE node."""
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required by this code')]
-
-    if error := check_code_node_edges(input_edges, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=error, tool_call_id=runtime.tool_call_id)]})
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     try:
         code_inputs = build_code_inputs(input_edges, exist_nodes, runtime.state.get('exist_edges', []))
@@ -797,8 +788,18 @@ async def _add_generated_bash_code(
         },
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -823,11 +824,6 @@ async def _add_generated_python_code(
     """Generate and add one workflow-local Python CODE node."""
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required by this Python code')]
-
-    if error := check_code_node_edges(input_edges, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=error, tool_call_id=runtime.tool_call_id)]})
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     try:
         code_inputs = build_code_inputs(input_edges, exist_nodes, runtime.state.get('exist_edges', []))
@@ -873,8 +869,18 @@ async def _add_generated_python_code(
         },
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -899,11 +905,6 @@ async def _add_generated_r_code(
     """Generate and add one workflow-local R CODE node."""
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required by this R code')]
-
-    if error := check_code_node_edges(input_edges, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=error, tool_call_id=runtime.tool_call_id)]})
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     try:
         code_inputs = build_code_inputs(input_edges, exist_nodes, runtime.state.get('exist_edges', []))
@@ -949,8 +950,18 @@ async def _add_generated_r_code(
         },
     )
 
-    for edge in input_edges:
-        edge.target_node = node_id
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -974,8 +985,6 @@ def _add_note_node(
 ) -> Command:
     """Add one note node."""
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
-    if error := validate_note_anchor(anchor_node_id, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
 
     node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
@@ -986,6 +995,16 @@ def _add_note_node(
         output_handles=[],
         data={'content': note_content, 'anchor_node_id': anchor_node_id},
     )
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
@@ -1010,20 +1029,6 @@ def _add_downstream_node(
     exist_nodes: list[BuildNode] = runtime.state.get('exist_nodes', [])
     input_handles = [Handle(name='input_files', description='The files required for downstream analyse')]
 
-    if error := check_edge_handles(input_edges, input_handles, exist_nodes):
-        return Command(update={'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)]})
-    if not input_edges:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='Error: The `downstream_summary` node must connect the files to be used in downstream analysis to `input_files`. Currently, no files are connected.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
-
     node_id, next_node_index = allocate_node_id(exist_nodes, runtime.state.get('next_node_index'))
     new_node = BuildNode(
         id=node_id,
@@ -1033,6 +1038,19 @@ def _add_downstream_node(
         output_handles=[],
         data={'prompt': prompt},
     )
+
+    input_edges = bind_candidate_edges(node_id, input_edges)
+
+    result = validate_workflow(
+        workflow_document(
+            runtime.state,
+            nodes=[*exist_nodes, new_node],
+            edges=[*runtime.state.get('exist_edges', []), *input_edges],
+            project_id=runtime.context.project_id,
+        )
+    )
+    if not result.valid:
+        return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     node_name_map = {node.id: node.name for node in exist_nodes}
     used_files = [f'- {node_name_map[edge.source_node]}: {edge.source_handle}' for edge in input_edges]

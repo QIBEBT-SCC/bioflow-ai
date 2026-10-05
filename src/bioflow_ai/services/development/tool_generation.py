@@ -579,6 +579,9 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
                 with Session(engine) as session:
                     tool_crud.delete(session, tool_uid)
                     session.commit()
+                    from bioflow_ai.services.tools.cache import invalidate_tool_projections_sync
+
+                    invalidate_tool_projections_sync(tool_uid)
                     logger.info(f'Deleted a database record (index={index})')
                 await vectorstore.adelete(
                     filter_expression='tool_uid == {uid}',

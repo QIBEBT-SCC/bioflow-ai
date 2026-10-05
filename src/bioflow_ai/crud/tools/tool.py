@@ -136,13 +136,18 @@ def get_all_by_image(session: Session, image_uid: UUIDLike) -> Sequence[ToolDefi
     return session.scalars(stmt).all()
 
 
-def get_all_by_uid(session: Session, uids: list[UUIDLike]) -> Sequence[ToolDefine]:
+def get_all_by_uid(session: Session, uids: Sequence[UUIDLike], *, refresh: bool = False) -> Sequence[ToolDefine]:
     """Return tools in the same relevance order as the requested UIDs."""
     if not uids:
         return []
 
     normalized_uids = [as_uuid(uid) for uid in uids]
-    stmt = select(ToolDefine).where(ToolDefine.uid.in_(normalized_uids)).options(selectinload(ToolDefine.tags))
+    stmt = (
+        select(ToolDefine)
+        .where(ToolDefine.uid.in_(normalized_uids))
+        .options(selectinload(ToolDefine.tags))
+        .execution_options(populate_existing=refresh)
+    )
     tools_by_uid = {str(tool.uid): tool for tool in session.scalars(stmt).all()}
     requested_uids = dict.fromkeys(str(uid) for uid in normalized_uids)
     return [tools_by_uid[uid] for uid in requested_uids if uid in tools_by_uid]

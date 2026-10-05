@@ -14,20 +14,18 @@ from bioflow_ai.crud import workflow as workflow_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowFixContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowFixState
+from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.loading import load_workflow_draft
 from bioflow_ai.llm.workflow_builder.serialization import build_workflow_definition
 from bioflow_ai.llm.workflow_builder.subgraphs import (
     INPUT_NODE_ID,
-    effective_nodes,
     input_source,
-    validate_editing_edges,
 )
-from bioflow_ai.llm.workflow_builder.validation import check_orphan_edges, validate_note_anchor
 from bioflow_ai.models.workflow import Workflow
-from bioflow_ai.schemas.react_flow import PortTarget, WorkflowDefinition
+from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import WorkflowType
-from bioflow_ai.services.workflow.compiler import validate_workflow
-from bioflow_ai.services.workflow.subgraphs import validate_interface_handles
+from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.services.workflow.validation.adapters import subgraph_graph
 
 
 def _reply(runtime: ToolRuntime[WorkflowFixContext, WorkflowFixState], message: str, **update: Any) -> Command:
@@ -133,34 +131,19 @@ def _save(runtime: ToolRuntime[WorkflowFixContext, WorkflowFixState]) -> Command
     frame = stack[-1]
     nodes: list[BuildNode] = list(runtime.state.get('exist_nodes', []))
     edges: list[BuildEdge] = list(runtime.state.get('exist_edges', []))
-    virtual = next((node for node in nodes if node.id == INPUT_NODE_ID and node.type == 'subgraph_inputs'), None)
-    if virtual is None or check_orphan_edges(edges) or (problems := validate_editing_edges(nodes, edges)):
-        return _reply(
-            runtime, 'Cannot save subgraph: invalid input node or edges. ' + '; '.join(problems if virtual else [])
-        )
     original = WorkflowDefinition.model_validate(frame['original_child'])
     if original.interface is None:
         return _reply(runtime, 'Cannot save subgraph without an interface.')
-    interface = original.interface.model_copy(deep=True)
-    for port in interface.inputs:
-        port.targets = [
-            PortTarget(node_id=edge.target_node, handle=edge.target_handle)
-            for edge in edges
-            if edge.source_node == INPUT_NODE_ID and edge.source_handle == port.id and edge.target_node is not None
-        ]
-        if not port.targets:
-            return _reply(runtime, f'Input {port.id} must be connected to an internal node.')
     outputs = frame['outputs']
-    for port in interface.outputs:
-        choice = next(item for item in outputs if item['id'] == port.id)
-        port.source.node_id = choice['source']['node_id']
-        port.source.handle = choice['source']['handle']
+    graph = subgraph_graph(nodes, edges, outputs)
+    document = workflow_document(runtime.state, graph=graph, fresh=True)
+    result = validate_workflow(document)
+    if not result.valid:
+        return _reply(runtime, result.message)
+    interface = WorkflowDefinition.model_validate(
+        {**graph, 'nodes': [{**node, 'dragHandle': '', 'zIndex': 0} for node in graph['nodes']]}
+    ).interface
     real_nodes = [node for node in nodes if node.id != INPUT_NODE_ID]
-    if not real_nodes:
-        return _reply(runtime, 'A subgraph needs at least one internal node.')
-    for note in real_nodes:
-        if note.type == 'note' and (error := validate_note_anchor(note.data.get('anchor_node_id'), real_nodes)):
-            return _reply(runtime, f'Cannot save subgraph note {note.id}: {error}')
     original_nodes = {node.id: node for node in original.nodes}
     definition = build_workflow_definition(
         real_nodes, [edge for edge in edges if edge.source_node != INPUT_NODE_ID], interface
@@ -171,15 +154,13 @@ def _save(runtime: ToolRuntime[WorkflowFixContext, WorkflowFixState]) -> Command
         else node
         for node in definition.nodes
     ]
-    try:
-        validate_workflow(definition)
-        with Session(engine) as session:
-            validate_interface_handles(definition, session)
-    except ValueError as error:
-        return _reply(runtime, f'Cannot save subgraph: {error}')
     parent_nodes = [BuildNode.model_validate(node).model_copy(deep=True) for node in frame['nodes']]
     target = next(node for node in parent_nodes if node.id == frame['node_id'])
     target.data['workflow'] = definition.model_dump(mode='json')
+    parent_state = {**runtime.state, 'exist_nodes': parent_nodes, 'exist_edges': frame['edges']}
+    parent_result = validate_workflow(workflow_document(parent_state, nodes=parent_nodes, edges=frame['edges']))
+    if not parent_result.valid:
+        return _reply(runtime, parent_result.message)
     changed = definition.model_dump(mode='json') != frame['original_child']
     paths = list(runtime.state.get('changed_subgraph_paths', []))
     if changed and frame['path'] not in paths:
@@ -223,25 +204,14 @@ def fix_subgraph(
         ports = next(node.data['ports'] for node in runtime.state.get('exist_nodes', []) if node.id == INPUT_NODE_ID)
         return _reply(runtime, json.dumps({'inputs': ports, 'outputs': frame['outputs']}, ensure_ascii=False))
     if action == 'set_output':
-        try:
-            nodes = {
-                node.id: node
-                for node in effective_nodes(runtime.state.get('exist_nodes', []), runtime.state.get('exist_edges', []))
-            }
-        except ValueError as error:
-            return _reply(runtime, f'Cannot map output: {error}')
-        if (
-            not port_id
-            or source_node not in nodes
-            or source_node == INPUT_NODE_ID
-            or source_handle not in {port.name for port in nodes[source_node].output_handles}
-        ):
-            return _reply(runtime, 'Select an existing output port and a valid internal node output.')
         outputs = [dict(item) for item in frame['outputs']]
         chosen = next((item for item in outputs if item['id'] == port_id), None)
         if chosen is None:
             return _reply(runtime, f'Output port {port_id!r} does not exist.')
         chosen['source'] = {'node_id': source_node, 'handle': source_handle}
+        result = validate_workflow(workflow_document(runtime.state, outputs=outputs))
+        if not result.valid:
+            return _reply(runtime, result.message)
         stack[-1] = {**frame, 'outputs': outputs}
         return _reply(runtime, f'Output {port_id} now maps to {source_node}.{source_handle}.', subgraph_stack=stack)
     return _save(runtime)

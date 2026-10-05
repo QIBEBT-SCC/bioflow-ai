@@ -76,6 +76,7 @@ def _child_graph(graph: WorkflowDefinition, paths: dict[str, str], sample_name: 
                     targetHandle=f'{target.node_id}-in-{target.handle}',
                 )
             )
+    child.interface.inputs = []
     return child
 
 
@@ -261,7 +262,6 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
                     sample_name=sample_name,
                     output_base=child.base_dir,
                 ),
-                allow_internal_frozen_paths=True,
             )
             capacity -= 1
         if any(not child.settled for child in children):
