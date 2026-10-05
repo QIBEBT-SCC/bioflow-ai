@@ -83,10 +83,6 @@ override-dependencies = [
 source-include = [
     "presets/**",
     "deploy/**",
-    "README.zh-CN.md",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "MIGRATION.md",
     "uv.lock",
     ".python-version",
     ".gitignore",

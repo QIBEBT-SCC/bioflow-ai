@@ -137,7 +137,7 @@ as part of this migration.
 The build backend is now `uv_build>=0.12.22,<0.13`, matching the installed uv
 0.12.22 so its bundled backend can be used. Default discovery selects
 `src/bioflow_ai`. Explicit source inclusion retains repository resources and
-development documents; generated preset data and local maintenance helpers
+build context; generated preset data and local maintenance helpers
 are excluded with recursive patterns.
 
 Verification against the previous Hatchling distributions passes:
@@ -158,3 +158,7 @@ Verification against the previous Hatchling distributions passes:
 
 Checks use temporary artifacts; previously removed migration tests and scripts
 are not restored, and no production services or model providers are invoked.
+
+The optional Chinese README, agent guides (`AGENTS.md` and `CLAUDE.md`), and
+this migration record were subsequently removed from explicit source inclusion.
+They remain in Git; installation and runtime do not require them.
