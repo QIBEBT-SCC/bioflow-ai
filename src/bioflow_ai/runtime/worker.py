@@ -5,11 +5,11 @@ from bioflow_ai.runtime.celery_app import celery_app
 
 
 def agent_main(*, concurrency: int = 1) -> None:
-    """Start the shared long-running agent worker for LangGraph and ACP queues."""
+    """Start the long-running LangGraph agent worker."""
     args = [
         'worker',
         f'--loglevel={get_settings().logger.CELERY_LEVEL}',
-        '--queues=agent,acp',
+        '--queues=agent',
         f'--concurrency={concurrency}',
     ]
     celery_app.worker_main(argv=args)

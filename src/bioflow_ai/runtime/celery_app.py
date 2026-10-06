@@ -22,8 +22,6 @@ celery_app.conf.update(
     task_track_started=True,
     task_routes={
         'bioflow_ai.tasks.agent_run.execute_agent_run': {'queue': 'agent'},
-        'bioflow_ai.tasks.code_agent.execute_code_agent_session': {'queue': 'acp'},
-        'bioflow_ai.tasks.code_agent.login_codex_account': {'queue': 'acp'},
         'bioflow_ai.tasks.load_tasks.load_bio_db.download_bio_db_task': {'queue': 'resource'},
         'bioflow_ai.tasks.load_tasks.load_genome.download_genome_admin_task': {'queue': 'resource'},
         'bioflow_ai.tasks.load_tasks.load_genome.build_genome_index_admin_task': {'queue': 'resource'},
@@ -37,7 +35,6 @@ celery_app.autodiscover_tasks(
         'bioflow_ai.tasks.load_tasks.load_bio_db',
         'bioflow_ai.tasks.load_tasks.load_genome',
         'bioflow_ai.tasks.agent_run',
-        'bioflow_ai.tasks.code_agent',
         'bioflow_ai.tasks.workflow',
     ],
     # ty: ignore[invalid-argument-type]

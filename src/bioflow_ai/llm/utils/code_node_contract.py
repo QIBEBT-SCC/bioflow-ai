@@ -102,8 +102,8 @@ def code_node_contract(node_type: CodeNodeType) -> str:
     return CODE_CONTRACTS[node_type]
 
 
-def code_agent_workspace_instructions(node_type: CodeNodeType) -> str:
-    """Adapt a CODE runtime contract to an ACP file-editing workspace."""
+def code_workspace_instructions(node_type: CodeNodeType) -> str:
+    """Adapt a CODE runtime contract to a file-editing workspace."""
     script_name = SCRIPT_NAMES[node_type]
     editable_files = f'`{script_name}`'
     if node_type is not CodeNodeType.BASH:
@@ -130,7 +130,7 @@ metadata and persistence.
 - Use `/workspace/output/` only for temporary checks during this editing session. Its contents are never proposed or
   available to the saved CODE node.
 - Do not make the saved script read from or write to `/workspace` or `/workspace/output`.
-- Do not edit `AGENTS.md` or treat tools installed in the coding-agent container as target-runtime capabilities.
+- Do not edit `AGENTS.md` or treat tools installed in the authoring environment as target-runtime capabilities.
 
 ## Input Contract
 

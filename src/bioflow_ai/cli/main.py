@@ -24,7 +24,7 @@ def api(*, enable_request_log: bool) -> None:
 @cli.command(name='agent-worker')
 @click.option('--concurrency', type=click.IntRange(min=1), default=1, show_default=True)
 def agent_worker(*, concurrency: int) -> None:
-    """Start the shared isolated Celery worker for web agent and ACP runs."""
+    """Start the isolated Celery worker for web agent runs."""
     from bioflow_ai.infrastructure.logging import init_logging
     from bioflow_ai.runtime.worker import agent_main
 

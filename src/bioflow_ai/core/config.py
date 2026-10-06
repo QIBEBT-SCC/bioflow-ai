@@ -133,25 +133,6 @@ class CodeConfig(BaseSectionConfig):
     PYTHON_INDEX_URL: AnyHttpUrl = AnyHttpUrl(DEFAULT_PYTHON_INDEX_URL)
 
 
-class CodeAgentConfig(BaseSectionConfig):
-    """Runtime limits for isolated ACP coding-agent sessions."""
-
-    AUTH_PATH: str = './storage/codex-auth'
-    OPENCODE_AUTH_PATH: str = './storage/opencode-auth'
-    LOGIN_TTL_SECONDS: int = Field(default=10 * 60, ge=60)
-    LOGIN_TIMEOUT_SECONDS: int = Field(default=10 * 60, ge=60)
-    SESSION_TTL_SECONDS: int = Field(default=30 * 60, ge=60)
-    EVENT_TTL_SECONDS: int = Field(default=30 * 60, ge=60)
-    HEARTBEAT_SECONDS: int = Field(default=10, ge=1)
-    TURN_TIMEOUT_SECONDS: int = Field(default=15 * 60, ge=10)
-    STARTUP_TIMEOUT_SECONDS: int = Field(default=60, ge=5)
-    MAX_SESSIONS_PER_USER: int = Field(default=2, ge=1)
-    MAX_SESSIONS_SYSTEM: int = Field(default=8, ge=1)
-    CPU_LIMIT: float = Field(default=1.0, gt=0)
-    MEMORY_LIMIT: str = '1g'
-    PID_LIMIT: int = Field(default=256, ge=16)
-
-
 class CeleryConfig(BaseSectionConfig):
     BROKER: AmqpDsn = AmqpDsn('amqp://bioflow_ai:123456@localhost:5672//')
     BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
@@ -210,7 +191,6 @@ class Settings(BaseSettings):
     persistent: PersistenceConfig = PersistenceConfig()
     docker: DockerConfig = DockerConfig()
     code: CodeConfig = CodeConfig()
-    code_agent: CodeAgentConfig = CodeAgentConfig()
     celery: CeleryConfig = CeleryConfig()
     workflow: WorkflowConfig = WorkflowConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
