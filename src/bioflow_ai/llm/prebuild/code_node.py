@@ -7,22 +7,22 @@ from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.models import get_coding_model
 from bioflow_ai.llm.prebuild.json_output import json_output
 from bioflow_ai.llm.states import BuildEdge, BuildNode
-from bioflow_ai.llm.utils.code_node_contract import BASH_CODE_CONTRACT, PYTHON_CODE_CONTRACT, R_CODE_CONTRACT
+from bioflow_ai.llm.utils.code_authoring import load_code_skill
 from bioflow_ai.llm.workflow_builder.foreach_manifest import foreach_manifest_contract
-from bioflow_ai.schemas.code import CodeMetadataPublic, CodeMetadataRequest
+from bioflow_ai.schemas.code import CodeMetadataPublic, CodeMetadataRequest, CodeNodeType
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
 
-BASH_CODE_SYSTEM = f"""You are a senior Bash engineer generating code for one workflow code node.
+BASH_CODE_SYSTEM = """You are a senior Bash engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
 When an input has a format_contract, follow its schema and path rule exactly. Never infer manifest fields or
 export paths from output display names, folder names, or filename suffixes.
 First assess whether the request is eligible for this Bash-only node. Generate exactly one complete Bash script only
 when the entire requested deterministic workflow transformation is eligible.
 
-{BASH_CODE_CONTRACT}
+{skill_instructions}
 
 ## Structured Result
 
@@ -32,13 +32,13 @@ when the entire requested deterministic workflow transformation is eligible.
 - When `reject` is `true`, return an empty string in `code`.
 """
 
-PYTHON_CODE_SYSTEM = f"""You are a senior Python engineer generating code for one workflow code node.
+PYTHON_CODE_SYSTEM = """You are a senior Python engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
 When an input has a format_contract, follow its schema and path rule exactly. Never infer manifest fields or
 export paths from output display names, folder names, or filename suffixes.
 Generate exactly one complete Python 3.13 script for the requested bounded, deterministic workflow transformation.
 
-{PYTHON_CODE_CONTRACT}
+{skill_instructions}
 
 ## Structured Result
 
@@ -47,13 +47,13 @@ Generate exactly one complete Python 3.13 script for the requested bounded, dete
 - Return additional Python distribution requirements in `dependencies`; use an empty list when none are needed.
 """
 
-R_CODE_SYSTEM = f"""You are a senior R engineer generating code for one workflow code node.
+R_CODE_SYSTEM = """You are a senior R engineer generating code for one workflow code node.
 The Human message contains a natural-language requirement and an authoritative input contract.
 When an input has a format_contract, follow its schema and path rule exactly. Never infer manifest fields or
 export paths from output display names, folder names, or filename suffixes.
 Generate exactly one complete R 4.4.3 script for the requested bounded, deterministic workflow transformation.
 
-{R_CODE_CONTRACT}
+{skill_instructions}
 
 ## Structured Result
 
@@ -193,7 +193,7 @@ async def generate_bash_code(request: str, inputs: list[CodeInput], user_id: int
     metadata = cast('LLMMetadata', model.metadata)
     chain = json_output(
         model,
-        BASH_CODE_SYSTEM,
+        BASH_CODE_SYSTEM.format(skill_instructions=load_code_skill(CodeNodeType.BASH)),
         BashCodeResult,
         metadata=metadata,
         name='bash_code_generator',
@@ -211,7 +211,7 @@ async def generate_python_code(request: str, inputs: list[CodeInput], user_id: i
     metadata = cast('LLMMetadata', model.metadata)
     chain = json_output(
         model,
-        PYTHON_CODE_SYSTEM,
+        PYTHON_CODE_SYSTEM.format(skill_instructions=load_code_skill(CodeNodeType.PYTHON)),
         PythonCodeResult,
         metadata=metadata,
         name='python_code_generator',
@@ -229,7 +229,7 @@ async def generate_r_code(request: str, inputs: list[CodeInput], user_id: int) -
     metadata = cast('LLMMetadata', model.metadata)
     chain = json_output(
         model,
-        R_CODE_SYSTEM,
+        R_CODE_SYSTEM.format(skill_instructions=load_code_skill(CodeNodeType.R)),
         RCodeResult,
         metadata=metadata,
         name='r_code_generator',

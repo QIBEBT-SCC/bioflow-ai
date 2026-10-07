@@ -1,19 +1,21 @@
 import re
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Annotated, Any
 
 from anyio import Path
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_async
 from bioflow_ai.infrastructure.containers.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
+from bioflow_ai.infrastructure.containers.workspace import run_workspace_command
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.context import TestRunContext
+from bioflow_ai.llm.context import CodingContext, TestRunContext
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.services.tools import catalog as tool_catalog
 
@@ -34,6 +36,33 @@ def run_command_tool(command: str, runtime: ToolRuntime[Any]) -> str:
     _code, result = run_command(image, [], command)
 
     return f'[Container: {image.get_image()}]\n{result}'
+
+
+@tool('run_command', parse_docstring=True)
+async def coding_run_command(
+    command: str,
+    runtime: ToolRuntime[CodingContext],
+    workdir: str = '/workspace',
+    timeout: Annotated[int, Field(ge=1, le=120)] = 30,
+) -> str:
+    """Read, search, and inspect files using Bash in the biokit-utils container.
+
+    The authoring workspace is mounted read-only. Use rg, fd, ls, sed, head, tail,
+    jq, yq, mlr, and bash -n as appropriate. Edit files with apply_patch.
+    Python and R target runtimes are separate from this inspection environment.
+
+    Args:
+        command: Shell command to inspect the workspace; narrow large outputs.
+        workdir: Absolute container directory inside /workspace.
+        timeout: Maximum command duration in seconds, from 1 to 120.
+    """
+    try:
+        code, output = await run_workspace_command(runtime.context.workspace_path, command, workdir, timeout)
+    except TimeoutError:
+        return f'Exit code: timeout\nCommand exceeded {timeout} seconds; the container was removed.'
+    except (OSError, ValueError) as exc:
+        return f'Command failed: {exc}'
+    return f'Exit code: {code}\nOutput:\n{output or "(no output)"}'
 
 
 def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:

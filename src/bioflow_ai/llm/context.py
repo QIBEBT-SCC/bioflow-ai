@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from pydantic import BaseModel, ConfigDict
+
+from bioflow_ai.schemas.code import CodeNodeType
 
 
 class BaseContext(BaseModel):
@@ -59,3 +63,10 @@ class WorkflowFixContext(ProjectContext):
 
 class FolderContext(BaseContext):
     output_path: str
+
+
+class CodingContext(BaseContext):
+    """Trusted session workspace and target language, hidden from tool arguments."""
+
+    workspace_path: Path
+    node_type: CodeNodeType

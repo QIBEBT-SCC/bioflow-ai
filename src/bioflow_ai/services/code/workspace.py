@@ -1,30 +1,28 @@
 """Temporary CODE workspaces, candidate validation, and review diffs."""
 
 import difflib
-import hashlib
-import json
 import tempfile
 from pathlib import Path
 
-from bioflow_ai.llm.utils.code_node_contract import SCRIPT_NAMES, code_workspace_instructions
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.tasks.code import normalize_python_dependencies, normalize_r_dependencies
 
 
 def create_workspace(node_type: CodeNodeType) -> Path:
-    """Create a session-only workspace with CODE authoring instructions."""
+    """Create a session-only workspace recording the trusted target CODE node type."""
     workspace = Path(tempfile.mkdtemp(prefix='bioflow-code-workspace-'))
     workspace.chmod(0o777)
     (workspace / 'output').mkdir(mode=0o777)
     agents = workspace / 'AGENTS.md'
-    agents.write_text(code_workspace_instructions(node_type), encoding='utf-8')
+    agents.write_text(f'# BioFlowAI CODE authoring workspace\n\nCurrent target: {node_type.value}\n', encoding='utf-8')
     agents.chmod(0o666)
     return workspace
 
 
 def write_baseline(workspace: Path, node_type: CodeNodeType, source: str, dependencies: list[str]) -> None:
     """Replace only the files controlled by the CODE editor."""
-    script = workspace / SCRIPT_NAMES[node_type]
+    filename = {CodeNodeType.BASH: 'script.sh', CodeNodeType.PYTHON: 'script.py', CodeNodeType.R: 'script.R'}[node_type]
+    script = workspace / filename
     script.write_text(source, encoding='utf-8')
     script.chmod(0o666)
     dependency_path = workspace / 'dependencies.txt'
@@ -43,10 +41,13 @@ def _read_allowed_file(workspace: Path, filename: str) -> str:
     return path.read_text(encoding='utf-8')
 
 
-def read_candidate(workspace: Path, node_type: CodeNodeType) -> tuple[str, list[str], list[str]]:
+def read_candidate(
+    workspace: Path, node_type: CodeNodeType, *, allow_empty: bool = False
+) -> tuple[str, list[str], list[str]]:
     """Read and validate the allowed candidate files, ignoring everything else."""
-    source = _read_allowed_file(workspace, SCRIPT_NAMES[node_type])
-    if not source.strip():
+    filename = {CodeNodeType.BASH: 'script.sh', CodeNodeType.PYTHON: 'script.py', CodeNodeType.R: 'script.R'}[node_type]
+    source = _read_allowed_file(workspace, filename)
+    if not source.strip() and not allow_empty:
         message = 'Agent produced an empty script'
         raise ValueError(message)
     dependencies: list[str] = []
@@ -59,21 +60,11 @@ def read_candidate(workspace: Path, node_type: CodeNodeType) -> tuple[str, list[
             if node_type is CodeNodeType.PYTHON
             else normalize_r_dependencies(dependencies)
         )
-    allowed = {'AGENTS.md', SCRIPT_NAMES[node_type], 'output'}
+    allowed = {'AGENTS.md', filename, 'output'}
     if node_type is not CodeNodeType.BASH:
         allowed.add('dependencies.txt')
     warnings = [f'Ignored extra file: {path.name}' for path in workspace.iterdir() if path.name not in allowed]
     return source, dependencies, warnings
-
-
-def baseline_hash(node_type: CodeNodeType, source: str, dependencies: list[str]) -> str:
-    """Hash the exact editor baseline associated with a proposal."""
-    payload = json.dumps(
-        {'node_type': node_type.value, 'source': source, 'dependencies': dependencies},
-        sort_keys=True,
-        separators=(',', ':'),
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def proposal_diff(
@@ -84,7 +75,7 @@ def proposal_diff(
     after_dependencies: list[str],
 ) -> str:
     """Render one unified diff for the whole turn."""
-    filename = SCRIPT_NAMES[node_type]
+    filename = {CodeNodeType.BASH: 'script.sh', CodeNodeType.PYTHON: 'script.py', CodeNodeType.R: 'script.R'}[node_type]
     chunks = list(
         difflib.unified_diff(
             before_source.splitlines(keepends=True),
@@ -102,4 +93,4 @@ def proposal_diff(
                 tofile='b/dependencies.txt',
             )
         )
-    return ''.join(chunks)
+    return ''.join(chunk if chunk.endswith('\n') else f'{chunk}\n\\ No newline at end of file\n' for chunk in chunks)
