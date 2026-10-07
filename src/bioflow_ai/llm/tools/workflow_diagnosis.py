@@ -1,4 +1,4 @@
-"""Evidence readers and report output for diagnosing one workflow execution."""
+"""Read-only workflow execution evidence and optional diagnosis report output."""
 
 import math
 import re
@@ -20,7 +20,7 @@ import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.context import WorkflowDiagnosisContext
+from bioflow_ai.llm.context import WorkflowAssistantContext
 from bioflow_ai.llm.utils.formatters import format_json
 from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
@@ -144,11 +144,11 @@ def _descendant_run(session: Session, root: WorkflowRun, uid: uuid.UUID) -> Work
     return None
 
 
-def _selected_run(session: Session, context: WorkflowDiagnosisContext, child_run_uid: str | None) -> WorkflowRun:
+def _selected_run(session: Session, context: WorkflowAssistantContext, child_run_uid: str | None) -> WorkflowRun:
     root = _current_run(session, context)
     if context.source_generation is not None and root.generation != context.source_generation:
         code = 'generation_changed'
-        raise _evidence_error(code, 'The source run generation changed; start a new diagnosis.')
+        raise _evidence_error(code, 'The source run generation changed; start a new request.')
     if not child_run_uid:
         return root
     try:
@@ -163,7 +163,7 @@ def _selected_run(session: Session, context: WorkflowDiagnosisContext, child_run
 
 
 def _workflow_payload(
-    context: WorkflowDiagnosisContext,
+    context: WorkflowAssistantContext,
     action: str,
     include_node_id: str | None = None,
     subgraph_path: list[str] | None = None,
@@ -344,7 +344,7 @@ def _workflow_payload(
 @tool('workflow_reader', parse_docstring=True)
 def workflow_reader(
     action: Literal['overview', 'node', 'children'],
-    runtime: ToolRuntime[WorkflowDiagnosisContext],
+    runtime: ToolRuntime[WorkflowAssistantContext],
     node_id: str | None = None,
     subgraph_path: list[str] | None = None,
     child_run_uid: str | None = None,
@@ -357,7 +357,8 @@ def workflow_reader(
 
     Args:
         action: ``overview`` returns all nodes, edges, task states and scheduler order;
-            ``node`` returns complete data and evidence for one runtime or template node id.
+            ``node`` returns complete data and evidence for one local node ID;
+            ``children`` lists the ForEach child runs belonging to a node.
         node_id: Node ID local to ``subgraph_path``; required for ``node`` and ``children``.
         subgraph_path: Nested subgraph node IDs to enter in the selected run.
         child_run_uid: ForEach child run UID returned by ``children``.
@@ -421,7 +422,7 @@ def _validated_path(raw_path: str | None, source: str) -> tuple[Path, Literal['f
     raise _evidence_error(msg, f'Evidence source `{source}` is not a regular file or directory.')
 
 
-def _current_run(session: Session, context: WorkflowDiagnosisContext) -> Any:
+def _current_run(session: Session, context: WorkflowAssistantContext) -> Any:
     try:
         run_uid = uuid.UUID(context.source_run_uid)
     except ValueError as error:
@@ -440,7 +441,7 @@ def _current_run(session: Session, context: WorkflowDiagnosisContext) -> Any:
     return run
 
 
-def resolve_evidence_source(source: str, context: WorkflowDiagnosisContext) -> ResolvedEvidence:
+def resolve_evidence_source(source: str, context: WorkflowAssistantContext) -> ResolvedEvidence:
     """Resolve one logical evidence reference without accepting arbitrary host paths."""
     with Session(engine) as session:
         run = _selected_run(session, context, None)
@@ -566,7 +567,7 @@ def _parse_command_output(output: str, exit_code: int) -> tuple[str, int, int | 
 def run_evidence_command(
     source: str,
     command: str,
-    runtime: ToolRuntime[WorkflowDiagnosisContext],
+    runtime: ToolRuntime[WorkflowAssistantContext],
 ) -> str:
     """Run a bounded shell inspection against one read-only workflow evidence source.
 
@@ -614,8 +615,12 @@ def run_evidence_command(
 
 
 @tool('write_diagnosis', parse_docstring=True)
-def write_diagnosis(content: str, runtime: ToolRuntime[WorkflowDiagnosisContext]) -> Command:
+def write_diagnosis(content: str, runtime: ToolRuntime[WorkflowAssistantContext]) -> Command:
     """Write the completed workflow diagnosis to ``DIAGNOSIS.md``.
+
+    Use this tool when the user requests diagnosis, troubleshooting, or an investigation
+    into a workflow failure, following the diagnosis skill. Do not call it for ordinary
+    questions, status or result explanations, or follow-up questions about an existing report.
 
     Args:
         content: Complete Markdown diagnosis report in the language required by the system prompt.
@@ -650,10 +655,8 @@ def write_diagnosis(content: str, runtime: ToolRuntime[WorkflowDiagnosisContext]
     return Command(
         update={
             'diagnosis_path': relative_path,
-            'diagnosis_written': True,
             'source_run_uid': runtime.context.source_run_uid,
             'workflow_uid': runtime.context.workflow_uid,
-            'updated': True,
             'messages': [
                 ToolMessage(
                     content=f'The diagnosis report has been saved to {relative_path}.',

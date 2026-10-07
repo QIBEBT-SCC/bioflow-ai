@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from celery import Task
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowDiagnosisContext, WorkflowFixContext
-from bioflow_ai.llm.prebuild.dispatch import AGENTS, RouteTask
+from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
+from bioflow_ai.llm.prebuild.dispatch import AGENTS
 from bioflow_ai.models.agent import AgentMessage, AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
@@ -26,14 +26,16 @@ from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType
 from bioflow_ai.services.agents import sessions as agent_service
 from bioflow_ai.services.agents.execution import execute_agent_graph
 from bioflow_ai.services.agents.progress import event_payload, result_payload
+from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input
 from bioflow_ai.services.workflow import fix as workflow_fix_service
+from bioflow_ai.services.workflow.diagnosis import load_latest_diagnosis_report
 from bioflow_ai.utils.system import utc_now
 
 HEARTBEAT_INTERVAL_SECONDS = 10
 AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
-MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow diagnosis or fix target is missing.'
-MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow diagnosis or fix source run no longer exists.'
+MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow assistant or fix target is missing.'
+MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow assistant or fix source run no longer exists.'
 
 
 def _checkpoint_serializer() -> JsonPlusRedisSerializer:
@@ -169,7 +171,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             source_run_base_dir: str | None = None
             source_workflow_uid: uuid.UUID | None = None
             source_generation: int | None = None
-            if agent_name in {AgentName.WORKFLOW_DIAGNOSER, AgentName.WORKFLOW_FIXER}:
+            if agent_name in {AgentName.WORKFLOW_ASSISTANT, AgentName.WORKFLOW_FIXER}:
                 target = agent_crud.get_run_target(session, run.uid)
                 if target is None:
                     raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
@@ -215,14 +217,12 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                         )
                     ]
                 }
-            elif agent_name == AgentName.WORKFLOW_DIAGNOSER:
-                agent_input = {'messages': [current_message]}
             else:
                 agent_input = {'messages': history}
 
             project_path: Path | None = None
             if agent_name == AgentName.TOOL_GENERATOR:
-                context: CreateToolContext | ProjectContext | WorkflowDiagnosisContext | WorkflowFixContext = (
+                context: CreateToolContext | ProjectContext | WorkflowAssistantContext | WorkflowFixContext = (
                     CreateToolContext(
                         user_id=owner_id,
                         language=language,
@@ -237,10 +237,10 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                     raise ValueError(error_message)  # noqa: TRY301
                 project_path = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / str(project_id)
                 resolved_project_path = str(project_path.resolve().expanduser())
-                if agent_name == AgentName.WORKFLOW_DIAGNOSER:
+                if agent_name == AgentName.WORKFLOW_ASSISTANT:
                     if source_run_uid is None:
                         raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301
-                    context = WorkflowDiagnosisContext(
+                    context = WorkflowAssistantContext(
                         user_id=owner_id,
                         language=language,
                         project_id=project_id,
@@ -251,6 +251,15 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                         run_base_dir=source_run_base_dir,
                         source_generation=source_generation,
                     )
+                    if not resume_payload:
+                        with Session(engine) as session:
+                            diagnosis = load_latest_diagnosis_report(
+                                session,
+                                session_uid=started.session_uid,
+                                source_run_uid=source_run_uid,
+                                project_root=project_path,
+                            )
+                        agent_input = prepare_workflow_assistant_input(history, current_message, context, diagnosis)
                 elif agent_name == AgentName.WORKFLOW_FIXER:
                     if source_run_uid is None:
                         raise ValueError(MISSING_WORKFLOW_RUN_TARGET_ERROR)  # noqa: TRY301

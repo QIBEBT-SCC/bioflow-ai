@@ -116,7 +116,7 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
                 {'resource': 'project_file_mapping', 'project_id': run.project_id},
             ]
         )
-    elif run.agent_name == AgentName.WORKFLOW_DIAGNOSER.value:
+    elif run.agent_name == AgentName.WORKFLOW_ASSISTANT.value:
         result.update(
             diagnosis_path=values.get('diagnosis_path'),
             source_run_uid=values.get('source_run_uid'),
@@ -127,6 +127,7 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
         changed = bool(values.get('workflow_changed'))
         result.update(
             workflow_uid=workflow_uid,
+            source_run_uid=values.get('source_run_uid'),
             workflow_changed=changed,
             diagnosis_run_uid=values.get('diagnosis_run_uid'),
             update_path=values.get('update_path'),

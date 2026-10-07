@@ -6,15 +6,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from loguru import logger
 from sqlalchemy.orm import Session
 
-import bioflow_ai.crud.agent as agent_crud
 import bioflow_ai.crud.workflow as workflow_crud
 from bioflow_ai.llm.workflow_builder.loading import load_workflow_draft
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
+from bioflow_ai.services.workflow.diagnosis import load_latest_diagnosis_report
 
 MISSING_TEMPLATE_ERROR = 'The source run is not linked to a workflow template, so it cannot be fixed automatically.'
 TEMPLATE_NOT_FOUND_ERROR = 'The source workflow template no longer exists.'
@@ -32,20 +31,6 @@ class WorkflowFixPreparation:
     node_id_mapping: dict[str, str]
 
 
-def _report_path(project_root: Path, diagnosis: AgentRun) -> Path | None:
-    relative_path = (diagnosis.result_payload or {}).get('diagnosis_path')
-    if not isinstance(relative_path, str) or not relative_path.strip():
-        return None
-    report_path = (project_root / relative_path).resolve()
-    try:
-        report_path.relative_to(project_root)
-    except ValueError:
-        return None
-    if not report_path.is_file():
-        return None
-    return report_path
-
-
 def prepare_workflow_fix(
     session: Session,
     *,
@@ -54,15 +39,14 @@ def prepare_workflow_fix(
     project_root: Path,
 ) -> WorkflowFixPreparation:
     """Load the current template and any usable same-session diagnosis report."""
-    diagnosis = agent_crud.get_latest_completed_diagnosis(session, fix_run.session_uid, source_run.uid)
-    report_path = _report_path(project_root, diagnosis) if diagnosis is not None else None
-    diagnosis_report: str | None = None
-    if report_path is not None:
-        try:
-            diagnosis_report = report_path.read_text(encoding='utf-8')
-        except (OSError, UnicodeError):
-            logger.warning('Workflow diagnosis report {} is unavailable; continuing Fix without it.', report_path)
-    diagnosis_run_uid = diagnosis.uid if diagnosis is not None and diagnosis_report is not None else None
+    diagnosis = load_latest_diagnosis_report(
+        session,
+        session_uid=fix_run.session_uid,
+        source_run_uid=source_run.uid,
+        project_root=project_root,
+    )
+    diagnosis_report = diagnosis.content if diagnosis is not None else None
+    diagnosis_run_uid = diagnosis.run_uid if diagnosis is not None else None
     template_run = source_run
     source_subgraph_path: list[str] = []
     if source_run.parent_node_uid is not None:
@@ -109,6 +93,7 @@ def prepare_workflow_fix(
     )
     draft = loaded.draft
     state: dict[str, Any] = {
+        'source_run_uid': str(source_run.uid),
         'target_workflow_uid': str(workflow.uid),
         'source_subgraph_path': source_subgraph_path,
         'original_workflow': workflow.workflow.model_dump(mode='json'),

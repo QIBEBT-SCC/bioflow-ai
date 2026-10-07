@@ -82,13 +82,11 @@ class SampleState(AgentState, total=False):
     summary: str
 
 
-# =====================workflow diagnosis state==========================
-class WorkflowDiagnosisState(AgentState, total=False):
+# =====================workflow assistant state==========================
+class WorkflowAssistantState(AgentState, total=False):
     diagnosis_path: str
-    diagnosis_written: bool
     source_run_uid: str
     workflow_uid: str | None
-    updated: bool
 
 
 # =====================unified planner state==========================
@@ -159,6 +157,7 @@ class SubgraphBuildState(BuildState, total=False):
 
 
 class WorkflowFixState(BuildState, total=False):
+    source_run_uid: str
     diagnosis_run_uid: str | None
     target_workflow_uid: str
     source_subgraph_path: list[str]

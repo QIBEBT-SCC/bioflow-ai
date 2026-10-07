@@ -38,25 +38,24 @@ def get_run_target(session: Session, run_uid: uuid.UUID) -> AgentRunTarget | Non
     return session.get(AgentRunTarget, run_uid)
 
 
-def get_latest_completed_diagnosis(
+def list_completed_diagnoses(
     session: Session,
     session_uid: uuid.UUID,
     source_run_uid: uuid.UUID,
-) -> AgentRun | None:
-    """Return the newest completed diagnosis for this conversation and source run."""
+) -> Sequence[AgentRun]:
+    """List completed assistant runs for this conversation and target, newest first."""
     statement = (
         select(AgentRun)
         .join(AgentRunTarget, AgentRunTarget.agent_run_uid == AgentRun.uid)
         .where(
             AgentRun.session_uid == session_uid,
-            AgentRun.agent_name == 'workflow-diagnoser',
+            AgentRun.agent_name == 'workflow-assistant',
             AgentRun.status == 'completed',
             AgentRunTarget.source_run_uid == source_run_uid,
         )
         .order_by(AgentRun.end_time.desc().nullslast(), AgentRun.create_time.desc(), AgentRun.uid.desc())
-        .limit(1)
     )
-    return session.scalar(statement)
+    return session.scalars(statement).all()
 
 
 def get_latest_run(session: Session, session_uid: uuid.UUID) -> AgentRun | None:
@@ -107,7 +106,7 @@ def list_project_artifact_runs(session: Session, project_id: int, owner_id: int 
         .where(
             AgentRun.project_id == project_id,
             AgentRun.status == 'completed',
-            AgentRun.agent_name.in_(['workflow-diagnoser', 'workflow-fixer']),
+            AgentRun.agent_name.in_(['workflow-assistant', 'workflow-fixer']),
         )
         .order_by(AgentRun.end_time.desc().nullslast(), AgentRun.create_time.desc(), AgentRun.uid.desc())
     )

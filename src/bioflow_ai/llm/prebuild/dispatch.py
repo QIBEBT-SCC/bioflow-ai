@@ -7,11 +7,11 @@ from langgraph.graph.state import CompiledStateGraph
 
 from bioflow_ai.llm.agents.fs_agent.sample_manager import build_create_sample_agent
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
-from bioflow_ai.llm.agents.workflow_agent.workflow_diagnoser import build_workflow_diagnoser_v2
+from bioflow_ai.llm.agents.workflow_agent.workflow_assistant import build_workflow_assistant
 from bioflow_ai.llm.agents.workflow_agent.workflow_fixer import build_workflow_fixer
 from bioflow_ai.llm.agents.workflow_agent.workflow_generation import build_workflow_generation
 
-RouteTask = Literal['workflow-builder', 'workflow-diagnoser', 'workflow-fixer', 'sample-manager', 'tool-generator']
+RouteTask = Literal['workflow-builder', 'workflow-assistant', 'workflow-fixer', 'sample-manager', 'tool-generator']
 
 AgentFactory = Callable[[Optional[BaseCheckpointSaver]], CompiledStateGraph]
 
@@ -34,9 +34,9 @@ AGENTS: dict[RouteTask, AgentSpec] = {
         description='Prepare project samples and an approved plan, then build the node workflow on the canvas.',
         factory=build_workflow_generation,
     ),
-    'workflow-diagnoser': AgentSpec(
-        description='Diagnose one workflow execution from its snapshot, task states, run artifacts, and registered inputs.',
-        factory=build_workflow_diagnoser_v2,
+    'workflow-assistant': AgentSpec(
+        description='Answer questions about one workflow run and diagnose failures when requested.',
+        factory=build_workflow_assistant,
     ),
     'workflow-fixer': AgentSpec(
         description='Repair the current workflow template from the user request and any available diagnosis.',

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class AgentName(StrEnum):
     WORKFLOW_BUILDER = 'workflow-builder'
-    WORKFLOW_DIAGNOSER = 'workflow-diagnoser'
+    WORKFLOW_ASSISTANT = 'workflow-assistant'
     WORKFLOW_FIXER = 'workflow-fixer'
     SAMPLE_MANAGER = 'sample-manager'
     TOOL_GENERATOR = 'tool-generator'

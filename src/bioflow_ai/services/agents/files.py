@@ -26,7 +26,7 @@ PROJECT_DOCUMENTS: Final = {
     AgentFileKind.SAMPLES: 'SAMPLES.md',
 }
 RUN_FILE_FIELDS: Final = {
-    AgentFileKind.DIAGNOSIS: ('workflow-diagnoser', 'diagnosis_path', 'DIAGNOSIS.md'),
+    AgentFileKind.DIAGNOSIS: ('workflow-assistant', 'diagnosis_path', 'DIAGNOSIS.md'),
     AgentFileKind.UPDATE: ('workflow-fixer', 'update_path', 'UPDATE.md'),
 }
 
@@ -198,11 +198,7 @@ def list_project_files(session: Session, project_id: int, owner_id: int) -> list
 
     run_owner_id = None if _is_admin_actor(session, owner_id) else owner_id
     for run in agent_crud.list_project_artifact_runs(session, project_id, run_owner_id):
-        kind = (
-            AgentFileKind.DIAGNOSIS
-            if run.agent_name == 'workflow-diagnoser'
-            else AgentFileKind.UPDATE
-        )
+        kind = AgentFileKind.DIAGNOSIS if run.agent_name == 'workflow-assistant' else AgentFileKind.UPDATE
         try:
             relative = _run_relative_path(run, kind)
             path = _safe_regular_file(root, root / Path(*relative.parts))
@@ -224,7 +220,7 @@ def list_run_artifacts(session: Session, run: AgentRun, owner_id: int) -> list[A
         kinds = [AgentFileKind.PLAN, AgentFileKind.SAMPLES]
     elif run.agent_name == 'sample-manager':
         kinds = [AgentFileKind.SAMPLES]
-    elif run.agent_name == 'workflow-diagnoser':
+    elif run.agent_name == 'workflow-assistant':
         kinds = [AgentFileKind.DIAGNOSIS]
     elif run.agent_name == 'workflow-fixer':
         kinds = [AgentFileKind.UPDATE]
