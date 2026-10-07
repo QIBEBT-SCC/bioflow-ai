@@ -13,17 +13,15 @@ from bioflow_ai.llm.middleware import (
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
 )
-from bioflow_ai.llm.models import get_coding_model
+from bioflow_ai.llm.models import get_coding_model, invalidate_model_cache
 from bioflow_ai.llm.tools.apply_patch import coding_apply_patch
 from bioflow_ai.llm.tools.container import coding_run_command
+from bioflow_ai.models.setting import ModelRole
 
 if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware
 
     from bioflow_ai.llm.llm_client import LLMMetadata
-
-CODING_LLM = get_coding_model()
-metadata = cast('LLMMetadata', CODING_LLM.metadata)
 
 CODING_SYSTEM = """You are the BioFlowAI coding agent editing one reusable workflow CODE definition.
 Implement the user's requested change in the controlled authoring workspace. BioFlowAI handles metadata,
@@ -65,6 +63,9 @@ def build_simple_coding_agent(
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph[Any, CodingContext, Any, Any]:
     """Build the coding agent, optionally with a session checkpointer."""
+    invalidate_model_cache(ModelRole.CODING)
+    coding_llm = get_coding_model()
+    metadata = cast('LLMMetadata', coding_llm.metadata)
     middleware: list[AgentMiddleware[Any, Any]] = [
         SkillMiddleware('coding_agent'),
         DisableParallelToolCallsMiddleware(disabled_tools={'apply_patch'}),
@@ -72,7 +73,7 @@ def build_simple_coding_agent(
         TokenStatisticMiddleware('simple_coding', **metadata),
     ]
     return create_agent(
-        CODING_LLM,
+        coding_llm,
         [coding_run_command, coding_apply_patch],
         system_prompt=CODING_SYSTEM,
         middleware=middleware,

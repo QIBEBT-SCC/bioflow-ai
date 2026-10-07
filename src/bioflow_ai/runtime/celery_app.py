@@ -22,6 +22,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_routes={
         'bioflow_ai.tasks.agent_run.execute_agent_run': {'queue': 'agent'},
+        'bioflow_ai.tasks.code_editing.execute_code_turn': {'queue': 'agent'},
         'bioflow_ai.tasks.load_tasks.load_bio_db.download_bio_db_task': {'queue': 'resource'},
         'bioflow_ai.tasks.load_tasks.load_genome.download_genome_admin_task': {'queue': 'resource'},
         'bioflow_ai.tasks.load_tasks.load_genome.build_genome_index_admin_task': {'queue': 'resource'},
@@ -35,6 +36,7 @@ celery_app.autodiscover_tasks(
         'bioflow_ai.tasks.load_tasks.load_bio_db',
         'bioflow_ai.tasks.load_tasks.load_genome',
         'bioflow_ai.tasks.agent_run',
+        'bioflow_ai.tasks.code_editing',
         'bioflow_ai.tasks.workflow',
     ],
     # ty: ignore[invalid-argument-type]
@@ -46,3 +48,6 @@ celery_app.autodiscover_tasks(
 def on_worker_process_init(**kwargs) -> None:  # noqa: ARG001
     """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
     engine.dispose()
+    from bioflow_ai.services.code.workspace import cleanup_stale_workspaces
+
+    cleanup_stale_workspaces()

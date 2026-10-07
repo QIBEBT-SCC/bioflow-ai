@@ -1,17 +1,53 @@
 """Temporary CODE workspaces, candidate validation, and review diffs."""
 
 import difflib
+import hashlib
+import json
+import os
+import shutil
 import tempfile
+import time
 from pathlib import Path
 
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.tasks.code import normalize_python_dependencies, normalize_r_dependencies
 
 
+def workspace_root() -> Path:
+    """Return the private parent used only for temporary CODE editing files."""
+    root = Path(tempfile.gettempdir()) / f'bioflow-code-workspaces-{os.getuid()}'
+    root.mkdir(mode=0o700, exist_ok=True)
+    return root
+
+
+def cleanup_stale_workspaces(max_age: float = 1800) -> None:
+    """Reclaim orphaned editing directories on worker startup and before new turns."""
+    cutoff = time.time() - max_age
+    for path in workspace_root().glob('turn-*'):
+        if path.is_symlink() or not path.is_dir():
+            continue
+        lease = path / '.lease'
+        try:
+            if lease.is_file() and lease.stat().st_mtime < cutoff:
+                shutil.rmtree(path)
+        except FileNotFoundError:
+            continue
+
+
+def baseline_hash(node_type: CodeNodeType, source: str, dependencies: list[str]) -> str:
+    """Fingerprint the exact source and dependency order reviewed by the editor."""
+    payload = (
+        node_type.value + '\0' + source + '\0' + json.dumps(dependencies, ensure_ascii=False, separators=(',', ':'))
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def create_workspace(node_type: CodeNodeType) -> Path:
     """Create a session-only workspace recording the trusted target CODE node type."""
-    workspace = Path(tempfile.mkdtemp(prefix='bioflow-code-workspace-'))
+    cleanup_stale_workspaces()
+    workspace = Path(tempfile.mkdtemp(prefix='turn-', dir=workspace_root()))
     workspace.chmod(0o777)
+    (workspace / '.lease').touch()
     (workspace / 'output').mkdir(mode=0o777)
     agents = workspace / 'AGENTS.md'
     agents.write_text(f'# BioFlowAI CODE authoring workspace\n\nCurrent target: {node_type.value}\n', encoding='utf-8')
@@ -60,7 +96,7 @@ def read_candidate(
             if node_type is CodeNodeType.PYTHON
             else normalize_r_dependencies(dependencies)
         )
-    allowed = {'AGENTS.md', filename, 'output'}
+    allowed = {'AGENTS.md', filename, 'output', '.lease'}
     if node_type is not CodeNodeType.BASH:
         allowed.add('dependencies.txt')
     warnings = [f'Ignored extra file: {path.name}' for path in workspace.iterdir() if path.name not in allowed]

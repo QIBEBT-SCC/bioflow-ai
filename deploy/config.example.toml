@@ -72,6 +72,12 @@ python_index_url = "https://pypi.org/simple"
 # Tsinghua TUNA: https://mirrors.tuna.tsinghua.edu.cn/CRAN
 cran_repository = "https://cloud.r-project.org"
 
+[code_editing]
+# Temporary native coding conversations; each message occupies the agent queue for one turn.
+session_ttl_seconds = 1800
+turn_timeout_seconds = 900
+worker_stale_seconds = 60
+
 [celery]
 broker = "amqp://bioflow_ai:123456@localhost:5672//"
 backend = "redis://localhost:6379/1"

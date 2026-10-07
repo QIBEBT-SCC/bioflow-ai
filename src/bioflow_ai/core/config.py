@@ -133,6 +133,12 @@ class CodeConfig(BaseSectionConfig):
     PYTHON_INDEX_URL: AnyHttpUrl = AnyHttpUrl(DEFAULT_PYTHON_INDEX_URL)
 
 
+class CodeEditingConfig(BaseSectionConfig):
+    SESSION_TTL_SECONDS: int = Field(default=1800, ge=60)
+    TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=10)
+    WORKER_STALE_SECONDS: int = Field(default=60, ge=10)
+
+
 class CeleryConfig(BaseSectionConfig):
     BROKER: AmqpDsn = AmqpDsn('amqp://bioflow_ai:123456@localhost:5672//')
     BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
@@ -191,6 +197,7 @@ class Settings(BaseSettings):
     persistent: PersistenceConfig = PersistenceConfig()
     docker: DockerConfig = DockerConfig()
     code: CodeConfig = CodeConfig()
+    code_editing: CodeEditingConfig = CodeEditingConfig()
     celery: CeleryConfig = CeleryConfig()
     workflow: WorkflowConfig = WorkflowConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
