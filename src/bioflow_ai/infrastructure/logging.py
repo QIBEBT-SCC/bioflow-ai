@@ -1,11 +1,12 @@
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.llm.observability.execution_logging import agent_record_visible
 
 if TYPE_CHECKING:
     from types import FrameType
@@ -24,14 +25,16 @@ class InterceptHandler(logging.Handler):
         self.logger_type = logger_type
 
     def emit(self, record: logging.LogRecord) -> None:
+        """Forward a standard logging record to its categorized Loguru sink."""
         try:
             level = logger.level(record.levelname).name
         except ValueError:
             level = str(record.levelno)
 
-        frame, depth = logging.currentframe(), 2
-        while frame and frame.f_code.co_filename == logging.__file__:
-            frame = cast('FrameType', frame.f_back)
+        frame: FrameType | None = logging.currentframe()
+        depth = 2
+        while frame is not None and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
             depth += 1
 
         extra = {
@@ -68,7 +71,7 @@ loguru_config = {
             '<level>{level: <8}</level> <red>|</red>'
             '<bold><light-blue>{extra[logger_type]: <7}</light-blue></bold><red>|</red> '
             '<cyan>{extra[name]}</cyan><red>:</red><cyan>{extra[funcName]}</cyan><red>:</red><cyan>{extra[lineno]}</cyan> <red>-</red> <level>{message}</level>',
-            'filter': lambda record: 'logger_type' in record['extra'],
+            'filter': lambda record: 'logger_type' in record['extra'] and agent_record_visible(record),
             'colorize': True,
         },
         {
@@ -78,7 +81,7 @@ loguru_config = {
             '<level>{level: <8}</level> <red>|</red>'
             '<bold>default</bold><red>|</red> '
             '<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> <red>-</red> <level>{message}</level>',
-            'filter': lambda record: 'logger_type' not in record['extra'],
+            'filter': lambda record: 'logger_type' not in record['extra'] and agent_record_visible(record),
             'colorize': True,
         },
         # 默认运行时日志

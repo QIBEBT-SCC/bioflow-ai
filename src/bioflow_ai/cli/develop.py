@@ -8,6 +8,7 @@ from loguru import logger
 from bioflow_ai.cli.development_render import render_statistics, render_tools, render_updated_requirement
 from bioflow_ai.cli.errors import handle_service_errors
 from bioflow_ai.cli.render import create_iterator_renderer, create_progress_renderer
+from bioflow_ai.llm.observability.execution_logging import agent_logging_to_console
 from bioflow_ai.services.development.database import DB_PATH
 from bioflow_ai.services.development.records import search_tools, statistic, update_tool_requirement
 from bioflow_ai.services.development.tool_generation import (
@@ -62,6 +63,7 @@ def update_tool_requirement_cmd(index: int, requirement: str) -> None:
     '--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).'
 )
 @handle_service_errors
+@agent_logging_to_console(enabled=False)
 def create_tools_cmd(
     index: int | None,
     name: str | None,
@@ -110,6 +112,7 @@ def create_tools_cmd(
 @cli.command()
 @click.argument('index', type=int)
 @handle_service_errors
+@agent_logging_to_console(enabled=False)
 def read_interrupt_cmd(index: int) -> None:
     """Read tool interruption details."""
     asyncio.run(read_interrupt(index, on_event=create_progress_renderer()))
@@ -123,6 +126,7 @@ def read_interrupt_cmd(index: int) -> None:
     '--langsmith-tracing', is_flag=True, default=False, help='Enable LangSmith tracing (disabled by default).'
 )
 @handle_service_errors
+@agent_logging_to_console(enabled=False)
 def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmith_tracing: bool) -> None:
     """Resume the tool creation task at the specified index."""
     asyncio.run(

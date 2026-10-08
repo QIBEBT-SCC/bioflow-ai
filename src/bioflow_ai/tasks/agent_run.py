@@ -18,6 +18,7 @@ import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
+from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.prebuild.dispatch import AGENTS
 from bioflow_ai.models.agent import AgentMessage, AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
@@ -124,6 +125,13 @@ async def _transition(
         run = agent_crud.get_run(session, run_uid)
         if run is None:
             return None
+        resumed = bool((run.result_payload or {}).get('resume'))
+        execution_log = AgentRunLogger(
+            run.agent_name,
+            str(run.uid),
+            session_id=str(run.session_uid),
+            thread_id=run.checkpoint_thread_id,
+        )
         if run.status == AgentRunStatus.CANCEL_REQUESTED.value and status != AgentRunStatus.CANCELLED:
             status = AgentRunStatus.CANCELLED
             event_type = AgentEventType.CANCELLED
@@ -136,6 +144,16 @@ async def _transition(
                 return None
             raise
         session.expunge(updated)
+    execution_log.status(
+        'resumed'
+        if status == AgentRunStatus.RUNNING and resumed
+        else {
+            AgentRunStatus.RUNNING: 'started',
+            AgentRunStatus.WAITING_INPUT: 'waiting_input',
+        }.get(status, status.value),
+        kwargs.get('error_message')
+        or (kwargs.get('payload', {}).get('value') if status == AgentRunStatus.WAITING_INPUT else ''),
+    )
     await _publish_wakeup(redis, run_uid)
     return updated
 
@@ -151,6 +169,7 @@ async def _heartbeat(run_uid: uuid.UUID, agent_task: asyncio.Task[Any]) -> None:
 
 
 async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
+    execution_log = AgentRunLogger('agent', str(run_uid))
     redis = Redis.from_url(
         get_settings().persistent.cache.API_CACHE.unicode_string(),
         decode_responses=True,
@@ -165,6 +184,12 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             owner_id = run.agent_session.owner_id
             project_id = run.project_id
             checkpoint_thread_id = run.checkpoint_thread_id
+            execution_log = AgentRunLogger(
+                agent_name.value,
+                str(run_uid),
+                session_id=str(run.session_uid),
+                thread_id=checkpoint_thread_id,
+            )
             resume_payload = (run.result_payload or {}).get('resume')
             history, current_message = _load_langchain_messages(session, run)
             source_run_uid: uuid.UUID | None = None
@@ -191,7 +216,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             payload={'agent_name': agent_name.value},
             result_payload=None,
         )
-        if started is None:
+        if started is None or started.status != AgentRunStatus.RUNNING.value:
             return
 
         async with AsyncRedisSaver.from_conn_string(checkpoint_url) as checkpoint:
@@ -356,7 +381,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 )
 
             consumer = asyncio.create_task(
-                execute_agent_graph(graph, agent_input, config, context, on_progress),
+                execute_agent_graph(graph, agent_input, config, context, on_progress, execution_log=execution_log),
                 name=f'agent-run-{run_uid}',
             )
             heartbeat = asyncio.create_task(_heartbeat(run_uid, consumer), name=f'agent-heartbeat-{run_uid}')
@@ -410,7 +435,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             )
             await checkpoint.adelete_thread(checkpoint_thread_id)
     except Exception as error:
-        logger.exception('Agent run {} failed.', run_uid)
+        execution_log.status('execution_error', str(error), error=error)
         await _transition(
             redis,
             run_uid,

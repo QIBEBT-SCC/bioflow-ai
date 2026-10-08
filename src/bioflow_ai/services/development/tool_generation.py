@@ -9,7 +9,9 @@ from anyio import Path
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
+from bioflow_ai.services.agents.execution import consume_agent_graph
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.redis import AsyncRedisSaver
@@ -266,18 +268,14 @@ async def init_tools(
             )
 
             try:
-                # ty: ignore[no-matching-overload]
-                async for chunk in agent.astream(
+                response = await consume_agent_graph(
+                    agent,
                     agent_input,
                     config,
                     context=context,
-                    stream_mode=['custom', 'updates'],
-                    version='v2',
-                    subgraphs=True,
-                ):
-                    emit_progress(on_event, 'chunk', chunk)
-
-                response = await agent.aget_state(config)
+                    execution_log=AgentRunLogger('tool-generator', thread_id, thread_id=thread_id),
+                    on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
+                )
             except Exception as error:
                 error_message = f'{type(error).__name__}: {error}'
                 duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
@@ -403,18 +401,14 @@ async def create_tool_manually(
         config: RunnableConfig = {'configurable': {'thread_id': thread_id}, 'recursion_limit': sys.maxsize}
         context = CreateToolContext(user_id=2, skip_search=True, auto_save=True, test_run_id=thread_id)
 
-        # ty: ignore[no-matching-overload]
-        async for chunk in agent.astream(
+        response = await consume_agent_graph(
+            agent,
             agent_input,
             config,
             context=context,
-            stream_mode=['custom', 'updates'],
-            version='v2',
-            subgraphs=True,
-        ):
-            emit_progress(on_event, 'chunk', chunk)
-
-        response = await agent.aget_state(config)
+            execution_log=AgentRunLogger('tool-generator', thread_id, thread_id=thread_id),
+            on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
+        )
         if response.interrupts:
             logger.error(f'{thread_id} interrupted')
             emit_progress(on_event, 'interrupt', response.interrupts)
@@ -502,18 +496,15 @@ async def continue_run(
         else:
             input_message = None
         try:
-            # ty: ignore[no-matching-overload]
-            async for chunk in agent.astream(
+            response = await consume_agent_graph(
+                agent,
                 input_message,
                 config,
                 context=context,
-                stream_mode=['custom', 'updates'],
-                version='v2',
-                subgraphs=True,
-            ):
-                emit_progress(on_event, 'chunk', chunk)
-
-            response = await agent.aget_state(config)
+                execution_log=AgentRunLogger('tool-generator', thread_id, thread_id=thread_id),
+                on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
+                resumed=True,
+            )
         except Exception as error:
             con.execute(
                 """UPDATE tool_functions

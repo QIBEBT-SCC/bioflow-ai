@@ -12,7 +12,9 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
+from bioflow_ai.services.agents.execution import consume_agent_graph
 from bioflow_ai.services.progress import ProgressCallback, emit_progress
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
@@ -413,8 +415,8 @@ async def _get_sample_info(
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': [user_input]}
 
-    # ty: ignore[no-matching-overload]
-    async for chunk in agent.astream(
+    state = await consume_agent_graph(
+        agent,
         agent_input,
         config,
         context=ProjectContext(
@@ -422,13 +424,9 @@ async def _get_sample_info(
             project_id=project_id,
             workdir=workdir,
         ),
-        stream_mode=['updates', 'custom'],
-        version='v2',
-        subgraphs=True,
-    ):
-        emit_progress(on_event, 'chunk', chunk)
-
-    state = await agent.aget_state(config)
+        execution_log=AgentRunLogger('sample-manager', thread_id, thread_id=thread_id),
+        on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
+    )
     # 有中断
     if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
         for task in state.tasks:
@@ -537,16 +535,14 @@ async def _generate_plan(
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
     agent_input = {'messages': human_input}
 
-    # ty: ignore[no-matching-overload]
-    async for chunk in agent.astream(
+    await consume_agent_graph(
+        agent,
         agent_input,
         config,
         context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir, auto_approve=True),
-        stream_mode=['updates', 'custom'],
-        version='v2',
-        subgraphs=True,
-    ):
-        emit_progress(on_event, 'chunk', chunk)
+        execution_log=AgentRunLogger('workflow-planner', thread_id, thread_id=thread_id),
+        on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
+    )
 
     plan = await plan_file.read_text(encoding='utf-8')
     logger.info(f'Plan generated at {plan_file} ({len(plan)} chars).')
@@ -603,8 +599,8 @@ async def _generate_workflow(
     state = None
     result = WorkflowGenerationResult([], [], [])
     try:
-        # ty: ignore[no-matching-overload]
-        async for chunk in agent.astream(
+        await consume_agent_graph(
+            agent,
             stream_input,
             config,
             context=ProjectContext(
@@ -613,11 +609,10 @@ async def _generate_workflow(
                 workdir=workdir,
                 auto_approve=True,
             ),
-            stream_mode=['updates', 'custom'],
-            version='v2',
-            subgraphs=True,
-        ):
-            emit_progress(on_event, 'chunk', chunk)
+            execution_log=AgentRunLogger('workflow-builder', thread_id, thread_id=thread_id),
+            on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
+            resumed=stream_input is None or resume is not None,
+        )
     finally:
         # This also runs for agent errors, asyncio cancellation, Ctrl-C and LangGraph interrupts.
         # Checkpoints are written during streaming, so the latest state contains IDs created so far.

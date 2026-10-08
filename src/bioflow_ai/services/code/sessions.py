@@ -263,8 +263,8 @@ class CodeSessionStore:
 
         await self._change(session_id, finish)
 
-    async def fail(self, session_id: str, turn_id: str, message: str, *, cancelled: bool = False) -> None:
-        """Release a failed turn without replacing previously complete model history."""
+    async def fail(self, session_id: str, turn_id: str, message: str, *, cancelled: bool = False) -> str | None:
+        """Release a failed turn and return its committed outcome, or None for a stale delivery."""
 
         def finish(state: State) -> Events:
             if state['turn_id'] != turn_id or state['status'] not in {'queued', 'running', 'cancelling'}:
@@ -278,9 +278,10 @@ class CodeSessionStore:
             ]
 
         try:
-            await self._change(session_id, finish)
+            state = await self._change(session_id, finish)
         except (StaleCodingTurnError, CodeSessionNotFoundError):
-            return
+            return None
+        return 'cancelled' if cancelled or state.get('cancelled_turn') == turn_id else 'failed'
 
     async def cancel(self, session_id: str, owner_id: int) -> State:
         """Cancel queued work immediately or ask the active worker to stop safely."""

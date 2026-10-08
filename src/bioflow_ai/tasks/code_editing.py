@@ -8,6 +8,7 @@ from langchain_core.messages import messages_from_dict, messages_to_dict
 from redis.asyncio import Redis
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.services.code.coding import CodingAgent, run_coding_turn
@@ -26,6 +27,8 @@ async def execute_turn(
     if state is None:
         return
     request = state['pending_turn']
+    execution_log = AgentRunLogger('simple-coding', turn_id, session_id=session_id, thread_id=session_id)
+    execution_log.status('started')
 
     async def progress(event_type: str, payload: dict[str, Any]) -> None:
         await store.progress(session_id, turn_id, event_type, payload)
@@ -43,6 +46,7 @@ async def execute_turn(
             session_id=session_id,
             on_progress=progress,
             agent=agent,
+            execution_log=execution_log,
         )
     )
 
@@ -66,16 +70,29 @@ async def execute_turn(
             messages_to_dict(result.messages),
             result.proposal.model_dump() if result.proposal is not None else None,
         )
+        execution_log.status('completed')
     except asyncio.CancelledError:
-        await store.fail(session_id, turn_id, 'The coding turn was stopped.', cancelled=True)
-    except TimeoutError:
-        await store.fail(session_id, turn_id, 'The coding turn exceeded its time limit.')
+        outcome = await store.fail(session_id, turn_id, 'The coding turn was stopped.', cancelled=True)
+        if outcome is not None:
+            execution_log.status(outcome)
+    except TimeoutError as exc:
+        outcome = await store.fail(session_id, turn_id, 'The coding turn exceeded its time limit.')
+        if outcome is not None:
+            execution_log.status(
+                'timed_out' if outcome == 'failed' else outcome,
+                'The coding turn exceeded its time limit.',
+                error=exc,
+            )
     except StaleCodingTurnError:
         # Cancellation can win immediately before completion or the next progress
         # callback. Release that turn; closed and superseded turns remain untouched.
-        await store.fail(session_id, turn_id, 'The coding turn was stopped.', cancelled=True)
+        outcome = await store.fail(session_id, turn_id, 'The coding turn was stopped.', cancelled=True)
+        if outcome is not None:
+            execution_log.status(outcome)
     except Exception as exc:
-        await store.fail(session_id, turn_id, str(exc) or type(exc).__name__)
+        outcome = await store.fail(session_id, turn_id, str(exc) or type(exc).__name__)
+        if outcome is not None:
+            execution_log.status(outcome, str(exc), error=exc)
     finally:
         watcher.cancel()
         with suppress(asyncio.CancelledError, Exception):

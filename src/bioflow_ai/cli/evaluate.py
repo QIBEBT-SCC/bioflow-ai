@@ -3,6 +3,7 @@ import asyncio
 import click
 
 from bioflow_ai.cli.render import create_progress_renderer
+from bioflow_ai.llm.observability.execution_logging import agent_logging_to_console
 from bioflow_ai.services.evaluation.workflow import (
     EvaluationUsageError,
     WorkflowResumeRequiredError,
@@ -47,6 +48,7 @@ def cli() -> None:
     metavar='MESSAGE',
     help='Continue the workflow builder checkpoint and respond to any pending interrupt with MESSAGE.',
 )
+@agent_logging_to_console(enabled=False)
 def wf_cmd(
     task_file: str,
     paper_file: str | None,
