@@ -13,7 +13,7 @@ from bioflow_ai.crud import workflow as wf_crud
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.models.resource import Sample, SampleFiles
-from bioflow_ai.schemas.agent_file import AgentFilePublic, AgentFileUpdate
+from bioflow_ai.schemas.agent_artifact import AgentArtifactPublic, AgentArtifactUpdate
 from bioflow_ai.schemas.common import Paginated
 from bioflow_ai.schemas.project import (
     ProjectCreateProp,
@@ -39,7 +39,7 @@ from bioflow_ai.schemas.resource import (
     SampleUpdate,
 )
 from bioflow_ai.schemas.user_config import UserRole
-from bioflow_ai.services.agents import files as agent_file_service
+from bioflow_ai.services.agents import artifacts as agent_artifact_service
 from bioflow_ai.services.file_preview.browser import serve_file
 from bioflow_ai.services.projects import file_mapping as project_file_mapping_service
 from bioflow_ai.services.projects import project as project_service
@@ -188,33 +188,33 @@ def get_project(
     return project
 
 
-def _raise_agent_file_error(error: Exception) -> NoReturn:
-    if isinstance(error, agent_file_service.AgentFileNotFoundError):
+def _raise_agent_artifact_error(error: Exception) -> NoReturn:
+    if isinstance(error, agent_artifact_service.AgentArtifactNotFoundError):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Agent file not found') from error
-    if isinstance(error, agent_file_service.AgentFileReadOnlyError):
+    if isinstance(error, agent_artifact_service.AgentArtifactReadOnlyError):
         raise HTTPException(HTTP_403_FORBIDDEN, str(error)) from error
-    if isinstance(error, agent_file_service.AgentFileConflictError):
+    if isinstance(error, agent_artifact_service.AgentArtifactConflictError):
         raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
-    if isinstance(error, agent_file_service.AgentFileValidationError):
+    if isinstance(error, agent_artifact_service.AgentArtifactValidationError):
         raise HTTPException(HTTP_400_BAD_REQUEST, str(error)) from error
     raise error
 
 
 @router.get('/{project_id}/agent-files')
-def get_project_agent_files(
+def get_project_agent_artifacts(
     project_id: int,
     session: SessionDep,
     current_user: UserDep,
-) -> list[AgentFilePublic]:
+) -> list[AgentArtifactPublic]:
     """List current project documents and immutable reports produced by agents."""
     try:
-        return agent_file_service.list_project_files(session, project_id, current_user.id)
-    except agent_file_service.AgentFileError as error:
-        _raise_agent_file_error(error)
+        return agent_artifact_service.list_project_artifacts(session, project_id, current_user.id)
+    except agent_artifact_service.AgentArtifactError as error:
+        _raise_agent_artifact_error(error)
 
 
 @router.get('/{project_id}/agent-files/{file_id}')
-async def get_project_agent_file(
+async def get_project_agent_artifact(
     project_id: int,
     file_id: str,
     session: SessionDep,
@@ -224,9 +224,9 @@ async def get_project_agent_file(
 ) -> Response:
     """Preview or download one controlled agent file by logical ID."""
     try:
-        path, metadata = agent_file_service.get_file(session, project_id, current_user.id, file_id)
-    except agent_file_service.AgentFileError as error:
-        _raise_agent_file_error(error)
+        path, metadata = agent_artifact_service.get_artifact(session, project_id, current_user.id, file_id)
+    except agent_artifact_service.AgentArtifactError as error:
+        _raise_agent_artifact_error(error)
     if download:
         return FileResponse(
             path,
@@ -243,13 +243,13 @@ async def get_project_agent_file(
 def update_project_agent_plan(
     project_id: int,
     file_id: str,
-    data: AgentFileUpdate,
+    data: AgentArtifactUpdate,
     session: SessionDep,
     current_user: UserDep,
-) -> AgentFilePublic:
+) -> AgentArtifactPublic:
     """Update the current project plan when no agent run is active."""
     try:
-        return agent_file_service.update_file(
+        return agent_artifact_service.update_artifact(
             session,
             project_id,
             current_user.id,
@@ -257,8 +257,8 @@ def update_project_agent_plan(
             data.content,
             data.expected_revision,
         )
-    except agent_file_service.AgentFileError as error:
-        _raise_agent_file_error(error)
+    except agent_artifact_service.AgentArtifactError as error:
+        _raise_agent_artifact_error(error)
 
 
 @router.put('/{project_id}')

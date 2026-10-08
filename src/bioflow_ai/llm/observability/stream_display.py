@@ -1,15 +1,15 @@
 """Shared stream object selection and terminal-specific preview helpers."""
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from bioflow_ai.services.agents.images import media_preview
-
 TOOL_CONTENT_PREVIEW = 200
 REASONING_CONTENT_PREVIEW = 200
 TOOL_ARGUMENT_PREVIEW = 50
+INLINE_IMAGE = re.compile(r'data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+')
 
 
 @dataclass(frozen=True)
@@ -40,9 +40,25 @@ def select_stream_display(chunk: Mapping[str, Any]) -> StreamDisplay | None:
     )
 
 
+def redact_image_payloads(value: Any) -> Any:
+    """Preserve image labels and metadata while replacing encoded pixel data."""
+    if isinstance(value, str):
+        return INLINE_IMAGE.sub('[inline image]', value)
+    if isinstance(value, dict):
+        return {
+            key: '[inline image]'
+            if key in {'base64', 'data'} and value.get('type') == 'image'
+            else redact_image_payloads(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [redact_image_payloads(item) for item in value]
+    return value
+
+
 def display_preview(content: Any, limit: int) -> str:
     """Use the terminal's exact string conversion and truncation rule."""
-    content = media_preview(content)
+    content = redact_image_payloads(content)
     text = content if isinstance(content, str) else str(content)
     return text if len(text) <= limit else f'{text[:limit]}...'
 

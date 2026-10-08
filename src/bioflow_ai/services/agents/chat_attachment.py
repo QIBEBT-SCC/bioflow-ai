@@ -1,5 +1,5 @@
 # ruff: noqa: TRY301 - validation errors are converted to recoverable image/tool failures.
-"""Prepare bounded visual input and readable image previews for agent messages."""
+"""Prepare image attachments for user messages and filesystem tool results."""
 
 import base64
 import binascii
@@ -39,7 +39,6 @@ SVG_UNITS = {
     'ex': 6,
 }
 DATA_URL = re.compile(r'^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$')
-INLINE_IMAGE = re.compile(r'data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+')
 
 
 class ImagePreparationError(ValueError):
@@ -285,17 +284,3 @@ def image_content(part: ImageMessagePart) -> list[dict]:
     if part.conversion_note:
         label += f' {part.conversion_note}'
     return [{'type': 'text', 'text': label}, {'type': 'image_url', 'image_url': {'url': part.url}}]
-
-
-def media_preview(value: Any) -> Any:
-    """Preserve image labels and metadata while replacing encoded pixel data."""
-    if isinstance(value, str):
-        return INLINE_IMAGE.sub('[inline image]', value)
-    if isinstance(value, dict):
-        return {
-            key: '[inline image]' if key in {'base64', 'data'} and value.get('type') == 'image' else media_preview(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [media_preview(item) for item in value]
-    return value

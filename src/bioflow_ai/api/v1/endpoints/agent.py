@@ -35,11 +35,11 @@ from bioflow_ai.schemas.agent import (
     AgentSessionUpdate,
     ImageMessagePart,
 )
-from bioflow_ai.schemas.agent_file import AgentFilePublic
+from bioflow_ai.schemas.agent_artifact import AgentArtifactPublic
 from bioflow_ai.schemas.user_config import UserRole
-from bioflow_ai.services.agents import files as agent_file_service
+from bioflow_ai.services.agents import artifacts as agent_artifact_service
 from bioflow_ai.services.agents import sessions as agent_service
-from bioflow_ai.services.agents.images import MAX_SOURCE_BYTES, ImagePreparationError, prepare_image
+from bioflow_ai.services.agents.chat_attachment import MAX_SOURCE_BYTES, ImagePreparationError, prepare_image
 
 session_router = APIRouter()
 run_router = APIRouter()
@@ -248,12 +248,12 @@ def get_agent_run_artifacts(
     run_uid: uuid.UUID,
     session: SessionDep,
     current_user: UserDep,
-) -> list[AgentFilePublic]:
+) -> list[AgentArtifactPublic]:
     """List controlled files relevant to a completed project agent run."""
     try:
         run = agent_service.get_owned_run(session, run_uid, current_user.id)
-        return agent_file_service.list_run_artifacts(session, run, current_user.id)
-    except (agent_service.AgentServiceError, agent_file_service.AgentFileError) as error:
+        return agent_artifact_service.list_run_artifacts(session, run, current_user.id)
+    except (agent_service.AgentServiceError, agent_artifact_service.AgentArtifactError) as error:
         raise HTTPException(status_code=404, detail='Agent resource not found.') from error
 
 

@@ -9,8 +9,7 @@ from typing import Any
 
 from loguru import logger
 
-from bioflow_ai.llm.observability.stream_display import select_stream_display
-from bioflow_ai.services.agents.images import media_preview
+from bioflow_ai.llm.observability.stream_display import redact_image_payloads, select_stream_display
 
 LOG_CONTENT_LIMIT = 2_000
 TERMINAL_EVENTS = {'completed', 'waiting_input', 'failed', 'cancelled', 'timed_out'}
@@ -34,7 +33,7 @@ def _field(value: Any, name: str, default: Any = None) -> Any:
 
 
 def _preview(value: Any, limit: int = LOG_CONTENT_LIMIT) -> str:
-    value = media_preview(value)
+    value = redact_image_payloads(value)
     try:
         text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
@@ -181,7 +180,9 @@ class AgentRunLogger:
             )
         for name, value in display.middleware:
             self._record(
-                'middleware.updated', f'name={name}\n{pformat(media_preview(value))}', namespace=display.namespace
+                'middleware.updated',
+                f'name={name}\n{pformat(redact_image_payloads(value))}',
+                namespace=display.namespace,
             )
 
     def native_event(self, event: Mapping[str, Any]) -> None:

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.schemas.agent import ImageMessagePart
-from bioflow_ai.services.agents.images import image_content
+from bioflow_ai.services.agents.chat_attachment import image_content
 
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
 

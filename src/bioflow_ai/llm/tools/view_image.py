@@ -8,7 +8,12 @@ from langgraph.prebuilt import ToolRuntime
 
 from bioflow_ai.llm.context import WorkflowAssistantContext
 from bioflow_ai.llm.tools.workflow_diagnosis import EvidenceSourceError, resolve_evidence_source
-from bioflow_ai.services.agents.images import MAX_SOURCE_BYTES, ImagePreparationError, image_content, prepare_image
+from bioflow_ai.services.agents.chat_attachment import (
+    MAX_SOURCE_BYTES,
+    ImagePreparationError,
+    image_content,
+    prepare_image,
+)
 
 
 @tool('view_image', parse_docstring=True)

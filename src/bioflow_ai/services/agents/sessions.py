@@ -26,7 +26,7 @@ from bioflow_ai.schemas.agent import (
 )
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
-from bioflow_ai.services.agents.images import ImagePreparationError, validate_prepared_image
+from bioflow_ai.services.agents.chat_attachment import ImagePreparationError, validate_prepared_image
 from bioflow_ai.services.projects import workflows as project_workflow_service
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.jsonable import to_json_object
