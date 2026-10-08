@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
@@ -14,13 +14,14 @@ class StatusBarMiddleware(AgentMiddleware):
     def _add_status_to_request(request: ModelRequest) -> ModelRequest:
         """添加状态信息到请求的最后一条消息中."""
         status = []
+        state = cast('dict[str, Any]', request.state)
 
-        if request.state.get('image'):
-            image_info: ImageConfig = request.state['image']
+        if state.get('image'):
+            image_info: ImageConfig = state['image']
             status.append(f'Current Image: {image_info.get_image()}')
 
-        if request.state.get('todos'):
-            for todo in request.state['todos']:
+        if state.get('todos'):
+            for todo in state['todos']:
                 todo: Todo
                 if todo.status == 'in_progress':
                     status.append(f'Current To-DO: <todo index={todo.index}>{todo.content}</todo>')
@@ -31,13 +32,13 @@ class StatusBarMiddleware(AgentMiddleware):
                     )
                     break
 
-        if request.state.get('base_path'):
-            base_path: str = request.state['base_path']
+        if state.get('base_path'):
+            base_path: str = state['base_path']
             status.append(f'Current base_path: "{base_path}"')
 
-        if request.state.get('active_workflow_id'):
-            active_workflow_id: str = request.state['active_workflow_id']
-            workflow_drafts = request.state.get('workflow_drafts', {})
+        if state.get('active_workflow_id'):
+            active_workflow_id: str = state['active_workflow_id']
+            workflow_drafts = state.get('workflow_drafts', {})
             active_draft = workflow_drafts.get(active_workflow_id)
             workflow_name = (
                 active_draft.get('name', active_workflow_id)
@@ -56,8 +57,12 @@ class StatusBarMiddleware(AgentMiddleware):
 
         if status:
             last_message = request.messages[-1]
-            # ty: ignore[unsupported-operator]
-            new_content = last_message.content + f'\n[{"; ".join(status)}]'
+            suffix = f'\n[{"; ".join(status)}]'
+            new_content = (
+                last_message.content + suffix
+                if isinstance(last_message.content, str)
+                else [*last_message.content, {'type': 'text', 'text': suffix}]
+            )
             new_last_message = last_message.model_copy(update={'content': new_content}, deep=True)
 
             new_messages = [*request.messages[:-1], new_last_message]

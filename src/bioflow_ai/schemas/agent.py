@@ -5,6 +5,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+MAX_IMAGES = 4
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_EDGE = 2048
+
 
 class AgentName(StrEnum):
     WORKFLOW_BUILDER = 'workflow-builder'
@@ -57,6 +61,22 @@ class TextMessagePart(BaseModel):
     text: str
 
 
+class ImageMessagePart(BaseModel):
+    """A prepared visual snapshot, independent of the original filesystem file."""
+
+    type: Literal['image'] = 'image'
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=64)
+    url: str = Field(max_length=MAX_IMAGE_BYTES * 4 // 3 + 128)
+    media_type: Literal['image/png', 'image/jpeg', 'image/webp']
+    filename: str = Field(default='image', max_length=255)
+    width: int = Field(ge=1, le=MAX_IMAGE_EDGE)
+    height: int = Field(ge=1, le=MAX_IMAGE_EDGE)
+    source_format: Literal['PNG', 'JPEG', 'WEBP', 'TIFF', 'SVG']
+    page: int = Field(default=1, ge=1)
+    page_count: int = Field(default=1, ge=1)
+    conversion_note: str | None = Field(default=None, max_length=500)
+
+
 class AgentMessagePublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -64,7 +84,7 @@ class AgentMessagePublic(BaseModel):
     session_uid: uuid.UUID
     run_uid: uuid.UUID
     role: Literal['user', 'assistant']
-    parts: list[TextMessagePart]
+    parts: list[TextMessagePart | ImageMessagePart]
     create_time: datetime
 
 
@@ -132,12 +152,16 @@ class AgentLanguagePreference(BaseModel):
 
 class AgentRunCreate(AgentLanguagePreference):
     agent_name: AgentName
-    text: str = Field(min_length=1, max_length=100_000)
+    text: str = Field(default='', max_length=100_000)
+    images: list[ImageMessagePart] = Field(default_factory=list, max_length=MAX_IMAGES)
     source_run_uid: uuid.UUID | None = None
 
     @model_validator(mode='after')
     def validate_fix_request(self) -> 'AgentRunCreate':
         """Require a concrete message when starting workflow repair."""
+        if not self.text.strip() and not self.images:
+            message = 'A text request or at least one image is required'
+            raise ValueError(message)
         if self.agent_name == AgentName.WORKFLOW_FIXER and not self.text.strip():
             message = 'workflow-fixer requires a non-empty request'
             raise ValueError(message)

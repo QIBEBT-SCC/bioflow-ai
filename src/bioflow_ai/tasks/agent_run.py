@@ -20,12 +20,13 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.prebuild.dispatch import AGENTS
-from bioflow_ai.models.agent import AgentMessage, AgentRun
+from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType, AgentName, AgentRunStatus
 from bioflow_ai.services.agents import sessions as agent_service
 from bioflow_ai.services.agents.execution import execute_agent_graph
+from bioflow_ai.services.agents.messages import load_langchain_messages, wrap_request
 from bioflow_ai.services.agents.progress import event_payload, result_payload
 from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input
 from bioflow_ai.services.workflow import fix as workflow_fix_service
@@ -34,7 +35,6 @@ from bioflow_ai.utils.system import utc_now
 
 HEARTBEAT_INTERVAL_SECONDS = 10
 AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
-MISSING_INPUT_ERROR = 'Agent run input message is missing.'
 MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow assistant or fix target is missing.'
 MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow assistant or fix source run no longer exists.'
 
@@ -53,30 +53,6 @@ def _checkpoint_serializer() -> JsonPlusRedisSerializer:
             ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
         ]
     )
-
-
-def _text_from_parts(message: AgentMessage) -> str:
-    return ''.join(str(part.get('text', '')) for part in message.parts if part.get('type') == 'text')
-
-
-def _load_langchain_messages(session: Session, run: AgentRun) -> tuple[list[BaseMessage], HumanMessage]:
-    stored = agent_crud.list_messages(session, run.session_uid)
-    history: list[BaseMessage] = []
-    current: HumanMessage | None = None
-    for message in stored:
-        text = _text_from_parts(message)
-        if not text:
-            continue
-        if message.role == 'assistant':
-            history.append(AIMessage(content=text, id=str(message.uid)))
-        else:
-            converted = HumanMessage(content=text, id=str(message.uid))
-            history.append(converted)
-            if message.run_uid == run.uid and current is None:
-                current = converted
-    if current is None:
-        raise ValueError(MISSING_INPUT_ERROR)
-    return history, current
 
 
 def _message_text(message: BaseMessage | None) -> str:
@@ -191,7 +167,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 thread_id=checkpoint_thread_id,
             )
             resume_payload = (run.result_payload or {}).get('resume')
-            history, current_message = _load_langchain_messages(session, run)
+            history, current_message = load_langchain_messages(session, run)
             source_run_uid: uuid.UUID | None = None
             source_run_base_dir: str | None = None
             source_workflow_uid: uuid.UUID | None = None
@@ -238,7 +214,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 agent_input = {
                     'messages': [
                         current_message.model_copy(
-                            update={'content': f'<Require>\n{_message_text(current_message)}\n</Require>'}
+                            update={'content': wrap_request(current_message.content, '<Require>\n', '\n</Require>')}
                         )
                     ]
                 }

@@ -5,6 +5,8 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from bioflow_ai.services.agents.images import media_preview
+
 TOOL_CONTENT_PREVIEW = 200
 REASONING_CONTENT_PREVIEW = 200
 TOOL_ARGUMENT_PREVIEW = 50
@@ -40,6 +42,7 @@ def select_stream_display(chunk: Mapping[str, Any]) -> StreamDisplay | None:
 
 def display_preview(content: Any, limit: int) -> str:
     """Use the terminal's exact string conversion and truncation rule."""
+    content = media_preview(content)
     text = content if isinstance(content, str) else str(content)
     return text if len(text) <= limit else f'{text[:limit]}...'
 

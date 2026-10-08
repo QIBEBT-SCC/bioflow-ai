@@ -9,9 +9,10 @@ from contextlib import suppress
 from datetime import datetime
 from typing import Annotated, Literal, NoReturn
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.auth import UserDep
@@ -32,11 +33,13 @@ from bioflow_ai.schemas.agent import (
     AgentSessionPage,
     AgentSessionPublic,
     AgentSessionUpdate,
+    ImageMessagePart,
 )
 from bioflow_ai.schemas.agent_file import AgentFilePublic
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services.agents import files as agent_file_service
 from bioflow_ai.services.agents import sessions as agent_service
+from bioflow_ai.services.agents.images import MAX_SOURCE_BYTES, ImagePreparationError, prepare_image
 
 session_router = APIRouter()
 run_router = APIRouter()
@@ -76,6 +79,19 @@ def _dispatch_run(session: SessionDep, run: AgentRun, language: str | None = Non
         agent_service.mark_dispatch_failed(session, run, f'{type(error).__name__}: {error}')
         raise HTTPException(status_code=503, detail='Unable to dispatch agent run.') from error
     return agent_service.record_dispatch(session, run, task.id)
+
+
+@session_router.post('/images/prepare')
+async def prepare_agent_image(file: UploadFile, current_user: UserDep) -> ImageMessagePart:
+    """Prepare one authenticated image upload without persisting an attachment."""
+    del current_user
+    try:
+        data = await file.read(MAX_SOURCE_BYTES + 1)
+        return await run_in_threadpool(prepare_image, data, file.filename or 'image')
+    except ImagePreparationError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        await file.close()
 
 
 @session_router.post('', status_code=status.HTTP_201_CREATED)
@@ -206,6 +222,7 @@ def create_agent_run(
             data.agent_name,
             data.text,
             source_run_uid=data.source_run_uid,
+            images=data.images,
         )
         run = _dispatch_run(session, run, data.language.value if data.language else None)
     except agent_service.AgentServiceError as error:
@@ -336,7 +353,8 @@ def retry_agent_run(
         ]
         if not messages:
             raise agent_service.AgentRunTransitionError(RETRY_INPUT_ERROR)
-        text = next(str(part['text']) for part in messages[0].parts if part.get('type') == 'text' and part.get('text'))
+        text = ''.join(str(part.get('text', '')) for part in messages[0].parts if part.get('type') == 'text')
+        images = [ImageMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'image']
         agent_session = agent_service.get_owned_session(session, old_run.session_uid, current_user.id)
         target = agent_crud.get_run_target(session, old_run.uid)
         run = agent_service.create_run(
@@ -346,6 +364,7 @@ def retry_agent_run(
             text,
             retry_of_uid=old_run.uid,
             source_run_uid=target.source_run_uid if target is not None else None,
+            images=images,
         )
         language = data.language.value if data and data.language else None
         run = _dispatch_run(session, run, language)

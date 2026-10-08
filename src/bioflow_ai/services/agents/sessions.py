@@ -16,14 +16,17 @@ from bioflow_ai.models.user import User
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
+    MAX_IMAGES,
     AgentEventType,
     AgentName,
     AgentRunStatus,
     AgentSessionCreate,
     AgentSessionUpdate,
+    ImageMessagePart,
 )
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
+from bioflow_ai.services.agents.images import ImagePreparationError, validate_prepared_image
 from bioflow_ai.services.projects import workflows as project_workflow_service
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.jsonable import to_json_object
@@ -193,7 +196,20 @@ def create_run(
     *,
     retry_of_uid: uuid.UUID | None = None,
     source_run_uid: uuid.UUID | None = None,
+    images: list[ImageMessagePart] | None = None,
 ) -> AgentRun:
+    if len(images or []) > MAX_IMAGES:
+        message = 'A message can contain at most 4 images.'
+        raise AgentScopeError(message)
+    try:
+        prepared = [
+            validate_prepared_image(image).model_copy(update={'id': str(random_uid())}) for image in images or []
+        ]
+    except (ImagePreparationError, OSError, ValueError) as error:
+        raise AgentScopeError(str(error)) from error
+    if not text.strip() and (not prepared or agent_name == AgentName.WORKFLOW_FIXER):
+        message = 'A text request is required for workflow-fixer; other agents accept images alone.'
+        raise AgentScopeError(message)
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
         raise AgentScopeError(GLOBAL_SCOPE_ERROR)
     if agent_name in {AgentName.WORKFLOW_ASSISTANT, AgentName.WORKFLOW_FIXER}:
@@ -232,7 +248,10 @@ def create_run(
         session_uid=agent_session.uid,
         run_uid=run_uid,
         role='user',
-        parts=[{'type': 'text', 'text': text}],
+        parts=[
+            *([{'type': 'text', 'text': text}] if text else []),
+            *(image.model_dump(mode='json') for image in prepared),
+        ],
         create_time=now,
     )
     event = AgentEvent(
@@ -248,7 +267,7 @@ def create_run(
         with committing(session):
             _stage_run_records(session, run, message, event, target)
             if not agent_session.title:
-                agent_session.title = text[:80]
+                agent_session.title = text[:80] if text.strip() else prepared[0].filename[:80]
             agent_session.update_time = now
     except IntegrityError as error:
         if _is_active_run_integrity_error(error):
