@@ -66,18 +66,9 @@ entry points live in `runtime`, terminal interaction in `cli`, shared connection
 and container support in `infrastructure`, and agents and workflow generation in `llm`.
 The project uses `uv_build` as its build backend.
 
-Continue running from the cloned repository with `uv sync` and `uv run`.
-`uv run python -m bioflow_ai` is equivalent to `uv run bioflow-ai`. Repository
-resources remain in `presets` (including editable skills) and `deploy`; they are
-not bundled in the wheel. Configuration, runtime data, and export paths retain
-their working-directory and settings rules.
-
 ```bash
 uv run python -m pytest
 uv run python -m ruff check src tests
 uv run python -m pyrefly check
 uv build
 ```
-
-See [the migration record](MIGRATION.md) for validation results, module mappings,
-existing static diagnostics, and the API/dispatcher/worker cutover procedure.
