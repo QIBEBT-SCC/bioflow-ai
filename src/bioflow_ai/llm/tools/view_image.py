@@ -1,24 +1,18 @@
 # ruff: noqa: TRY301 - validation errors are converted to recoverable image/tool failures.
 """Read a visual snapshot within the workflow assistant's evidence boundaries."""
 
-from pathlib import Path
-
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 
-from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.infrastructure.object_storage.files import ObjectStorageError
 from bioflow_ai.llm.context import WorkflowAssistantContext
 from bioflow_ai.llm.tools.workflow_diagnosis import EvidenceSourceError, resolve_evidence_source
-from bioflow_ai.services._transaction import committing
 from bioflow_ai.services.agents.chat_attachment import (
     MAX_SOURCE_BYTES,
     ImagePreparationError,
     image_reference_content,
-    prepare_image,
-    save_image,
+    upload_image,
 )
 
 
@@ -35,17 +29,13 @@ def view_image(
     """
     try:
         evidence = resolve_evidence_source(source, runtime.context)
-        relative = Path(path)
-        if relative.is_absolute() or '..' in relative.parts:
-            message = 'Image path must be relative and remain within its evidence source.'
-            raise ImagePreparationError(message)
         if evidence.kind == 'file':
             if path != '.':
                 message = "Use path='.' for a file evidence source."
                 raise ImagePreparationError(message)
             target = evidence.path
         else:
-            target = (evidence.path / relative).resolve(strict=True)
+            target = (evidence.path / path).resolve(strict=True)
             if not target.is_relative_to(evidence.path):
                 message = 'Image path escapes its evidence source.'
                 raise ImagePreparationError(message)
@@ -54,9 +44,7 @@ def view_image(
             raise ImagePreparationError(message)
         runtime.stream_writer({'info': f'Reading image: {source}/{path}, page {page}'})
         with target.open('rb') as stream:
-            image = prepare_image(stream.read(MAX_SOURCE_BYTES + 1), target.name, page)
-        with Session(engine) as session, committing(session):
-            image = save_image(session, image)
+            image = upload_image(stream.read(MAX_SOURCE_BYTES + 1), target.name, page)
         return [
             {'type': 'text', 'text': f'Filesystem image snapshot: source={source}, path={path}.'},
             *image_reference_content(image),

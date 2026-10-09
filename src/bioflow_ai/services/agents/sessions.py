@@ -29,7 +29,6 @@ from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
 from bioflow_ai.services.agents.chat_attachment import (
     ImagePreparationError,
-    migrate_message_images,
     resolve_image,
 )
 from bioflow_ai.services.documents.pdf_index import PDFNotFoundError, PDFPreparationError, resolve_pdf
@@ -448,11 +447,7 @@ def reconcile_stale_run(session: Session, run: AgentRun) -> AgentRun:
 
 
 def list_messages(session: Session, agent_session: AgentSession) -> Sequence[AgentMessage]:
-    messages = agent_crud.list_messages(session, agent_session.uid)
-    changed = [migrate_message_images(session, message) for message in messages]
-    if any(changed):
-        session.commit()
-    return messages
+    return agent_crud.list_messages(session, agent_session.uid)
 
 
 def list_runs(session: Session, agent_session: AgentSession) -> Sequence[AgentRun]:

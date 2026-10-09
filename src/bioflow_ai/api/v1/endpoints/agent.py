@@ -45,8 +45,8 @@ from bioflow_ai.services.agents import sessions as agent_service
 from bioflow_ai.services.agents.chat_attachment import (
     MAX_SOURCE_BYTES,
     ImagePreparationError,
-    prepare_image,
     read_image_file,
+    upload_image,
 )
 from bioflow_ai.services.documents import pdf_index as pdf_service
 
@@ -100,13 +100,15 @@ def _dispatch_run(session: SessionDep, run: AgentRun, language: str | None = Non
 
 @session_router.post('/images/prepare')
 async def prepare_agent_image(file: UploadFile, current_user: UserDep) -> ImageMessagePart:
-    """Prepare one authenticated image upload without persisting an attachment."""
+    """Normalize one authenticated image upload and store it as a reusable snapshot."""
     del current_user
     try:
         data = await file.read(MAX_SOURCE_BYTES + 1)
-        return await run_in_threadpool(prepare_image, data, file.filename or 'image')
+        return await run_in_threadpool(upload_image, data, file.filename or 'image')
     except ImagePreparationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except ObjectStorageError as error:
+        _raise_service_error(error)
     finally:
         await file.close()
 
