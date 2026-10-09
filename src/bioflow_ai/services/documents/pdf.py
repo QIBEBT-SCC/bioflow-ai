@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud.resource import file as file_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.infrastructure.external import open_mineru
+from bioflow_ai.infrastructure.external import local_pdf, open_mineru
 from bioflow_ai.infrastructure.object_storage import files as storage
 from bioflow_ai.llm.utils.retrievers import insert_documents
 from bioflow_ai.models.resource import File
@@ -24,7 +24,7 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
         file_name: 原始文件名
 
     Returns:
-        ParseResult: 包含 PDF 和 Markdown 在对象存储中的 key
+        PDF 在对象存储中的 key, 对应的 Markdown 使用同名 .md 文件。
 
     Raises:
         ValueError: 解析引擎不支持或解析失败
@@ -45,18 +45,20 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
         pdf_path.write_bytes(pdf_data)
         logger.debug(f'Saved PDF to temporary location: {pdf_path}')
 
-        match get_settings().pdf_parser.ENGINE:
+        pdf_engine = get_settings().pdf_parser.ENGINE
+        parse_output_dir = tmp_path / 'parsed'
+        match pdf_engine:
+            case 'local':
+                parse_result = await local_pdf.parse(pdf_path, parse_output_dir)
             case 'open_mineru':
                 # 调用本地部署 MinerU 解析
-                parse_output_dir = tmp_path / 'parsed'
-                parse_result: open_mineru.OpenMinerUParseResult = await open_mineru.parse(pdf_path, parse_output_dir)
-
-                md_path = Path(parse_result.markdown)
-                img_mappers = parse_result.images
-
+                parse_result = await open_mineru.parse(pdf_path, parse_output_dir)
             case _:
-                message = f'不支持的解析引擎: {engine}'
+                message = f'不支持的解析引擎: {pdf_engine}'
                 raise ValueError(message)
+
+        md_path = Path(parse_result.markdown)
+        img_mappers = parse_result.images
 
         # Upload all generated files below a shared path derived from the PDF hash.
         # 同时更新markdown中的图片引用路径

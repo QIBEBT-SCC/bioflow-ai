@@ -94,7 +94,7 @@ api_key = ""
 timeout = 60
 
 [pdf_parser]
-engine = "open_mineru"
+engine = "local"
 batch_size = 5
 
 [pdf_parser.mineru]

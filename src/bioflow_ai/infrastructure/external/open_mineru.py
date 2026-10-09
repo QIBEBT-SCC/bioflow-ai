@@ -7,20 +7,9 @@ import httpx
 import nanoid
 from anyio import Path as AsyncPath
 from loguru import logger
-from pydantic import BaseModel, Field
 
 from bioflow_ai.core.config import get_settings
-
-
-class ImageMap(BaseModel):
-    old_name: str
-    file_path: str
-
-
-class OpenMinerUParseResult(BaseModel):
-    markdown: str
-    images: list[ImageMap] = Field(default_factory=list)
-
+from bioflow_ai.schemas.documents import ImageMap, PDFParseResult
 
 PARSE_OPTION = {
     'backend': 'hybrid-auto-engine',
@@ -40,7 +29,7 @@ def _get_async_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=timeout)
 
 
-async def parse(file_path: str | Path, output_dir: str | Path) -> OpenMinerUParseResult:
+async def parse(file_path: str | Path, output_dir: str | Path) -> PDFParseResult:
     """调用 MinerU 解析 PDF, 返回保存后的 Markdown 路径和重命名的图片路径列表."""
     pdf_path = await AsyncPath(file_path).expanduser()
     pdf_path = await pdf_path.absolute()
@@ -96,7 +85,7 @@ async def parse(file_path: str | Path, output_dir: str | Path) -> OpenMinerUPars
         image_mapper.append(ImageMap(old_name=f'images/{img_path.name}', file_path=str(new_path)))
         await img_path.rename(new_path)
 
-    return OpenMinerUParseResult(markdown=str(md_path), images=image_mapper)
+    return PDFParseResult(markdown=str(md_path), images=image_mapper)
 
 
-__all__ = ['OpenMinerUParseResult', 'parse']
+__all__ = ['parse']
