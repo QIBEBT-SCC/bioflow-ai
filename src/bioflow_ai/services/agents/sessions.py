@@ -26,7 +26,11 @@ from bioflow_ai.schemas.agent import (
 )
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
-from bioflow_ai.services.agents.chat_attachment import ImagePreparationError, validate_prepared_image
+from bioflow_ai.services.agents.chat_attachment import (
+    ImagePreparationError,
+    migrate_message_images,
+    resolve_image,
+)
 from bioflow_ai.services.projects import workflows as project_workflow_service
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.jsonable import to_json_object
@@ -201,13 +205,7 @@ def create_run(
     if len(images or []) > MAX_IMAGES:
         message = 'A message can contain at most 4 images.'
         raise AgentScopeError(message)
-    try:
-        prepared = [
-            validate_prepared_image(image).model_copy(update={'id': str(random_uid())}) for image in images or []
-        ]
-    except (ImagePreparationError, OSError, ValueError) as error:
-        raise AgentScopeError(str(error)) from error
-    if not text.strip() and (not prepared or agent_name == AgentName.WORKFLOW_FIXER):
+    if not text.strip() and (not images or agent_name == AgentName.WORKFLOW_FIXER):
         message = 'A text request is required for workflow-fixer; other agents accept images alone.'
         raise AgentScopeError(message)
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
@@ -232,6 +230,12 @@ def create_run(
             raise AgentRunConflictError(ACTIVE_RUN_ERROR)
 
     run_uid = random_uid()
+    try:
+        prepared = [
+            resolve_image(session, image).model_copy(update={'id': str(random_uid())}) for image in images or []
+        ]
+    except (ImagePreparationError, OSError, ValueError) as error:
+        raise AgentScopeError(str(error)) from error
     now = utc_now()
     run = AgentRun(
         uid=run_uid,
@@ -439,7 +443,11 @@ def reconcile_stale_run(session: Session, run: AgentRun) -> AgentRun:
 
 
 def list_messages(session: Session, agent_session: AgentSession) -> Sequence[AgentMessage]:
-    return agent_crud.list_messages(session, agent_session.uid)
+    messages = agent_crud.list_messages(session, agent_session.uid)
+    changed = [migrate_message_images(session, message) for message in messages]
+    if any(changed):
+        session.commit()
+    return messages
 
 
 def list_runs(session: Session, agent_session: AgentSession) -> Sequence[AgentRun]:

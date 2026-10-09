@@ -1,6 +1,7 @@
 """Reusable middleware for LLM agents."""
 
 from bioflow_ai.llm.middleware.archive import SaveMessagesMiddleware
+from bioflow_ai.llm.middleware.chat_attachment import ChatAttachmentMiddleware
 from bioflow_ai.llm.middleware.cleanup import ClearContainerMiddleware
 from bioflow_ai.llm.middleware.end_loop import AskAndEndMiddleware, EndLoopMiddleware
 from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
@@ -23,6 +24,7 @@ from bioflow_ai.llm.middleware.workflow_fix import WorkflowFixScopeMiddleware
 
 __all__ = [
     'AskAndEndMiddleware',
+    'ChatAttachmentMiddleware',
     'CheckStateExistMiddleware',
     'ClearContainerMiddleware',
     'DisableParallelToolCallsMiddleware',

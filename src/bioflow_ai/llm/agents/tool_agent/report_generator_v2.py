@@ -5,6 +5,7 @@ from langchain.agents import create_agent
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.context import TestRunContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
     ParentHandoffMiddleware,
@@ -228,6 +229,7 @@ test_run_agent = create_agent(
         CheckStateExistMiddleware('test_run_report', 'write_tool_report'),
         TodoMiddleware(),
         SaveMessagesMiddleware('test_run'),
+        ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('test_run', **metadata),
     ],
     state_schema=TestRunState,

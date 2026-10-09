@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.auth import UserDep
 from bioflow_ai.infrastructure.database import SessionDep, engine
+from bioflow_ai.infrastructure.object_storage.files import ObjectStorageError
 from bioflow_ai.models.agent import AgentRun, AgentSession
 from bioflow_ai.schemas.agent import (
     TERMINAL_AGENT_RUN_STATUSES,
@@ -39,7 +40,12 @@ from bioflow_ai.schemas.agent_artifact import AgentArtifactPublic
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services.agents import artifacts as agent_artifact_service
 from bioflow_ai.services.agents import sessions as agent_service
-from bioflow_ai.services.agents.chat_attachment import MAX_SOURCE_BYTES, ImagePreparationError, prepare_image
+from bioflow_ai.services.agents.chat_attachment import (
+    MAX_SOURCE_BYTES,
+    ImagePreparationError,
+    prepare_image,
+    read_image_file,
+)
 
 session_router = APIRouter()
 run_router = APIRouter()
@@ -51,13 +57,15 @@ RETRY_INPUT_ERROR = 'The original run input is unavailable.'
 
 
 def _raise_service_error(error: Exception) -> NoReturn:
+    if isinstance(error, ObjectStorageError):
+        raise HTTPException(status_code=503, detail='The image snapshot is unavailable. Please try again.') from error
     if isinstance(error, (agent_service.AgentSessionNotFoundError, agent_service.AgentRunNotFoundError)):
         raise HTTPException(status_code=404, detail='Agent resource not found.') from error
     if isinstance(error, agent_service.AgentProjectAccessError):
         raise HTTPException(status_code=404, detail='Project not found.') from error
     if isinstance(error, (agent_service.AgentRunConflictError, agent_service.AgentRunTransitionError)):
         raise HTTPException(status_code=409, detail=str(error)) from error
-    if isinstance(error, agent_service.AgentScopeError):
+    if isinstance(error, (agent_service.AgentScopeError, ImagePreparationError)):
         raise HTTPException(status_code=422, detail=str(error)) from error
     raise error
 
@@ -105,6 +113,22 @@ def create_agent_session(
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
     return _session_public(session, created)
+
+
+@session_router.get('/images/{file_id}')
+def preview_agent_image(file_id: int, session: SessionDep) -> Response:
+    """Serve a normalized snapshot directly from the existing file registry."""
+    try:
+        data, media_type = read_image_file(session, file_id)
+    except ImagePreparationError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ObjectStorageError as error:
+        raise HTTPException(status_code=503, detail='The image snapshot is unavailable.') from error
+    return Response(
+        data,
+        media_type=media_type,
+        headers={'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'},
+    )
 
 
 @session_router.get('')
@@ -187,11 +211,12 @@ def get_agent_messages(
 ) -> list[AgentMessagePublic]:
     try:
         agent_session = agent_service.get_owned_session(session, session_uid, current_user.id)
-    except agent_service.AgentServiceError as error:
+        return [
+            AgentMessagePublic.model_validate(message)
+            for message in agent_service.list_messages(session, agent_session)
+        ]
+    except (agent_service.AgentServiceError, ImagePreparationError, ObjectStorageError) as error:
         _raise_service_error(error)
-    return [
-        AgentMessagePublic.model_validate(message) for message in agent_service.list_messages(session, agent_session)
-    ]
 
 
 @session_router.get('/{session_uid}/runs')
@@ -225,7 +250,7 @@ def create_agent_run(
             images=data.images,
         )
         run = _dispatch_run(session, run, data.language.value if data.language else None)
-    except agent_service.AgentServiceError as error:
+    except (agent_service.AgentServiceError, ObjectStorageError) as error:
         _raise_service_error(error)
     return AgentRunPublic.model_validate(run)
 
@@ -368,7 +393,7 @@ def retry_agent_run(
         )
         language = data.language.value if data and data.language else None
         run = _dispatch_run(session, run, language)
-    except agent_service.AgentServiceError as error:
+    except (agent_service.AgentServiceError, ObjectStorageError) as error:
         _raise_service_error(error)
     return AgentRunPublic.model_validate(run)
 

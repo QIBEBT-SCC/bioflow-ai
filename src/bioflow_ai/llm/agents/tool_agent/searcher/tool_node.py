@@ -5,7 +5,7 @@ from langchain.agents import create_agent
 from langgraph.graph import MessagesState
 
 from bioflow_ai.llm.context import BaseContext
-from bioflow_ai.llm.middleware import TokenStatisticMiddleware
+from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMiddleware
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import read_tool_doc, select_tool
 from bioflow_ai.llm.tools.vector_store import search_tools_by_function
@@ -90,6 +90,7 @@ search_exist_tool_agent = create_agent(
     ],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
+        ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('search_exist_node', **metadata),
     ],
     state_schema=SearchToolNodeState,

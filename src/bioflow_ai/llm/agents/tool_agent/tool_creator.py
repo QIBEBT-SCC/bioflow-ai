@@ -31,7 +31,7 @@ from bioflow_ai.llm.agents.tool_agent.routes import route_after_image_selection,
 from bioflow_ai.llm.agents.tool_agent.searcher import search_image_agent
 from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from bioflow_ai.llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
-from bioflow_ai.llm.middleware import TokenStatisticMiddleware
+from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMiddleware
 from bioflow_ai.llm.models import get_agent_model, qwen3_embedding
 from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
 from bioflow_ai.llm.tools.database import select_group, view_groups
@@ -96,7 +96,7 @@ class CreateToolAgent:
             model=self.think_llm,
             tools=[view_groups, select_group],
             system_prompt=SELECT_GROUP_SYSTEM,
-            middleware=[TokenStatisticMiddleware('select_group', **metadata)],
+            middleware=[ChatAttachmentMiddleware(), TokenStatisticMiddleware('select_group', **metadata)],
             state_schema=SelectGroupState,
             context_schema=BaseContext,
         )
@@ -154,7 +154,7 @@ class CreateToolAgent:
         with Session(engine) as session:
             tools = tool_crud.get_all_by_image(session, str(state['image_uid']))
             if not tools:
-                return Command(goto='get_report')
+                return Command[Literal['get_report', '__end__']](goto='get_report')
 
         pre_search_result = await search_exist_tool_agent.ainvoke(
             {
@@ -189,8 +189,8 @@ class CreateToolAgent:
                     f'  <command>{tool_node.complete_command}</command>\n'
                     f'</tool>'
                 )
-            return Command(
-                goto=END,
+            return Command[Literal['get_report', '__end__']](
+                goto=cast('Literal["__end__"]', END),
                 update={
                     'id_mapper': mapper,
                     'tool_uid': str(tool_data.uid),
@@ -207,7 +207,7 @@ class CreateToolAgent:
                 },
             )
 
-        return Command(goto='get_report')
+        return Command[Literal['get_report', '__end__']](goto='get_report')
 
     @staticmethod
     async def get_report_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:

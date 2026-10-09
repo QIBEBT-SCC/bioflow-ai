@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.schemas.agent import ImageMessagePart
-from bioflow_ai.services.agents.chat_attachment import image_content
+from bioflow_ai.services.agents.chat_attachment import (
+    image_reference_content,
+    migrate_message_images,
+)
 
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
 
@@ -17,7 +20,11 @@ def load_langchain_messages(session: Session, run: AgentRun) -> tuple[list[BaseM
     """Restore durable user images along with the existing text conversation."""
     history: list[BaseMessage] = []
     current: HumanMessage | None = None
-    for message in agent_crud.list_messages(session, run.session_uid):
+    messages = agent_crud.list_messages(session, run.session_uid)
+    changed = [migrate_message_images(session, message) for message in messages]
+    if any(changed):
+        session.commit()
+    for message in messages:
         content = parts_content(message.parts)
         if not content:
             continue
@@ -42,7 +49,7 @@ def parts_content(parts: list[dict[str, Any]]) -> str | list[str | dict]:
         if part.get('type') == 'text':
             content.append({'type': 'text', 'text': str(part.get('text', ''))})
         elif part.get('type') == 'image':
-            content.extend(image_content(ImageMessagePart.model_validate(part)))
+            content.extend(image_reference_content(ImageMessagePart.model_validate(part)))
     return content
 
 

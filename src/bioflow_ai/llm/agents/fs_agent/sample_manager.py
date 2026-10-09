@@ -7,6 +7,7 @@ from langchain.agents import create_agent
 from bioflow_ai.llm.agents.fs_agent.analysis_reporter import AGENT_LLM
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
     SampleManagerProgressMiddleware,
@@ -198,6 +199,7 @@ def _build_sample_agent(
             EndLoopMiddleware(),
             StatusBarMiddleware(),
             CheckStateExistMiddleware('summary', 'write_conclusion'),
+            ChatAttachmentMiddleware(),
             TokenStatisticMiddleware('sample_manager', **metadata),
             UserLanguageMiddleware(LANGUAGE_PROMPT),
         ]

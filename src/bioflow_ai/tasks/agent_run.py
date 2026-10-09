@@ -213,9 +213,12 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             elif agent_name == AgentName.TOOL_GENERATOR:
                 agent_input = {
                     'messages': [
-                        current_message.model_copy(
-                            update={'content': wrap_request(current_message.content, '<Require>\n', '\n</Require>')}
+                        message.model_copy(
+                            update={'content': wrap_request(message.content, '<Require>\n', '\n</Require>')}
                         )
+                        if message is current_message
+                        else message
+                        for message in history
                     ]
                 }
             else:

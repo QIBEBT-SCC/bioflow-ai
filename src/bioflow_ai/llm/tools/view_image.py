@@ -5,14 +5,20 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.infrastructure.object_storage.files import ObjectStorageError
 from bioflow_ai.llm.context import WorkflowAssistantContext
 from bioflow_ai.llm.tools.workflow_diagnosis import EvidenceSourceError, resolve_evidence_source
+from bioflow_ai.services._transaction import committing
 from bioflow_ai.services.agents.chat_attachment import (
     MAX_SOURCE_BYTES,
     ImagePreparationError,
-    image_content,
+    image_reference_content,
     prepare_image,
+    save_image,
 )
 
 
@@ -49,9 +55,13 @@ def view_image(
         runtime.stream_writer({'info': f'Reading image: {source}/{path}, page {page}'})
         with target.open('rb') as stream:
             image = prepare_image(stream.read(MAX_SOURCE_BYTES + 1), target.name, page)
+        with Session(engine) as session, committing(session):
+            image = save_image(session, image)
         return [
             {'type': 'text', 'text': f'Filesystem image snapshot: source={source}, path={path}.'},
-            *image_content(image),
+            *image_reference_content(image),
         ]
     except (EvidenceSourceError, ImagePreparationError, OSError, ValueError) as error:
         return [{'type': 'text', 'text': f'Unable to view image: {error}'}]
+    except (ObjectStorageError, SQLAlchemyError):
+        return [{'type': 'text', 'text': 'Unable to view image: image storage is unavailable. Try reading it again.'}]

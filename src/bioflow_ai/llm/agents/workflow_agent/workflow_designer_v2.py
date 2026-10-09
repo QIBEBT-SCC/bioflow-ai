@@ -11,6 +11,7 @@ from bioflow_ai.llm.agents.workflow_agent.paper_reader import paper_reader
 from bioflow_ai.llm.agents.workflow_agent.tool_info_searcher import tool_info_searcher
 from bioflow_ai.llm.context import BaseContext, ProjectContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
     SkillMiddleware,
@@ -253,6 +254,7 @@ def _build_planner(
             EndLoopMiddleware(),
             StatusBarMiddleware(),
             CheckStateExistMiddleware('plan', 'write_plan'),
+            ChatAttachmentMiddleware(),
             TokenStatisticMiddleware('planner', **metadata),
             UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],

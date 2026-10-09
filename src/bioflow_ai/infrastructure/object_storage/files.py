@@ -1,9 +1,9 @@
 import base64
 import io
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
@@ -14,10 +14,37 @@ class ObjectStorageError(Exception):
     """Exception for object storage related errors."""
 
 
-def _get_bucket():
+def _get_bucket() -> Any:
     """Get S3 bucket object."""
     bucket_name = get_settings().persistent.storage.s3.BUCKET
     return s3_client.Bucket(bucket_name)
+
+
+def write_bytes(key: str, data: bytes, content_type: str) -> None:
+    """Write a server-generated object key without exposing image bytes in logs."""
+    try:
+        _get_bucket().Object(key).put(Body=data, ContentType=content_type)
+    except (BotoCoreError, ClientError) as error:
+        message = 'Unable to save the attachment object.'
+        raise ObjectStorageError(message) from error
+
+
+def read_bytes(key: str, max_bytes: int) -> bytes:
+    """Read a bounded object, closing the streaming body even on failure."""
+    try:
+        response = _get_bucket().Object(key).get()
+        stream = response['Body']
+        try:
+            data = stream.read(max_bytes + 1)
+        finally:
+            stream.close()
+        if not data or len(data) > max_bytes:
+            message = 'The attachment object is empty or exceeds its size limit.'
+            raise ObjectStorageError(message)
+    except (BotoCoreError, ClientError) as error:
+        message = 'Unable to read the attachment object.'
+        raise ObjectStorageError(message) from error
+    return data
 
 
 def generate_key_from_hash(file_hash: str, filename: str, prefix: str = '') -> str:

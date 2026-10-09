@@ -8,6 +8,7 @@ from langgraph.types import Command
 
 from bioflow_ai.llm.context import BaseContext, ToolGeneratorContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
@@ -286,6 +287,7 @@ config_generate_agent = create_agent(
         MaxRetriesMiddleware(),
         EndLoopMiddleware(),
         SaveMessagesMiddleware('tool_generator'),
+        ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('tool_generator', **metadata),
     ],
     state_schema=ToolGeneratorState,

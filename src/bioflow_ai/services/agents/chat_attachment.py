@@ -3,6 +3,7 @@
 
 import base64
 import binascii
+import hashlib
 import io
 import math
 import re
@@ -14,13 +15,18 @@ from xml.etree.ElementTree import Element, tostring
 from defusedxml import ElementTree
 from PIL import Image, ImageOps, UnidentifiedImageError
 from resvg_py import svg_to_bytes
+from sqlalchemy.orm import Session
 from tinycss2 import parse_component_value_list, parse_declaration_list, serialize
 
+from bioflow_ai.infrastructure.object_storage import files as object_storage
+from bioflow_ai.models.agent import AgentMessage
+from bioflow_ai.models.resource import File
 from bioflow_ai.schemas.agent import (
     MAX_IMAGE_BYTES,
     MAX_IMAGE_EDGE,
     ImageMessagePart,
 )
+from bioflow_ai.services.resource.file import store_file_bytes
 
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
@@ -39,6 +45,7 @@ SVG_UNITS = {
     'ex': 6,
 }
 DATA_URL = re.compile(r'^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$')
+IMAGE_REFERENCE_URL = re.compile(r'^/agent-sessions/images/([0-9]+)$')
 
 
 class ImagePreparationError(ValueError):
@@ -284,3 +291,93 @@ def image_content(part: ImageMessagePart) -> list[dict]:
     if part.conversion_note:
         label += f' {part.conversion_note}'
     return [{'type': 'text', 'text': label}, {'type': 'image_url', 'image_url': {'url': part.url}}]
+
+
+def image_placeholder(image: ImageMessagePart) -> str:
+    """Generate a compact XML reference to the existing file registry."""
+    return f'<Image id="{image_file_id(image)}"/>'
+
+
+def image_file_id(image: ImageMessagePart) -> int:
+    """Resolve the file ID separately from the existing message-part identity."""
+    match = IMAGE_REFERENCE_URL.fullmatch(image.url)
+    if match is None:
+        message = 'Invalid image file reference.'
+        raise ImagePreparationError(message)
+    return int(match[1])
+
+
+def image_reference_content(image: ImageMessagePart) -> list[dict]:
+    """Keep readable labels and small placeholders in checkpoint message content."""
+    return [image_content(image)[0], {'type': 'text', 'text': image_placeholder(image)}]
+
+
+def save_image(session: Session, image: ImageMessagePart) -> ImageMessagePart:
+    """Reuse the global file registry to store a normalized immutable image once."""
+    image = validate_prepared_image(image)
+    data = base64.b64decode(image.url.split(',', 1)[1], validate=True)
+    file = store_file_bytes(session, data, image.filename, image.media_type, 'images')
+    return image.model_copy(update={'url': f'/agent-sessions/images/{file.id}'})
+
+
+def read_image_file(session: Session, file_id: int) -> tuple[bytes, str]:
+    """Read a registered image by ID and verify its format and content hash."""
+    file = session.get(File, file_id)
+    if file is None:
+        message = 'The image snapshot is no longer available.'
+        raise ImagePreparationError(message)
+    data = object_storage.read_bytes(file.s3_path, MAX_IMAGE_BYTES)
+    if hashlib.sha256(data).hexdigest() != file.sha256:
+        message = 'The stored image snapshot failed its integrity check.'
+        raise ImagePreparationError(message)
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            media_type = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'WEBP': 'image/webp'}.get(image.format or '')
+            if media_type is None or max(image.size) > MAX_IMAGE_EDGE:
+                message = 'The file is not a prepared image snapshot.'
+                raise ImagePreparationError(message)
+            image.verify()
+    except (OSError, ValueError) as error:
+        message = 'The file is not a prepared image snapshot.'
+        raise ImagePreparationError(message) from error
+    return data, media_type
+
+
+def resolve_image(session: Session, image: ImageMessagePart) -> ImageMessagePart:
+    """Validate inline uploads or existing file references, returning a compact part."""
+    if image.url.startswith('data:'):
+        return save_image(session, image)
+    file_id = image_file_id(image)
+    data, media_type = read_image_file(session, file_id)
+    encoded = base64.b64encode(data).decode('ascii')
+    validate_prepared_image(image.model_copy(update={'url': f'data:{media_type};base64,{encoded}'}))
+    return image.model_copy(update={'url': f'/agent-sessions/images/{file_id}'})
+
+
+def hydrate_image_references(image_ids: list[str]) -> dict[str, dict]:
+    """Load each referenced image once per model request, using its actual media type."""
+    from bioflow_ai.infrastructure.database import engine
+
+    hydrated = {}
+    with Session(engine) as session:
+        for image_id in image_ids:
+            if image_id in hydrated:
+                continue
+            data, media_type = read_image_file(session, int(image_id))
+            encoded = base64.b64encode(data).decode('ascii')
+            hydrated[image_id] = {'type': 'image_url', 'image_url': {'url': f'data:{media_type};base64,{encoded}'}}
+    return hydrated
+
+
+def migrate_message_images(session: Session, message: AgentMessage) -> bool:
+    """Replace legacy inline user images without changing text or image metadata."""
+    parts = list(message.parts)
+    changed = False
+    for index, part in enumerate(parts):
+        if part.get('type') == 'image' and str(part.get('url', '')).startswith('data:'):
+            image = save_image(session, ImageMessagePart.model_validate(part))
+            parts[index] = image.model_dump(mode='json')
+            changed = True
+    if changed:
+        message.parts = parts
+    return changed

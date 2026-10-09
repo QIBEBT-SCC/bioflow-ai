@@ -10,6 +10,7 @@ from langgraph.types import Command
 
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     DisableParallelToolCallsMiddleware,
     SaveMessagesMiddleware,
     SkillMiddleware,
@@ -248,6 +249,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
                 ),
                 StatusBarMiddleware(),
                 SaveMessagesMiddleware('workflow_builder'),
+                ChatAttachmentMiddleware(),
                 TokenStatisticMiddleware('workflow_builder', **metadata),
                 UserLanguageMiddleware(LANGUAGE_PROMPT),
             ],
@@ -279,6 +281,7 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             ),
             StatusBarMiddleware(),
             SaveMessagesMiddleware('workflow_builder'),
+            ChatAttachmentMiddleware(),
             TokenStatisticMiddleware('reproduction_agent', **metadata),
             UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],

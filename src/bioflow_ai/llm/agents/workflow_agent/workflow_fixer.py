@@ -7,6 +7,7 @@ from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import WorkflowFixContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
     SaveMessagesMiddleware,
@@ -112,6 +113,7 @@ def build_workflow_fixer(checkpointer: Optional['BaseCheckpointSaver'] = None) -
             ),
             StatusBarMiddleware(),
             SaveMessagesMiddleware('workflow_fixer'),
+            ChatAttachmentMiddleware(),
             TokenStatisticMiddleware('workflow_fixer', **metadata),
             UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],

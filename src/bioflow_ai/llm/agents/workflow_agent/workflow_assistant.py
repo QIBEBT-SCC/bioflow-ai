@@ -7,12 +7,12 @@ from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import WorkflowAssistantContext
 from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
     DisableParallelToolCallsMiddleware,
     SkillMiddleware,
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
 )
-from bioflow_ai.llm.middleware.tool_images import ToolImageMiddleware
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import WorkflowAssistantState
 from bioflow_ai.llm.tools.view_image import view_image
@@ -55,7 +55,7 @@ def build_workflow_assistant(checkpointer: Optional['BaseCheckpointSaver'] = Non
             DisableParallelToolCallsMiddleware(disabled_tools={'write_diagnosis'}),
             TokenStatisticMiddleware('workflow_assistant', **metadata),
             UserLanguageMiddleware(LANGUAGE_PROMPT),
-            ToolImageMiddleware(),
+            ChatAttachmentMiddleware(),
         ],
         state_schema=WorkflowAssistantState,
         context_schema=WorkflowAssistantContext,

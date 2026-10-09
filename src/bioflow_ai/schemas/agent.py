@@ -62,7 +62,7 @@ class TextMessagePart(BaseModel):
 
 
 class ImageMessagePart(BaseModel):
-    """A prepared visual snapshot, independent of the original filesystem file."""
+    """Snapshot metadata with a file preview URL (inline only during preparation)."""
 
     type: Literal['image'] = 'image'
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=64)

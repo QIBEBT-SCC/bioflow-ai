@@ -1,11 +1,14 @@
-"""Adapt visual tool results for OpenAI Chat Completions without mutating state."""
+"""Prepare chat attachments for model transport without changing graph state."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
+
+from bioflow_ai.llm.utils.multimodal import rebuild_multimodal_messages
 
 
 def move_tool_images(messages: list[AnyMessage]) -> list[AnyMessage]:
@@ -43,24 +46,25 @@ def move_tool_images(messages: list[AnyMessage]) -> list[AnyMessage]:
     return result
 
 
-class ToolImageMiddleware(AgentMiddleware):
-    """Use a user visual message only for OpenAI Chat Completions transport."""
+class ChatAttachmentMiddleware(AgentMiddleware):
+    """Hydrate references and adapt tool images in an isolated request copy."""
 
     @staticmethod
     def _prepare(request: ModelRequest) -> ModelRequest:
-        model = request.model
-        if isinstance(model, ChatOpenAI) and not model.use_responses_api:
-            return request.override(messages=move_tool_images(request.messages))
-        return request
+        messages = rebuild_multimodal_messages(request.messages)
+        if isinstance(request.model, ChatOpenAI) and not request.model.use_responses_api:
+            messages = move_tool_images(messages)
+        return request.override(messages=messages)
 
     def wrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
     ) -> ModelCallResult:
-        """Adapt synchronous model input."""
+        """Prepare an isolated synchronous request."""
         return handler(self._prepare(request))
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        """Adapt asynchronous model input."""
-        return await handler(self._prepare(request))
+        """Read object storage outside the event loop."""
+        prepared = await asyncio.to_thread(self._prepare, request)
+        return await handler(prepared)
