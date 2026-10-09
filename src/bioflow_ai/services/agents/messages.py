@@ -1,5 +1,6 @@
 """Convert durable domain messages without dropping their visual content."""
 
+from html import escape
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -42,14 +43,16 @@ def load_langchain_messages(session: Session, run: AgentRun) -> tuple[list[BaseM
 
 def parts_content(parts: list[dict[str, Any]]) -> str | list[str | dict]:
     """Keep text-only compatibility and structured blocks for image messages."""
-    if not any(part.get('type') == 'image' for part in parts):
-        return ''.join(str(part.get('text', '')) for part in parts if part.get('type') == 'text')
     content: list[str | dict] = []
     for part in parts:
         if part.get('type') == 'text':
             content.append({'type': 'text', 'text': str(part.get('text', ''))})
         elif part.get('type') == 'image':
             content.extend(image_reference_content(ImageMessagePart.model_validate(part)))
+        elif part.get('type') == 'pdf':
+            content.append({'type': 'text', 'text': f'<PDF id="{escape(str(part["file_id"]), quote=True)}">'})
+    if not any(part.get('type') == 'image' for part in parts):
+        return ''.join(str(part['text']) for part in content if isinstance(part, dict))
     return content
 
 

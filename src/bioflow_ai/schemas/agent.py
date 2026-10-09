@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_EDGE = 2048
+MAX_PDF_BYTES = 20 * 1024 * 1024
 
 
 class AgentName(StrEnum):
@@ -77,6 +78,15 @@ class ImageMessagePart(BaseModel):
     conversion_note: str | None = Field(default=None, max_length=500)
 
 
+class PDFMessagePart(BaseModel):
+    """A PDF attachment referencing the existing file registry and its S3 object."""
+
+    type: Literal['pdf'] = 'pdf'
+    id: int = Field(ge=1)
+    file_id: str = Field(min_length=1, max_length=512)
+    filename: str = Field(min_length=1, max_length=255)
+
+
 class AgentMessagePublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,7 +94,7 @@ class AgentMessagePublic(BaseModel):
     session_uid: uuid.UUID
     run_uid: uuid.UUID
     role: Literal['user', 'assistant']
-    parts: list[TextMessagePart | ImageMessagePart]
+    parts: list[TextMessagePart | ImageMessagePart | PDFMessagePart]
     create_time: datetime
 
 
@@ -154,13 +164,14 @@ class AgentRunCreate(AgentLanguagePreference):
     agent_name: AgentName
     text: str = Field(default='', max_length=100_000)
     images: list[ImageMessagePart] = Field(default_factory=list, max_length=MAX_IMAGES)
+    pdfs: list[PDFMessagePart] = Field(default_factory=list, max_length=MAX_IMAGES)
     source_run_uid: uuid.UUID | None = None
 
     @model_validator(mode='after')
     def validate_fix_request(self) -> 'AgentRunCreate':
         """Require a concrete message when starting workflow repair."""
-        if not self.text.strip() and not self.images:
-            message = 'A text request or at least one image is required'
+        if not self.text.strip() and not self.images and not self.pdfs:
+            message = 'A text request or at least one attachment is required'
             raise ValueError(message)
         if self.agent_name == AgentName.WORKFLOW_FIXER and not self.text.strip():
             message = 'workflow-fixer requires a non-empty request'

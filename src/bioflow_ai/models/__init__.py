@@ -1,7 +1,6 @@
 from bioflow_ai.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from bioflow_ai.models.base import Base
 from bioflow_ai.models.code import CodeDefine
-from bioflow_ai.models.document import ParentDocument
 from bioflow_ai.models.notification import NotificationChannel, NotificationSubscription
 from bioflow_ai.models.project import Project, ProjectFileMapping, ProjectStar, ProjectTag, ProjectTagLink
 from bioflow_ai.models.resource import BioDb, File, ReferenceGenomes, Sample, SampleFiles
@@ -28,7 +27,6 @@ __all__ = [
     'NodeRun',
     'NotificationChannel',
     'NotificationSubscription',
-    'ParentDocument',
     'Project',
     'ProjectFileMapping',
     'ProjectStar',

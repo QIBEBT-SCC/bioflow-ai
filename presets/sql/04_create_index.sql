@@ -11,7 +11,6 @@ CREATE INDEX IF NOT EXISTS ix_project_file_mappings_keyword ON project_file_mapp
 CREATE INDEX IF NOT EXISTS ix_project_file_mappings_is_dynamic ON project_file_mappings (is_dynamic);
 CREATE INDEX IF NOT EXISTS ix_project_file_mappings_producer_workflow_uid
     ON project_file_mappings (producer_workflow_uid);
-CREATE INDEX IF NOT EXISTS ix_parent_documents_doc_id ON parent_documents (doc_id);
 CREATE INDEX IF NOT EXISTS ix_codes_name ON codes (name);
 CREATE INDEX IF NOT EXISTS ix_codes_node_type ON codes (node_type);
 

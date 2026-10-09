@@ -23,6 +23,7 @@ from bioflow_ai.schemas.agent import (
     AgentSessionCreate,
     AgentSessionUpdate,
     ImageMessagePart,
+    PDFMessagePart,
 )
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
@@ -31,6 +32,7 @@ from bioflow_ai.services.agents.chat_attachment import (
     migrate_message_images,
     resolve_image,
 )
+from bioflow_ai.services.documents.pdf_index import PDFNotFoundError, PDFPreparationError, resolve_pdf
 from bioflow_ai.services.projects import workflows as project_workflow_service
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.jsonable import to_json_object
@@ -201,12 +203,13 @@ def create_run(
     retry_of_uid: uuid.UUID | None = None,
     source_run_uid: uuid.UUID | None = None,
     images: list[ImageMessagePart] | None = None,
+    pdfs: list[PDFMessagePart] | None = None,
 ) -> AgentRun:
-    if len(images or []) > MAX_IMAGES:
-        message = 'A message can contain at most 4 images.'
+    if len(images or []) + len(pdfs or []) > MAX_IMAGES:
+        message = 'A message can contain at most 4 attachments.'
         raise AgentScopeError(message)
-    if not text.strip() and (not images or agent_name == AgentName.WORKFLOW_FIXER):
-        message = 'A text request is required for workflow-fixer; other agents accept images alone.'
+    if not text.strip() and ((not images and not pdfs) or agent_name == AgentName.WORKFLOW_FIXER):
+        message = 'A text request is required for workflow-fixer; other agents accept attachments alone.'
         raise AgentScopeError(message)
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
         raise AgentScopeError(GLOBAL_SCOPE_ERROR)
@@ -231,10 +234,11 @@ def create_run(
 
     run_uid = random_uid()
     try:
+        prepared_pdfs = [resolve_pdf(session, pdf) for pdf in pdfs or []]
         prepared = [
             resolve_image(session, image).model_copy(update={'id': str(random_uid())}) for image in images or []
         ]
-    except (ImagePreparationError, OSError, ValueError) as error:
+    except (ImagePreparationError, PDFNotFoundError, PDFPreparationError, OSError, ValueError) as error:
         raise AgentScopeError(str(error)) from error
     now = utc_now()
     run = AgentRun(
@@ -255,6 +259,7 @@ def create_run(
         parts=[
             *([{'type': 'text', 'text': text}] if text else []),
             *(image.model_dump(mode='json') for image in prepared),
+            *(pdf.model_dump(mode='json') for pdf in prepared_pdfs),
         ],
         create_time=now,
     )
@@ -271,7 +276,7 @@ def create_run(
         with committing(session):
             _stage_run_records(session, run, message, event, target)
             if not agent_session.title:
-                agent_session.title = text[:80] if text.strip() else prepared[0].filename[:80]
+                agent_session.title = text[:80] if text.strip() else (prepared or prepared_pdfs)[0].filename[:80]
             agent_session.update_time = now
     except IntegrityError as error:
         if _is_active_run_integrity_error(error):

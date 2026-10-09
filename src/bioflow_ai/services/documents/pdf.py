@@ -10,7 +10,6 @@ from bioflow_ai.crud.resource import file as file_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.infrastructure.external import local_pdf, open_mineru
 from bioflow_ai.infrastructure.object_storage import files as storage
-from bioflow_ai.llm.utils.retrievers import insert_documents
 from bioflow_ai.models.resource import File
 from bioflow_ai.services.resource import file as file_service
 from bioflow_ai.utils.file.hash import calculate_base64_sha256
@@ -71,9 +70,6 @@ async def parse_pdf(base64_data: str, file_name: str) -> str:
 
         md_path.write_text(md_text, encoding='utf-8')  # noqa: ASYNC240
         storage.upload_file(md_path, pdf_hash, prefix='documents')
-
-        # Persist parent documents in PostgreSQL and child documents in Milvus.
-        await insert_documents(md_text, pdf_key)
 
         # 保存到数据库
         with Session(engine) as session:

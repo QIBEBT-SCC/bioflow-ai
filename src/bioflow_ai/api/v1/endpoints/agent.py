@@ -20,6 +20,7 @@ from bioflow_ai.infrastructure.database import SessionDep, engine
 from bioflow_ai.infrastructure.object_storage.files import ObjectStorageError
 from bioflow_ai.models.agent import AgentRun, AgentSession
 from bioflow_ai.schemas.agent import (
+    MAX_PDF_BYTES,
     TERMINAL_AGENT_RUN_STATUSES,
     AgentEventPublic,
     AgentEventType,
@@ -35,6 +36,7 @@ from bioflow_ai.schemas.agent import (
     AgentSessionPublic,
     AgentSessionUpdate,
     ImageMessagePart,
+    PDFMessagePart,
 )
 from bioflow_ai.schemas.agent_artifact import AgentArtifactPublic
 from bioflow_ai.schemas.user_config import UserRole
@@ -46,6 +48,7 @@ from bioflow_ai.services.agents.chat_attachment import (
     prepare_image,
     read_image_file,
 )
+from bioflow_ai.services.documents import pdf_index as pdf_service
 
 session_router = APIRouter()
 run_router = APIRouter()
@@ -57,8 +60,14 @@ RETRY_INPUT_ERROR = 'The original run input is unavailable.'
 
 
 def _raise_service_error(error: Exception) -> NoReturn:
+    if isinstance(error, pdf_service.PDFNotFoundError):
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if isinstance(error, pdf_service.PDFPreparationError):
+        raise HTTPException(status_code=422, detail=str(error)) from error
     if isinstance(error, ObjectStorageError):
-        raise HTTPException(status_code=503, detail='The image snapshot is unavailable. Please try again.') from error
+        raise HTTPException(
+            status_code=503, detail='The attachment snapshot is unavailable. Please try again.'
+        ) from error
     if isinstance(error, (agent_service.AgentSessionNotFoundError, agent_service.AgentRunNotFoundError)):
         raise HTTPException(status_code=404, detail='Agent resource not found.') from error
     if isinstance(error, agent_service.AgentProjectAccessError):
@@ -98,6 +107,19 @@ async def prepare_agent_image(file: UploadFile, current_user: UserDep) -> ImageM
         return await run_in_threadpool(prepare_image, data, file.filename or 'image')
     except ImagePreparationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        await file.close()
+
+
+@session_router.post('/pdfs')
+async def upload_agent_pdf(file: UploadFile, current_user: UserDep) -> PDFMessagePart:
+    """Await PDF parsing and indexing before returning a usable attachment."""
+    del current_user
+    try:
+        data = await file.read(MAX_PDF_BYTES + 1)
+        return await pdf_service.prepare_pdf_attachment(data, file.filename or 'document.pdf')
+    except (pdf_service.PDFPreparationError, ObjectStorageError) as error:
+        _raise_service_error(error)
     finally:
         await file.close()
 
@@ -248,6 +270,7 @@ def create_agent_run(
             data.text,
             source_run_uid=data.source_run_uid,
             images=data.images,
+            pdfs=data.pdfs,
         )
         run = _dispatch_run(session, run, data.language.value if data.language else None)
     except (agent_service.AgentServiceError, ObjectStorageError) as error:
@@ -380,6 +403,7 @@ def retry_agent_run(
             raise agent_service.AgentRunTransitionError(RETRY_INPUT_ERROR)
         text = ''.join(str(part.get('text', '')) for part in messages[0].parts if part.get('type') == 'text')
         images = [ImageMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'image']
+        pdfs = [PDFMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'pdf']
         agent_session = agent_service.get_owned_session(session, old_run.session_uid, current_user.id)
         target = agent_crud.get_run_target(session, old_run.uid)
         run = agent_service.create_run(
@@ -390,6 +414,7 @@ def retry_agent_run(
             retry_of_uid=old_run.uid,
             source_run_uid=target.source_run_uid if target is not None else None,
             images=images,
+            pdfs=pdfs,
         )
         language = data.language.value if data and data.language else None
         run = _dispatch_run(session, run, language)

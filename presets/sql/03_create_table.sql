@@ -484,17 +484,6 @@ CREATE TABLE IF NOT EXISTS agent_run_targets
 );
 
 -- 文档相关
-CREATE TABLE IF NOT EXISTS parent_documents
-(
-    uid         uuid                     NOT NULL,
-    doc_id      VARCHAR                  NOT NULL,
-    content     TEXT                     NOT NULL,
-    title       VARCHAR,
-    section     VARCHAR,
-    create_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    PRIMARY KEY (uid)
-);
-
 CREATE TABLE IF NOT EXISTS files
 (
     id          SERIAL                   NOT NULL,

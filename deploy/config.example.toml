@@ -96,6 +96,7 @@ timeout = 60
 [pdf_parser]
 engine = "local"
 batch_size = 5
+similarity_threshold = 0.5
 
 [pdf_parser.mineru]
 api_url = "https://api.mineru.app"

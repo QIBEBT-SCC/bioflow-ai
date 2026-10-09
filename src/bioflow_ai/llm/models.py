@@ -216,3 +216,16 @@ def qwen3_embedding() -> OpenAIEmbeddings:
         api_key=get_settings().knowledge_base.API_KEY,
         request_timeout=get_settings().knowledge_base.TIMEOUT,
     )
+
+
+def pdf_embedding() -> OpenAIEmbeddings:
+    """Send bounded PDF text directly to the configured Qwen embedding endpoint."""
+    config = get_settings().knowledge_base
+    return OpenAIEmbeddings(
+        model=config.EMBEDDING_MODEL,
+        base_url=config.BASE_URL,
+        api_key=config.API_KEY,
+        request_timeout=config.TIMEOUT,
+        check_embedding_ctx_length=False,
+        chunk_size=get_settings().pdf_parser.BATCH_SIZE,
+    )

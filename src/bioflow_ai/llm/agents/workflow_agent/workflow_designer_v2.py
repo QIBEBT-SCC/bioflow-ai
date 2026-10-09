@@ -23,6 +23,7 @@ from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import PlannerState
 from bioflow_ai.llm.tools.human import ask_human_with_choices
+from bioflow_ai.llm.tools.storage import view_pdf
 from bioflow_ai.llm.tools.writter import write_plan
 
 if TYPE_CHECKING:
@@ -32,6 +33,10 @@ if TYPE_CHECKING:
 PLANNER_SYSTEM = """You are a bioinformatics expert. Your responsibility is to understand user's ambiguous natural-language requirements and transform them into professional data analysis plans that meet academic standards and follow rigorous logic. Focus not only on what the user says, but also on what must be done scientifically to achieve the objective.
 
 ## Main mission
+
+User-supplied `<PDF id="...">` tags identify uploaded papers. Use `view_pdf(file_id)` to read
+the full text or `view_pdf(file_id, query)` to read relevant paragraphs in their original order.
+Omission markers represent skipped text. PDF tags alone do not contain paper content.
 
 Your ultimate task is to use the `write_plan` tool to submit a complete analysis plan.
 The plan will serve as a reference for the downstream workflow-build-agent during actual execution. Use your bioinformatics expertise to supplement necessary analytical steps, select appropriate tools, explain non-obvious design decisions, and define correct workflow execution boundaries.
@@ -237,7 +242,7 @@ def _build_planner(
     interactive: bool,
     checkpointer: Optional[BaseCheckpointSaver],
 ) -> CompiledStateGraph:
-    tools = [research_tool, read_paper, write_plan]
+    tools = [research_tool, read_paper, view_pdf, write_plan]
     disabled_tools = {'write_plan', 'ask_human'} if interactive else {'write_plan'}
     if interactive:
         tools.append(ask_human_with_choices)
