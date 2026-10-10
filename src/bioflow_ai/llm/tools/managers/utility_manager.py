@@ -21,6 +21,7 @@ from bioflow_ai.llm.prebuild.code_node import (
 )
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
+from bioflow_ai.llm.utils.patch import MAX_PATCH_CHARS
 from bioflow_ai.llm.utils.retrievers import retrieve_auxiliary_nodes
 from bioflow_ai.llm.workflow_builder.code_editing import CodeEditingError, read_code_node, update_code_node
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
@@ -54,20 +55,22 @@ class ReadCodeSchema(BaseModel):
 
 
 class UpdateCodeSchema(BaseModel):
-    """Replace source on an existing panel CODE node during workflow repair."""
+    """Patch source on an existing panel CODE node during workflow repair."""
 
     node_id: str = Field(description='Current panel ID returned by read_code')
-    code: str = Field(
+    patch: str = Field(
         min_length=1,
-        description='Complete raw replacement source code without Markdown fences',
-    )
-    expected_code_sha256: str = Field(
-        pattern=r'^[0-9a-f]{64}$',
-        description='Exact code_sha256 returned by the latest read_code call for this node',
+        max_length=MAX_PATCH_CHARS,
+        description=(
+            'Raw context hunks for this node only, without Markdown fences or file-operation headers. '
+            'Start each hunk with `@@` or `@@ <anchor line>`. Prefix unchanged lines with a space, removals with `-`, '
+            'and additions with `+`. Optional `*** End of File` ends the final hunk. Do not use unified-diff line numbers. '
+            'Example:\n@@\n-print(1)\n+print(2)'
+        ),
     )
     reason: str = Field(
         min_length=1,
-        description='Concrete diagnosis-backed reason for replacing the code',
+        description='Concrete reason for this code patch',
     )
 
 
@@ -372,13 +375,12 @@ def _read_panel_code(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Comm
 
 
 def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
-    """Replace one workflow-local CODE node without changing graph identity."""
+    """Patch one workflow-local CODE node without changing graph identity."""
     try:
-        updated_nodes, new_digest = update_code_node(
+        updated_nodes = update_code_node(
             runtime.state.get('exist_nodes', []),
             params.node_id,
-            params.code,
-            params.expected_code_sha256,
+            params.patch,
         )
     except CodeEditingError as error:
         return Command(
@@ -399,8 +401,8 @@ def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectCon
             'messages': [
                 ToolMessage(
                     content=(
-                        f'Updated source code for panel node {params.node_id}. '
-                        f'Reason: {params.reason.strip()} New code_sha256: {new_digest}. '
+                        f'Patched source code for panel node {params.node_id}. '
+                        f'Reason: {params.reason.strip()} '
                         'Node ID, handles, dependencies, and all edges were preserved.'
                     ),
                     tool_call_id=runtime.tool_call_id,
