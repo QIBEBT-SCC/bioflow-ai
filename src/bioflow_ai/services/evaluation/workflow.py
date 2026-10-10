@@ -772,7 +772,7 @@ async def wf_eval(
                 HumanMessage(content=sample_info),
                 HumanMessage(content=standard_plan),
                 HumanMessage(
-                    content='Please complete the task of constructing a work roadmap based on the above information.'
+                    content='Please build actural workflow(s) based on the above information.'
                 ),
             ]
             workflow_result = await _generate_workflow(
