@@ -254,12 +254,8 @@ def get_run(session: Session, run_uid: uuid.UUID) -> WorkflowRun | None:
 
 
 def get_node(session: Session, node_uid: uuid.UUID) -> NodeRun | None:
-    """Load one current-generation node."""
-    node = session.get(NodeRun, node_uid)
-    if node is None:
-        return None
-    run = session.get(WorkflowRun, node.run_uid)
-    return node if run is not None and node.generation == run.generation else None
+    """Load one node run."""
+    return session.get(NodeRun, node_uid)
 
 
 def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> NodeRunRecord:
@@ -267,7 +263,7 @@ def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> Nod
         uid=node.uid,
         run_uid=node.run_uid,
         run_name=run.name,
-        generation=node.generation,
+        generation=run.generation,
         definition_node_id=node.definition_node_id,
         node_type=node.node_type,
         name=node.name,
@@ -288,9 +284,6 @@ def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> Nod
 def to_node_public(session: Session, node: NodeRun) -> NodeRunPublic:
     """Build task-center details for one current-generation node execution."""
     run = session.get(WorkflowRun, node.run_uid)
-    if run is None or node.generation != run.generation:
-        message = 'Node run does not belong to the current workflow generation'
-        raise WorkflowRunNotFoundError(message)
     owner = session.get(User, run.owner_id)
     tool = session.get(ToolDefine, node.tool_uid) if node.tool_uid is not None else None
     record = _to_node_record(node, run, owner.username if owner is not None else str(run.owner_id))
@@ -318,7 +311,7 @@ def _node_list_filters(
     project_id: int | None,
     status: NodeRunStatus | None,
 ) -> list[ColumnElement[bool]]:
-    filters = [NodeRun.generation == WorkflowRun.generation]
+    filters: list[ColumnElement[bool]] = []
     if owner_id is not None:
         filters.append(WorkflowRun.owner_id == owner_id)
     if project_id is not None:
@@ -390,9 +383,7 @@ def list_node_runs_for_run(session: Session, run: WorkflowRun) -> list[NodeRunRe
     owner = session.get(User, run.owner_id)
     owner_username = owner.username if owner is not None else str(run.owner_id)
     nodes = session.scalars(
-        select(NodeRun)
-        .where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
-        .order_by(NodeRun.position_index, NodeRun.uid)
+        select(NodeRun).where(NodeRun.run_uid == run.uid).order_by(NodeRun.position_index, NodeRun.uid)
     )
     return [_to_node_record(node, run, owner_username) for node in nodes]
 
@@ -424,11 +415,11 @@ def build_preview_data(run: WorkflowRun, nodes: list[NodeRun]) -> dict[str, dict
         if target is None or target.type != 'image_preview':
             continue
         source = node_by_definition.get(edge.source)
-        if (
-            source is None
-            or source.generation != run.generation
-            or source.status not in {NodeRunStatus.SUCCEEDED, NodeRunStatus.FAILED, NodeRunStatus.BLOCKED}
-        ):
+        if source is None or source.status not in {
+            NodeRunStatus.SUCCEEDED,
+            NodeRunStatus.FAILED,
+            NodeRunStatus.BLOCKED,
+        }:
             continue
         preview: dict[str, str | int] = {'run_uid': str(run.uid), 'generation': run.generation}
         if source.status != NodeRunStatus.SUCCEEDED:
@@ -466,20 +457,14 @@ def build_preview_data(run: WorkflowRun, nodes: list[NodeRun]) -> dict[str, dict
 
 def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
     """Build a current-generation graph with NodeRun data injected by stable definition ID."""
-    nodes = list(
-        session.scalars(
-            select(NodeRun)
-            .where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
-            .order_by(NodeRun.position_index)
-        )
-    )
+    nodes = list(session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid).order_by(NodeRun.position_index)))
     item_statistics: dict[str, dict[str, int]] = {}
     foreach_uids = [node.uid for node in nodes if node.node_type == 'foreach']
     if foreach_uids:
         started = WorkflowRun.start_time.is_not(None)
         child_rows = session.execute(
             select(WorkflowRun.parent_node_uid, WorkflowRun.status, started, WorkflowRun.settled, func.count())
-            .where(WorkflowRun.parent_node_uid.in_(foreach_uids), WorkflowRun.parent_generation == run.generation)
+            .where(WorkflowRun.parent_node_uid.in_(foreach_uids))
             .group_by(WorkflowRun.parent_node_uid, WorkflowRun.status, started, WorkflowRun.settled)
         )
         for parent_uid, status, has_started, settled, count in child_rows:

@@ -56,7 +56,6 @@ class ExecutorContext:
 
     session: Session
     run_uid: uuid.UUID
-    generation: int
     project_id: int | None
     sample_uid: uuid.UUID | None
     sample_name: str | None

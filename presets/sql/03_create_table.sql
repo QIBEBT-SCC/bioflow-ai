@@ -385,14 +385,18 @@ CREATE TABLE IF NOT EXISTS project_workflows
 
 CREATE TABLE IF NOT EXISTS workflow_runs
 (
-    uid          uuid        NOT NULL,
-    generation   INTEGER     NOT NULL,
-    name         VARCHAR     NOT NULL,
-    owner_id     INTEGER     NOT NULL,
-    project_id   INTEGER,
-    workflow_uid uuid,
-    sample_uid   uuid,
-    base_dir     VARCHAR     NOT NULL,
+    uid             uuid        NOT NULL,
+    generation      INTEGER     NOT NULL,
+    name            VARCHAR     NOT NULL,
+    owner_id        INTEGER     NOT NULL,
+    project_id      INTEGER,
+    workflow_uid    uuid,
+    sample_uid      uuid,
+    parent_node_uid uuid,
+    item_key        VARCHAR,
+    item_index      INTEGER,
+    item_name       VARCHAR,
+    base_dir        VARCHAR     NOT NULL,
     workflow     jsonb       NOT NULL,
     status       VARCHAR(16) NOT NULL,
     settled      BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -410,7 +414,6 @@ CREATE TABLE IF NOT EXISTS workflow_node_runs
 (
     uid                uuid        NOT NULL,
     run_uid            uuid        NOT NULL,
-    generation         INTEGER     NOT NULL,
     definition_node_id VARCHAR     NOT NULL,
     node_type           VARCHAR     NOT NULL,
     name                VARCHAR     NOT NULL,
@@ -432,23 +435,26 @@ CREATE TABLE IF NOT EXISTS workflow_node_runs
     heartbeat_at        TIMESTAMP,
     end_time            TIMESTAMP,
     PRIMARY KEY (uid),
-    CONSTRAINT uq_node_run_definition UNIQUE (run_uid, generation, definition_node_id),
+    CONSTRAINT uq_node_run_definition UNIQUE (run_uid, definition_node_id),
     FOREIGN KEY (run_uid) REFERENCES workflow_runs ON DELETE CASCADE,
     FOREIGN KEY (tool_uid) REFERENCES tools
 );
+
+-- ForEach child runs reference their parent node, which is created after workflow_runs.
+ALTER TABLE workflow_runs
+    ADD FOREIGN KEY (parent_node_uid) REFERENCES workflow_node_runs ON DELETE CASCADE;
 
 CREATE TABLE IF NOT EXISTS workflow_node_dependencies
 (
     uid             uuid    NOT NULL,
     run_uid         uuid    NOT NULL,
-    generation      INTEGER NOT NULL,
     source_node_uid uuid    NOT NULL,
     target_node_uid uuid    NOT NULL,
     source_handle   VARCHAR NOT NULL,
     target_handle   VARCHAR NOT NULL,
     PRIMARY KEY (uid),
     CONSTRAINT uq_node_dependency_binding UNIQUE
-        (run_uid, generation, source_node_uid, source_handle, target_node_uid, target_handle),
+        (run_uid, source_node_uid, source_handle, target_node_uid, target_handle),
     FOREIGN KEY (run_uid) REFERENCES workflow_runs ON DELETE CASCADE,
     FOREIGN KEY (source_node_uid) REFERENCES workflow_node_runs ON DELETE CASCADE,
     FOREIGN KEY (target_node_uid) REFERENCES workflow_node_runs ON DELETE CASCADE
@@ -459,7 +465,6 @@ CREATE TABLE IF NOT EXISTS workflow_outbox
     uid              uuid        NOT NULL,
     run_uid          uuid        NOT NULL,
     node_run_uid     uuid        NOT NULL,
-    generation       INTEGER     NOT NULL,
     status           VARCHAR(16) NOT NULL,
     publish_attempts INTEGER     NOT NULL DEFAULT 0,
     claim_token      uuid,

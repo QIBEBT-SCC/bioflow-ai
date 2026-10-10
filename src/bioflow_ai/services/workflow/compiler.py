@@ -66,7 +66,6 @@ def compile_run(
         node = node_map[node_id]
         node_runs[node_id] = NodeRun(
             run_uid=run.uid,
-            generation=run.generation,
             definition_node_id=node.id,
             node_type=node.type,
             name=node.type,
@@ -95,7 +94,6 @@ def compile_run(
         session.add(
             NodeDependency(
                 run_uid=run.uid,
-                generation=run.generation,
                 source_node_uid=source_run.uid,
                 target_node_uid=target_run.uid,
                 source_handle=source_key,
@@ -111,7 +109,6 @@ def compile_run(
             ExecutorContext(
                 session=session,
                 run_uid=run.uid,
-                generation=run.generation,
                 project_id=context.project_id,
                 sample_uid=context.sample_uid,
                 sample_name=context.sample_name,
@@ -132,7 +129,6 @@ def compile_run(
                     WorkflowOutbox(
                         run_uid=run.uid,
                         node_run_uid=node_run.uid,
-                        generation=run.generation,
                     )
                 )
 

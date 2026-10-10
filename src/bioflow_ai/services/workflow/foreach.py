@@ -118,7 +118,6 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
             sample_uid=parent.sample_uid,
             workflow_uid=None,
             parent_node_uid=node.uid,
-            parent_generation=parent.generation,
             item_key=item['key'],
             item_index=index,
             item_name=item['name'],
@@ -223,14 +222,12 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
         ):
             return None, None
         parent = session.get(WorkflowRun, node.run_uid, with_for_update=True)
-        if parent is None or parent.generation != node.generation:
-            return None, None
         if node.status == NodeRunStatus.READY:
             _initialize(session, node, parent)
         children = list(
             session.scalars(
                 select(WorkflowRun)
-                .where(WorkflowRun.parent_node_uid == node.uid, WorkflowRun.parent_generation == node.generation)
+                .where(WorkflowRun.parent_node_uid == node.uid)
                 .order_by(WorkflowRun.item_index)
                 .with_for_update()
             )
@@ -281,11 +278,9 @@ def advance_foreach() -> int:
         candidates = list(
             session.scalars(
                 select(NodeRun.uid)
-                .join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid)
                 .where(
                     NodeRun.node_type == 'foreach',
                     NodeRun.status.in_((NodeRunStatus.READY, NodeRunStatus.RUNNING)),
-                    NodeRun.generation == WorkflowRun.generation,
                 )
                 .order_by(NodeRun.create_time)
             )
@@ -298,16 +293,10 @@ def advance_foreach() -> int:
             continue
         except Exception as exc:
             logger.exception(f'ForEach coordination failed for {uid}')
-            mark_node_failed(uid, _generation(uid), exc)
+            mark_node_failed(uid, exc)
         else:
             if error:
-                mark_node_failed(uid, _generation(uid), error)
+                mark_node_failed(uid, error)
             elif output is not None:
-                mark_node_succeeded(uid, _generation(uid), output)
+                mark_node_succeeded(uid, output)
     return len(candidates)
-
-
-def _generation(uid: uuid.UUID) -> int:
-    with Session(engine) as session:
-        node = session.get(NodeRun, uid)
-        return node.generation if node is not None else -1

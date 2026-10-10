@@ -52,13 +52,7 @@ def prepare_workflow_fix(
     if source_run.parent_node_uid is not None:
         parent_node = session.get(NodeRun, source_run.parent_node_uid)
         parent_run = session.get(WorkflowRun, parent_node.run_uid) if parent_node else None
-        if (
-            parent_node is None
-            or parent_run is None
-            or parent_node.generation != source_run.parent_generation
-            or parent_run.generation != source_run.parent_generation
-            or parent_node.node_type != 'foreach'
-        ):
+        if parent_node is None or parent_run is None or parent_node.node_type != 'foreach':
             raise ValueError(SOURCE_PATH_NOT_FOUND_ERROR)
         template_run = parent_run
         runtime_id = parent_node.definition_node_id

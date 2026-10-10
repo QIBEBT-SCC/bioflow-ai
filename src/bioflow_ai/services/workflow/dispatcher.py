@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.workflow import NodeRun, WorkflowOutbox, WorkflowRun
+from bioflow_ai.models.workflow import NodeRun, WorkflowOutbox
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, OutboxStatus
 from bioflow_ai.services.workflow.runtime import recover_runtime
 from bioflow_ai.utils.system import utc_now
@@ -26,7 +26,7 @@ def _has_active_claim(event: WorkflowOutbox, now: datetime) -> bool:
     return claimed_at >= now - DISPATCH_CLAIM_TIMEOUT
 
 
-def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str, int] | None:
+def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str] | None:
     """Lease one event and commit QUEUED before a message can reach a worker."""
     now = utc_now()
     with Session(engine) as session, session.begin():
@@ -37,14 +37,6 @@ def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str, int] | None:
             return None
 
         node = session.get(NodeRun, event.node_run_uid, with_for_update=True)
-        run = session.get(WorkflowRun, event.run_uid)
-        if node is None or run is None or node.generation != event.generation or run.generation != event.generation:
-            event.status = OutboxStatus.PUBLISHED
-            event.published_at = now
-            event.claim_token = None
-            event.claimed_at = None
-            event.last_error = 'Discarded stale generation event'
-            return None
         if node.status == NodeRunStatus.READY:
             node.status = NodeRunStatus.QUEUED
             node.queued_at = now
@@ -61,7 +53,7 @@ def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str, int] | None:
         event.claimed_at = now
         event.publish_attempts += 1
         event.last_error = None
-        return token, str(node.uid), event.generation
+        return token, str(node.uid)
 
 
 def _record_publish_failure(event_uid: uuid.UUID, token: uuid.UUID, error: BaseException) -> None:
@@ -73,7 +65,7 @@ def _record_publish_failure(event_uid: uuid.UUID, token: uuid.UUID, error: BaseE
         event.claimed_at = None
         event.last_error = str(error)[:4000]
         node = session.get(NodeRun, event.node_run_uid, with_for_update=True)
-        if node is not None and node.generation == event.generation and node.status == NodeRunStatus.QUEUED:
+        if node is not None and node.status == NodeRunStatus.QUEUED:
             node.status = NodeRunStatus.READY
             node.queued_at = None
 
@@ -116,12 +108,12 @@ def dispatch_pending(*, limit: int = 100) -> int:
         reserved = _reserve_event(event_uid)
         if reserved is None:
             continue
-        token, node_run_id, generation = reserved
+        token, node_run_id = reserved
         try:
             from bioflow_ai.tasks.workflow import execute_node
 
             execute_node.apply_async(
-                kwargs={'node_run_id': node_run_id, 'generation': generation},
+                kwargs={'node_run_id': node_run_id},
                 task_id=node_run_id,
                 queue=WORKFLOW_QUEUE,
                 serializer='json',

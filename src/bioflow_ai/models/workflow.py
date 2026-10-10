@@ -58,7 +58,7 @@ class WorkflowRun(Base):
     __tablename__ = 'workflow_runs'
     __table_args__ = (
         Index('ix_workflow_runs_owner_created', 'owner_id', 'create_time'),
-        Index('uq_workflow_runs_foreach_item', 'parent_node_uid', 'parent_generation', 'item_key', unique=True),
+        Index('uq_workflow_runs_foreach_item', 'parent_node_uid', 'item_key', unique=True),
         Index(
             'uq_workflow_runs_sample',
             'project_id',
@@ -86,8 +86,9 @@ class WorkflowRun(Base):
         default=None,
     )
     sample_uid: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(Sample.uid, ondelete='SET NULL'), default=None)
-    parent_node_uid: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('workflow_node_runs.uid', ondelete='CASCADE'), default=None)
-    parent_generation: Mapped[int | None] = mapped_column(default=None)
+    parent_node_uid: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey('workflow_node_runs.uid', ondelete='CASCADE'), default=None
+    )
     item_key: Mapped[str | None] = mapped_column(default=None)
     item_index: Mapped[int | None] = mapped_column(default=None)
     item_name: Mapped[str | None] = mapped_column(default=None)
@@ -116,14 +117,13 @@ class NodeRun(Base):
 
     __tablename__ = 'workflow_node_runs'
     __table_args__ = (
-        UniqueConstraint('run_uid', 'generation', 'definition_node_id', name='uq_node_run_definition'),
-        Index('ix_node_runs_run_generation_status', 'run_uid', 'generation', 'status'),
+        UniqueConstraint('run_uid', 'definition_node_id', name='uq_node_run_definition'),
+        Index('ix_node_runs_run_status', 'run_uid', 'status'),
         Index('ix_node_runs_heartbeat', 'status', 'heartbeat_at'),
     )
 
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     run_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(WorkflowRun.uid, ondelete='CASCADE'), nullable=False)
-    generation: Mapped[int]
     definition_node_id: Mapped[str]
     node_type: Mapped[str]
     name: Mapped[str]
@@ -159,7 +159,6 @@ class NodeDependency(Base):
     __table_args__ = (
         UniqueConstraint(
             'run_uid',
-            'generation',
             'source_node_uid',
             'source_handle',
             'target_node_uid',
@@ -172,7 +171,6 @@ class NodeDependency(Base):
 
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     run_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(WorkflowRun.uid, ondelete='CASCADE'), nullable=False)
-    generation: Mapped[int]
     source_node_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(NodeRun.uid, ondelete='CASCADE'), nullable=False)
     target_node_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(NodeRun.uid, ondelete='CASCADE'), nullable=False)
     source_handle: Mapped[str]
@@ -191,7 +189,6 @@ class WorkflowOutbox(Base):
     uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
     run_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(WorkflowRun.uid, ondelete='CASCADE'), nullable=False)
     node_run_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(NodeRun.uid, ondelete='CASCADE'), nullable=False)
-    generation: Mapped[int]
     status: Mapped[OutboxStatus] = mapped_column(
         Enum(OutboxStatus, native_enum=False, length=16),
         default=OutboxStatus.PENDING,

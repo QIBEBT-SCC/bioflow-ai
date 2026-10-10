@@ -22,8 +22,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_workflow_runs_sample
 CREATE UNIQUE INDEX IF NOT EXISTS uq_workflow_runs_project
     ON workflow_runs (project_id, workflow_uid)
     WHERE sample_uid IS NULL AND project_id IS NOT NULL AND workflow_uid IS NOT NULL;
-CREATE INDEX IF NOT EXISTS ix_node_runs_run_generation_status
-    ON workflow_node_runs (run_uid, generation, status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_workflow_runs_foreach_item ON workflow_runs (parent_node_uid, item_key);
+CREATE INDEX IF NOT EXISTS ix_node_runs_run_status ON workflow_node_runs (run_uid, status);
 CREATE INDEX IF NOT EXISTS ix_node_runs_heartbeat ON workflow_node_runs (status, heartbeat_at);
 CREATE INDEX IF NOT EXISTS ix_node_dependencies_target ON workflow_node_dependencies (target_node_uid);
 CREATE INDEX IF NOT EXISTS ix_node_dependencies_source ON workflow_node_dependencies (source_node_uid);

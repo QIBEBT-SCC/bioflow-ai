@@ -283,12 +283,9 @@ def list_foreach_items(
     """Page through one parent's child runs without embedding their graphs."""
     parent = _owned_run(session, uid, current_user)
     node = session.get(NodeRun, node_uid)
-    if node is None or node.run_uid != uid or node.generation != parent.generation or node.node_type != 'foreach':
+    if node is None or node.run_uid != parent.uid or node.node_type != 'foreach':
         raise HTTPException(HTTP_404_NOT_FOUND, 'ForEach node not found')
-    query = select(WorkflowRun).where(
-        WorkflowRun.parent_node_uid == node_uid,
-        WorkflowRun.parent_generation == parent.generation,
-    )
+    query = select(WorkflowRun).where(WorkflowRun.parent_node_uid == node_uid)
     if status is not None:
         query = query.where(WorkflowRun.status == status)
     total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
@@ -431,9 +428,7 @@ async def _preview_file(
         kind = file_kind(Path(str(full_path)))
     except PreviewError:
         kind = 'unsupported'
-    nodes = session.execute(
-        select(NodeRun).where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation)
-    ).scalars()
+    nodes = session.execute(select(NodeRun).where(NodeRun.run_uid == run.uid)).scalars()
     matching = [
         node for node in nodes if node.base_dir and full_path.is_relative_to(await AsyncPath(node.base_dir).resolve())
     ]

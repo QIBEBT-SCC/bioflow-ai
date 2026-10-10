@@ -125,7 +125,7 @@ def _compact_node_data(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _descendant_run(session: Session, root: WorkflowRun, uid: uuid.UUID) -> WorkflowRun | None:
-    """Only expose runs linked by current-generation ForEach parent nodes."""
+    """Only expose runs linked by ForEach parent nodes of the root run."""
     child = session.get(WorkflowRun, uid)
     current = child
     for _ in range(33):
@@ -136,11 +136,9 @@ def _descendant_run(session: Session, root: WorkflowRun, uid: uuid.UUID) -> Work
         if current.parent_node_uid is None:
             return None
         parent_node = session.get(NodeRun, current.parent_node_uid)
-        if parent_node is None or parent_node.generation != current.parent_generation:
+        if parent_node is None:
             return None
         current = session.get(WorkflowRun, parent_node.run_uid)
-        if current is None or current.generation != parent_node.generation:
-            return None
     return None
 
 
@@ -185,9 +183,7 @@ def _workflow_payload(
                 if container is None:
                     return {'error': f'Subgraph path not found: {list(path)}'}
                 graph = WorkflowDefinition.model_validate(container.data['workflow'])
-            node_runs = list(
-                session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid, NodeRun.generation == run.generation))
-            )
+            node_runs = list(session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid)))
             by_id = {node.definition_node_id: node for node in node_runs}
             if action == 'children':
                 if not include_node_id:
@@ -195,7 +191,7 @@ def _workflow_payload(
                 control = by_id.get(definition_id((*path, include_node_id)))
                 if control is None or control.node_type != 'foreach':
                     return {'error': 'No ForEach control task exists for this node.'}
-                filters = [WorkflowRun.parent_node_uid == control.uid, WorkflowRun.parent_generation == run.generation]
+                filters = [WorkflowRun.parent_node_uid == control.uid]
                 if failed_only:
                     filters.append(WorkflowRun.status == RunStatus.FAILED)
                 children = list(

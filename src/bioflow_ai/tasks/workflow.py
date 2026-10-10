@@ -15,10 +15,10 @@ from bioflow_ai.services.workflow.executors import execute_prepared_node
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 
 
-def _heartbeat_until_stopped(node_uid: uuid.UUID, generation: int, stop: threading.Event) -> None:
+def _heartbeat_until_stopped(node_uid: uuid.UUID, stop: threading.Event) -> None:
     while not stop.wait(HEARTBEAT_INTERVAL_SECONDS):
         try:
-            if not runtime.heartbeat_node(node_uid, generation):
+            if not runtime.heartbeat_node(node_uid):
                 return
         except Exception:
             logger.exception(f'Failed to heartbeat node {node_uid}')
@@ -33,33 +33,33 @@ def _heartbeat_until_stopped(node_uid: uuid.UUID, generation: int, stop: threadi
     reject_on_worker_lost=True,
     max_retries=0,
 )
-def execute_node(self: Task, node_run_id: str, generation: int) -> None:
-    """Claim and execute one ready node; duplicates and stale generations ACK as no-ops."""
+def execute_node(self: Task, node_run_id: str) -> None:
+    """Claim and execute one ready node; duplicate or stale messages ACK as no-ops."""
     node_uid = uuid.UUID(node_run_id)
     worker_id = getattr(self.request, 'hostname', None)
-    if not runtime.claim_node(node_uid, generation, worker_id):
-        logger.info(f'Ignoring duplicate or stale message for node {node_uid}, generation {generation}')
+    if not runtime.claim_node(node_uid, worker_id):
+        logger.info(f'Ignoring duplicate or stale message for node {node_uid}')
         return
 
     stop_heartbeat = threading.Event()
     heartbeat = threading.Thread(
         target=_heartbeat_until_stopped,
-        args=(node_uid, generation, stop_heartbeat),
+        args=(node_uid, stop_heartbeat),
         name=f'workflow-heartbeat-{node_uid}',
         daemon=True,
     )
     heartbeat.start()
     try:
-        node = runtime.get_node_for_execution(node_uid, generation)
+        node = runtime.get_node_for_execution(node_uid)
         with node_execution_context(
-            output_resolver=partial(runtime.resolve_dependency_output, node_uid, generation),
-            node_updater=partial(runtime.update_node_from_executor, node_uid, generation),
+            output_resolver=partial(runtime.resolve_dependency_output, node_uid),
+            node_updater=partial(runtime.update_node_from_executor, node_uid),
         ):
             output = execute_prepared_node(node_uid, node.prepared_data)
-        runtime.mark_node_succeeded(node_uid, generation, output)
+        runtime.mark_node_succeeded(node_uid, output)
     except Exception as error:
         runtime.persist_failure_log(node_uid, error)
-        runtime.mark_node_failed(node_uid, generation, error)
+        runtime.mark_node_failed(node_uid, error)
         logger.exception(f'Node {node_uid} failed')
         raise
     finally:
