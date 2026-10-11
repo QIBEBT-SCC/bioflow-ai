@@ -16,7 +16,7 @@ from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate
 from bioflow_ai.services.resource import bio_db as db_service
-from bioflow_ai.services.workflow.execution_context import update_node
+from bioflow_ai.services.workflow.execution_context import current_node_uid, update_node
 from bioflow_ai.utils.file.paths import to_safe_path_segment
 from bioflow_ai.utils.system import utc_now
 
@@ -55,7 +55,7 @@ def _run_bio_db_download(
     bio_db: BioDb,
     task_id: str,
     *,
-    node_run_uid: str | None = None,
+    record_command: bool = False,
 ) -> Path:
     """Download a BioDb by executing its configured command in a container."""
     if bio_db.id is None:
@@ -93,9 +93,8 @@ def _run_bio_db_download(
             ContainerMount(source=str(target_dir), target=BIO_DB_CONTAINER_PATH, read_only=False),
         ]
         command = bio_db.download_command
-        if node_run_uid is not None:
+        if record_command:
             update_node(
-                node_run_uid,
                 NodeRunUpdate(
                     commands=f'docker run --rm --user {CONTAINER_ROOT_USER} '
                     f'-v {target_dir}:{BIO_DB_CONTAINER_PATH}:rw '
@@ -141,11 +140,7 @@ def download_bio_db_task(
         return {'db_id': db_id, 'path': str(target_dir)}
 
 
-def load_bio_db(
-    *,
-    node_run_id: str,
-    db_id: int,
-) -> ToolOutput:
+def load_bio_db(*, db_id: int) -> ToolOutput:
     """Load a BioDb path, downloading it lazily when it has not been prepared yet."""
     with Session(engine) as session:
         bio_db = db_service.get_bio_db(session, db_id)
@@ -157,5 +152,5 @@ def load_bio_db(
             msg = f'BioDb {db_id} has no valid path and no download_command.'
             raise FileNotFoundError(msg)
 
-        target_dir = _run_bio_db_download(session, bio_db, node_run_id, node_run_uid=node_run_id)
+        target_dir = _run_bio_db_download(session, bio_db, str(current_node_uid()), record_command=True)
         return ToolOutput(result={'file_path': target_dir})

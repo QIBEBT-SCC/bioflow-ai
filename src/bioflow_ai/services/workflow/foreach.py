@@ -20,7 +20,7 @@ from bioflow_ai.schemas.react_flow import Edge, Node, WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.collection import read_collection
-from bioflow_ai.services.workflow.compiler import CompileContext, compile_run
+from bioflow_ai.services.workflow.compiler import compile_run
 from bioflow_ai.services.workflow.subgraphs import definition_id
 from bioflow_ai.utils.system import random_uid, utc_now
 
@@ -246,20 +246,9 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
                 base_sample_name = sample.sample_name if sample else None
             sample_name = _child_sample_name(base_sample_name, item['name'], child.item_index)
             paths = {**node.prepared_data['shared_paths'], node.prepared_data['kwargs']['item_port_id']: item['path']}
-            graph = _child_graph(child.workflow, paths, sample_name)
-            child.workflow = graph
+            child.workflow = _child_graph(child.workflow, paths, sample_name)
             child.start_time = utc_now()
-            compile_run(
-                session,
-                child,
-                graph,
-                CompileContext(
-                    project_id=child.project_id,
-                    sample_uid=child.sample_uid,
-                    sample_name=sample_name,
-                    output_base=child.base_dir,
-                ),
-            )
+            compile_run(session, child, sample_name=sample_name)
             capacity -= 1
         if any(not child.settled for child in children):
             return None, None

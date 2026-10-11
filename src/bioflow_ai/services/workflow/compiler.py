@@ -1,13 +1,10 @@
 """Validation and durable compilation of workflow definitions."""
 
-import uuid
 from collections import defaultdict
-from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowRun
-from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.batch_graph import lower_batch_subgraphs
 from bioflow_ai.services.workflow.executors import (
@@ -19,47 +16,33 @@ from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation._topology import order_nodes
 from bioflow_ai.services.workflow.validation.registry import PRESENTATION_NODE_TYPES
 from bioflow_ai.services.workflow.validation.resolution import resolve_workflow
+from bioflow_ai.utils.system import utc_now
 
 
 class WorkflowCompileError(ValueError):
     """The submitted workflow failed the shared validation operation."""
 
 
-@dataclass(frozen=True, slots=True)
-class CompileContext:
-    """Run-scoped inputs needed to freeze all node configurations."""
-
-    project_id: int | None
-    sample_uid: uuid.UUID | None
-    sample_name: str | None
-    output_base: str
-
-
-def compile_run(
-    session: Session,
-    run: WorkflowRun,
-    workflow: WorkflowDefinition,
-    context: CompileContext,
-) -> list[NodeRun]:
-    """Compile a workflow into NodeRun and dependency rows; root nodes start READY.
+def compile_run(session: Session, run: WorkflowRun, *, sample_name: str | None) -> None:
+    """Compile ``run.workflow`` into NodeRun and dependency rows; root nodes start READY.
 
     The caller owns the surrounding transaction.  Nothing is published here.
     """
     document = resolve_workflow(
-        workflow,
+        run.workflow,
         session,
         fresh=True,
-        project_id=context.project_id,
-        execution_scope='sample_level' if context.sample_uid is not None else 'project_level',
+        project_id=run.project_id,
+        execution_scope='sample_level' if run.sample_uid is not None else 'project_level',
     )
     result = validate_workflow(document)
     if not result.valid:
         raise WorkflowCompileError(result.message)
-    compiled_workflow = flatten_workflow(lower_batch_subgraphs(workflow))
+    compiled_workflow = flatten_workflow(lower_batch_subgraphs(run.workflow))
     node_map = {node.id: node for node in compiled_workflow.nodes if node.type not in PRESENTATION_NODE_TYPES}
     edges = [edge for edge in compiled_workflow.edges if edge.target in node_map]
     order = order_nodes(list(node_map), [(edge.source, edge.target) for edge in edges])
-    tool_definitions = dict(document.catalog or {})
+    context = ExecutorContext(run=run, sample_name=sample_name, tool_definitions=dict(document.catalog or {}))
     node_runs: dict[str, NodeRun] = {}
 
     for position_index, node_id in enumerate(order, start=1):
@@ -103,20 +86,7 @@ def compile_run(
 
     for node_id in order:
         node_run = node_runs[node_id]
-        prepared = prepare_node(
-            node_map[node_id],
-            incoming[node_id],
-            ExecutorContext(
-                session=session,
-                run_uid=run.uid,
-                project_id=context.project_id,
-                sample_uid=context.sample_uid,
-                sample_name=context.sample_name,
-                output_base=context.output_base,
-                position_index=node_run.position_index,
-                tool_definitions=tool_definitions,
-            ),
-        )
+        prepared = prepare_node(node_map[node_id], incoming[node_id], node_run.position_index, context)
         node_run.name = prepared.name
         node_run.track_progress = prepared.track_progress
         node_run.tool_uid = prepared.tool_uid
@@ -128,8 +98,8 @@ def compile_run(
     if not node_runs:
         run.status = RunStatus.SUCCEEDED
         run.settled = True
+        run.end_time = utc_now()
     session.flush()
-    return list(node_runs.values())
 
 
 __all__ = ['WorkflowCompileError', 'compile_run']

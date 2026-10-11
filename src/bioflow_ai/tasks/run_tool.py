@@ -14,7 +14,7 @@ from bioflow_ai.services.tools.execution import (
     execute_docker_tool,
     prepare_docker_tool_execution,
 )
-from bioflow_ai.services.workflow.execution_context import get_node_output, get_tool_data, update_node
+from bioflow_ai.services.workflow.execution_context import current_node_uid, get_node_output, get_tool_data, update_node
 
 
 def _resolve_task_inputs(
@@ -34,7 +34,6 @@ def _resolve_task_inputs(
 
 def execute_tool(
     *,
-    node_run_id: str,
     tool_uid: str,
     inputs: dict[str, TaskInput],
     output_dir: str,
@@ -44,8 +43,6 @@ def execute_tool(
     """通用Docker工具执行任务.
 
     Args:
-        self: Celery任务
-        result_dict: 用于占位, 防止celery链式调用时报错
         tool_uid: 工具uid, 用于从数据库获取具体信息
         inputs: 输入参数字典, 格式为 {参数名: (uid, 类型)}
         output_dir: 输出目录
@@ -55,8 +52,9 @@ def execute_tool(
     Returns:
         ToolOutput: 工具输出结果
     """
+    node_uid = current_node_uid()
     tool_config = get_tool_data(tool_uid)
-    logger.debug(f'node {node_run_id} start: {tool_config.name}')
+    logger.debug(f'node {node_uid} start: {tool_config.name}')
     resolved_inputs = _resolve_task_inputs(tool_config.file_mounts, inputs)
     config = DockerToolExecutionConfig(
         image=ImageConfig.model_validate(tool_config.image.image),
@@ -79,9 +77,9 @@ def execute_tool(
         f'{" ".join([f"-v {bind.source}:{bind.target}:rw" for bind in execution.volume_binds])} '
         f'{execution.image.get_image()} /bin/bash -c "{execution.command}"'
     )
-    update_node(node_run_id, data)
+    update_node(data)
 
-    redis_key = f'node-monitor-{node_run_id}'
+    redis_key = f'node-monitor-{node_uid}'
 
     def save_monitor(stats: dict[str, Any] | None) -> None:
         monitor_redis_client.rpush(redis_key, json.dumps(stats))

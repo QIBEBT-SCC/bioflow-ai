@@ -2,7 +2,6 @@
 
 import threading
 import uuid
-from functools import partial
 
 from celery import Task
 from loguru import logger
@@ -51,11 +50,8 @@ def execute_node(self: Task, node_run_id: str) -> None:
     heartbeat.start()
     try:
         node = runtime.get_node_for_execution(node_uid)
-        with node_execution_context(
-            output_resolver=partial(runtime.resolve_dependency_output, node_uid),
-            node_updater=partial(runtime.update_node_from_executor, node_uid),
-        ):
-            output = execute_prepared_node(node_uid, node.prepared_data)
+        with node_execution_context(node_uid):
+            output = execute_prepared_node(node.prepared_data)
         runtime.mark_node_succeeded(node_uid, output)
     except Exception as error:
         runtime.persist_failure_log(node_uid, error)

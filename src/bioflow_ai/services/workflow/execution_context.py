@@ -1,46 +1,40 @@
 """Execution context shared by plain node executors inside one worker task."""
 
-from collections.abc import Callable, Generator
+import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from itertools import takewhile
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, joinedload
 
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.tools import ToolDefine
+from bioflow_ai.models.workflow import NodeDependency, NodeRun
 from bioflow_ai.schemas.tools import ToolTaskInfo
-from bioflow_ai.schemas.workflow_run import NodeRunUpdate
+from bioflow_ai.schemas.workflow_run import NodeRunStatus, NodeRunUpdate
+from bioflow_ai.services.workflow.runtime import WorkflowRuntimeInvariantError
 
-_output_resolver: ContextVar[Callable[[str, str], tuple[str, str | None]] | None] = ContextVar(
-    'workflow_output_resolver',
-    default=None,
-)
-_node_updater: ContextVar[Callable[[str, NodeRunUpdate], bool] | None] = ContextVar(
-    'workflow_node_updater',
-    default=None,
-)
-_MISSING_CONTEXT = 'Node executor is not running inside a workflow execution context'
+_current_node: ContextVar[uuid.UUID] = ContextVar('workflow_current_node')
 
 
 @contextmanager
-def node_execution_context(
-    *,
-    output_resolver: Callable[[str, str], tuple[str, str | None]],
-    node_updater: Callable[[str, NodeRunUpdate], bool],
-) -> Generator[None]:
-    """Install dependency and persistence hooks for one local node execution."""
-    resolver_token = _output_resolver.set(output_resolver)
-    updater_token = _node_updater.set(node_updater)
+def node_execution_context(node_uid: uuid.UUID) -> Generator[None]:
+    """Mark ``node_uid`` as the node whose executor runs inside this block."""
+    token = _current_node.set(node_uid)
     try:
         yield
     finally:
-        _node_updater.reset(updater_token)
-        _output_resolver.reset(resolver_token)
+        _current_node.reset(token)
+
+
+def current_node_uid() -> uuid.UUID:
+    """Return the executing node; raises ``LookupError`` outside an execution context."""
+    return _current_node.get()
 
 
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
@@ -66,20 +60,53 @@ def get_tool_data(tool_uid: str) -> ToolTaskInfo:
         )
 
 
-def update_node(uid: str, data: NodeRunUpdate) -> bool:
-    """Persist metadata for the currently executing node."""
-    updater = _node_updater.get()
-    if updater is None:
-        raise RuntimeError(_MISSING_CONTEXT)
-    return updater(uid, data)
+def update_node(data: NodeRunUpdate) -> None:
+    """Persist executor metadata on the currently executing node while it is running."""
+    values = data.model_dump(exclude_none=True)
+    if not values:
+        return
+    with Session(engine) as session, session.begin():
+        session.execute(
+            update(NodeRun)
+            .where(NodeRun.uid == current_node_uid(), NodeRun.status == NodeRunStatus.RUNNING)
+            .values(**values)
+        )
 
 
-def get_node_output(uid: str, key: str) -> tuple[str, str | None]:
-    """Resolve one declared predecessor output without polling."""
-    resolver = _output_resolver.get()
-    if resolver is None:
-        raise RuntimeError(_MISSING_CONTEXT)
-    return resolver(uid, key)
+def get_node_output(source_uid: str, output_key: str) -> tuple[str, str | None]:
+    """Resolve one declared successful predecessor output of the currently executing node."""
+    node_uid = current_node_uid()
+    try:
+        source_node_uid = uuid.UUID(source_uid)
+    except ValueError as error:
+        message = f'Invalid dependency node UID: {source_uid}'
+        raise WorkflowRuntimeInvariantError(message) from error
+
+    with Session(engine) as session:
+        dependency = session.scalar(
+            select(NodeDependency.uid).where(
+                NodeDependency.source_node_uid == source_node_uid,
+                NodeDependency.target_node_uid == node_uid,
+                NodeDependency.source_handle == output_key,
+            )
+        )
+        if dependency is None:
+            message = f'Node {source_uid} output {output_key!r} is not a declared dependency of {node_uid}'
+            raise WorkflowRuntimeInvariantError(message)
+        source = session.get(NodeRun, source_node_uid)
+        if source is None or source.status != NodeRunStatus.SUCCEEDED:
+            message = f'Dependency {source_uid} is not successfully completed'
+            raise WorkflowRuntimeInvariantError(message)
+        if source.tool_output is None:
+            message = f'Dependency {source_uid} succeeded without output'
+            raise WorkflowRuntimeInvariantError(message)
+        if output_key == 'workdir' and source.base_dir:
+            return str(Path(source.base_dir).absolute()), source.tool_output.sample_name
+        values = source.tool_output.all_files()
+        if output_key not in values:
+            message = f'Dependency {source_uid} has no output named {output_key!r}'
+            raise WorkflowRuntimeInvariantError(message)
+        return str(values[output_key]), source.tool_output.sample_name
 
 
 def resolve_path(

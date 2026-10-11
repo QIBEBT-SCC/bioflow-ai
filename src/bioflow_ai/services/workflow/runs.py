@@ -34,7 +34,7 @@ from bioflow_ai.schemas.workflow_run import (
     WorkflowRunRecord,
     WorkflowRunStatistics,
 )
-from bioflow_ai.services.workflow.compiler import CompileContext, compile_run
+from bioflow_ai.services.workflow.compiler import compile_run
 from bioflow_ai.services.workflow.subgraphs import flatten_workflow, inject_run_data
 from bioflow_ai.utils.file.paths import to_safe_path_segment
 from bioflow_ai.utils.system import random_uid, utc_now
@@ -66,33 +66,6 @@ def _clear_generation(session: Session, run: WorkflowRun) -> None:
     session.flush()
 
 
-def _compile_new_run(
-    session: Session,
-    run: WorkflowRun,
-    workflow: WorkflowDefinition,
-    *,
-    sample_name: str | None,
-) -> None:
-    run.workflow = workflow.model_copy(deep=True)
-    run.status = RunStatus.PENDING
-    run.settled = False
-    run.start_time = None
-    run.end_time = None
-    compile_run(
-        session,
-        run,
-        workflow,
-        CompileContext(
-            project_id=run.project_id,
-            sample_uid=run.sample_uid,
-            sample_name=sample_name,
-            output_base=run.base_dir,
-        ),
-    )
-    if run.settled:
-        run.end_time = utc_now()
-
-
 def create_editor_run(
     session: Session,
     workflow: WorkflowDefinition,
@@ -119,7 +92,7 @@ def create_editor_run(
     try:
         session.add(run)
         session.flush()
-        _compile_new_run(session, run, workflow, sample_name=None)
+        compile_run(session, run, sample_name=None)
         session.commit()
         session.refresh(run)
     except Exception:
@@ -171,6 +144,11 @@ def _create_or_rerun_project_run(
         _clear_generation(session, existing)
         existing.generation += 1
         existing.base_dir = str(output_root / f'generation-{existing.generation}')
+        existing.workflow = workflow.workflow.model_copy(deep=True)
+        existing.status = RunStatus.PENDING
+        existing.settled = False
+        existing.start_time = None
+        existing.end_time = None
         run = existing
     else:
         run_uid = random_uid()
@@ -202,7 +180,7 @@ def _create_or_rerun_project_run(
             sample_uid=sample.uid,
             workflow_uid=workflow.uid,
         )
-    _compile_new_run(session, run, workflow.workflow, sample_name=sample_name)
+    compile_run(session, run, sample_name=sample_name)
     return run, old_base_dir
 
 
@@ -283,6 +261,9 @@ def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> Nod
 def to_node_public(session: Session, node: NodeRun) -> NodeRunPublic:
     """Build task-center details for one current-generation node execution."""
     run = session.get(WorkflowRun, node.run_uid)
+    if run is None:
+        raise ValueError
+
     owner = session.get(User, run.owner_id)
     tool = session.get(ToolDefine, node.tool_uid) if node.tool_uid is not None else None
     record = _to_node_record(node, run, owner.username if owner is not None else str(run.owner_id))

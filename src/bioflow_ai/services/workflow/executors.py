@@ -7,13 +7,13 @@ Node implementations are plain Python callables and have no Celery lifecycle.
 
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import nanoid
-from sqlalchemy.orm import Session
 
+from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.react_flow import Node, TaskInput, WorkflowDefinition
 from bioflow_ai.schemas.tools import WorkflowToolDefinition
 from bioflow_ai.schemas.workflow_config import ToolOutput
@@ -52,16 +52,11 @@ class ExecutorConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ExecutorContext:
-    """Immutable run context used while freezing a node configuration."""
+    """Run-scoped inputs shared by every node frozen during one compilation."""
 
-    session: Session
-    run_uid: uuid.UUID
-    project_id: int | None
-    sample_uid: uuid.UUID | None
+    run: WorkflowRun
     sample_name: str | None
-    output_base: str
-    position_index: int
-    tool_definitions: dict[str, WorkflowToolDefinition] = field(default_factory=dict)
+    tool_definitions: dict[str, WorkflowToolDefinition]
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,13 +78,14 @@ class PreparedExecutor:
         }
 
 
-def _output_dir(context: ExecutorContext, suffix: str) -> str:
-    return str(Path(context.output_base) / f'{context.position_index}_{suffix}')
+def _output_dir(context: ExecutorContext, position_index: int, suffix: str) -> str:
+    return str(Path(context.run.base_dir) / f'{position_index}_{suffix}')
 
 
 def prepare_node(
     node: Node,
     inputs: dict[str, dict[str, str] | list[dict[str, str]]],
+    position_index: int,
     context: ExecutorContext,
 ) -> PreparedExecutor:
     """Freeze a node from an already-validated workflow without changing its ID."""
@@ -99,7 +95,7 @@ def prepare_node(
     if node_type == 'tool':
         tool_uid = uuid.UUID(str(data['tool_uid']))
         tool = context.tool_definitions[str(tool_uid)]
-        output_dir = _output_dir(context, to_safe_path_segment(tool.name))
+        output_dir = _output_dir(context, position_index, to_safe_path_segment(tool.name))
         return PreparedExecutor(
             executor_name='tool',
             kwargs={
@@ -119,8 +115,8 @@ def prepare_node(
             executor_name='resource_file',
             kwargs={
                 'file': data.get('file_path', ''),
-                'project_id': context.project_id,
-                'sample_uid': str(context.sample_uid) if context.sample_uid else None,
+                'project_id': context.run.project_id,
+                'sample_uid': str(context.run.sample_uid) if context.run.sample_uid else None,
                 'sample_name': context.sample_name,
             },
             name='read_file',
@@ -136,7 +132,7 @@ def prepare_node(
         )
 
     if node_type == 'resource_text_file':
-        output_dir = _output_dir(context, 'text_file')
+        output_dir = _output_dir(context, position_index, 'text_file')
         return PreparedExecutor(
             executor_name='resource_text_file',
             kwargs={
@@ -155,8 +151,8 @@ def prepare_node(
             kwargs={
                 'r1': data.get('r1', 'sample:r1'),
                 'r2': data.get('r2', 'sample:r2'),
-                'project_id': context.project_id,
-                'sample_uid': str(context.sample_uid) if context.sample_uid else None,
+                'project_id': context.run.project_id,
+                'sample_uid': str(context.run.sample_uid) if context.run.sample_uid else None,
                 'sample_name': context.sample_name,
             },
             name='read_file',
@@ -204,7 +200,7 @@ def prepare_node(
 
     if node_type == 'copy2folder':
         folder_name = data.get('folder_name') or nanoid.generate(size=8)
-        output_dir = str(Path(context.output_base) / to_safe_path_segment(folder_name))
+        output_dir = str(Path(context.run.base_dir) / to_safe_path_segment(folder_name))
         return PreparedExecutor(
             executor_name='copy2folder',
             kwargs={'inputs': inputs, 'output_dir': output_dir},
@@ -217,7 +213,7 @@ def prepare_node(
             executor_name=node_type,
             kwargs={
                 'inputs': inputs,
-                'run_uid': str(context.run_uid),
+                'run_uid': str(context.run.uid),
                 'mark_name': data.get('mark_name', ''),
                 'description': data.get('description', ''),
             },
@@ -226,12 +222,12 @@ def prepare_node(
         )
 
     if node_type == 'resource_sample_mark_collection':
-        output_dir = _output_dir(context, 'sample_mark_collection')
+        output_dir = _output_dir(context, position_index, 'sample_mark_collection')
         return PreparedExecutor(
             executor_name='resource_sample_mark_collection',
             kwargs={
-                'project_id': context.project_id,
-                'sample_uid': str(context.sample_uid) if context.sample_uid else None,
+                'project_id': context.run.project_id,
+                'sample_uid': str(context.run.sample_uid) if context.run.sample_uid else None,
                 'mark_names': data.get('mark_names', []),
                 'require_all_samples': data.get('require_all_samples', True),
                 'output_dir': output_dir,
@@ -242,7 +238,7 @@ def prepare_node(
         )
 
     if node_type == 'collect_mount_dirs':
-        output_dir = str(Path(context.output_base) / f'{node.id}_mount_dirs')
+        output_dir = str(Path(context.run.base_dir) / f'{node.id}_mount_dirs')
         return PreparedExecutor(
             executor_name='collect_mount_dirs',
             kwargs={'inputs': inputs, 'output_dir': output_dir},
@@ -277,7 +273,7 @@ def prepare_node(
 
     if node_type == 'collect_file_collection':
         pattern = data['pattern']
-        output_dir = _output_dir(context, 'file_collection')
+        output_dir = _output_dir(context, position_index, 'file_collection')
         return PreparedExecutor(
             executor_name=node_type,
             kwargs={'inputs': inputs, 'pattern': pattern.strip(), 'output_dir': output_dir},
@@ -295,11 +291,11 @@ def prepare_node(
                 'workflow': child.model_dump(mode='json'),
                 'item_port_id': item_port_id,
                 'subfolder_prefix': data['subfolder_prefix'] or 'item',
-                'output_dir': _output_dir(context, 'foreach'),
+                'output_dir': _output_dir(context, position_index, 'foreach'),
             },
             name=str(data.get('name') or 'ForEach'),
             track_progress=False,
-            base_dir=_output_dir(context, 'foreach'),
+            base_dir=_output_dir(context, position_index, 'foreach'),
         )
 
     indexed_executors: dict[str, tuple[str, dict[str, Any], str]] = {
@@ -332,7 +328,7 @@ def prepare_node(
     }
     if node_type in indexed_executors:
         name, kwargs, suffix = indexed_executors[node_type]
-        output_dir = _output_dir(context, suffix)
+        output_dir = _output_dir(context, position_index, suffix)
         return PreparedExecutor(
             executor_name=node_type,
             kwargs={**kwargs, 'output_dir': output_dir},
@@ -341,7 +337,7 @@ def prepare_node(
         )
 
     if node_type == 'downstream_summary':
-        output_dir = str(Path(context.output_base) / 'downstream')
+        output_dir = str(Path(context.run.base_dir) / 'downstream')
         return PreparedExecutor(
             executor_name='downstream_summary',
             kwargs={'inputs': inputs, 'prompt': data.get('prompt', ''), 'output_dir': output_dir},
@@ -386,7 +382,7 @@ _EXECUTORS: dict[str, Callable[..., ToolOutput]] = {
 }
 
 
-def execute_prepared_node(node_run_uid: uuid.UUID, prepared_data: dict[str, Any]) -> ToolOutput:
+def execute_prepared_node(prepared_data: dict[str, Any]) -> ToolOutput:
     """Execute one frozen plan as a local Python call inside the generic task."""
     executor_name = prepared_data.get('executor_name')
     if not isinstance(executor_name, str):
@@ -406,8 +402,6 @@ def execute_prepared_node(node_run_uid: uuid.UUID, prepared_data: dict[str, Any]
             for key, value in raw_inputs.items()
         }
 
-    if executor_name in {'tool', 'resource_db'}:
-        kwargs['node_run_id'] = str(node_run_uid)
     result = executor(**kwargs)
     return result if isinstance(result, ToolOutput) else ToolOutput.model_validate(result)
 

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowRun
 from bioflow_ai.schemas.workflow_config import ToolOutput
-from bioflow_ai.schemas.workflow_run import ACTIVE_NODE_STATUSES, NodeRunStatus, NodeRunUpdate, RunStatus
+from bioflow_ai.schemas.workflow_run import ACTIVE_NODE_STATUSES, NodeRunStatus, RunStatus
 from bioflow_ai.utils.system import utc_now
 
 
@@ -70,6 +70,9 @@ def claim_node(node_run_uid: uuid.UUID, worker_id: str | None) -> bool:
         if claimed is None:
             return False
         run = session.get(WorkflowRun, node.run_uid, with_for_update=True)
+        if run is None:
+            raise ValueError
+
         if run.status == RunStatus.PENDING:
             run.status = RunStatus.RUNNING
             run.start_time = now
@@ -87,63 +90,6 @@ def heartbeat_node(node_run_uid: uuid.UUID) -> bool:
             .returning(NodeRun.uid)
         ).scalar_one_or_none()
     return updated is not None
-
-
-def update_node_from_executor(node_run_uid: uuid.UUID, uid: str, data: NodeRunUpdate) -> bool:
-    """Persist non-lifecycle metadata emitted by a shared execution implementation."""
-    if uid != str(node_run_uid):
-        message = 'Executor attempted to update a different node'
-        raise WorkflowRuntimeInvariantError(message)
-    values = data.model_dump(exclude_none=True)
-    if not values:
-        return True
-    with Session(engine) as session, session.begin():
-        updated = session.execute(
-            update(NodeRun)
-            .where(NodeRun.uid == node_run_uid, NodeRun.status == NodeRunStatus.RUNNING)
-            .values(**values)
-            .returning(NodeRun.uid)
-        ).scalar_one_or_none()
-    return updated is not None
-
-
-def resolve_dependency_output(
-    current_node_uid: uuid.UUID,
-    source_uid: str,
-    output_key: str,
-) -> tuple[str, str | None]:
-    """Resolve one declared successful predecessor without polling."""
-    try:
-        source_node_uid = uuid.UUID(source_uid)
-    except ValueError as error:
-        message = f'Invalid dependency node UID: {source_uid}'
-        raise WorkflowRuntimeInvariantError(message) from error
-
-    with Session(engine) as session:
-        dependency = session.scalar(
-            select(NodeDependency.uid).where(
-                NodeDependency.source_node_uid == source_node_uid,
-                NodeDependency.target_node_uid == current_node_uid,
-                NodeDependency.source_handle == output_key,
-            )
-        )
-        if dependency is None:
-            message = f'Node {source_uid} output {output_key!r} is not a declared dependency of {current_node_uid}'
-            raise WorkflowRuntimeInvariantError(message)
-        source = session.get(NodeRun, source_node_uid)
-        if source is None or source.status != NodeRunStatus.SUCCEEDED:
-            message = f'Dependency {source_uid} is not successfully completed'
-            raise WorkflowRuntimeInvariantError(message)
-        if source.tool_output is None:
-            message = f'Dependency {source_uid} succeeded without output'
-            raise WorkflowRuntimeInvariantError(message)
-        if output_key == 'workdir' and source.base_dir:
-            return str(Path(source.base_dir).absolute()), source.tool_output.sample_name
-        values = source.tool_output.all_files()
-        if output_key not in values:
-            message = f'Dependency {source_uid} has no output named {output_key!r}'
-            raise WorkflowRuntimeInvariantError(message)
-        return str(values[output_key]), source.tool_output.sample_name
 
 
 def _direct_successors(session: Session, node_uid: uuid.UUID) -> list[uuid.UUID]:
@@ -168,6 +114,9 @@ def _all_predecessors_succeeded(session: Session, node_uid: uuid.UUID) -> bool:
 
 def _settle_run_if_complete(session: Session, run_uid: uuid.UUID) -> bool:
     run = session.get(WorkflowRun, run_uid, with_for_update=True)
+    if run is None:
+        raise ValueError
+
     unsettled_children = session.scalar(
         select(func.count(WorkflowRun.uid))
         .join(NodeRun, WorkflowRun.parent_node_uid == NodeRun.uid)
@@ -255,6 +204,9 @@ def mark_node_failed(node_run_uid: uuid.UUID, error: BaseException | str) -> boo
         ):
             return False
         run = session.get(WorkflowRun, node.run_uid, with_for_update=True)
+        if run is None:
+            raise ValueError
+
         node.status = NodeRunStatus.FAILED
         node.error_message = str(error)[:4000]
         node.heartbeat_at = now
