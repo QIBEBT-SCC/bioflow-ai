@@ -44,7 +44,7 @@ def execute_tool(
 
     Args:
         tool_uid: 工具uid, 用于从数据库获取具体信息
-        inputs: 输入参数字典, 格式为 {参数名: (uid, 类型)}
+        inputs: 输入参数字典, 格式为 {参数名: 上游节点输出引用}
         output_dir: 输出目录
         params: 额外参数
         sample_name: 样本名称

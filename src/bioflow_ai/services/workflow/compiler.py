@@ -94,7 +94,7 @@ def compile_run(session: Session, run: WorkflowRun, *, sample_name: str | None) 
         node_run.track_progress = prepared.track_progress
         node_run.tool_uid = prepared.tool_uid
         node_run.base_dir = prepared.base_dir
-        node_run.prepared_data = prepared.as_json()
+        node_run.prepared_data = {'executor_name': node_run.node_type, 'kwargs': prepared.kwargs}
         if not source_nodes_by_target[node_id]:
             node_run.status = NodeRunStatus.READY
 

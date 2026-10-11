@@ -87,17 +87,12 @@ def create_editor_run(
         name=f'temporarily-{template_name}',
         owner_id=current_user.id,
         base_dir=str(output_root / 'generation-1'),
-        workflow=workflow.model_copy(deep=True),
+        workflow=workflow,
     )
-    try:
-        run_crud.insert(session, run)
-        session.flush()
-        compile_run(session, run, sample_name=None)
-        session.commit()
-        session.refresh(run)
-    except Exception:
-        session.rollback()
-        raise
+    run_crud.insert(session, run)
+    session.flush()
+    compile_run(session, run, sample_name=None)
+    session.commit()
     return run
 
 
@@ -179,26 +174,20 @@ def create_project_runs(
     """Atomically create or rerun all requested sample/project generations."""
     old_output_dirs: list[str] = []
     workflow_runs: list[WorkflowRun] = []
-    try:
-        for sample in samples:
-            run, old_base_dir = _create_or_rerun_project_run(
-                session,
-                project_id=project_id,
-                project_name=project_name,
-                workflow=workflow,
-                current_user=current_user,
-                sample=sample,
-                run_name_prefix=run_name_prefix,
-            )
-            workflow_runs.append(run)
-            if old_base_dir:
-                old_output_dirs.append(old_base_dir)
-        session.commit()
-        for run in workflow_runs:
-            session.refresh(run)
-    except Exception:
-        session.rollback()
-        raise
+    for sample in samples:
+        run, old_base_dir = _create_or_rerun_project_run(
+            session,
+            project_id=project_id,
+            project_name=project_name,
+            workflow=workflow,
+            current_user=current_user,
+            sample=sample,
+            run_name_prefix=run_name_prefix,
+        )
+        workflow_runs.append(run)
+        if old_base_dir:
+            old_output_dirs.append(old_base_dir)
+    session.commit()
 
     for old_output_dir in old_output_dirs:
         old_path = Path(old_output_dir)
@@ -237,8 +226,10 @@ def to_node_public(session: Session, node: NodeRun) -> NodeRunPublic:
         raise ValueError
 
     owner = user_crud.get_by_id(session, run.owner_id)
+    if owner is None:
+        raise ValueError
     tool = tool_crud.get_summary(session, node.tool_uid) if node.tool_uid is not None else None
-    record = _to_node_record(node, run, owner.username if owner is not None else str(run.owner_id))
+    record = _to_node_record(node, run, owner.username)
     return NodeRunPublic(
         **record.model_dump(),
         track_progress=node.track_progress,
@@ -294,9 +285,10 @@ def recent_node_runs(
 def list_node_runs_for_run(session: Session, run: WorkflowRun) -> list[NodeRunRecord]:
     """Return current-generation node executions in workflow definition order."""
     owner = user_crud.get_by_id(session, run.owner_id)
-    owner_username = owner.username if owner is not None else str(run.owner_id)
+    if owner is None:
+        raise ValueError
     nodes = node_run_crud.list_for_runs(session, [run.uid])
-    return [_to_node_record(node, run, owner_username) for node in nodes]
+    return [_to_node_record(node, run, owner.username) for node in nodes]
 
 
 def _node_statistics(nodes: list[NodeRun]) -> NodeRunStatistics:

@@ -22,22 +22,10 @@ from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.collection import read_collection
 from bioflow_ai.services.workflow.compiler import compile_run
+from bioflow_ai.services.workflow.execution_context import get_node_output
+from bioflow_ai.services.workflow.runtime import mark_node_failed, mark_node_succeeded
 from bioflow_ai.services.workflow.subgraphs import definition_id
 from bioflow_ai.utils.system import random_uid, utc_now
-
-
-def _source_value(session: Session, ref: dict[str, str]) -> tuple[str, str | None]:
-    source = node_run_crud.get(session, uuid.UUID(ref['source_uid']))
-    if source is None or source.status != NodeRunStatus.SUCCEEDED or source.tool_output is None:
-        message = 'ForEach input source has not succeeded'
-        raise ValueError(message)
-    if ref['source_k'] == 'workdir' and source.base_dir:
-        return source.base_dir, source.tool_output.sample_name
-    value = source.tool_output.all_files().get(ref['source_k'])
-    if value is None:
-        message = f'ForEach source lacks output {ref["source_k"]!r}'
-        raise ValueError(message)
-    return str(value), source.tool_output.sample_name
 
 
 def _child_sample_name(base_name: str | None, item_name: str, index: int) -> str:
@@ -84,7 +72,7 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
     plan = node.prepared_data.copy()
     kwargs = plan['kwargs']
     refs = kwargs['inputs']
-    sources = {key: _source_value(session, ref) for key, ref in refs.items()}
+    sources = {key: get_node_output(ref['source_uid'], ref['source_k']) for key, ref in refs.items()}
     collection_path, base_sample_name = sources.pop('collection')
     items = read_collection(collection_path)
     paths = {key: path for key, (path, _) in sources.items()}
@@ -203,11 +191,7 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
     """One locked step. Filesystem copies are repeatable after a crash."""
     with Session(engine) as session, session.begin():
         node = node_run_crud.get(session, node_uid, lock=True)
-        if (
-            node is None
-            or node.node_type != 'foreach'
-            or node.status not in {NodeRunStatus.READY, NodeRunStatus.RUNNING}
-        ):
+        if node is None or node.status not in {NodeRunStatus.READY, NodeRunStatus.RUNNING}:
             return None, None
         parent = run_crud.get(session, node.run_uid, lock=True)
         if parent is None:
@@ -223,11 +207,7 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
             if child.start_time is not None:
                 continue
             item = node.prepared_data['items'][index]
-            base_sample_name = node.prepared_data.get('base_sample_name')
-            if not base_sample_name and child.sample_uid is not None:
-                sample = sample_crud.get(session, child.sample_uid)
-                base_sample_name = sample.sample_name if sample else None
-            sample_name = _child_sample_name(base_sample_name, item['name'], index)
+            sample_name = _child_sample_name(node.prepared_data['base_sample_name'], item['name'], index)
             paths = {**node.prepared_data['shared_paths'], node.prepared_data['kwargs']['item_port_id']: item['path']}
             child.workflow = _child_graph(child.workflow, paths, sample_name)
             child.start_time = utc_now()
@@ -244,8 +224,6 @@ def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
 
 def advance_foreach() -> int:
     """Advance ready and running control nodes without occupying Celery workers."""
-    from bioflow_ai.services.workflow.runtime import mark_node_failed, mark_node_succeeded
-
     with Session(engine) as session:
         candidates = node_run_crud.list_uids_by_status(
             session, [NodeRunStatus.READY, NodeRunStatus.RUNNING], node_type='foreach'

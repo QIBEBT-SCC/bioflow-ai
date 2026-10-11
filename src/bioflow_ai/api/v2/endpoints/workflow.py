@@ -25,19 +25,19 @@ from starlette.status import (
 from bioflow_ai.core.auth import MemberDep
 from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import project_workflow as project_workflow_crud
-from bioflow_ai.crud import workflow as workflow_crud
 from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import monitor_redis_client
 from bioflow_ai.models.project import Project
-from bioflow_ai.models.workflow import NodeRun, WorkflowRun
+from bioflow_ai.models.workflow import NodeRun, Workflow, WorkflowRun
 from bioflow_ai.schemas.project_workflow import WorkflowRunResult
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.user import CurrentUser
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.schemas.workflow_config import ExecutionScope, ToolOutput
 from bioflow_ai.schemas.workflow_run import (
+    TERMINAL_NODE_STATUSES,
     FileContentRequest,
     FilePreviewMetaRequest,
     FilePreviewRegionRequest,
@@ -105,6 +105,11 @@ def _is_admin(user: CurrentUser) -> bool:
     return user.role == UserRole.ADMIN
 
 
+def _owner_filter(user: CurrentUser) -> int | None:
+    """Return the owner ID to filter listings by; admins see every owner."""
+    return None if _is_admin(user) else user.id
+
+
 def _owned_run(session: Session, run_uid: uuid.UUID, user: CurrentUser) -> WorkflowRun:
     run = run_crud.get(session, run_uid)
     if run is None or (run.owner_id != user.id and not _is_admin(user)):
@@ -125,6 +130,13 @@ def _owned_project(session: Session, project_id: int, user: CurrentUser) -> Proj
     if project is None or (project.owner_id != user.id and not _is_admin(user)):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Project not found')
     return project
+
+
+def _project_workflow(session: Session, project_id: int, workflow_uid: uuid.UUID) -> Workflow:
+    project_workflow = project_workflow_crud.get(session, project_id, workflow_uid)
+    if project_workflow is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
+    return project_workflow.workflow
 
 
 @workflow_router.post('/run')
@@ -152,11 +164,7 @@ def run_project_workflow(
 ) -> WorkflowRunResult:
     """Create or rerun the current generation for a project workflow."""
     project = _owned_project(session, project_id, current_user)
-    if not project_workflow_crud.exists(session, project_id, workflow_uid):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
-    workflow = workflow_crud.get(session, workflow_uid)
-    if workflow is None:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
+    workflow = _project_workflow(session, project_id, workflow_uid)
 
     if workflow.execution_scope == ExecutionScope.PROJECT_LEVEL:
         if body.sample_uids:
@@ -194,12 +202,8 @@ def package_project_workflow_runs(
 ) -> StreamingResponse:
     """Download only the current generation for each project/sample run."""
     _owned_project(session, project_id, current_user)
-    if not project_workflow_crud.exists(session, project_id, workflow_uid):
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found in this project')
-    workflow = workflow_crud.get(session, workflow_uid)
-    if workflow is None:
-        raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow not found')
-    owner_id = None if _is_admin(current_user) else current_user.id
+    workflow = _project_workflow(session, project_id, workflow_uid)
+    owner_id = _owner_filter(current_user)
     try:
         content = runs.package_project_workflow_runs(
             session,
@@ -225,14 +229,14 @@ def list_all_runs(
     status: RunStatus | None = None,
 ) -> PaginatedWorkflowRuns:
     """List workflow runs."""
-    owner_id = None if _is_admin(current_user) else current_user.id
+    owner_id = _owner_filter(current_user)
     return runs.list_runs(session, owner_id=owner_id, status=status, offset=offset, limit=limit)
 
 
 @run_router.get('/statistics')
 def get_run_statistics(session: SessionDep, current_user: MemberDep) -> WorkflowRunStatistics:
     """Get aggregate workflow run states."""
-    owner_id = None if _is_admin(current_user) else current_user.id
+    owner_id = _owner_filter(current_user)
     return runs.run_statistics(session, owner_id=owner_id)
 
 
@@ -246,7 +250,7 @@ def list_project_runs(
 ) -> PaginatedWorkflowRuns:
     """List current workflow generations for one owned project."""
     _owned_project(session, project_id, current_user)
-    owner_id = None if _is_admin(current_user) else current_user.id
+    owner_id = _owner_filter(current_user)
     return runs.list_runs(session, owner_id=owner_id, project_id=project_id, offset=offset, limit=limit)
 
 
@@ -258,7 +262,7 @@ def get_project_run_statistics(
 ) -> WorkflowRunStatistics:
     """Get aggregate workflow run states for an owned project."""
     _owned_project(session, project_id, current_user)
-    owner_id = None if _is_admin(current_user) else current_user.id
+    owner_id = _owner_filter(current_user)
     return runs.run_statistics(session, owner_id=owner_id, project_id=project_id)
 
 
@@ -421,11 +425,7 @@ async def _preview_file(
     if generation != run.generation:
         raise HTTPException(HTTP_409_CONFLICT, 'Run was restarted. Refresh its file tree.')
     base = await AsyncPath(run.base_dir).resolve()
-    full_path = await (base / path).resolve()
-    if not full_path.is_relative_to(base):
-        raise HTTPException(HTTP_403_FORBIDDEN, 'Access denied')
-    if not await full_path.is_file():
-        raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
+    full_path = await _run_output_file(run, path)
     try:
         kind = file_kind(Path(str(full_path)))
     except PreviewError:
@@ -722,7 +722,7 @@ def list_node_runs(
     status: NodeRunStatus | None = None,
 ) -> PaginatedNodeRuns:
     """List current-generation node executions for the task center."""
-    owner_id = None if _is_admin(current_user) else current_user.id
+    owner_id = _owner_filter(current_user)
     return runs.list_node_runs(session, owner_id=owner_id, status=status, offset=offset, limit=limit)
 
 
@@ -734,7 +734,7 @@ def list_recent_node_runs(
     limit: Annotated[int, Query(ge=1, le=1000)] = 1000,
 ) -> list[NodeRunRecord]:
     """List recent current-generation node executions for the task timeline."""
-    owner_id = None if _is_admin(current_user) else current_user.id
+    owner_id = _owner_filter(current_user)
     return runs.recent_node_runs(session, owner_id=owner_id, hours=hours, limit=limit)
 
 
@@ -806,7 +806,7 @@ async def _stream_node_log(
                 offset = log_file.tell()
         if content:
             yield f'data: {json.dumps({"content": content})}\n\n'
-        if node.status in {NodeRunStatus.SUCCEEDED, NodeRunStatus.FAILED, NodeRunStatus.BLOCKED}:
+        if node.status in TERMINAL_NODE_STATUSES:
             return
         await asyncio.sleep(2)
 
