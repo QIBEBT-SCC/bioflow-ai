@@ -2,12 +2,12 @@
 
 import uuid
 
-from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from bioflow_ai.crud import project_workflow as project_workflow_crud
 from bioflow_ai.crud import workflow as wf_crud
-from bioflow_ai.models.workflow import ProjectWorkflow, WorkflowRun
+from bioflow_ai.crud import workflow_run as run_crud
+from bioflow_ai.models.workflow import ProjectWorkflow
 from bioflow_ai.schemas.project_workflow import ProjectWorkflowPublic
 from bioflow_ai.services._transaction import committing
 
@@ -85,15 +85,5 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
         raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
 
     with committing(session):
-        _delete_workflow_runs(session, project_id, workflow_uid)
+        run_crud.delete_for_workflow(session, project_id, workflow_uid)
         project_workflow_crud.delete(session, project_id, workflow_uid)
-
-
-def _delete_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
-    """Delete workflow runs; database cascades remove nodes and dependencies."""
-    session.execute(
-        delete(WorkflowRun).where(
-            WorkflowRun.project_id == project_id,
-            WorkflowRun.workflow_uid == workflow_uid,
-        )
-    )

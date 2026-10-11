@@ -4,20 +4,21 @@ import io
 import shutil
 import uuid
 import zipfile
+from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.elements import ColumnElement
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
+from bioflow_ai.crud import user as user_crud
+from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.models.resource import Sample
-from bioflow_ai.models.tools import ToolDefine
-from bioflow_ai.models.user import User
-from bioflow_ai.models.workflow import NodeDependency, NodeRun, Workflow, WorkflowRun
+from bioflow_ai.models.workflow import NodeRun, Workflow, WorkflowRun
 from bioflow_ai.schemas.project_workflow import WorkflowRunResult
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.user import CurrentUser
@@ -61,8 +62,7 @@ def _project_output_root(project_id: int, workflow: Workflow, sample: Sample | N
 
 
 def _clear_generation(session: Session, run: WorkflowRun) -> None:
-    session.execute(delete(NodeDependency).where(NodeDependency.run_uid == run.uid))
-    session.execute(delete(NodeRun).where(NodeRun.run_uid == run.uid))
+    node_run_crud.delete_for_run(session, run.uid)
     session.flush()
 
 
@@ -90,7 +90,7 @@ def create_editor_run(
         workflow=workflow.model_copy(deep=True),
     )
     try:
-        session.add(run)
+        run_crud.insert(session, run)
         session.flush()
         compile_run(session, run, sample_name=None)
         session.commit()
@@ -99,24 +99,6 @@ def create_editor_run(
         session.rollback()
         raise
     return run
-
-
-def _find_project_run(
-    session: Session,
-    project_id: int,
-    workflow_uid: uuid.UUID,
-    sample_uid: uuid.UUID | None,
-) -> WorkflowRun | None:
-    statement = select(WorkflowRun).where(
-        WorkflowRun.project_id == project_id,
-        WorkflowRun.workflow_uid == workflow_uid,
-    )
-    statement = (
-        statement.where(WorkflowRun.sample_uid.is_(None))
-        if sample_uid is None
-        else statement.where(WorkflowRun.sample_uid == sample_uid)
-    )
-    return session.scalar(statement.with_for_update())
 
 
 def _create_or_rerun_project_run(
@@ -131,7 +113,7 @@ def _create_or_rerun_project_run(
 ) -> tuple[WorkflowRun, str | None]:
     sample_uid = sample.uid if sample else None
     sample_name = sample.sample_name if sample else None
-    existing = _find_project_run(session, project_id, workflow.uid, sample_uid)
+    existing = run_crud.find_project_run(session, project_id, workflow.uid, sample_uid)
     output_root = _project_output_root(project_id, workflow, sample)
     old_base_dir: str | None = None
 
@@ -165,7 +147,7 @@ def _create_or_rerun_project_run(
             base_dir=str(output_root / 'generation-1'),
             workflow=workflow.workflow.model_copy(deep=True),
         )
-        session.add(run)
+        run_crud.insert(session, run)
         session.flush()
 
     if sample is None:
@@ -190,7 +172,7 @@ def create_project_runs(
     project_id: int,
     project_name: str,
     workflow: Workflow,
-    samples: list[Sample | None],
+    samples: Sequence[Sample | None],
     current_user: CurrentUser,
     run_name_prefix: str | None,
 ) -> WorkflowRunResult:
@@ -225,16 +207,6 @@ def create_project_runs(
     return WorkflowRunResult(run_uids=[run.uid for run in workflow_runs], count=len(workflow_runs))
 
 
-def get_run(session: Session, run_uid: uuid.UUID) -> WorkflowRun | None:
-    """Load one workflow run."""
-    return session.get(WorkflowRun, run_uid)
-
-
-def get_node(session: Session, node_uid: uuid.UUID) -> NodeRun | None:
-    """Load one node run."""
-    return session.get(NodeRun, node_uid)
-
-
 def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> NodeRunRecord:
     return NodeRunRecord(
         uid=node.uid,
@@ -260,12 +232,12 @@ def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> Nod
 
 def to_node_public(session: Session, node: NodeRun) -> NodeRunPublic:
     """Build task-center details for one current-generation node execution."""
-    run = session.get(WorkflowRun, node.run_uid)
+    run = run_crud.get(session, node.run_uid)
     if run is None:
         raise ValueError
 
-    owner = session.get(User, run.owner_id)
-    tool = session.get(ToolDefine, node.tool_uid) if node.tool_uid is not None else None
+    owner = user_crud.get_by_id(session, run.owner_id)
+    tool = tool_crud.get_summary(session, node.tool_uid) if node.tool_uid is not None else None
     record = _to_node_record(node, run, owner.username if owner is not None else str(run.owner_id))
     return NodeRunPublic(
         **record.model_dump(),
@@ -285,22 +257,6 @@ def to_node_public(session: Session, node: NodeRun) -> NodeRunPublic:
     )
 
 
-def _node_list_filters(
-    *,
-    owner_id: int | None,
-    project_id: int | None,
-    status: NodeRunStatus | None,
-) -> list[ColumnElement[bool]]:
-    filters: list[ColumnElement[bool]] = []
-    if owner_id is not None:
-        filters.append(WorkflowRun.owner_id == owner_id)
-    if project_id is not None:
-        filters.append(WorkflowRun.project_id == project_id)
-    if status is not None:
-        filters.append(NodeRun.status == status)
-    return filters
-
-
 def list_node_runs(
     session: Session,
     *,
@@ -311,21 +267,9 @@ def list_node_runs(
     limit: int = 20,
 ) -> PaginatedNodeRuns:
     """Return current-generation node executions for the task center."""
-    filters = _node_list_filters(owner_id=owner_id, project_id=project_id, status=status)
-    statement = (
-        select(NodeRun, WorkflowRun, User.username)
-        .join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid)
-        .join(User, User.id == WorkflowRun.owner_id)
-        .where(*filters)
-        .order_by(NodeRun.create_time.desc(), NodeRun.uid.desc())
-        .offset(offset)
-        .limit(limit)
+    rows, total = node_run_crud.get_page(
+        session, owner_id=owner_id, project_id=project_id, status=status, offset=offset, limit=limit
     )
-    count_statement = (
-        select(func.count()).select_from(NodeRun).join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid).where(*filters)
-    )
-    rows = session.execute(statement).all()
-    total = session.scalar(count_statement) or 0
     return PaginatedNodeRuns(
         total=total,
         offset=offset,
@@ -343,28 +287,15 @@ def recent_node_runs(
     limit: int = 1000,
 ) -> list[NodeRunRecord]:
     """Return recent current-generation node executions for the task timeline."""
-    filters = _node_list_filters(owner_id=owner_id, project_id=None, status=None)
-    filters.append(NodeRun.create_time >= utc_now() - timedelta(hours=hours))
-    statement = (
-        select(NodeRun, WorkflowRun, User.username)
-        .join(WorkflowRun, WorkflowRun.uid == NodeRun.run_uid)
-        .join(User, User.id == WorkflowRun.owner_id)
-        .where(*filters)
-        .order_by(NodeRun.create_time.desc(), NodeRun.uid.desc())
-        .limit(limit)
-    )
-    return [
-        _to_node_record(node, run, owner_username) for node, run, owner_username in session.execute(statement).all()
-    ]
+    rows = node_run_crud.list_recent(session, owner_id=owner_id, since=utc_now() - timedelta(hours=hours), limit=limit)
+    return [_to_node_record(node, run, username) for node, run, username in rows]
 
 
 def list_node_runs_for_run(session: Session, run: WorkflowRun) -> list[NodeRunRecord]:
     """Return current-generation node executions in workflow definition order."""
-    owner = session.get(User, run.owner_id)
+    owner = user_crud.get_by_id(session, run.owner_id)
     owner_username = owner.username if owner is not None else str(run.owner_id)
-    nodes = session.scalars(
-        select(NodeRun).where(NodeRun.run_uid == run.uid).order_by(NodeRun.position_index, NodeRun.uid)
-    )
+    nodes = node_run_crud.list_for_runs(session, [run.uid])
     return [_to_node_record(node, run, owner_username) for node in nodes]
 
 
@@ -436,24 +367,36 @@ def build_preview_data(run: WorkflowRun, nodes: list[NodeRun]) -> dict[str, dict
 
 
 def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
-    """Build a current-generation graph with NodeRun data injected by stable definition ID."""
-    nodes = list(session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid).order_by(NodeRun.position_index)))
+    """Load and assemble one run's public graph."""
+    return _public_runs(session, [run])[0]
+
+
+def _public_runs(session: Session, runs: list[WorkflowRun]) -> list[WorkflowRunPublic]:
+    nodes_by_run: dict[uuid.UUID, list[NodeRun]] = {run.uid: [] for run in runs}
+    nodes = node_run_crud.list_for_runs(session, list(nodes_by_run))
+    for node in nodes:
+        nodes_by_run[node.run_uid].append(node)
     item_statistics: dict[str, dict[str, int]] = {}
-    foreach_uids = [node.uid for node in nodes if node.node_type == 'foreach']
-    if foreach_uids:
-        started = WorkflowRun.start_time.is_not(None)
-        child_rows = session.execute(
-            select(WorkflowRun.parent_node_uid, WorkflowRun.status, started, WorkflowRun.settled, func.count())
-            .where(WorkflowRun.parent_node_uid.in_(foreach_uids))
-            .group_by(WorkflowRun.parent_node_uid, WorkflowRun.status, started, WorkflowRun.settled)
+    child_rows = run_crud.count_children_by_state(session, [node.uid for node in nodes if node.node_type == 'foreach'])
+    for parent_uid, status, has_started, settled, count in child_rows:
+        counts = item_statistics.setdefault(
+            str(parent_uid), {'total': 0, 'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
         )
-        for parent_uid, status, has_started, settled, count in child_rows:
-            counts = item_statistics.setdefault(
-                str(parent_uid), {'total': 0, 'pending': 0, 'running': 0, 'succeeded': 0, 'failed': 0}
-            )
-            counts['total'] += count
-            state = status.value if settled else ('running' if has_started else 'pending')
-            counts[state] += count
+        counts['total'] += count
+        state = status.value if settled else ('running' if has_started else 'pending')
+        counts[state] += count
+    parents = run_crud.get_parent_details(
+        session, [run.parent_node_uid for run in runs if run.parent_node_uid is not None]
+    )
+    return [_to_public(run, nodes_by_run[run.uid], item_statistics, parents.get(run.parent_node_uid)) for run in runs]
+
+
+def _to_public(
+    run: WorkflowRun,
+    nodes: list[NodeRun],
+    item_statistics: dict[str, dict[str, int]],
+    parent_details: tuple[uuid.UUID, str, str] | None,
+) -> WorkflowRunPublic:
     graph_nodes = inject_run_data(
         run.workflow,
         {
@@ -471,13 +414,8 @@ def to_public(session: Session, run: WorkflowRun) -> WorkflowRunPublic:
         build_preview_data(run, nodes),
     )
     record = WorkflowRunRecord.model_validate(run).model_dump()
-    if run.parent_node_uid is not None:
-        parent_node = session.get(NodeRun, run.parent_node_uid)
-        if parent_node is not None:
-            parent = session.get(WorkflowRun, parent_node.run_uid)
-            record['parent_run_uid'] = parent_node.run_uid
-            record['parent_run_name'] = parent.name if parent is not None else None
-            record['parent_node_name'] = parent_node.name
+    if parent_details is not None:
+        record['parent_run_uid'], record['parent_run_name'], record['parent_node_name'] = parent_details
     return WorkflowRunPublic(
         **record,
         nodes=graph_nodes,
@@ -497,37 +435,21 @@ def list_runs(
     limit: int = 20,
 ) -> PaginatedWorkflowRuns:
     """Return workflow runs for the requested owner and project."""
-    filters = [WorkflowRun.parent_node_uid.is_(None)]
-    if owner_id is not None:
-        filters.append(WorkflowRun.owner_id == owner_id)
-    if project_id is not None:
-        filters.append(WorkflowRun.project_id == project_id)
-    if status is not None:
-        filters.append(WorkflowRun.status == status)
-    statement = select(WorkflowRun).where(*filters).order_by(WorkflowRun.create_time.desc()).offset(offset).limit(limit)
-    count_statement = select(func.count()).select_from(WorkflowRun).where(*filters)
-    runs = list(session.scalars(statement))
-    total = session.scalar(count_statement) or 0
+    runs, total = run_crud.get_page(
+        session, owner_id=owner_id, project_id=project_id, status=status, offset=offset, limit=limit
+    )
     return PaginatedWorkflowRuns(
         total=total,
         offset=offset,
         limit=limit,
         has_more=offset + limit < total,
-        data=[to_public(session, run) for run in runs],
+        data=_public_runs(session, runs),
     )
 
 
 def run_statistics(session: Session, *, owner_id: int | None, project_id: int | None = None) -> WorkflowRunStatistics:
     """Aggregate workflow-run states."""
-    filters = [WorkflowRun.parent_node_uid.is_(None)]
-    if owner_id is not None:
-        filters.append(WorkflowRun.owner_id == owner_id)
-    if project_id is not None:
-        filters.append(WorkflowRun.project_id == project_id)
-    rows = session.execute(select(WorkflowRun.status, func.count()).where(*filters).group_by(WorkflowRun.status))
-    counts: dict[RunStatus, int] = {}
-    for row in rows:
-        counts[row[0]] = row[1]
+    counts = run_crud.count_by_status(session, owner_id=owner_id, project_id=project_id)
     return WorkflowRunStatistics(
         total=sum(counts.values()),
         pending=counts.get(RunStatus.PENDING, 0),
@@ -545,20 +467,14 @@ def package_project_workflow_runs(
     owner_id: int | None,
 ) -> bytes:
     """Build a zip containing only current-generation outputs."""
-    filters = [
-        WorkflowRun.project_id == project_id,
-        WorkflowRun.workflow_uid == workflow_uid,
-    ]
-    if owner_id is not None:
-        filters.append(WorkflowRun.owner_id == owner_id)
-    current_runs = list(session.scalars(select(WorkflowRun).where(*filters).order_by(WorkflowRun.sample_uid)))
+    current_runs = run_crud.list_for_workflow(
+        session, project_id=project_id, workflow_uid=workflow_uid, owner_id=owner_id
+    )
     if not current_runs:
         raise WorkflowRunNotFoundError(_NO_RUN)
 
     sample_uids = [run.sample_uid for run in current_runs if run.sample_uid is not None]
-    sample_names = {
-        sample.uid: sample.sample_name for sample in session.scalars(select(Sample).where(Sample.uid.in_(sample_uids)))
-    }
+    sample_names = {sample.uid: sample.sample_name for sample in sample_crud.get_by_uids(session, sample_uids)}
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as archive:

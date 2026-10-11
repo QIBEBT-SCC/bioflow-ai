@@ -9,9 +9,11 @@ from urllib.parse import unquote
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.workflow as workflow_crud
+from bioflow_ai.crud import node_run as node_run_crud
+from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.llm.workflow_builder.loading import load_workflow_draft
 from bioflow_ai.models.agent import AgentRun
-from bioflow_ai.models.workflow import NodeRun, WorkflowRun
+from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.services.workflow.diagnosis import load_latest_diagnosis_report
 
@@ -50,8 +52,8 @@ def prepare_workflow_fix(
     template_run = source_run
     source_subgraph_path: list[str] = []
     if source_run.parent_node_uid is not None:
-        parent_node = session.get(NodeRun, source_run.parent_node_uid)
-        parent_run = session.get(WorkflowRun, parent_node.run_uid) if parent_node else None
+        parent_node = node_run_crud.get(session, source_run.parent_node_uid)
+        parent_run = run_crud.get(session, parent_node.run_uid) if parent_node else None
         if parent_node is None or parent_run is None or parent_node.node_type != 'foreach':
             raise ValueError(SOURCE_PATH_NOT_FOUND_ERROR)
         template_run = parent_run

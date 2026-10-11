@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import agent as agent_crud
+from bioflow_ai.crud import project as project_crud
+from bioflow_ai.crud import user as user_crud
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.project import Project
-from bioflow_ai.models.user import User
 from bioflow_ai.schemas.agent_artifact import AgentArtifactKind, AgentArtifactPublic
 from bioflow_ai.schemas.user_config import UserRole
 
@@ -52,7 +53,7 @@ class AgentArtifactValidationError(AgentArtifactError):
 
 
 def _is_admin_actor(session: Session, owner_id: int) -> bool:
-    actor = session.get(User, owner_id)
+    actor = user_crud.get_by_id(session, owner_id)
     return actor is not None and actor.role == UserRole.ADMIN
 
 
@@ -63,7 +64,7 @@ def get_project_root(project_id: int) -> Path:
 
 
 def _get_owned_project(session: Session, project_id: int, owner_id: int) -> Project:
-    project = session.get(Project, project_id)
+    project = project_crud.get_by_id(session, project_id)
     if project is None or (project.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
         raise AgentArtifactNotFoundError
     return project

@@ -8,13 +8,14 @@ import uuid
 from pathlib import Path
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.crud import node_run as node_run_crud
+from bioflow_ai.crud import workflow_run as run_crud
+from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.resource import Sample
 from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import Edge, Node, WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import ToolOutput
@@ -26,7 +27,7 @@ from bioflow_ai.utils.system import random_uid, utc_now
 
 
 def _source_value(session: Session, ref: dict[str, str]) -> tuple[str, str | None]:
-    source = session.get(NodeRun, uuid.UUID(ref['source_uid']))
+    source = node_run_crud.get(session, uuid.UUID(ref['source_uid']))
     if source is None or source.status != NodeRunStatus.SUCCEEDED or source.tool_output is None:
         message = 'ForEach input source has not succeeded'
         raise ValueError(message)
@@ -91,7 +92,7 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
     if not base_sample_name:
         base_sample_name = next((name for _, name in sources.values() if name), None)
     if not base_sample_name and parent.sample_uid is not None:
-        sample = session.get(Sample, parent.sample_uid)
+        sample = sample_crud.get(session, parent.sample_uid)
         base_sample_name = sample.sample_name if sample else None
     graph = WorkflowDefinition.model_validate(kwargs['workflow'])
     if graph.interface is None:
@@ -126,7 +127,7 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
             status=RunStatus.PENDING,
             settled=False,
         )
-        session.add(child)
+        run_crud.insert(session, child)
     session.flush()
 
 
@@ -156,14 +157,16 @@ def _publish_results(session: Session, node: NodeRun, children: list[WorkflowRun
     results = Path(node.prepared_data['kwargs']['output_dir']) / 'results'
     results.mkdir(parents=True, exist_ok=True)
     manifest_items = []
-    for child in children:
-        subfolder = f'{node.prepared_data["kwargs"]["subfolder_prefix"]}_{child.item_index + 1}'
-        item = node.prepared_data['items'][child.item_index]
+    nodes_by_run: dict[uuid.UUID, dict[str, NodeRun]] = {child.uid: {} for child in children}
+    for child_node in node_run_crud.list_for_runs(session, list(nodes_by_run)):
+        nodes_by_run[child_node.run_uid][child_node.definition_node_id] = child_node
+    # Children are loaded in item order and _initialize creates one per item, so the
+    # position in `children` is the child's item_index.
+    for index, child in enumerate(children):
+        subfolder = f'{node.prepared_data["kwargs"]["subfolder_prefix"]}_{index + 1}'
+        item = node.prepared_data['items'][index]
         outputs: dict[str, str] = {}
-        node_runs = {
-            item.definition_node_id: item
-            for item in session.scalars(select(NodeRun).where(NodeRun.run_uid == child.uid))
-        }
+        node_runs = nodes_by_run[child.uid]
         for port in graph.interface.outputs if child.status == RunStatus.SUCCEEDED else []:
             source_id, handle = _output_source(graph, port.source.node_id, port.source.handle)
             source = node_runs.get(source_id)
@@ -214,37 +217,32 @@ def _publish_results(session: Session, node: NodeRun, children: list[WorkflowRun
 def _process_one(node_uid: uuid.UUID) -> tuple[ToolOutput | None, str | None]:
     """One locked step. Filesystem copies are repeatable after a crash."""
     with Session(engine) as session, session.begin():
-        node = session.get(NodeRun, node_uid, with_for_update=True)
+        node = node_run_crud.get(session, node_uid, lock=True)
         if (
             node is None
             or node.node_type != 'foreach'
             or node.status not in {NodeRunStatus.READY, NodeRunStatus.RUNNING}
         ):
             return None, None
-        parent = session.get(WorkflowRun, node.run_uid, with_for_update=True)
+        parent = run_crud.get(session, node.run_uid, lock=True)
+        if parent is None:
+            raise ValueError
         if node.status == NodeRunStatus.READY:
             _initialize(session, node, parent)
-        children = list(
-            session.scalars(
-                select(WorkflowRun)
-                .where(WorkflowRun.parent_node_uid == node.uid)
-                .order_by(WorkflowRun.item_index)
-                .with_for_update()
-            )
-        )
+        children = run_crud.list_children(session, node.uid, lock=True)
         active = sum(child.start_time is not None and not child.settled for child in children)
         capacity = get_settings().workflow.MAX_PARALLEL_ITEMS - active
-        for child in children:
+        for index, child in enumerate(children):  # position == item_index, see _publish_results
             if capacity <= 0:
                 break
             if child.start_time is not None:
                 continue
-            item = node.prepared_data['items'][child.item_index]
+            item = node.prepared_data['items'][index]
             base_sample_name = node.prepared_data.get('base_sample_name')
             if not base_sample_name and child.sample_uid is not None:
-                sample = session.get(Sample, child.sample_uid)
+                sample = sample_crud.get(session, child.sample_uid)
                 base_sample_name = sample.sample_name if sample else None
-            sample_name = _child_sample_name(base_sample_name, item['name'], child.item_index)
+            sample_name = _child_sample_name(base_sample_name, item['name'], index)
             paths = {**node.prepared_data['shared_paths'], node.prepared_data['kwargs']['item_port_id']: item['path']}
             child.workflow = _child_graph(child.workflow, paths, sample_name)
             child.start_time = utc_now()
@@ -264,15 +262,8 @@ def advance_foreach() -> int:
     from bioflow_ai.services.workflow.runtime import mark_node_failed, mark_node_succeeded
 
     with Session(engine) as session:
-        candidates = list(
-            session.scalars(
-                select(NodeRun.uid)
-                .where(
-                    NodeRun.node_type == 'foreach',
-                    NodeRun.status.in_((NodeRunStatus.READY, NodeRunStatus.RUNNING)),
-                )
-                .order_by(NodeRun.create_time)
-            )
+        candidates = node_run_crud.list_uids_by_status(
+            session, [NodeRunStatus.READY, NodeRunStatus.RUNNING], node_type='foreach'
         )
     for uid in candidates:
         try:

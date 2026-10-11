@@ -23,8 +23,10 @@ from starlette.status import (
 )
 
 from bioflow_ai.core.auth import MemberDep
+from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import project_workflow as project_workflow_crud
 from bioflow_ai.crud import workflow as workflow_crud
+from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import monitor_redis_client
@@ -104,14 +106,14 @@ def _is_admin(user: CurrentUser) -> bool:
 
 
 def _owned_run(session: Session, run_uid: uuid.UUID, user: CurrentUser) -> WorkflowRun:
-    run = runs.get_run(session, run_uid)
+    run = run_crud.get(session, run_uid)
     if run is None or (run.owner_id != user.id and not _is_admin(user)):
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow run not found')
     return run
 
 
 def _owned_node(session: Session, node_uid: uuid.UUID, user: CurrentUser) -> NodeRun:
-    node = runs.get_node(session, node_uid)
+    node = node_run_crud.get(session, node_uid)
     if node is None:
         raise HTTPException(HTTP_404_NOT_FOUND, 'Workflow node run not found')
     _owned_run(session, node.run_uid, user)

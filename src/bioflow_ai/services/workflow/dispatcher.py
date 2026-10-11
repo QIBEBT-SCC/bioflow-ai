@@ -3,11 +3,10 @@
 import uuid
 
 from loguru import logger
-from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.workflow import NodeRun
 from bioflow_ai.schemas.workflow_run import NodeRunStatus
 from bioflow_ai.utils.system import utc_now
 
@@ -17,31 +16,19 @@ WORKFLOW_QUEUE = 'workflow-v2'
 def _queue_ready_nodes(limit: int) -> list[uuid.UUID]:
     """Commit READY -> QUEUED before any message can reach a worker."""
     with Session(engine) as session, session.begin():
-        node_uids = list(
-            session.scalars(
-                select(NodeRun.uid)
-                .where(NodeRun.status == NodeRunStatus.READY, NodeRun.node_type != 'foreach')
-                .order_by(NodeRun.create_time, NodeRun.uid)
-                .limit(limit)
-                .with_for_update(skip_locked=True)
-            )
-        )
+        node_uids = node_run_crud.lock_ready_uids(session, limit)
         if node_uids:
-            session.execute(
-                update(NodeRun)
-                .where(NodeRun.uid.in_(node_uids))
-                .values(status=NodeRunStatus.QUEUED, queued_at=utc_now())
+            node_run_crud.update_if_status(
+                session, node_uids, [NodeRunStatus.READY], {'status': NodeRunStatus.QUEUED, 'queued_at': utc_now()}
             )
     return node_uids
 
 
 def _return_to_ready(node_uids: list[uuid.UUID]) -> int:
     with Session(engine) as session, session.begin():
-        return session.execute(
-            update(NodeRun)
-            .where(NodeRun.uid.in_(node_uids), NodeRun.status == NodeRunStatus.QUEUED)
-            .values(status=NodeRunStatus.READY, queued_at=None)
-        ).rowcount
+        return node_run_crud.update_if_status(
+            session, node_uids, [NodeRunStatus.QUEUED], {'status': NodeRunStatus.READY, 'queued_at': None}
+        )
 
 
 def requeue_unpublished() -> int:
@@ -52,8 +39,9 @@ def requeue_unpublished() -> int:
     broker is harmless: ``claim_node`` lets only one message start it.
     """
     with Session(engine) as session, session.begin():
-        node_uids = list(session.scalars(select(NodeRun.uid).where(NodeRun.status == NodeRunStatus.QUEUED)))
-    return _return_to_ready(node_uids) if node_uids else 0
+        return node_run_crud.update_by_status(
+            session, [NodeRunStatus.QUEUED], {'status': NodeRunStatus.READY, 'queued_at': None}
+        )
 
 
 def dispatch_pending(*, limit: int = 100) -> int:

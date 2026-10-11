@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import case, func, or_, select, text
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from bioflow_ai.models.project import Project
@@ -286,3 +286,15 @@ def get_run_usage_page(
         .limit(limit)
     )
     return [ToolRunUsage.model_validate(row) for row in session.execute(statement).mappings().all()]
+
+
+def get_summary(session: Session, tool_uid: UUIDLike) -> ToolDefine | None:
+    """Load the tool row without catalog relationships."""
+    return session.get(ToolDefine, as_uuid(tool_uid))
+
+
+def get_with_image(session: Session, tool_uid: UUIDLike) -> ToolDefine | None:
+    """Load a tool and its image for execution."""
+    return session.scalar(
+        select(ToolDefine).where(ToolDefine.uid == as_uuid(tool_uid)).options(joinedload(ToolDefine.image))
+    )

@@ -7,14 +7,13 @@ from contextvars import ContextVar
 from itertools import takewhile
 from pathlib import Path
 
-from sqlalchemy import select, update
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
+from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.tools import ToolDefine
-from bioflow_ai.models.workflow import NodeDependency, NodeRun
 from bioflow_ai.schemas.tools import ToolTaskInfo
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, NodeRunUpdate
 from bioflow_ai.services.workflow.runtime import WorkflowRuntimeInvariantError
@@ -40,8 +39,7 @@ def current_node_uid() -> uuid.UUID:
 def get_tool_data(tool_uid: str) -> ToolTaskInfo:
     """Load the immutable tool execution configuration for a tool node."""
     with Session(engine) as session:
-        statement = select(ToolDefine).where(ToolDefine.uid == tool_uid).options(joinedload(ToolDefine.image))
-        tool = session.scalar(statement)
+        tool = tool_crud.get_with_image(session, tool_uid)
         if not tool:
             message = f'Tool {tool_uid} does not exist'
             raise RuntimeError(message)
@@ -66,39 +64,19 @@ def update_node(data: NodeRunUpdate) -> None:
     if not values:
         return
     with Session(engine) as session, session.begin():
-        session.execute(
-            update(NodeRun)
-            .where(NodeRun.uid == current_node_uid(), NodeRun.status == NodeRunStatus.RUNNING)
-            .values(**values)
-        )
+        node_run_crud.update_if_status(session, [current_node_uid()], [NodeRunStatus.RUNNING], values)
 
 
 def get_node_output(source_uid: str, output_key: str) -> tuple[str, str | None]:
-    """Resolve one declared successful predecessor output of the currently executing node."""
-    node_uid = current_node_uid()
-    try:
-        source_node_uid = uuid.UUID(source_uid)
-    except ValueError as error:
-        message = f'Invalid dependency node UID: {source_uid}'
-        raise WorkflowRuntimeInvariantError(message) from error
+    """Resolve one predecessor output referenced by the executing node's frozen inputs.
 
+    The compiler builds these references from the run's edges, and a node only becomes
+    READY after every predecessor has succeeded, so the source output is already recorded.
+    """
     with Session(engine) as session:
-        dependency = session.scalar(
-            select(NodeDependency.uid).where(
-                NodeDependency.source_node_uid == source_node_uid,
-                NodeDependency.target_node_uid == node_uid,
-                NodeDependency.source_handle == output_key,
-            )
-        )
-        if dependency is None:
-            message = f'Node {source_uid} output {output_key!r} is not a declared dependency of {node_uid}'
-            raise WorkflowRuntimeInvariantError(message)
-        source = session.get(NodeRun, source_node_uid)
-        if source is None or source.status != NodeRunStatus.SUCCEEDED:
-            message = f'Dependency {source_uid} is not successfully completed'
-            raise WorkflowRuntimeInvariantError(message)
-        if source.tool_output is None:
-            message = f'Dependency {source_uid} succeeded without output'
+        source = node_run_crud.get(session, uuid.UUID(source_uid))
+        if source is None or source.tool_output is None:
+            message = f'Dependency {source_uid} has no recorded output'
             raise WorkflowRuntimeInvariantError(message)
         if output_key == 'workdir' and source.base_dir:
             return str(Path(source.base_dir).absolute()), source.tool_output.sample_name

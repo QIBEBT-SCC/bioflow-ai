@@ -129,3 +129,41 @@ def list_events(session: Session, run_uid: uuid.UUID, after_id: int = 0) -> Sequ
         select(AgentEvent).where(AgentEvent.run_uid == run_uid, AgentEvent.id > after_id).order_by(AgentEvent.id.asc())
     )
     return session.scalars(statement).all()
+
+
+def insert_run_records(
+    session: Session,
+    run: AgentRun,
+    message: AgentMessage,
+    event: AgentEvent,
+    target: AgentRunTarget | None,
+) -> None:
+    """Flush the parent run before staging records that reference it."""
+    session.add(run)
+    session.flush()
+    session.add_all([message, event, *([target] if target is not None else [])])
+
+
+def insert_session(session: Session, agent_session: AgentSession) -> None:
+    """Stage a conversation without flushing or committing."""
+    session.add(agent_session)
+
+
+def delete_session(session: Session, agent_session: AgentSession) -> None:
+    """Stage conversation deletion in the caller's transaction."""
+    session.delete(agent_session)
+
+
+def insert_event(session: Session, event: AgentEvent) -> None:
+    """Stage an event alongside its run state change."""
+    session.add(event)
+
+
+def insert_message(session: Session, message: AgentMessage) -> None:
+    """Stage a message in the caller's transaction."""
+    session.add(message)
+
+
+def refresh_run_for_update(session: Session, run: AgentRun) -> None:
+    """Refresh and lock a run before the service validates its transition."""
+    session.refresh(run, with_for_update=True)

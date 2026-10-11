@@ -10,10 +10,11 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 import bioflow_ai.crud.project_workflow as project_workflow_crud
+from bioflow_ai.crud import project as project_crud
+from bioflow_ai.crud import user as user_crud
+from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from bioflow_ai.models.project import Project
-from bioflow_ai.models.user import User
-from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
     MAX_IMAGES,
@@ -105,26 +106,13 @@ def _is_active_run_integrity_error(error: IntegrityError) -> bool:
     return getattr(diagnostic, 'constraint_name', None) == ACTIVE_RUN_CONSTRAINT
 
 
-def _stage_run_records(
-    session: Session,
-    run: AgentRun,
-    message: AgentMessage,
-    event: AgentEvent,
-    target: AgentRunTarget | None,
-) -> None:
-    """Flush the parent run before staging records that reference it."""
-    session.add(run)
-    session.flush()
-    session.add_all([message, event, *([target] if target is not None else [])])
-
-
 def _is_admin_actor(session: Session, user_id: int) -> bool:
-    user = session.get(User, user_id)
+    user = user_crud.get_by_id(session, user_id)
     return user is not None and user.role == UserRole.ADMIN
 
 
 def _require_owned_project(session: Session, project_id: int, owner_id: int) -> Project:
-    project = session.get(Project, project_id)
+    project = project_crud.get_by_id(session, project_id)
     if project is None or (project.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
         raise AgentProjectAccessError
     return project
@@ -151,7 +139,7 @@ def create_session(session: Session, owner_id: int, data: AgentSessionCreate) ->
         _require_owned_project(session, data.project_id, owner_id)
     agent_session = AgentSession(owner_id=owner_id, project_id=data.project_id, title=data.title.strip())
     with committing(session):
-        session.add(agent_session)
+        agent_crud.insert_session(session, agent_session)
     session.refresh(agent_session)
     return agent_session
 
@@ -190,7 +178,7 @@ def delete_session(session: Session, agent_session: AgentSession) -> None:
         if AgentRunStatus(active.status) in ACTIVE_AGENT_RUN_STATUSES:
             raise AgentRunConflictError(ACTIVE_DELETE_ERROR)
     with committing(session):
-        session.delete(agent_session)
+        agent_crud.delete_session(session, agent_session)
 
 
 def create_run(
@@ -215,7 +203,7 @@ def create_run(
     if agent_name in {AgentName.WORKFLOW_ASSISTANT, AgentName.WORKFLOW_FIXER}:
         if source_run_uid is None:
             raise AgentScopeError(WORKFLOW_RUN_TARGET_REQUIRED_ERROR)
-        source_run = session.get(WorkflowRun, source_run_uid)
+        source_run = run_crud.get(session, source_run_uid)
         if (
             source_run is None
             or (source_run.owner_id != agent_session.owner_id and not _is_admin_actor(session, agent_session.owner_id))
@@ -273,7 +261,7 @@ def create_run(
     )
     try:
         with committing(session):
-            _stage_run_records(session, run, message, event, target)
+            agent_crud.insert_run_records(session, run, message, event, target)
             if not agent_session.title:
                 agent_session.title = text[:80] if text.strip() else (prepared or prepared_pdfs)[0].filename[:80]
             agent_session.update_time = now
@@ -317,7 +305,7 @@ def transition_run(
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> AgentRun:
-    session.refresh(run, with_for_update=True)
+    agent_crud.refresh_run_for_update(session, run)
     current_status = AgentRunStatus(run.status)
     if status not in ALLOWED_RUN_TRANSITIONS[current_status]:
         message = f'Invalid agent run transition: {current_status.value} -> {status.value}.'
@@ -337,13 +325,14 @@ def transition_run(
             run.heartbeat_at = now
         if status in {AgentRunStatus.CANCELLED, AgentRunStatus.COMPLETED, AgentRunStatus.FAILED}:
             run.end_time = now
-        session.add(
+        agent_crud.insert_event(
+            session,
             AgentEvent(
                 run_uid=run.uid,
                 event_type=event_type.value,
                 payload=to_json_object(payload or {}),
                 create_time=now,
-            )
+            ),
         )
         run.agent_session.update_time = now
     session.refresh(run)
@@ -364,7 +353,7 @@ def append_event(
         create_time=now,
     )
     with committing(session):
-        session.add(event)
+        agent_crud.insert_event(session, event)
         run.update_time = now
         run.agent_session.update_time = now
     session.refresh(event)
@@ -379,7 +368,7 @@ def add_assistant_message(session: Session, run: AgentRun, text: str) -> AgentMe
         parts=[{'type': 'text', 'text': text}],
     )
     with committing(session):
-        session.add(message)
+        agent_crud.insert_message(session, message)
         run.agent_session.update_time = utc_now()
     session.refresh(message)
     return message
@@ -393,7 +382,7 @@ def add_resume_message(session: Session, run: AgentRun, text: str) -> AgentMessa
         parts=[{'type': 'text', 'text': text.strip()}],
     )
     with committing(session):
-        session.add(message)
+        agent_crud.insert_message(session, message)
         run.agent_session.update_time = utc_now()
     session.refresh(message)
     return message

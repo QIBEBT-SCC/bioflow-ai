@@ -4,6 +4,8 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
+from bioflow_ai.crud import node_dependency as dependency_crud
+from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowRun
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.batch_graph import lower_batch_subgraphs
@@ -55,7 +57,7 @@ def compile_run(session: Session, run: WorkflowRun, *, sample_name: str | None) 
             position_index=position_index,
             status=NodeRunStatus.PENDING,
         )
-        session.add(node_runs[node_id])
+        node_run_crud.insert(session, node_runs[node_id])
     session.flush()
 
     incoming: dict[str, dict[str, dict[str, str] | list[dict[str, str]]]] = defaultdict(dict)
@@ -74,14 +76,15 @@ def compile_run(session: Session, run: WorkflowRun, *, sample_name: str | None) 
         else:
             incoming[edge.target][target_key] = [existing, reference]
         source_nodes_by_target[edge.target].add(edge.source)
-        session.add(
+        dependency_crud.insert(
+            session,
             NodeDependency(
                 run_uid=run.uid,
                 source_node_uid=source_run.uid,
                 target_node_uid=target_run.uid,
                 source_handle=source_key,
                 target_handle=target_key,
-            )
+            ),
         )
 
     for node_id in order:

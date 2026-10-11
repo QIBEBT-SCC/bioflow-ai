@@ -12,6 +12,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
 from bioflow_ai.services.agents.execution import consume_agent_graph
@@ -310,12 +311,11 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
     from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.project import ProjectFileMapping
     from bioflow_ai.models.resource import Sample, SampleFiles
-    from bioflow_ai.models.workflow import WorkflowRun
 
     await _clean_project_workflows(con, thread_id, project_id)
 
     with Session(engine) as session:
-        session.execute(delete(WorkflowRun).where(WorkflowRun.project_id == project_id))
+        run_crud.delete_for_project(session, project_id)
 
         sample_uids = session.scalars(select(Sample.uid).where(Sample.project_id == project_id)).all()
         if sample_uids:
@@ -771,9 +771,7 @@ async def wf_eval(
             agent_input = [
                 HumanMessage(content=sample_info),
                 HumanMessage(content=standard_plan),
-                HumanMessage(
-                    content='Please build actural workflow(s) based on the above information.'
-                ),
+                HumanMessage(content='Please build actural workflow(s) based on the above information.'),
             ]
             workflow_result = await _generate_workflow(
                 con,

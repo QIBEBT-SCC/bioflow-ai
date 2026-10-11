@@ -165,8 +165,7 @@ def get_all(
         statement = statement.where(visibility)
     statement = _with_project_filters(statement, search, tag_id)
     statement = (
-        statement
-        .options(selectinload(Project.tags), selectinload(Project.owner))
+        statement.options(selectinload(Project.tags), selectinload(Project.owner))
         .order_by(*_project_order(sort))
         .offset(offset)
         .limit(limit)
@@ -187,14 +186,15 @@ def get_all_star(
     include_owned: bool = True,
 ) -> list[ProjectPublic]:
     """Return a paginated list of projects starred by the user."""
-    statement = select(Project).join(ProjectStar, ProjectStar.project_id == Project.id).where(ProjectStar.user_id == user_id)
+    statement = (
+        select(Project).join(ProjectStar, ProjectStar.project_id == Project.id).where(ProjectStar.user_id == user_id)
+    )
     if not include_private:
         visibility = or_(Project.public, Project.owner_id == user_id) if include_owned else Project.public
         statement = statement.where(visibility)
     statement = _with_project_filters(statement, search, tag_id)
     statement = (
-        statement
-        .options(selectinload(Project.tags), selectinload(Project.owner))
+        statement.options(selectinload(Project.tags), selectinload(Project.owner))
         .order_by(*_project_order(sort))
         .offset(offset)
         .limit(limit)
@@ -218,8 +218,7 @@ def get_all_my(
         tag_id,
     )
     statement = (
-        statement
-        .options(selectinload(Project.tags), selectinload(Project.owner))
+        statement.options(selectinload(Project.tags), selectinload(Project.owner))
         .order_by(*_project_order(sort))
         .offset(offset)
         .limit(limit)
@@ -342,3 +341,8 @@ def get_recent(session: Session, user_id: int, *, include_owned: bool = True) ->
         ProjectStar.project_id == project.id,
     )
     return _to_project_public(project, starred=session.scalar(starred_statement) is not None)
+
+
+def get_by_id(session: Session, project_id: int) -> Project | None:
+    """Load a project record for service-level authorization and orchestration."""
+    return session.get(Project, project_id)
