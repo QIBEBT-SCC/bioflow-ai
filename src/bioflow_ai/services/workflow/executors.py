@@ -384,17 +384,9 @@ _EXECUTORS: dict[str, Callable[..., ToolOutput]] = {
 
 def execute_prepared_node(prepared_data: dict[str, Any]) -> ToolOutput:
     """Execute one frozen plan as a local Python call inside the generic task."""
-    executor_name = prepared_data.get('executor_name')
-    if not isinstance(executor_name, str):
-        message = f'Invalid frozen executor name: {executor_name!r}'
-        raise TypeError(message)
-    executor = _EXECUTORS.get(executor_name)
-    if executor is None:
-        message = f'Unknown frozen executor: {executor_name!r}'
-        raise RuntimeError(message)
-
-    kwargs = prepared_data.get('kwargs', {}).copy()
-    if isinstance(raw_inputs := kwargs.get('inputs'), dict):
+    executor = _EXECUTORS[prepared_data['executor_name']]
+    kwargs = prepared_data['kwargs'].copy()
+    if (raw_inputs := kwargs.get('inputs')) is not None:
         kwargs['inputs'] = {
             key: [TaskInput.model_validate(item) for item in value]
             if isinstance(value, list)
@@ -402,8 +394,7 @@ def execute_prepared_node(prepared_data: dict[str, Any]) -> ToolOutput:
             for key, value in raw_inputs.items()
         }
 
-    result = executor(**kwargs)
-    return result if isinstance(result, ToolOutput) else ToolOutput.model_validate(result)
+    return executor(**kwargs)
 
 
 __all__ = ['PRESENTATION_NODE_TYPES', 'supported_node_types']

@@ -5,6 +5,7 @@ import socket
 import uuid
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -13,7 +14,6 @@ from bioflow_ai.crud import node_dependency as dependency_crud
 from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.workflow import NodeRun
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import ACTIVE_NODE_STATUSES, NodeRunStatus, RunStatus
 from bioflow_ai.utils.system import utc_now
@@ -21,17 +21,6 @@ from bioflow_ai.utils.system import utc_now
 
 class WorkflowRuntimeInvariantError(RuntimeError):
     """Durable workflow state violates an execution invariant."""
-
-
-def get_node_for_execution(node_run_uid: uuid.UUID) -> NodeRun:
-    """Load the frozen plan after a successful claim."""
-    with Session(engine) as session:
-        node = node_run_crud.get(session, node_run_uid)
-        if node is None or node.status != NodeRunStatus.RUNNING:
-            message = f'Node {node_run_uid} is no longer running'
-            raise WorkflowRuntimeInvariantError(message)
-        session.expunge(node)
-        return node
 
 
 def persist_failure_log(node_run_uid: uuid.UUID, error: BaseException) -> None:
@@ -49,8 +38,11 @@ def persist_failure_log(node_run_uid: uuid.UUID, error: BaseException) -> None:
         logger.exception(f'Failed to persist node error log for {node_run_uid}')
 
 
-def claim_node(node_run_uid: uuid.UUID, worker_id: str | None) -> bool:
-    """Atomically claim QUEUED -> RUNNING; duplicate or stale messages are no-ops."""
+def claim_node(node_run_uid: uuid.UUID, worker_id: str | None) -> dict[str, Any] | None:
+    """Atomically claim QUEUED -> RUNNING and return the frozen plan.
+
+    Duplicate or stale messages return ``None``.
+    """
     now = utc_now()
     with Session(engine) as session, session.begin():
         claimed = node_run_crud.update_if_status(
@@ -67,7 +59,7 @@ def claim_node(node_run_uid: uuid.UUID, worker_id: str | None) -> bool:
             },
         )
         if not claimed:
-            return False
+            return None
         node = node_run_crud.get(session, node_run_uid)
         if node is None:
             raise ValueError
@@ -78,7 +70,7 @@ def claim_node(node_run_uid: uuid.UUID, worker_id: str | None) -> bool:
         if run.status == RunStatus.PENDING:
             run.status = RunStatus.RUNNING
             run.start_time = now
-    return True
+        return node.prepared_data
 
 
 def heartbeat_node(node_run_uid: uuid.UUID) -> bool:
@@ -149,11 +141,13 @@ def mark_node_failed(node_run_uid: uuid.UUID, error: BaseException | str) -> boo
     now = utc_now()
     with Session(engine) as session, session.begin():
         node = node_run_crud.get(session, node_run_uid, lock=True)
-        if node is None or node.status not in (
-            {NodeRunStatus.RUNNING, NodeRunStatus.READY}
-            if node is not None and node.node_type == 'foreach'
-            else {NodeRunStatus.RUNNING}
-        ):
+        if node is None:
+            return False
+        # ForEach nodes are coordinated by the dispatcher and can fail before they start running.
+        failable = (
+            {NodeRunStatus.RUNNING, NodeRunStatus.READY} if node.node_type == 'foreach' else {NodeRunStatus.RUNNING}
+        )
+        if node.status not in failable:
             return False
         run = run_crud.get(session, node.run_uid, lock=True)
         if run is None:
@@ -169,10 +163,11 @@ def mark_node_failed(node_run_uid: uuid.UUID, error: BaseException | str) -> boo
                 session, node.uid, {'status': RunStatus.FAILED, 'settled': True, 'end_time': now}
             )
 
+        # A descendant needs this node to succeed before it can leave PENDING.
         descendants = _descendant_ids(session, node.uid)
         if descendants:
             node_run_crud.update_if_status(
-                session, descendants, ACTIVE_NODE_STATUSES, {'status': NodeRunStatus.BLOCKED, 'end_time': now}
+                session, descendants, [NodeRunStatus.PENDING], {'status': NodeRunStatus.BLOCKED, 'end_time': now}
             )
         _settle_run_if_complete(session, node.run_uid)
     return True

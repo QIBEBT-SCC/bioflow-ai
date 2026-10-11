@@ -54,8 +54,7 @@ def _child_graph(graph: WorkflowDefinition, paths: dict[str, str], sample_name: 
     """Bind each exposed child input to a persisted, ordinary DAG source."""
     child = graph.model_copy(deep=True)
     if child.interface is None:
-        message = 'ForEach child has no interface'
-        raise ValueError(message)
+        raise ValueError
     for index, port in enumerate(child.interface.inputs):
         source_id = f'@foreach/input/{index}'
         child.nodes.append(
@@ -95,12 +94,6 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
         sample = sample_crud.get(session, parent.sample_uid)
         base_sample_name = sample.sample_name if sample else None
     graph = WorkflowDefinition.model_validate(kwargs['workflow'])
-    if graph.interface is None:
-        message = 'ForEach child has no interface'
-        raise ValueError(message)
-    if len({port.id for port in graph.interface.inputs}) != len(graph.interface.inputs):
-        message = 'Duplicate ForEach input port'
-        raise ValueError(message)
     node.prepared_data = {**plan, 'items': items, 'shared_paths': paths, 'base_sample_name': base_sample_name}
     node.status = NodeRunStatus.RUNNING
     node.start_time = utc_now()
@@ -132,28 +125,20 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
 
 
 def _output_source(graph: WorkflowDefinition, node_id: str, handle: str, path: tuple[str, ...] = ()) -> tuple[str, str]:
-    node = next((candidate for candidate in graph.nodes if candidate.id == node_id), None)
-    if node is None:
-        message = f'Invalid ForEach output node {node_id!r}'
-        raise ValueError(message)
+    node = next(candidate for candidate in graph.nodes if candidate.id == node_id)
     if node.type != 'subgraph':
         return definition_id((*path, node_id)), handle
     child = WorkflowDefinition.model_validate(node.data['workflow'])
     if child.interface is None:
-        message = 'Subgraph output has no interface'
-        raise ValueError(message)
-    port = next((candidate for candidate in child.interface.outputs if candidate.id == handle), None)
-    if port is None:
-        message = f'Invalid subgraph output port {handle!r}'
-        raise ValueError(message)
+        raise ValueError
+    port = next(candidate for candidate in child.interface.outputs if candidate.id == handle)
     return _output_source(child, port.source.node_id, port.source.handle, (*path, node_id))
 
 
 def _publish_results(session: Session, node: NodeRun, children: list[WorkflowRun]) -> ToolOutput:
     graph = WorkflowDefinition.model_validate(node.prepared_data['kwargs']['workflow'])
     if graph.interface is None:
-        message = 'ForEach child has no interface'
-        raise ValueError(message)
+        raise ValueError
     results = Path(node.prepared_data['kwargs']['output_dir']) / 'results'
     results.mkdir(parents=True, exist_ok=True)
     manifest_items = []

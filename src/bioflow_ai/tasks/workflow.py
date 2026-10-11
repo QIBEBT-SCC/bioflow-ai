@@ -36,7 +36,8 @@ def execute_node(self: Task, node_run_id: str) -> None:
     """Claim and execute one ready node; duplicate or stale messages ACK as no-ops."""
     node_uid = uuid.UUID(node_run_id)
     worker_id = getattr(self.request, 'hostname', None)
-    if not runtime.claim_node(node_uid, worker_id):
+    prepared_data = runtime.claim_node(node_uid, worker_id)
+    if prepared_data is None:
         logger.info(f'Ignoring duplicate or stale message for node {node_uid}')
         return
 
@@ -49,9 +50,8 @@ def execute_node(self: Task, node_run_id: str) -> None:
     )
     heartbeat.start()
     try:
-        node = runtime.get_node_for_execution(node_uid)
         with node_execution_context(node_uid):
-            output = execute_prepared_node(node.prepared_data)
+            output = execute_prepared_node(prepared_data)
         runtime.mark_node_succeeded(node_uid, output)
     except Exception as error:
         runtime.persist_failure_log(node_uid, error)
