@@ -88,25 +88,13 @@ async def _tool_agent_session(
 ) -> AsyncGenerator[tuple['AsyncRedisSaver', 'CompiledStateGraph'], None]:
     """初始化 CreateToolAgent 会话."""
     from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
+    from bioflow_ai.llm.checkpoint import checkpoint_serializer
 
     async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
-        checkpoint.serde = JsonPlusRedisSerializer(
-            allowed_msgpack_modules=[
-                ('bioflow_ai.schemas.tool_config', 'FileMount'),
-                ('bioflow_ai.schemas.tool_config', 'ImageConfig'),
-                ('bioflow_ai.schemas.tool_config', 'ParamDefine'),
-                ('bioflow_ai.llm.states', 'BuildEdge'),
-                ('bioflow_ai.llm.states', 'BuildNode'),
-                ('bioflow_ai.llm.states', 'WorkflowDraft'),
-                ('bioflow_ai.llm.tools.test_run_report', 'TestRunReport'),
-                ('bioflow_ai.llm.middleware.todo', 'Todo'),
-                ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
-            ]
-        )
+        checkpoint.serde = checkpoint_serializer()
         if setup:
             await checkpoint.setup()
         agent = CreateToolAgent().build(memory=checkpoint)

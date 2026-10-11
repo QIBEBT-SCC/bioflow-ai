@@ -8,7 +8,6 @@ from celery import Task
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.redis import AsyncRedisSaver
-from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
 from langgraph.types import Command
 from loguru import logger
 from redis.asyncio import Redis
@@ -17,6 +16,7 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.llm.checkpoint import checkpoint_serializer
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.prebuild.dispatch import AGENTS
@@ -37,22 +37,6 @@ HEARTBEAT_INTERVAL_SECONDS = 10
 AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
 MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow assistant or fix target is missing.'
 MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow assistant or fix source run no longer exists.'
-
-
-def _checkpoint_serializer() -> JsonPlusRedisSerializer:
-    return JsonPlusRedisSerializer(
-        allowed_msgpack_modules=[
-            ('bioflow_ai.schemas.tool_config', 'FileMount'),
-            ('bioflow_ai.schemas.tool_config', 'ImageConfig'),
-            ('bioflow_ai.schemas.tool_config', 'ParamDefine'),
-            ('bioflow_ai.llm.states', 'BuildEdge'),
-            ('bioflow_ai.llm.states', 'BuildNode'),
-            ('bioflow_ai.llm.states', 'WorkflowDraft'),
-            ('bioflow_ai.llm.tools.test_run_report', 'TestRunReport'),
-            ('bioflow_ai.llm.middleware.todo', 'Todo'),
-            ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
-        ]
-    )
 
 
 def _message_text(message: BaseMessage | None) -> str:
@@ -199,7 +183,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             return
 
         async with AsyncRedisSaver.from_conn_string(checkpoint_url) as checkpoint:
-            checkpoint.serde = _checkpoint_serializer()
+            checkpoint.serde = checkpoint_serializer()
             await checkpoint.asetup()
             spec = AGENTS[agent_name.value]
             graph = spec.factory(checkpoint)

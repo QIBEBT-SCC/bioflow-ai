@@ -720,7 +720,8 @@ async def wf_eval(
 ) -> None:
     """运行bioflow ai 测试."""
     from langgraph.checkpoint.redis import AsyncRedisSaver
-    from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+
+    from bioflow_ai.llm.checkpoint import checkpoint_serializer
 
     configure_langsmith_tracing('bioflow-ai-eval', enabled=langsmith_tracing)
 
@@ -749,19 +750,7 @@ async def wf_eval(
         async with AsyncRedisSaver.from_conn_string(
             get_settings().persistent.cache.LLM_CACHE.unicode_string()
         ) as checkpoint:
-            checkpoint.serde = JsonPlusRedisSerializer(
-                allowed_msgpack_modules=[
-                    ('bioflow_ai.schemas.tool_config', 'FileMount'),
-                    ('bioflow_ai.schemas.tool_config', 'ImageConfig'),
-                    ('bioflow_ai.schemas.tool_config', 'ParamDefine'),
-                    ('bioflow_ai.llm.states', 'BuildEdge'),
-                    ('bioflow_ai.llm.states', 'BuildNode'),
-                    ('bioflow_ai.llm.states', 'WorkflowDraft'),
-                    ('bioflow_ai.llm.tools.test_run_report', 'TestRunReport'),
-                    ('bioflow_ai.llm.middleware.todo', 'Todo'),
-                    ('bioflow_ai.llm.utils.uid_mapper', 'BidirectionalMapper'),
-                ]
-            )
+            checkpoint.serde = checkpoint_serializer()
 
             sample_info = await _get_sample_info(user_input, project_id, workdir, checkpoint, on_event=on_event)
             standard_plan = await _generate_plan(
