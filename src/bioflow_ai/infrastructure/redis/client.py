@@ -4,6 +4,7 @@ from typing import Annotated, TypeAlias
 from fastapi import Depends
 from langgraph.checkpoint.redis import AsyncRedisSaver
 from loguru import logger
+from redis import Redis as SyncRedis
 from redis.asyncio import Redis
 from redis.exceptions import AuthenticationError, AuthorizationError
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -14,6 +15,8 @@ from bioflow_ai.core.config import get_settings
 
 settings = get_settings().persistent.cache
 monitor_redis_client = Redis.from_url(settings.MONITOR_CACHE.unicode_string())
+# Celery tasks run synchronously, so they share the monitor cache through a blocking client.
+sync_monitor_redis_client = SyncRedis.from_url(settings.MONITOR_CACHE.unicode_string())
 notification_redis_client = Redis.from_url(settings.NOTIFICATION_CACHE.unicode_string(), decode_responses=True)
 
 

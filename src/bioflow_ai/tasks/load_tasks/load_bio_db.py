@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers import CONTAINER_ROOT_USER, ContainerMount, run_command
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.infrastructure.redis.client import sync_monitor_redis_client
 from bioflow_ai.infrastructure.redis.operations import decode_redis_value, get_bio_db_download_task_key
 from bioflow_ai.models.resource import BioDb
-from bioflow_ai.runtime.celery_app import celery_app, monitor_redis_client
+from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate
@@ -26,7 +27,7 @@ DOWNLOAD_TASK_TTL_SECONDS = 60 * 60 * 24
 
 
 def _get_active_download_task_id(db_id: int) -> str | None:
-    raw_task_id = cast('bytes | str | None', monitor_redis_client.get(get_bio_db_download_task_key(db_id)))
+    raw_task_id = cast('bytes | str | None', sync_monitor_redis_client.get(get_bio_db_download_task_key(db_id)))
     return decode_redis_value(raw_task_id)
 
 
@@ -34,10 +35,10 @@ def _acquire_download_slot(db_id: int, task_id: str) -> None:
     key = get_bio_db_download_task_key(db_id)
     existing_task_id = _get_active_download_task_id(db_id)
     if existing_task_id == task_id:
-        monitor_redis_client.expire(key, DOWNLOAD_TASK_TTL_SECONDS)
+        sync_monitor_redis_client.expire(key, DOWNLOAD_TASK_TTL_SECONDS)
         return
 
-    acquired = monitor_redis_client.set(key, task_id, ex=DOWNLOAD_TASK_TTL_SECONDS, nx=True)
+    acquired = sync_monitor_redis_client.set(key, task_id, ex=DOWNLOAD_TASK_TTL_SECONDS, nx=True)
     if not acquired:
         msg = f'BioDb {db_id} is already downloading in task {existing_task_id}.'
         raise RuntimeError(msg)
@@ -47,7 +48,7 @@ def _release_download_slot(db_id: int, task_id: str) -> None:
     key = get_bio_db_download_task_key(db_id)
     existing_task_id = _get_active_download_task_id(db_id)
     if existing_task_id == task_id:
-        monitor_redis_client.delete(key)
+        sync_monitor_redis_client.delete(key)
 
 
 def _run_bio_db_download(

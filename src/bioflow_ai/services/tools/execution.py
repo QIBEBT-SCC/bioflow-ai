@@ -3,7 +3,6 @@
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from itertools import takewhile
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +13,7 @@ from bioflow_ai.infrastructure.containers.mount_paths import resolve_mount_path
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.tools.input_format import PartialFormatter, build_command_template
+from bioflow_ai.services.workflow.execution_context import get_prefix
 from bioflow_ai.services.workflow.output_validation import all_output_paths_exist, missing_output_paths
 
 MOUNTLIST_PREFIX = 'mountlist:'
@@ -237,7 +237,7 @@ def build_tool_mounts(
 
         param_inputs[file.name] = container_file_path
 
-    common_sample_name = _get_common_sample_name(source_sample_names)
+    common_sample_name = get_prefix(source_sample_names)
     output_sample_name = common_sample_name or sample_name
     expected_output.sample_name = output_sample_name
 
@@ -264,19 +264,6 @@ def build_tool_mounts(
         param_inputs[file.name] = container_file_path
 
     return param_inputs, mount_paths, read_only_mounts, expected_output
-
-
-def _get_common_sample_name(sample_names: list[str | None]) -> str | None:
-    """Return the common sample name while preserving the existing task behavior."""
-    valid_names = [name for name in sample_names if name is not None]
-    if not valid_names:
-        return None
-
-    common_characters = takewhile(
-        lambda characters: all(char == characters[0] for char in characters),
-        zip(*valid_names, strict=False),
-    )
-    return ''.join(characters[0] for characters in common_characters).rstrip('.-_rR')
 
 
 def prepare_docker_tool_execution(

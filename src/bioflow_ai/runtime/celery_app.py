@@ -1,11 +1,9 @@
 from celery import Celery
 from celery.signals import worker_process_init
-from redis import Redis
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
 
-monitor_redis_client = Redis.from_url(get_settings().persistent.cache.MONITOR_CACHE.unicode_string())
 celery_app = Celery(
     'tasks',
     broker=get_settings().celery.BROKER.unicode_string(),

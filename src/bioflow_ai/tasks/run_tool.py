@@ -3,7 +3,7 @@ from typing import Any
 
 from loguru import logger
 
-from bioflow_ai.runtime.celery_app import monitor_redis_client
+from bioflow_ai.infrastructure.redis.client import sync_monitor_redis_client
 from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
@@ -82,8 +82,8 @@ def execute_tool(
     redis_key = f'node-monitor-{node_uid}'
 
     def save_monitor(stats: dict[str, Any] | None) -> None:
-        monitor_redis_client.rpush(redis_key, json.dumps(stats))
+        sync_monitor_redis_client.rpush(redis_key, json.dumps(stats))
 
     result = execute_docker_tool(execution, monitor=save_monitor)
-    monitor_redis_client.expire(redis_key, 60 * 60 * 24)
+    sync_monitor_redis_client.expire(redis_key, 60 * 60 * 24)
     return result
