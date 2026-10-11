@@ -183,6 +183,9 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 source_run_base_dir = source_run.base_dir
                 source_workflow_uid = source_run.workflow_uid
                 source_generation = source_run.generation
+                attached_node = current_message.additional_kwargs.get('workflow_node')
+                if attached_node is not None and attached_node['generation'] != source_generation:
+                    raise ValueError(agent_service.NODE_STALE_ERROR)  # noqa: TRY301
 
         started = await _transition(
             redis,

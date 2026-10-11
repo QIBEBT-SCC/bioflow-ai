@@ -37,6 +37,7 @@ from bioflow_ai.schemas.agent import (
     AgentSessionUpdate,
     ImageMessagePart,
     PDFMessagePart,
+    WorkflowNodeReference,
 )
 from bioflow_ai.schemas.agent_artifact import AgentArtifactPublic
 from bioflow_ai.schemas.user_config import UserRole
@@ -273,6 +274,7 @@ def create_agent_run(
             source_run_uid=data.source_run_uid,
             images=data.images,
             pdfs=data.pdfs,
+            node=data.node,
         )
         run = _dispatch_run(session, run, data.language.value if data.language else None)
     except (agent_service.AgentServiceError, ObjectStorageError) as error:
@@ -406,6 +408,14 @@ def retry_agent_run(
         text = ''.join(str(part.get('text', '')) for part in messages[0].parts if part.get('type') == 'text')
         images = [ImageMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'image']
         pdfs = [PDFMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'pdf']
+        node = next(
+            (
+                WorkflowNodeReference.model_validate(part)
+                for part in messages[0].parts
+                if part.get('type') == 'workflow_node'
+            ),
+            None,
+        )
         agent_session = agent_service.get_owned_session(session, old_run.session_uid, current_user.id)
         target = agent_crud.get_run_target(session, old_run.uid)
         run = agent_service.create_run(
@@ -417,6 +427,7 @@ def retry_agent_run(
             source_run_uid=target.source_run_uid if target is not None else None,
             images=images,
             pdfs=pdfs,
+            node=node,
         )
         language = data.language.value if data and data.language else None
         run = _dispatch_run(session, run, language)

@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 from urllib.parse import quote
 
-from bioflow_ai.schemas.react_flow import WorkflowDefinition
+from bioflow_ai.schemas.react_flow import Node, WorkflowDefinition
 
 MAX_SUBGRAPH_DEPTH = 32
 
@@ -16,6 +16,19 @@ class SubgraphError(ValueError):
 def definition_id(path: tuple[str, ...]) -> str:
     """Keep legacy root IDs; namespace descendants without delimiter collisions."""
     return path[0] if len(path) == 1 else '@subgraph/' + '/'.join(quote(part, safe='') for part in path)
+
+
+def enter_subgraphs(workflow: WorkflowDefinition, path: list[str]) -> tuple[WorkflowDefinition, list[Node]]:
+    """Walk nested subgraph node IDs and return the innermost graph with the entered containers."""
+    graph, containers = workflow, []
+    for segment in path:
+        container = next((node for node in graph.nodes if node.id == segment and node.type == 'subgraph'), None)
+        if container is None:
+            message = f'Subgraph path not found: {path}'
+            raise SubgraphError(message)
+        containers.append(container)
+        graph = WorkflowDefinition.model_validate(container.data['workflow'])
+    return graph, containers
 
 
 def flatten_workflow(workflow: WorkflowDefinition) -> WorkflowDefinition:

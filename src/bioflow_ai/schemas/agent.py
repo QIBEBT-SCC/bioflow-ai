@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -87,6 +87,26 @@ class PDFMessagePart(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
 
 
+class WorkflowNodeReference(BaseModel):
+    """Address one node in the saved graph of one run generation."""
+
+    run_uid: uuid.UUID
+    generation: int = Field(ge=1)
+    subgraph_path: list[Annotated[str, Field(min_length=1, max_length=512)]] = Field(
+        default_factory=list, max_length=32
+    )
+    node_id: str = Field(min_length=1, max_length=512)
+
+
+class WorkflowNodeMessagePart(WorkflowNodeReference):
+    """A node reference with server-resolved display labels, without result snapshots."""
+
+    type: Literal['workflow_node'] = 'workflow_node'
+    name: str
+    node_type: str
+    subgraph_labels: list[str] = Field(default_factory=list)
+
+
 class AgentMessagePublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -94,7 +114,7 @@ class AgentMessagePublic(BaseModel):
     session_uid: uuid.UUID
     run_uid: uuid.UUID
     role: Literal['user', 'assistant']
-    parts: list[TextMessagePart | ImageMessagePart | PDFMessagePart]
+    parts: list[TextMessagePart | ImageMessagePart | PDFMessagePart | WorkflowNodeMessagePart]
     create_time: datetime
 
 
@@ -165,13 +185,17 @@ class AgentRunCreate(AgentLanguagePreference):
     text: str = Field(default='', max_length=100_000)
     images: list[ImageMessagePart] = Field(default_factory=list, max_length=MAX_IMAGES)
     pdfs: list[PDFMessagePart] = Field(default_factory=list, max_length=MAX_IMAGES)
+    node: WorkflowNodeReference | None = None
     source_run_uid: uuid.UUID | None = None
 
     @model_validator(mode='after')
     def validate_fix_request(self) -> 'AgentRunCreate':
         """Require a concrete message when starting workflow repair."""
-        if not self.text.strip() and not self.images and not self.pdfs:
+        if not self.text.strip() and not self.images and not self.pdfs and self.node is None:
             message = 'A text request or at least one attachment is required'
+            raise ValueError(message)
+        if self.node is not None and self.agent_name != AgentName.WORKFLOW_ASSISTANT:
+            message = 'Node attachments are only supported by workflow-assistant.'
             raise ValueError(message)
         if self.agent_name == AgentName.WORKFLOW_FIXER and not self.text.strip():
             message = 'workflow-fixer requires a non-empty request'

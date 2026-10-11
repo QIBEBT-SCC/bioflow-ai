@@ -1,5 +1,6 @@
 """Prepare conversational input for a read-only workflow run assistant."""
 
+import json
 from typing import Any
 
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -24,6 +25,9 @@ def prepare_workflow_assistant_input(
         'Earlier messages may refer to other runs; do not treat their state as evidence about this run.\n'
         '</workflow_run_context>\n'
     )
+    if node := current_message.additional_kwargs.get('workflow_node'):
+        reference = json.dumps({'node_id': node['node_id'], 'subgraph_path': node['subgraph_path']}, ensure_ascii=False)
+        background += f'<current_node_reference>\n{reference}\n</current_node_reference>\n'
     if diagnosis is not None:
         background += (
             '<workflow_diagnosis_report>\n'

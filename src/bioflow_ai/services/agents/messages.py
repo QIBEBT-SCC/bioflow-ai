@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.models.agent import AgentRun
-from bioflow_ai.schemas.agent import ImageMessagePart
+from bioflow_ai.schemas.agent import ImageMessagePart, WorkflowNodeMessagePart
 from bioflow_ai.services.agents.chat_attachment import image_reference_content
 
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
@@ -25,7 +25,12 @@ def load_langchain_messages(session: Session, run: AgentRun) -> tuple[list[BaseM
         if message.role == 'assistant':
             history.append(AIMessage(content=content, id=str(message.uid)))
         else:
-            converted = HumanMessage(content=content, id=str(message.uid))
+            node = next((part for part in message.parts if part.get('type') == 'workflow_node'), None)
+            converted = HumanMessage(
+                content=content,
+                id=str(message.uid),
+                additional_kwargs={'workflow_node': node} if node is not None else {},
+            )
             history.append(converted)
             if message.run_uid == run.uid and current is None:
                 current = converted
@@ -44,6 +49,16 @@ def parts_content(parts: list[dict[str, Any]]) -> str | list[str | dict]:
             content.extend(image_reference_content(ImageMessagePart.model_validate(part)))
         elif part.get('type') == 'pdf':
             content.append({'type': 'text', 'text': f'<PDF id="{escape(str(part["file_id"]), quote=True)}">'})
+        elif part.get('type') == 'workflow_node':
+            node = WorkflowNodeMessagePart.model_validate(part)
+            content.append(
+                {
+                    'type': 'text',
+                    'text': '\n<workflow_node_attachment>\n'
+                    + node.model_dump_json()
+                    + '\n</workflow_node_attachment>\n',
+                }
+            )
     if not any(part.get('type') == 'image' for part in parts):
         return ''.join(str(part['text']) for part in content if isinstance(part, dict))
     return content

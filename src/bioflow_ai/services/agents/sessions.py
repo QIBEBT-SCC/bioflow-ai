@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from bioflow_ai.crud import user as user_crud
 from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from bioflow_ai.models.project import Project
+from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
     MAX_IMAGES,
@@ -25,6 +27,8 @@ from bioflow_ai.schemas.agent import (
     AgentSessionUpdate,
     ImageMessagePart,
     PDFMessagePart,
+    WorkflowNodeMessagePart,
+    WorkflowNodeReference,
 )
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
@@ -34,6 +38,7 @@ from bioflow_ai.services.agents.chat_attachment import (
 )
 from bioflow_ai.services.documents.pdf_index import PDFNotFoundError, PDFPreparationError, resolve_pdf
 from bioflow_ai.services.projects import workflows as project_workflow_service
+from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id, enter_subgraphs
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.jsonable import to_json_object
 from bioflow_ai.utils.system import random_uid, utc_now
@@ -45,6 +50,8 @@ ACTIVE_RUN_ERROR = 'This session already has an active run.'
 ACTIVE_RUN_CONSTRAINT = 'uq_agent_runs_one_active_per_session'
 WORKFLOW_RUN_TARGET_REQUIRED_ERROR = 'workflow-assistant and workflow-fixer require source_run_uid.'
 WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR = 'source_run_uid is only valid for workflow-assistant and workflow-fixer.'
+NODE_AGENT_ERROR = 'Node attachments are only supported by workflow-assistant.'
+NODE_STALE_ERROR = 'The workflow run has been re-executed. Remove the old node attachment and add it again.'
 
 ALLOWED_RUN_TRANSITIONS = {
     AgentRunStatus.QUEUED: {
@@ -191,15 +198,19 @@ def create_run(
     source_run_uid: uuid.UUID | None = None,
     images: list[ImageMessagePart] | None = None,
     pdfs: list[PDFMessagePart] | None = None,
+    node: WorkflowNodeReference | None = None,
 ) -> AgentRun:
     if len(images or []) + len(pdfs or []) > MAX_IMAGES:
-        message = 'A message can contain at most 4 attachments.'
+        message = 'A message can contain at most 4 image or PDF attachments.'
         raise AgentScopeError(message)
-    if not text.strip() and ((not images and not pdfs) or agent_name == AgentName.WORKFLOW_FIXER):
+    if not text.strip() and ((not images and not pdfs and node is None) or agent_name == AgentName.WORKFLOW_FIXER):
         message = 'A text request is required for workflow-fixer; other agents accept attachments alone.'
         raise AgentScopeError(message)
+    if node is not None and agent_name != AgentName.WORKFLOW_ASSISTANT:
+        raise AgentScopeError(NODE_AGENT_ERROR)
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
         raise AgentScopeError(GLOBAL_SCOPE_ERROR)
+    prepared_node = None
     if agent_name in {AgentName.WORKFLOW_ASSISTANT, AgentName.WORKFLOW_FIXER}:
         if source_run_uid is None:
             raise AgentScopeError(WORKFLOW_RUN_TARGET_REQUIRED_ERROR)
@@ -210,6 +221,8 @@ def create_run(
             or source_run.project_id != agent_session.project_id
         ):
             raise AgentProjectAccessError
+        if node is not None:
+            prepared_node = _resolve_node(session, source_run, node)
     elif source_run_uid is not None:
         raise AgentScopeError(WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR)
 
@@ -247,6 +260,7 @@ def create_run(
             *([{'type': 'text', 'text': text}] if text else []),
             *(image.model_dump(mode='json') for image in prepared),
             *(pdf.model_dump(mode='json') for pdf in prepared_pdfs),
+            *([prepared_node.model_dump(mode='json')] if prepared_node is not None else []),
         ],
         create_time=now,
     )
@@ -263,7 +277,8 @@ def create_run(
         with committing(session):
             agent_crud.insert_run_records(session, run, message, event, target)
             if not agent_session.title:
-                agent_session.title = text[:80] if text.strip() else (prepared or prepared_pdfs)[0].filename[:80]
+                first = text if text.strip() else prepared_node.name if prepared_node else None
+                agent_session.title = (first or (prepared or prepared_pdfs)[0].filename)[:80]
             agent_session.update_time = now
     except IntegrityError as error:
         if _is_active_run_integrity_error(error):
@@ -271,6 +286,35 @@ def create_run(
         raise
     session.refresh(run)
     return run
+
+
+def _resolve_node(session: Session, run: WorkflowRun, node: WorkflowNodeReference) -> WorkflowNodeMessagePart:
+    """Validate the node address against the run snapshot and replace client labels with saved ones."""
+    if node.run_uid != run.uid:
+        message = 'The attached node must belong to the selected workflow run.'
+        raise AgentScopeError(message)
+    if node.generation != run.generation:
+        raise AgentScopeError(NODE_STALE_ERROR)
+    try:
+        graph, containers = enter_subgraphs(run.workflow, node.subgraph_path)
+    except SubgraphError as error:
+        raise AgentScopeError(str(error)) from error
+    saved = next((item for item in graph.nodes if item.id == node.node_id), None)
+    if saved is None:
+        message = 'The attached node does not exist in this run.'
+        raise AgentScopeError(message)
+    name = saved.data.get('name') or session.scalar(
+        select(NodeRun.name).where(
+            NodeRun.run_uid == run.uid,
+            NodeRun.definition_node_id == definition_id((*node.subgraph_path, node.node_id)),
+        )
+    )
+    return WorkflowNodeMessagePart(
+        **node.model_dump(),
+        name=str(name or saved.id),
+        node_type=saved.type,
+        subgraph_labels=[str(item.data.get('name') or item.id) for item in containers],
+    )
 
 
 def record_dispatch(session: Session, run: AgentRun, celery_task_id: str) -> AgentRun:

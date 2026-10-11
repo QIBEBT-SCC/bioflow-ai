@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
+from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowAssistantContext
@@ -26,7 +27,7 @@ from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
-from bioflow_ai.services.workflow.subgraphs import definition_id
+from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id, enter_subgraphs
 
 EVIDENCE_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
 EVIDENCE_MOUNT_PATH = '/app/data/input'
@@ -176,13 +177,11 @@ def _workflow_payload(
     try:
         with Session(engine) as session:
             run = _selected_run(session, context, child_run_uid)
-            graph = run.workflow
             path = tuple(subgraph_path or ())
-            for segment in path:
-                container = next((node for node in graph.nodes if node.id == segment and node.type == 'subgraph'), None)
-                if container is None:
-                    return {'error': f'Subgraph path not found: {list(path)}'}
-                graph = WorkflowDefinition.model_validate(container.data['workflow'])
+            try:
+                graph, _ = enter_subgraphs(run.workflow, list(path))
+            except SubgraphError as error:
+                return {'error': str(error)}
             node_runs = list(session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid)))
             by_id = {node.definition_node_id: node for node in node_runs}
             if action == 'children':
@@ -294,6 +293,14 @@ def _workflow_payload(
                         if task
                         else None
                     )
+                    if node.type == 'tool':
+                        tool_uid = task.tool_uid if task is not None else node.data.get('tool_uid')
+                        tool_info = tool_crud.get_summary(session, tool_uid) if tool_uid else None
+                        payload['tool'] = {
+                            'uid': str(tool_uid) if tool_uid else None,
+                            'name': getattr(tool_info, 'name', None),
+                            'description': getattr(tool_info, 'description', None),
+                        }
                 nodes.append(payload)
             node_total = len(nodes)
             failed_node_ids = [node['node_id'] for node in nodes if node['status'] == 'failed']
