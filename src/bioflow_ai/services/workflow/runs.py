@@ -35,6 +35,7 @@ from bioflow_ai.schemas.workflow_run import (
     WorkflowRunRecord,
     WorkflowRunStatistics,
 )
+from bioflow_ai.services.workflow.batch_graph import lower_batch_subgraphs
 from bioflow_ai.services.workflow.compiler import compile_run
 from bioflow_ai.services.workflow.subgraphs import flatten_workflow, inject_run_data
 from bioflow_ai.utils.file.paths import to_safe_path_segment
@@ -311,7 +312,7 @@ def build_preview_data(run: WorkflowRun, nodes: list[NodeRun]) -> dict[str, dict
     """Project current-generation file outputs onto presentation nodes without reading file contents."""
     node_by_definition = {node.definition_node_id: node for node in nodes}
     preview_by_definition: dict[str, dict[str, str | int]] = {}
-    flat_graph = flatten_workflow(run.workflow)
+    flat_graph = flatten_workflow(lower_batch_subgraphs(run.workflow))
     flat_nodes = {node.id: node for node in flat_graph.nodes}
     for edge in flat_graph.edges:
         target = flat_nodes.get(edge.target)
