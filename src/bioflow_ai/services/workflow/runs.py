@@ -17,7 +17,7 @@ from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.models.resource import Sample
 from bioflow_ai.models.tools import ToolDefine
 from bioflow_ai.models.user import User
-from bioflow_ai.models.workflow import NodeDependency, NodeRun, Workflow, WorkflowOutbox, WorkflowRun
+from bioflow_ai.models.workflow import NodeDependency, NodeRun, Workflow, WorkflowRun
 from bioflow_ai.schemas.project_workflow import WorkflowRunResult
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.user import CurrentUser
@@ -61,7 +61,6 @@ def _project_output_root(project_id: int, workflow: Workflow, sample: Sample | N
 
 
 def _clear_generation(session: Session, run: WorkflowRun) -> None:
-    session.execute(delete(WorkflowOutbox).where(WorkflowOutbox.run_uid == run.uid))
     session.execute(delete(NodeDependency).where(NodeDependency.run_uid == run.uid))
     session.execute(delete(NodeRun).where(NodeRun.run_uid == run.uid))
     session.flush()

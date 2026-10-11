@@ -3,7 +3,6 @@
 import platform
 import socket
 import uuid
-from collections.abc import Iterable
 from datetime import timedelta
 from pathlib import Path
 
@@ -12,7 +11,7 @@ from sqlalchemy import distinct, func, select, update
 from sqlalchemy.orm import Session
 
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowOutbox, WorkflowRun
+from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowRun
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import ACTIVE_NODE_STATUSES, NodeRunStatus, NodeRunUpdate, RunStatus
 from bioflow_ai.utils.system import utc_now
@@ -167,19 +166,6 @@ def _all_predecessors_succeeded(session: Session, node_uid: uuid.UUID) -> bool:
     return not incomplete
 
 
-def _ensure_outbox(session: Session, node: NodeRun) -> None:
-    if node.node_type == 'foreach':
-        return
-    outbox = session.scalar(select(WorkflowOutbox).where(WorkflowOutbox.node_run_uid == node.uid))
-    if outbox is None:
-        session.add(
-            WorkflowOutbox(
-                run_uid=node.run_uid,
-                node_run_uid=node.uid,
-            )
-        )
-
-
 def _settle_run_if_complete(session: Session, run_uid: uuid.UUID) -> bool:
     run = session.get(WorkflowRun, run_uid, with_for_update=True)
     unsettled_children = session.scalar(
@@ -238,7 +224,6 @@ def mark_node_succeeded(node_run_uid: uuid.UUID, output: ToolOutput) -> bool:
                     continue
                 if _all_predecessors_succeeded(session, successor.uid):
                     successor.status = NodeRunStatus.READY
-                    _ensure_outbox(session, successor)
         _settle_run_if_complete(session, node.run_uid)
     return True
 
@@ -304,23 +289,13 @@ def mark_node_failed(node_run_uid: uuid.UUID, error: BaseException | str) -> boo
     return True
 
 
-def recover_runtime(*, stale_after: timedelta, run_uids: Iterable[uuid.UUID] | None = None) -> dict[str, int]:
-    """Repair READY outboxes, fail stale workers and settle converged runs."""
-    repaired = 0
+def recover_runtime(*, stale_after: timedelta) -> dict[str, int]:
+    """Fail stale workers and settle converged runs."""
     stale = 0
     settled = 0
-    now = utc_now()
-    cutoff = now - stale_after
+    cutoff = utc_now() - stale_after
 
-    with Session(engine) as session, session.begin():
-        ready_statement = select(NodeRun).where(NodeRun.status == NodeRunStatus.READY)
-        if run_uids is not None:
-            ready_statement = ready_statement.where(NodeRun.run_uid.in_(list(run_uids)))
-        for node in session.scalars(ready_statement.with_for_update(skip_locked=True)):
-            before = session.scalar(select(WorkflowOutbox.uid).where(WorkflowOutbox.node_run_uid == node.uid))
-            _ensure_outbox(session, node)
-            repaired += int(before is None)
-
+    with Session(engine) as session:
         stale_statement = select(NodeRun.uid).where(
             NodeRun.status == NodeRunStatus.RUNNING,
             NodeRun.node_type != 'foreach',
@@ -334,10 +309,8 @@ def recover_runtime(*, stale_after: timedelta, run_uids: Iterable[uuid.UUID] | N
 
     with Session(engine) as session, session.begin():
         run_statement = select(WorkflowRun.uid).where(WorkflowRun.settled.is_(False))
-        if run_uids is not None:
-            run_statement = run_statement.where(WorkflowRun.uid.in_(list(run_uids)))
         for run_uid in session.scalars(run_statement):
             settled += int(_settle_run_if_complete(session, run_uid))
-    if repaired or stale or settled:
-        logger.info(f'Workflow recovery: repaired={repaired}, stale={stale}, settled={settled}')
-    return {'repaired': repaired, 'stale': stale, 'settled': settled}
+    if stale or settled:
+        logger.info(f'Workflow recovery: stale={stale}, settled={settled}')
+    return {'stale': stale, 'settled': settled}

@@ -32,13 +32,6 @@ class NodeRunStatus(StrEnum):
     BLOCKED = 'blocked'
 
 
-class OutboxStatus(StrEnum):
-    """Publication lifecycle for a ready node."""
-
-    PENDING = 'pending'
-    PUBLISHED = 'published'
-
-
 TERMINAL_NODE_STATUSES = {
     NodeRunStatus.SUCCEEDED,
     NodeRunStatus.FAILED,

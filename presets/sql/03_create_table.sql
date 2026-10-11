@@ -460,24 +460,6 @@ CREATE TABLE IF NOT EXISTS workflow_node_dependencies
     FOREIGN KEY (target_node_uid) REFERENCES workflow_node_runs ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS workflow_outbox
-(
-    uid              uuid        NOT NULL,
-    run_uid          uuid        NOT NULL,
-    node_run_uid     uuid        NOT NULL,
-    status           VARCHAR(16) NOT NULL,
-    publish_attempts INTEGER     NOT NULL DEFAULT 0,
-    claim_token      uuid,
-    claimed_at       TIMESTAMP WITH TIME ZONE,
-    last_error       VARCHAR,
-    create_time      TIMESTAMP   NOT NULL,
-    published_at     TIMESTAMP,
-    PRIMARY KEY (uid),
-    CONSTRAINT uq_workflow_outbox_node_run UNIQUE (node_run_uid),
-    FOREIGN KEY (run_uid) REFERENCES workflow_runs ON DELETE CASCADE,
-    FOREIGN KEY (node_run_uid) REFERENCES workflow_node_runs ON DELETE CASCADE
-);
-
 -- 智能体运行所关联的工作流执行
 CREATE TABLE IF NOT EXISTS agent_run_targets
 (

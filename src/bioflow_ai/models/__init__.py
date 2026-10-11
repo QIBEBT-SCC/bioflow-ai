@@ -7,7 +7,7 @@ from bioflow_ai.models.resource import BioDb, File, ReferenceGenomes, Sample, Sa
 from bioflow_ai.models.setting import LLMModel, LLMProvider, LLMSetting, LLMStatistic
 from bioflow_ai.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag, ToolTagLink
 from bioflow_ai.models.user import User
-from bioflow_ai.models.workflow import NodeDependency, NodeRun, ProjectWorkflow, Workflow, WorkflowOutbox, WorkflowRun
+from bioflow_ai.models.workflow import NodeDependency, NodeRun, ProjectWorkflow, Workflow, WorkflowRun
 
 __all__ = [
     'AgentEvent',
@@ -44,6 +44,5 @@ __all__ = [
     'ToolTagLink',
     'User',
     'Workflow',
-    'WorkflowOutbox',
     'WorkflowRun',
 ]

@@ -1,135 +1,80 @@
-"""Transactional Outbox publisher for the workflow queue."""
+"""Publisher that moves READY workflow nodes onto the Celery queue."""
 
 import uuid
-from datetime import datetime, timedelta
 
 from loguru import logger
-from sqlalchemy import or_, select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.workflow import NodeRun, WorkflowOutbox
-from bioflow_ai.schemas.workflow_run import NodeRunStatus, OutboxStatus
-from bioflow_ai.services.workflow.runtime import recover_runtime
+from bioflow_ai.models.workflow import NodeRun
+from bioflow_ai.schemas.workflow_run import NodeRunStatus
 from bioflow_ai.utils.system import utc_now
 
 WORKFLOW_QUEUE = 'workflow-v2'
-DISPATCH_CLAIM_TIMEOUT = timedelta(seconds=30)
 
 
-def _has_active_claim(event: WorkflowOutbox, now: datetime) -> bool:
-    if event.claim_token is None or event.claimed_at is None:
-        return False
-    claimed_at = event.claimed_at
-    if claimed_at.tzinfo is None:
-        now = now.astimezone().replace(tzinfo=None)
-    return claimed_at >= now - DISPATCH_CLAIM_TIMEOUT
-
-
-def _reserve_event(event_uid: uuid.UUID) -> tuple[uuid.UUID, str] | None:
-    """Lease one event and commit QUEUED before a message can reach a worker."""
-    now = utc_now()
+def _queue_ready_nodes(limit: int) -> list[uuid.UUID]:
+    """Commit READY -> QUEUED before any message can reach a worker."""
     with Session(engine) as session, session.begin():
-        event = session.get(WorkflowOutbox, event_uid, with_for_update=True)
-        if event is None or event.status != OutboxStatus.PENDING:
-            return None
-        if _has_active_claim(event, now):
-            return None
-
-        node = session.get(NodeRun, event.node_run_uid, with_for_update=True)
-        if node.status == NodeRunStatus.READY:
-            node.status = NodeRunStatus.QUEUED
-            node.queued_at = now
-        elif node.status != NodeRunStatus.QUEUED:
-            event.status = OutboxStatus.PUBLISHED
-            event.published_at = now
-            event.claim_token = None
-            event.claimed_at = None
-            event.last_error = f'Discarded event for node in {node.status.value}'
-            return None
-
-        token = uuid.uuid4()
-        event.claim_token = token
-        event.claimed_at = now
-        event.publish_attempts += 1
-        event.last_error = None
-        return token, str(node.uid)
-
-
-def _record_publish_failure(event_uid: uuid.UUID, token: uuid.UUID, error: BaseException) -> None:
-    with Session(engine) as session, session.begin():
-        event = session.get(WorkflowOutbox, event_uid, with_for_update=True)
-        if event is None or event.status != OutboxStatus.PENDING or event.claim_token != token:
-            return
-        event.claim_token = None
-        event.claimed_at = None
-        event.last_error = str(error)[:4000]
-        node = session.get(NodeRun, event.node_run_uid, with_for_update=True)
-        if node is not None and node.status == NodeRunStatus.QUEUED:
-            node.status = NodeRunStatus.READY
-            node.queued_at = None
-
-
-def _record_publish_success(event_uid: uuid.UUID, token: uuid.UUID) -> None:
-    with Session(engine) as session, session.begin():
-        event = session.get(WorkflowOutbox, event_uid, with_for_update=True)
-        if event is None or event.status != OutboxStatus.PENDING or event.claim_token != token:
-            return
-        event.status = OutboxStatus.PUBLISHED
-        event.published_at = utc_now()
-        event.claim_token = None
-        event.claimed_at = None
-        event.last_error = None
-
-
-def dispatch_pending(*, limit: int = 100) -> int:
-    """Publish one leased batch after selecting event IDs with SKIP LOCKED."""
-    expired_before = utc_now() - DISPATCH_CLAIM_TIMEOUT
-    with Session(engine) as session, session.begin():
-        event_ids = list(
+        node_uids = list(
             session.scalars(
-                select(WorkflowOutbox.uid)
-                .where(
-                    WorkflowOutbox.status == OutboxStatus.PENDING,
-                    or_(
-                        WorkflowOutbox.claim_token.is_(None),
-                        WorkflowOutbox.claimed_at.is_(None),
-                        WorkflowOutbox.claimed_at < expired_before,
-                    ),
-                )
-                .order_by(WorkflowOutbox.create_time)
+                select(NodeRun.uid)
+                .where(NodeRun.status == NodeRunStatus.READY, NodeRun.node_type != 'foreach')
+                .order_by(NodeRun.create_time, NodeRun.uid)
                 .limit(limit)
                 .with_for_update(skip_locked=True)
             )
         )
+        if node_uids:
+            session.execute(
+                update(NodeRun)
+                .where(NodeRun.uid.in_(node_uids))
+                .values(status=NodeRunStatus.QUEUED, queued_at=utc_now())
+            )
+    return node_uids
+
+
+def _return_to_ready(node_uids: list[uuid.UUID]) -> int:
+    with Session(engine) as session, session.begin():
+        return session.execute(
+            update(NodeRun)
+            .where(NodeRun.uid.in_(node_uids), NodeRun.status == NodeRunStatus.QUEUED)
+            .values(status=NodeRunStatus.READY, queued_at=None)
+        ).rowcount
+
+
+def requeue_unpublished() -> int:
+    """Return QUEUED nodes to READY when the dispatcher starts.
+
+    A dispatcher that stopped between committing QUEUED and publishing leaves
+    nodes without a message. Republishing a node whose message did reach the
+    broker is harmless: ``claim_node`` lets only one message start it.
+    """
+    with Session(engine) as session, session.begin():
+        node_uids = list(session.scalars(select(NodeRun.uid).where(NodeRun.status == NodeRunStatus.QUEUED)))
+    return _return_to_ready(node_uids) if node_uids else 0
+
+
+def dispatch_pending(*, limit: int = 100) -> int:
+    """Publish one batch of READY nodes and return how many were published."""
+    from bioflow_ai.tasks.workflow import execute_node
 
     published = 0
-    for event_uid in event_ids:
-        reserved = _reserve_event(event_uid)
-        if reserved is None:
-            continue
-        token, node_run_id = reserved
+    for node_uid in _queue_ready_nodes(limit):
         try:
-            from bioflow_ai.tasks.workflow import execute_node
-
             execute_node.apply_async(
-                kwargs={'node_run_id': node_run_id},
-                task_id=node_run_id,
+                kwargs={'node_run_id': str(node_uid)},
+                task_id=str(node_uid),
                 queue=WORKFLOW_QUEUE,
                 serializer='json',
                 ignore_result=True,
                 retry=True,
                 retry_policy={'max_retries': 3, 'interval_start': 0, 'interval_step': 0.2, 'interval_max': 1},
             )
-        except Exception as error:
-            _record_publish_failure(event_uid, token, error)
-            logger.exception(f'Failed to publish workflow outbox event {event_uid}')
+        except Exception:
+            _return_to_ready([node_uid])
+            logger.exception(f'Failed to publish workflow node {node_uid}')
         else:
-            _record_publish_success(event_uid, token)
             published += 1
     return published
-
-
-def recover(*, stale_after_seconds: int = 300) -> dict[str, int]:
-    """Run the dispatcher recovery scan."""
-    return recover_runtime(stale_after=timedelta(seconds=stale_after_seconds))

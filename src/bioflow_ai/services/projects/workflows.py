@@ -90,7 +90,7 @@ def remove_workflow_from_project(session: Session, project_id: int, workflow_uid
 
 
 def _delete_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
-    """Delete workflow runs; database cascades remove nodes, dependencies, and outbox rows."""
+    """Delete workflow runs; database cascades remove nodes and dependencies."""
     session.execute(
         delete(WorkflowRun).where(
             WorkflowRun.project_id == project_id,

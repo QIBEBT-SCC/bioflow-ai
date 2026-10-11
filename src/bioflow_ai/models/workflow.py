@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, UniqueConstraint, false, text, true
+from sqlalchemy import JSON, Enum, ForeignKey, Index, UniqueConstraint, false, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bioflow_ai.models.base import Base
@@ -13,7 +13,7 @@ from bioflow_ai.models.tools import ToolDefine
 from bioflow_ai.models.user import User
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import ExecutionScope, ToolOutput, WorkflowType
-from bioflow_ai.schemas.workflow_run import NodeRunStatus, OutboxStatus, RunStatus
+from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.utils.system import random_uid, utc_now
 
 
@@ -175,28 +175,3 @@ class NodeDependency(Base):
     target_node_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(NodeRun.uid, ondelete='CASCADE'), nullable=False)
     source_handle: Mapped[str]
     target_handle: Mapped[str]
-
-
-class WorkflowOutbox(Base):
-    """Durable intent to publish one ready node run to Celery."""
-
-    __tablename__ = 'workflow_outbox'
-    __table_args__ = (
-        UniqueConstraint('node_run_uid', name='uq_workflow_outbox_node_run'),
-        Index('ix_workflow_outbox_status_created', 'status', 'create_time'),
-    )
-
-    uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
-    run_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(WorkflowRun.uid, ondelete='CASCADE'), nullable=False)
-    node_run_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey(NodeRun.uid, ondelete='CASCADE'), nullable=False)
-    status: Mapped[OutboxStatus] = mapped_column(
-        Enum(OutboxStatus, native_enum=False, length=16),
-        default=OutboxStatus.PENDING,
-        nullable=False,
-    )
-    publish_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
-    claim_token: Mapped[uuid.UUID | None] = mapped_column(default=None)
-    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
-    last_error: Mapped[str | None] = mapped_column(default=None)
-    create_time: Mapped[datetime] = mapped_column(default=utc_now)
-    published_at: Mapped[datetime | None] = mapped_column(default=None)

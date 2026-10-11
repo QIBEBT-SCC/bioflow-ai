@@ -14,7 +14,7 @@ CREATE INDEX IF NOT EXISTS ix_project_file_mappings_producer_workflow_uid
 CREATE INDEX IF NOT EXISTS ix_codes_name ON codes (name);
 CREATE INDEX IF NOT EXISTS ix_codes_node_type ON codes (node_type);
 
--- 持久化 DAG 运行与 Outbox 调度
+-- 持久化 DAG 运行与节点调度
 CREATE INDEX IF NOT EXISTS ix_workflow_runs_owner_created ON workflow_runs (owner_id, create_time);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_workflow_runs_sample
     ON workflow_runs (project_id, workflow_uid, sample_uid)
@@ -27,7 +27,6 @@ CREATE INDEX IF NOT EXISTS ix_node_runs_run_status ON workflow_node_runs (run_ui
 CREATE INDEX IF NOT EXISTS ix_node_runs_heartbeat ON workflow_node_runs (status, heartbeat_at);
 CREATE INDEX IF NOT EXISTS ix_node_dependencies_target ON workflow_node_dependencies (target_node_uid);
 CREATE INDEX IF NOT EXISTS ix_node_dependencies_source ON workflow_node_dependencies (source_node_uid);
-CREATE INDEX IF NOT EXISTS ix_workflow_outbox_status_created ON workflow_outbox (status, create_time);
 
 -- Web 智能体会话和可重放事件
 CREATE INDEX IF NOT EXISTS ix_agent_sessions_owner_id ON agent_sessions (owner_id);

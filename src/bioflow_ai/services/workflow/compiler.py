@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowOutbox, WorkflowRun
+from bioflow_ai.models.workflow import NodeDependency, NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.batch_graph import lower_batch_subgraphs
@@ -41,7 +41,7 @@ def compile_run(
     workflow: WorkflowDefinition,
     context: CompileContext,
 ) -> list[NodeRun]:
-    """Compile a workflow into NodeRun, dependency and root Outbox rows.
+    """Compile a workflow into NodeRun and dependency rows; root nodes start READY.
 
     The caller owns the surrounding transaction.  Nothing is published here.
     """
@@ -124,13 +124,6 @@ def compile_run(
         node_run.prepared_data = prepared.as_json()
         if not source_nodes_by_target[node_id]:
             node_run.status = NodeRunStatus.READY
-            if node_run.node_type != 'foreach':
-                session.add(
-                    WorkflowOutbox(
-                        run_uid=run.uid,
-                        node_run_uid=node_run.uid,
-                    )
-                )
 
     if not node_runs:
         run.status = RunStatus.SUCCEEDED
