@@ -6,6 +6,7 @@ from langchain.agents import AgentState
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 
+from bioflow_ai.infrastructure.containers import ContainerMount
 from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
 from bioflow_ai.schemas.react_flow import WorkflowInterface
@@ -54,6 +55,7 @@ class CreateToolOutput(BaseModel):
 # =====================test run agent state==========================
 class TestRunState(AgentState):
     test_run_report: NotRequired[TestRunReport]
+    test_run_mounts: NotRequired[list[ContainerMount]]
     updated: NotRequired[bool]
     checked: NotRequired[bool]
 

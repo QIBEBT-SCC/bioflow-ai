@@ -5,16 +5,58 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
 from bioflow_ai.infrastructure.containers import ContainerMount
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.models.resource import BioDb
 
 PROJECT_SAMPLES_ROOT = '/data/project_samples'
 PROJECT_REFERENCE_ROOT = '/data/project_reference'
 PROJECT_DATA_ROOTS = (PROJECT_SAMPLES_ROOT, PROJECT_REFERENCE_ROOT)
+
+
+def resolve_registered_database_input_path(container_path: str, mounts: Iterable[ContainerMount]) -> Path:
+    """Resolve an observed external mount only within a registered biological database."""
+    path = PurePosixPath(container_path)
+    if not path.is_absolute() or '..' in path.parts:
+        msg = f'Path must be absolute and cannot contain parent traversal: {container_path}'
+        raise ValueError(msg)
+
+    ordered_mounts = sorted(mounts, key=lambda mount: len(PurePosixPath(mount.target).parts), reverse=True)
+    for mount in ordered_mounts:
+        target = PurePosixPath(mount.target)
+        if not target.is_absolute() or '..' in target.parts:
+            msg = f'Database mount target must be absolute and cannot contain parent traversal: {mount.target}'
+            raise ValueError(msg)
+        try:
+            relative = path.relative_to(target)
+        except ValueError:
+            continue
+
+        source = Path(mount.source).expanduser().resolve()
+        host_path = (source / Path(*relative.parts)).resolve()
+        if not host_path.is_relative_to(source):
+            msg = f'Input path resolves outside its database mount: {container_path}'
+            raise ValueError(msg)
+
+        with Session(engine) as session:
+            registered_paths = session.scalars(select(BioDb.path).where(BioDb.path.is_not(None))).all()
+        for registered_path in registered_paths:
+            if not registered_path:
+                continue
+            root = Path(registered_path).expanduser().resolve()
+            if root != Path(root.anchor) and source.is_relative_to(root):
+                return host_path
+
+        msg = f'External mount source is not within a registered biological database: {mount.source}'
+        raise ValueError(msg)
+
+    msg = f'Input path is not available through a recorded registered-database mount: {container_path}'
+    raise ValueError(msg)
 
 
 @dataclass(frozen=True)

@@ -111,7 +111,15 @@ async def _validate_extra_mounts(
     managed_mounts = ('/data/testdata', '/data/output', *PROJECT_DATA_ROOTS)
     for mount in mounts:
         target = PurePosixPath(mount.target)
-        if any(_is_same_or_child(target, PurePosixPath(root)) for root in managed_mounts):
+        if not target.is_absolute() or '..' in target.parts:
+            return [], _blocked_command(
+                f'The container mount target must be absolute and cannot contain parent traversal: {mount.target}',
+                tool_call_id,
+            )
+        if any(
+            _is_same_or_child(target, PurePosixPath(root)) or _is_same_or_child(PurePosixPath(root), target)
+            for root in managed_mounts
+        ):
             return [], _blocked_command(
                 f'The container path `{mount.target}` is already managed and mounted by default, '
                 'so manual configuration is not required. '
@@ -222,4 +230,9 @@ async def advance_run_command_tool(
             )
         ],
     }
+    if code == 0 and extra_mounts:
+        previous_mounts = [ContainerMount.model_validate(mount) for mount in runtime.state.get('test_run_mounts', [])]
+        recorded_mounts = {mount.target: mount for mount in previous_mounts}
+        recorded_mounts.update({mount.target: mount for mount in extra_mounts})
+        update['test_run_mounts'] = list(recorded_mounts.values())
     return Command(update=update)

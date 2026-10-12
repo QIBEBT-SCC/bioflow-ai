@@ -141,6 +141,7 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 ### File Mounts
 
 1. Each input file's `name` must exactly match the corresponding logical name in the test run report's `Input Files`; otherwise, input binding cannot be established. All `name` values must be globally unique because they are both node handle names and command template keywords.
+   - Registered database or model directories are also INPUT handles. The report's recorded database mounts resolve their test paths to host sources for validation. Use a runtime variable such as `-m {model_dir}` and a FileMount with `file_path="{model_dir}"`; do not hardcode the test container path as a static parameter or omit the database input.
 2. `file_path` is a host-side path or value template:
     - INPUT normally must use a variable with the same name as `name`; for example, when `name="r1"`, `file_path` should use `{r1}`.
     - OUTPUT uses `{output_dir}` and `{sample_name}` to construct dynamic paths. `file_path` may represent a single file, a directory, or a multi-file index/path prefix.

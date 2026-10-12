@@ -92,6 +92,8 @@ TEST_RUN_SYSTEM = f"""你是一名专业的生物信息软件工程师。
 - 当前项目实际数据(/data/project_reference, /data/project_samples)
 
 当除此之外还需要额外的外部文件时, 通过此参数指定挂载路径
+已注册数据库应使用 `search_biodb` 返回的宿主机 `path` 作为挂载 `source`, 将 `target` 设置为工具读取的绝对容器路径。
+成功调用的额外挂载会自动记录; 报告可直接声明该挂载下的数据库输入, 无需复制模型或数据库到 `/data/output`。
 
 ## 持久化记录
 在每一个任务成功完成之后, 你都需要完成以下两个任务以记录你所做的工作并方便后面的专家接手工作
@@ -186,7 +188,8 @@ TEST_RUN_SYSTEM = f"""你是一名专业的生物信息软件工程师。
 - `parameters`: 根据文档列出并描述 `running_command` 使用的所有参数
 - `input_files`: 列出 `running_command` 实际读取的所有输入文件或文件夹
     - 每个输入使用简短且**唯一**的逻辑 `name`, 如 `r1`、`r2`、`reference`
-    - `path` 必须是绝对**容器路径**, 一般位于 `/data/output` 下的子目录, 少数情况可能为额外挂载路径(如 `/opt/db`)
+    - `path` 必须是绝对**容器路径**, 可位于 `/data/output`、可用的项目数据挂载, 或成功 `run_command` 使用的注册数据库额外挂载(如 `/opt/db`)
+    - 注册数据库的宿主机来源必须是 `search_biodb` 返回的 `path` 或其子路径; 系统自动保存挂载映射, 不要填写 `database_mounts`, 也不要从 `input_files` 中省略数据库输入
     - 必须填写复制或生成后真正传给核心命令的路径, 不能填写原始 `/data/testdata` 路径
     - 对于工具没有明确通过参数指明, 但是隐形要求的文件(如和bam文件同目录的.bai索引)也需要在此声明
     - 对于以形如 `<folder>/<prefix>` 的形式使用的数据库或参考索引, **不要列出每个文件**, 保持`<folder>/<prefix>` 的形式记录一条即可

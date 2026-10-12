@@ -11,7 +11,12 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.infrastructure.containers.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
+from bioflow_ai.infrastructure.containers import ContainerMount
+from bioflow_ai.infrastructure.containers.mount_paths import (
+    PROJECT_DATA_ROOTS,
+    build_project_data_mount_plan,
+    resolve_registered_database_input_path,
+)
 from bioflow_ai.llm.context import TestRunContext
 
 
@@ -39,8 +44,13 @@ def resolve_test_run_path(container_path: str, test_run_id: str) -> Path:
     return host_path
 
 
-def resolve_test_run_input_path(container_path: str, test_run_id: str, project_id: int | None = None) -> Path:
-    """Resolve a test-run input from output storage or a managed project mount."""
+def resolve_test_run_input_path(
+    container_path: str,
+    test_run_id: str,
+    project_id: int | None = None,
+    database_mounts: list[ContainerMount] | None = None,
+) -> Path:
+    """Resolve an input from output storage, project data, or a registered database mount."""
     path = PurePosixPath(container_path)
     if not path.is_absolute() or '..' in path.parts:
         err_msg = f'Path must be absolute and cannot contain parent traversal: {container_path}'
@@ -56,8 +66,14 @@ def resolve_test_run_input_path(container_path: str, test_run_id: str, project_i
     if project_id is not None and any(_is_same_or_child(path, PurePosixPath(root)) for root in PROJECT_DATA_ROOTS):
         return build_project_data_mount_plan(project_id).resolve_input_path(container_path)
 
+    if database_mounts:
+        return resolve_registered_database_input_path(container_path, database_mounts)
+
     allowed_roots = ', '.join(('/data/output', *PROJECT_DATA_ROOTS))
-    err_msg = f'Input path must be located under one of the managed roots ({allowed_roots}): {container_path}'
+    err_msg = (
+        f'Input path must be located under one of the managed roots ({allowed_roots}) or an external mount '
+        f'of a registered biological database used by a successful run_command: {container_path}'
+    )
     raise ValueError(err_msg)
 
 
@@ -98,6 +114,10 @@ class TestRunReport(BaseModel):
     output_files: list[TestRunFile] = Field(
         description='All files or directories produced by running_command, including its log.'
     )
+    database_mounts: list[ContainerMount] = Field(
+        default_factory=list,
+        description='Database input mount mappings recorded automatically from successful run_command calls. Omit this field when submitting a report.',
+    )
     note: str | None = Field(default=None, description='Optional additional execution notes in English.')
 
     def to_markdown(self) -> str:
@@ -122,6 +142,9 @@ class TestRunReport(BaseModel):
         ]
         if self.note:
             sections.append(f'**Note**\n{self.note}')
+        if self.database_mounts:
+            mount_lines = '\n'.join(f'- `{mount.target}`: host `{mount.source}`' for mount in self.database_mounts)
+            sections.append(f'**Registered Database Mounts**\n{mount_lines}')
         return '\n\n'.join(sections)
 
 
@@ -130,11 +153,12 @@ def _validate_report_file(
     test_run_id: str,
     label: str,
     project_id: int | None,
+    database_mounts: list[ContainerMount],
 ) -> tuple[Path | None, list[str]]:
     errors: list[str] = []
     try:
         host_path = (
-            resolve_test_run_input_path(file.path, test_run_id, project_id)
+            resolve_test_run_input_path(file.path, test_run_id, project_id, database_mounts)
             if label == 'Input file'
             else resolve_test_run_path(file.path, test_run_id)
         )
@@ -196,7 +220,7 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id
 
     bookkeeping_files = {'00_running_command.txt', 'task_log.txt'}
     for label, file in all_files:
-        host_path, file_errors = _validate_report_file(file, test_run_id, label, project_id)
+        host_path, file_errors = _validate_report_file(file, test_run_id, label, project_id, report.database_mounts)
         errors.extend(file_errors)
         if label == 'Output file' and PurePosixPath(file.path).name in bookkeeping_files:
             errors.append(f'Output file `{file.name}` must not include bookkeeping file {file.path}.')
@@ -214,11 +238,20 @@ async def write_test_run_report(report: TestRunReport, runtime: ToolRuntime[Test
     """Submit the final structured report after the tool command has run successfully.
 
     Every path must be an absolute managed container path. Inputs may be under ``/data/output`` or an available
-    fixed project-data mount. Working and output paths must remain under ``/data/output``. Input files must be the
+    fixed project-data mount, or an external mount of a registered biological database. Database mappings are
+    recorded automatically from successful ``run_command`` calls; omit ``database_mounts`` when submitting.
+    Working and output paths must remain under ``/data/output``. Input files must be the
     concrete files or directories consumed by ``running_command``. Output files must include every result produced
     by that command, including the execution log. Do not include bookkeeping files such as
     ``00_running_command.txt`` or ``task_log.txt``.
     """
+    recorded_mounts = [ContainerMount.model_validate(mount) for mount in runtime.state.get('test_run_mounts', [])]
+    database_mounts = [
+        mount
+        for mount in recorded_mounts
+        if any(_is_same_or_child(PurePosixPath(file.path), PurePosixPath(mount.target)) for file in report.input_files)
+    ]
+    report = report.model_copy(update={'database_mounts': database_mounts})
     validation_errors = validate_test_run_report(
         report,
         runtime.context.test_run_id,

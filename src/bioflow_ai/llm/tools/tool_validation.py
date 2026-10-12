@@ -76,7 +76,9 @@ def _build_validation_inputs(
         raise ValueError(err_msg)
 
     return {
-        name: ResolvedToolInput(value=str(resolve_test_run_input_path(report_file.path, test_run_id, project_id)))
+        name: ResolvedToolInput(
+            value=str(resolve_test_run_input_path(report_file.path, test_run_id, project_id, report.database_mounts))
+        )
         for name, report_file in report_inputs.items()
     }
 
