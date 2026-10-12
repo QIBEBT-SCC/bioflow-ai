@@ -247,6 +247,46 @@ class MilvusVectorStore(VectorStore):
         primary_keys = result.get('ids', [])
         return [str(primary_key) for primary_key in primary_keys]
 
+    async def aupdate_metadata(
+        self,
+        metadata: dict[str, Any],
+        *,
+        filter_expression: str,
+        filter_params: dict[str, Any] | None = None,
+    ) -> int:
+        """Update matching records' metadata while preserving their text and vectors."""
+        if not filter_expression.strip():
+            msg = 'filter_expression is required for metadata updates'
+            raise ValueError(msg)
+        if {self._PRIMARY_FIELD, self._TEXT_FIELD, self.dense_field, self._SPARSE_FIELD} & metadata.keys():
+            msg = 'Metadata updates cannot change primary keys, text or vector fields'
+            raise ValueError(msg)
+        if not metadata:
+            return 0
+
+        async with self._client_scope() as client:
+            if not await self._prepare_collection(client):
+                return 0
+            records = await client.query(
+                collection_name=self.collection_name,
+                filter=filter_expression,
+                filter_params=filter_params or {},
+                output_fields=[self._PRIMARY_FIELD],
+                consistency_level=self.consistency_level,
+            )
+            if not records:
+                return 0
+            result = await client.upsert(
+                collection_name=self.collection_name,
+                data=[{self._PRIMARY_FIELD: record[self._PRIMARY_FIELD], **metadata} for record in records],
+                partial_update=True,
+            )
+        updated = int(result.get('upsert_count', 0))
+        if updated != len(records):
+            msg = 'Milvus metadata update did not update every matching record'
+            raise ValueError(msg)
+        return updated
+
     def similarity_search(self, query: str, k: int = 4, **kwargs: Any) -> list[Document]:
         """Search from synchronous code."""
         import asyncio

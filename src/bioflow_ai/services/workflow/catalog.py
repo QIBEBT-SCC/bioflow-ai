@@ -123,12 +123,22 @@ async def create_workflows(session: Session, workflows: Sequence[Workflow]) -> l
 
 
 async def update_workflow(session: Session, uid: UUIDLike, data: WorkflowUpdate) -> Workflow:
-    """Update a workflow template in one database transaction."""
+    """Update a workflow and only recompute vectors when its description changes."""
     with committing(session):
+        existing = workflow_crud.get(session, uid)
+        if existing is None:
+            raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
+        description_changed = data.description is not None and data.description != existing.description
+        metadata_changed = (data.name is not None and data.name != existing.name) or (
+            data.public is not None and data.public != existing.public
+        )
         workflow = workflow_crud.update(session, uid, data)
         if workflow is None:
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
-        await _index_workflow(workflow, replace=True)
+        if description_changed:
+            await _index_workflow(workflow, replace=True)
+        elif metadata_changed:
+            await _update_workflow_metadata(workflow)
     session.refresh(workflow)
     return workflow
 
@@ -187,3 +197,21 @@ async def _index_workflow(workflow: Workflow, *, replace: bool = False) -> None:
                     filter_params={'uid': str(workflow.uid), 'ids': new_ids},
                 )
                 raise
+
+
+async def _update_workflow_metadata(workflow: Workflow) -> None:
+    """Keep vector metadata current without embedding an unchanged description."""
+    vectorstore = MilvusVectorStore(
+        collection_name=WORKFLOW_COLLECTION,
+        uri=get_settings().knowledge_base.MILVUS_URL,
+        hybrid=True,
+    )
+    async with vectorstore:
+        updated = await vectorstore.aupdate_metadata(
+            {'name': workflow.name, 'public': workflow.public},
+            filter_expression='wf_uid == {uid}',
+            filter_params={'uid': str(workflow.uid)},
+        )
+    if not updated:
+        # Recover a missing projection instead of leaving the workflow unsearchable.
+        await _index_workflow(workflow)
