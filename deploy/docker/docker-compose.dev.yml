@@ -1,5 +1,52 @@
+x-milvus-image: &milvus-image docker.io/milvusdb/milvus:v3.0.0
+x-rustfs-image: &rustfs-image docker.io/rustfs/rustfs:1.0.0-alpha.97
+
 services:
-  # Milvus 相关服务
+  # Remove the matching owner marker after restoring files owned by a different user.
+  milvus-volume-init:
+    image: *milvus-image
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    restart: "no"
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        set -eu
+        uid="$$(id -u milvus)"
+        gid="$$(id -g milvus)"
+        marker="/var/lib/milvus/.milvus-volume-owner-$${uid}-$${gid}"
+        if [ ! -e "$${marker}" ]; then
+          echo "Preparing /var/lib/milvus for $${uid}:$${gid}"
+          chown -R "$${uid}:$${gid}" /var/lib/milvus
+          touch "$${marker}"
+          chown "$${uid}:$${gid}" "$${marker}"
+        fi
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+
+  rustfs-volume-init:
+    image: *rustfs-image
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    restart: "no"
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        set -eu
+        uid="$$(id -u rustfs)"
+        gid="$$(id -g rustfs)"
+        marker="/data/.rustfs-volume-owner-$${uid}-$${gid}"
+        if [ ! -e "$${marker}" ]; then
+          echo "Preparing /data for $${uid}:$${gid}"
+          chown -R "$${uid}:$${gid}" /data
+          touch "$${marker}"
+          chown "$${uid}:$${gid}" "$${marker}"
+        fi
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rustfs:/data
+
   etcd:
     container_name: milvus-etcd
     image: quay.io/coreos/etcd:v3.5.25
@@ -21,16 +68,18 @@ services:
 
   rustfs:
     container_name: milvus-rustfs
-    image: docker.io/rustfs/rustfs:1.0.0-alpha.97
+    image: *rustfs-image
+    depends_on:
+      rustfs-volume-init:
+        condition: service_completed_successfully
     environment:
       RUSTFS_ACCESS_KEY: minioadmin
       RUSTFS_SECRET_KEY: minioadmin
       RUSTFS_CONSOLE_ENABLE: "true"
       RUSTFS_REGION: us-east-1
-      # RUSTFS_SERVER_DOMAINS: localhost# Optional; not required for local deployments
     ports:
-      - "9001:9001"
       - "9000:9000"
+      - "9001:9001"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/rustfs:/data
     command: >
@@ -47,7 +96,7 @@ services:
 
   standalone:
     container_name: milvus-standalone
-    image: docker.io/milvusdb/milvus:v3.0.0
+    image: *milvus-image
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
@@ -71,17 +120,22 @@ services:
       - "19530:19530"
       - "9091:9091"
     depends_on:
-      - "etcd"
-      - "rustfs"
+      milvus-volume-init:
+        condition: service_completed_successfully
+      etcd:
+        condition: service_started
+      rustfs:
+        condition: service_started
     networks:
       - milvus-net
 
   # 数据库服务
   rabbitmq-db:
-    image: rabbitmq:4.1.0-rc.1-management
+    container_name: bioflow-ai-rabbitmq
+    image: docker.io/library/rabbitmq:4.1.0-rc.1-management
     ports:
-      - "5672:5672"   # AMQP 协议端口
-      - "15672:15672" # 管理界面端口
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: bioflow_ai
       RABBITMQ_DEFAULT_PASS: 123456
@@ -94,7 +148,8 @@ services:
     restart: always
 
   redis-db:
-    image: redis:8.0-rc1-bookworm
+    container_name: bioflow-ai-redis
+    image: docker.io/library/redis:8.0-rc1-bookworm
     ports:
       - "6379:6379"
     volumes:
@@ -105,6 +160,7 @@ services:
     restart: always
 
   postgres-db:
+    container_name: bioflow-ai-postgres
     image: docker.io/library/postgres:18.0-alpine
     shm_size: 2gb
     environment:
@@ -123,13 +179,14 @@ services:
     restart: unless-stopped
 
   web-ui:
+    container_name: bioflow-ai-web
     image: ghcr.io/qibebt-scc/bioflow-ai-web:0.4.1
     environment:
-      BACKEND_API_URL: http://host.docker.internal:8003/api/v1
+      BACKEND_API_URL: http://host.docker.internal:8000/api/v1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "3001:3000"
+      - "3000:3000"
     networks:
       - web-ui-net
     restart: unless-stopped
