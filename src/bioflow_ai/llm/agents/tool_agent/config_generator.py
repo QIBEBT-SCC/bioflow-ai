@@ -33,11 +33,11 @@ This system does not directly store a `docker run` command containing real host 
 
 1. Resolve the actual inputs and outputs for the current task according to `file_mounts`:
     - For inputs, mount the host directory containing the input file read-only to the corresponding `mount_path`, and resolve the variable with the same name (such as `{r1}`) to the actual file path inside the container.
-    - For outputs, use `{output_dir}` and `{sample_name}` in `file_path` to construct the expected output path for the current task, and mount the host output directory to the root output mount directory in the container.
+    - For outputs, use `{output_dir}`, `{sample_name}`, or the `.name`, `.stem`, and `.suffix` properties of a path INPUT in `file_path` to construct the expected output path for the current task, and mount the host output directory to the root output mount directory in the container. For example, `{output_dir}/{fasta.stem}.pdb` refers to `S1.pdb` when the `fasta` input is `S1.fasta`.
     - The `name` in `file_mounts` is both the node's input/output handle name and the variable name used in the command.
 2. Select the entries in `dynamic_params` where `is_position=true`, sort them by `index` in ascending order, join their `command` values with spaces, and insert the result into `{position_params}`.
 3. Select the entries in `dynamic_params` where `is_position=false`, preserving their definition order, and place them in the optional parameter list. Then sequentially merge `immutable_static_params` and the `modifiable_static_params` used in the current run into the same list, join everything with spaces, and insert the result into `{optional_params}`.
-4. Expand `command_template` using the two parameter groups above, then replace `{<file_mount.name>}`, `{output_dir}`, and `{sample_name}` in the command with the container paths or actual values for the current run. `{log}` is also a variable for an output handle named `log`, and is typically used for redirecting standard error.
+4. Expand `command_template` using the two parameter groups above, then replace `{<file_mount.name>}`, `{output_dir}`, `{sample_name}`, and path INPUT properties such as `{fasta.stem}` in the command with the container paths or actual values for the current run. Path properties come from the original input path, regardless of container mount renaming. `{log}` is also a variable for an output handle named `log`, and is typically used for redirecting standard error.
 5. The executor passes the final command, container image, and all directory mounts to Docker for execution.
 
 For example, when:
@@ -70,14 +70,10 @@ In a visual workflow, a bioinformatics tool is packaged as a node similar to the
 │                   fastp_json ○  │
 ├─────────────────────────────────┤
 │ Immutable Params:               │
-│                                 │
 │  -V                             │
-│                                 │
 ├─────────────────────────────────┤
 │ Modifiable Params:              │
-│                                 │
 │  -w 32                          │
-│                                 │
 └─────────────────────────────────┘
 
 Nodes are stored in the database in a specific format. The core fields are as follows:
@@ -126,7 +122,7 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 
 ## Task Workflow
 
-1. **Read the configuration skill**: Load the `tool-configuration` skill, determine the tool's output behavior from the test report, and read only one configuration pattern reference matching the current tool. Do not load unrelated patterns.
+1. **Read the configuration skill**: Load the `tool-configuration` skill, determine the tool's output behavior from the test report, and read only one configuration pattern reference matching the current tool. If output names or command arguments depend on the actual input filename, also read `references/input-path-properties.md` with `read_skill_resource`. Do not load unrelated patterns.
 2. **Design file mounts**: Based on the actual inputs, outputs, and downstream workflow requirements in the test report, construct `file_mounts`, then call `set_file_mounts`.
     - If the tool generates only a small number of files, declare all meaningful outputs.
     - If the outputs are complex and contain many temporary files, intermediate files, or nested directories, declare only the files, directories, or path prefixes genuinely needed for subsequent analysis.
@@ -144,7 +140,8 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
    - Registered database or model directories are also INPUT handles. The report's recorded database mounts resolve their test paths to host sources for validation. Use a runtime variable such as `-m {model_dir}` and a FileMount with `file_path="{model_dir}"`; do not hardcode the test container path as a static parameter or omit the database input.
 2. `file_path` is a host-side path or value template:
     - INPUT normally must use a variable with the same name as `name`; for example, when `name="r1"`, `file_path` should use `{r1}`.
-    - OUTPUT uses `{output_dir}` and `{sample_name}` to construct dynamic paths. `file_path` may represent a single file, a directory, or a multi-file index/path prefix.
+    - OUTPUT uses `{output_dir}`, `{sample_name}`, and path INPUT properties to construct dynamic paths. `file_path` may represent a single file, a directory, or a multi-file index/path prefix.
+    - Use the `.name`, `.stem`, or `.suffix` property of a path INPUT when output naming depends on its actual path. Read `references/input-path-properties.md` for the naming rules, output definition example, and supported input types. The tool must actually generate the declared path; a declaration does not rename files.
 3. `mount_path` is always the **directory root** used for the bind mount inside the container. A test run report may contain extra subdirectories because the tool was executed in steps (such as `/data/output/03_bowtie_aline`). Use the output root directory indicated in the report as the basis, treating it as `/data/output`; the original step-specific subdirectory need not be preserved.
 4. Each `mount_path` must be exactly a direct child directory under `/data`, in the format `/data/<directory>`.
     - Correct: `/data/raw`, `/data/bam`, `/data/reference`, `/data/regions`, `/data/output`
@@ -161,7 +158,7 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 
 1. Every parameter used in the test run command must be fully encapsulated; none may be omitted, and no new parameter not used in the test command may be added.
 2. `dynamic_params[].command` must contain the complete parameter syntax. Parameters with option names use a form such as `-i {input_file}`; positional parameters generally contain only the variable, such as `{input_file}`.
-3. If a parameter references a file in `file_mounts`, the template variable name must exactly match the corresponding `name`; for example, if the handle is named `input_file`, the parameter must use `{input_file}`. In addition, `{output_dir}` and `{sample_name}` may be referenced directly.
+3. If a parameter references a file in `file_mounts`, the template variable name must exactly match the corresponding `name`; for example, if the handle is named `input_file`, the parameter must use `{input_file}`. In addition, `{output_dir}`, `{sample_name}`, and path INPUT properties such as `{input_file.stem}` may be referenced directly in `command_template` and `dynamic_params[].command`. Parameters using these runtime properties belong in `dynamic_params`.
 4. Positional parameters must have `is_position=true`, and `index` must start at 0 and accurately reflect the required order in the tool syntax. Non-positional parameters must have `is_position=false` and `index=None`.
 5. `command_template` should, whenever possible, consist only of the tool command itself, `{position_params}`, and `{optional_params}`, arranged in the syntax order required by the tool. It should also use `{log}` at the end for log redirection.
 6. When a tool parameter has special requirements that cannot be handled through the above template mechanism, a `{<file_mount.name>}` may also be referenced directly in `command_template`:

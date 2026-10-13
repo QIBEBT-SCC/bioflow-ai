@@ -172,11 +172,29 @@ def _add_mountlist_mounts(
     return container_root
 
 
+def _build_input_paths(
+    file_mounts: list[FileMount],
+    inputs: dict[str, ResolvedToolInput],
+) -> dict[str, Path | None]:
+    """Capture original path inputs before container mount names can change."""
+    return {
+        file.name: (
+            None
+            if file.file_path.startswith('value:') or inputs[file.name].value.startswith(MOUNTLIST_PREFIX)
+            else Path(inputs[file.name].value)
+        )
+        for file in file_mounts
+        if file.file_type == 'INPUT'
+    }
+
+
 def build_tool_mounts(
     file_mounts: list[FileMount],
     host_output_dir: str,
     sample_name: str,
     inputs: dict[str, ResolvedToolInput],
+    *,
+    input_paths: dict[str, Path | None] | None = None,
 ) -> tuple[dict[str, str], dict[str, Path], set[str], ToolOutput]:
     """Build container mounts and expected outputs from resolved tool inputs."""
     param_inputs: dict[str, str] = {}
@@ -185,6 +203,10 @@ def build_tool_mounts(
     expected_output = ToolOutput()
     conflicted_paths: set[str] = set()
     source_sample_names: list[str | None] = []
+    output_formatter = PartialFormatter(
+        input_paths=_build_input_paths(file_mounts, inputs) if input_paths is None else input_paths,
+        strict=True,
+    )
 
     input_files = [file for file in file_mounts if file.file_type == 'INPUT']
     output_files = [file for file in file_mounts if file.file_type == 'OUTPUT']
@@ -243,7 +265,9 @@ def build_tool_mounts(
 
     for file in output_files:
         try:
-            host_file_path = Path(file.file_path.format(output_dir=host_output_dir, sample_name=output_sample_name))
+            host_file_path = Path(
+                output_formatter.format(file.file_path, output_dir=host_output_dir, sample_name=output_sample_name)
+            )
         except KeyError as error:
             err_msg = f'Unknown variable {error} in output path template: {file.file_path}'
             raise ValueError(err_msg) from error
@@ -276,12 +300,14 @@ def prepare_docker_tool_execution(
     """Prepare a Docker invocation without accessing Celery or persistent state."""
     host_output_dir = Path(output_dir).absolute()
     host_output_dir.mkdir(parents=True, exist_ok=True)
+    input_paths = _build_input_paths(config.file_mounts, inputs)
 
     param_inputs, mount_paths, read_only_mounts, expected_output = build_tool_mounts(
         config.file_mounts,
         output_dir,
         sample_name,
         inputs,
+        input_paths=input_paths,
     )
     final_template = build_command_template(
         command_template=config.command_template,
@@ -290,7 +316,7 @@ def prepare_docker_tool_execution(
         modifiable_static_params=params,
         file_mounts=config.file_mounts,
     )
-    command = PartialFormatter().format(
+    command = PartialFormatter(input_paths=input_paths).format(
         final_template,
         output_dir='/data/output',
         sample_name=expected_output.sample_name,

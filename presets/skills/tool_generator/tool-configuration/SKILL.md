@@ -12,13 +12,14 @@ parameter must receive a value dynamically produced by an upstream node during w
 
 ## Choose the Output Pattern
 
-Apply the first matching pattern in this order:
+Apply the first matching primary output pattern in this order:
 
 | Pattern | Use when | Reference |
 |---|---|---|
 | In-place modification | The command changes an input file directly instead of producing an independent result path | `references/in-place-modification.md` |
 | Output prefix | An output argument is a path prefix and the tool creates multiple sibling artifacts whose names begin with that prefix | `references/prefix-output.md` |
 | Standard-output redirection | The primary result exists only because stdout is redirected to an output file | `references/stdout-output.md` |
+| Input-derived output | The tool automatically determines output filenames from an INPUT path instead of accepting an explicit output filename | `references/input-path-properties.md` |
 | Standard explicit output | The command writes its primary result to an explicit file or directory path | `references/simple-output.md` |
 
 Stderr or ordinary log redirection does not make a tool a standard-output tool. Use the standard-output pattern only
@@ -46,5 +47,5 @@ need to edit a value between runs does not make it runtime-produced. When this e
 6. Treat names and concrete files in references as illustrative. Input names must still match the current test-run
    report, and outputs must reflect the current command's actual behavior.
 
-Do not load multiple pattern references speculatively. If validation shows that the initial classification was wrong,
+Do not load unrelated pattern references speculatively. If validation shows that the initial classification was wrong,
 reclassify the tool and then read the correct reference.

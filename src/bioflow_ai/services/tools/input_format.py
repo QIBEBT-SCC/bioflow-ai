@@ -1,20 +1,70 @@
 import os
 import re
 import string
+from dataclasses import dataclass
 from itertools import takewhile
 from pathlib import Path
+from typing import Any
 
 from bioflow_ai.schemas.react_flow import TaskNode
 from bioflow_ai.schemas.tool_config import FileMount, ParamDefine
 
 
+@dataclass(frozen=True)
+class _UnresolvedField:
+    name: str
+    conversion: str | None = None
+
+
 class PartialFormatter(string.Formatter):
-    def get_value(self, key: int | str, args, kwargs) -> str:  # noqa: ANN001
-        """允许缺省的模板填充."""
+    """Preserve runtime fields until input paths are available for safe property lookup."""
+
+    def __init__(self, *, input_paths: dict[str, Path | None] | None = None, strict: bool = False) -> None:
+        self.input_paths = input_paths
+        self.strict = strict
+
+    def get_value(self, key: int | str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+        """Preserve missing variables during preview, or reject them in strict mode."""
         try:
             return super().get_value(key, args, kwargs)
         except (KeyError, IndexError):
-            return f'{{{key}}}'
+            if self.strict:
+                raise
+            return _UnresolvedField(str(key))
+
+    def get_field(self, field_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[Any, str | int]:
+        """Resolve only the three supported properties of declared path inputs."""
+        if '.' not in field_name and '[' not in field_name:
+            return super().get_field(field_name, args, kwargs)
+        if self.input_paths is None:
+            return _UnresolvedField(field_name), field_name
+
+        input_name, _, attribute = field_name.partition('.')
+        if attribute not in {'name', 'stem', 'suffix'} or '[' in field_name:
+            message = f'Unsupported path property in {{{field_name}}}; use .name, .stem, or .suffix.'
+            raise ValueError(message)
+        if input_name not in self.input_paths:
+            message = f'Unknown INPUT handle in {{{field_name}}}: {input_name!r}.'
+            raise ValueError(message)
+        path = self.input_paths[input_name]
+        if path is None:
+            message = f'{{{field_name}}} requires a path INPUT; value: and mountlist: inputs are not supported.'
+            raise ValueError(message)
+        return {'name': path.name, 'stem': path.stem, 'suffix': path.suffix}[attribute], input_name
+
+    def convert_field(self, value: Any, conversion: str | None) -> Any:
+        """Keep conversions attached to unresolved placeholders across formatting stages."""
+        if isinstance(value, _UnresolvedField):
+            return _UnresolvedField(value.name, conversion)
+        return super().convert_field(value, conversion)
+
+    def format_field(self, value: Any, format_spec: str) -> str:
+        """Keep the entire unresolved field, including its format specification."""
+        if isinstance(value, _UnresolvedField):
+            conversion = f'!{value.conversion}' if value.conversion else ''
+            specification = f':{format_spec}' if format_spec else ''
+            return f'{{{value.name}{conversion}{specification}}}'
+        return super().format_field(value, format_spec)
 
 
 def build_command_template(
