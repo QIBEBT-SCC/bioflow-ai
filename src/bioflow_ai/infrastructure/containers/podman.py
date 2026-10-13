@@ -155,7 +155,7 @@ def run_podman_background(
         dict[str, Any] | None: 当前时刻容器的资源占用信息, 容器在采样时已停止则返回 None
 
     Raises:
-        podman.errors.ContainerError: 容器运行失败时抛出
+        RuntimeError: 容器命令以非零退出码结束时抛出
         podman.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
     """
     with PodmanClient() as client:
@@ -198,6 +198,10 @@ def run_podman_background(
                 else:
                     yield calculate_podman_stats(stat, start_time, pid)
                 time.sleep(interval)
+            exit_code = container.wait()
+            if exit_code != 0:
+                err_msg = f'Container command exited with code {exit_code}: {command}'
+                raise RuntimeError(err_msg)
         finally:
             timestamp = datetime.datetime.now(datetime.UTC)
             yield {

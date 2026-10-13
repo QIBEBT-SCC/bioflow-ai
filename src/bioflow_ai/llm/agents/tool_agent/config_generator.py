@@ -86,6 +86,7 @@ Nodes are stored in the database in a specific format. The core fields are as fo
     - `mount_path: str`: The root directory of the bind mount inside the container.
     - `is_report: bool`: Whether this is a read-only, display-oriented report.
     - `is_log: bool`: Whether this is the node's sole log.
+    - `is_required: bool = true`: For OUTPUT mounts, whether this output must exist after execution. Ignored for INPUT mounts.
 - `command_template: str`: The command skeleton. The template's parameter set consists only of `{position_params}` and `{optional_params}`; when necessary, it may directly reference `{<file_mount.name>}`, such as `{log}`.
 - `dynamic_params: list[ParamDefine]`: Stores parameter fragments containing runtime variables.
     - `description: str`: Description of the parameter's purpose.
@@ -152,7 +153,8 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 7. OUTPUT normally uses `/data/output`. Use another direct-child `/data` directory only when the tool's execution mode genuinely requires it.
 8. `is_report=true` is only for reports primarily intended for read-only display, such as HTML, PNG, or SVG. CSV, JSON, and TSV files should not be marked as read-only reports if they can also be used for downstream analysis.
 9. There must be exactly one output item with `name="log"` and `is_log=true`. If the tool generates its own log, prefer declaring the tool's native log; otherwise, use `11_run.log` to receive redirected standard error.
-10. Before calling `set_file_mounts`, check each item against all the rules above. Do not copy specific file paths from the test command or report directly into `mount_path`.
+10. Keep `is_required=true` for normal outputs. Set `is_required=false` only when native tool behavior validly omits that output under an understood condition, and describe the condition. For example, TopHat may omit `unmapped.bam` when all reads map.
+11. Before calling `set_file_mounts`, check each item against all the rules above. Do not copy specific file paths from the test command or report directly into `mount_path`.
 
 ### Variable Templates and Parameters
 

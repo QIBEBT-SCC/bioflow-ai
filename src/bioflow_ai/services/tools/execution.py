@@ -14,7 +14,11 @@ from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.tools.input_format import PartialFormatter, build_command_template
 from bioflow_ai.services.workflow.execution_context import get_prefix
-from bioflow_ai.services.workflow.output_validation import all_output_paths_exist, missing_output_paths
+from bioflow_ai.services.workflow.output_validation import (
+    all_output_paths_exist,
+    missing_output_paths,
+    output_path_exists,
+)
 
 MOUNTLIST_PREFIX = 'mountlist:'
 
@@ -47,6 +51,7 @@ class DockerToolExecution:
     command: str
     volume_binds: list[ContainerMount]
     expected_output: ToolOutput
+    required_output_names: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -60,7 +65,7 @@ class DockerToolExecutionResult:
 
     @property
     def succeeded(self) -> bool:
-        """Return whether the command exited cleanly and produced every declared output."""
+        """Return whether the command exited cleanly and produced every required output."""
         return self.exit_code == 0 and not self.missing_outputs
 
 
@@ -231,6 +236,9 @@ def build_tool_mounts(
             continue
 
         host_file_path = Path(file_path)
+        if not output_path_exists(host_file_path):
+            err_msg = f'Tool input {file.name!r} does not exist: {host_file_path}'
+            raise FileNotFoundError(err_msg)
         source_sample_names.append(resolved_input.sample_name)
 
         if host_file_path.is_dir():
@@ -335,6 +343,11 @@ def prepare_docker_tool_execution(
         command=command,
         volume_binds=volume_binds,
         expected_output=expected_output,
+        required_output_names=frozenset(
+            'log' if file.is_log else file.name
+            for file in config.file_mounts
+            if file.file_type == 'OUTPUT' and file.is_required
+        ),
     )
 
 
@@ -342,8 +355,14 @@ def execute_docker_tool(
     execution: DockerToolExecution,
     monitor: Callable[[dict[str, Any] | None], None] | None = None,
 ) -> ToolOutput:
-    """Execute a prepared Docker tool and verify all declared outputs."""
-    if all_output_paths_exist(execution.expected_output):
+    """Execute a prepared Docker tool and verify its required outputs."""
+    required_output_names = execution.required_output_names
+    has_required_outputs = bool(
+        execution.expected_output.all_files() if required_output_names is None else required_output_names
+    )
+    if has_required_outputs and all_output_paths_exist(
+        execution.expected_output, required_output_names=required_output_names
+    ):
         return execution.expected_output
 
     for stats in run_command_background(
@@ -355,7 +374,10 @@ def execute_docker_tool(
         if monitor is not None:
             monitor(stats)
 
-    missing_outputs = [str(path) for path in missing_output_paths(execution.expected_output)]
+    missing_outputs = [
+        str(path)
+        for path in missing_output_paths(execution.expected_output, required_output_names=required_output_names)
+    ]
     if missing_outputs:
         err_msg = f'部分输出文件未生成: {missing_outputs}'
         logger.error(err_msg)
@@ -373,7 +395,9 @@ def execute_docker_tool_with_result(execution: DockerToolExecution) -> DockerToo
         workdir='/data/output',
         ensure_ascii=False,
     )
-    missing_outputs = missing_output_paths(execution.expected_output)
+    missing_outputs = missing_output_paths(
+        execution.expected_output, required_output_names=execution.required_output_names
+    )
     return DockerToolExecutionResult(
         output=execution.expected_output,
         exit_code=exit_code,

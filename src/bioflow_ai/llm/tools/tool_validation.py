@@ -213,7 +213,7 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
                 ToolMessage(
                     content=(
                         'Tool configuration validation passed. '
-                        f'Command: {execution.command}\nValidated outputs: {output_paths}'
+                        f'Command: {execution.command}\nDeclared outputs: {output_paths}'
                     ),
                     tool_call_id=runtime.tool_call_id,
                 )

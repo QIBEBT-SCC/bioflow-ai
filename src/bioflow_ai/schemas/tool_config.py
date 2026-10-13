@@ -30,6 +30,10 @@ class FileMount(BaseModel):
     mount_path: str
     is_report: bool = Field(default=False)
     is_log: bool = Field(default=False)
+    is_required: bool = Field(
+        default=True,
+        description='For OUTPUT mounts, require the path to exist after execution. Ignored for INPUT mounts.',
+    )
 
 
 class ImageConfig(BaseModel):

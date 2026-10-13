@@ -16,6 +16,7 @@ from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.schemas.tools import ToolTaskInfo
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, NodeRunUpdate
+from bioflow_ai.services.workflow.output_validation import output_path_exists
 from bioflow_ai.services.workflow.runtime import WorkflowRuntimeInvariantError
 
 _current_node: ContextVar[uuid.UUID] = ContextVar('workflow_current_node')
@@ -84,7 +85,11 @@ def get_node_output(source_uid: str, output_key: str) -> tuple[str, str | None]:
         if output_key not in values:
             message = f'Dependency {source_uid} has no output named {output_key!r}'
             raise WorkflowRuntimeInvariantError(message)
-        return str(values[output_key]), source.tool_output.sample_name
+        value = values[output_key]
+        if source.node_type == 'tool' and not output_path_exists(value):
+            message = f'Dependency {source.name!r} ({source_uid}) output {output_key!r} does not exist: {value}'
+            raise FileNotFoundError(message)
+        return str(value), source.tool_output.sample_name
 
 
 def resolve_path(

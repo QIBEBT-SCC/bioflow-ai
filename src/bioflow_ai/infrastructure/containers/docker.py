@@ -145,7 +145,7 @@ def run_docker_background(
         dict[str, Any]: 当前时刻容器的资源占用信息 (如CPU、内存等)
 
     Raises:
-        docker.errors.ContainerError: 容器运行失败时抛出
+        RuntimeError: 容器命令以非零退出码结束时抛出
         docker.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
     """
     _check_runtime_mode()
@@ -182,6 +182,11 @@ def run_docker_background(
             stats = container.stats(stream=False)
             yield calculate_docker_stats(stats)  # ty: ignore[invalid-argument-type]
             time.sleep(interval)
+
+        exit_code = container.wait()['StatusCode']
+        if exit_code != 0:
+            err_msg = f'Container command exited with code {exit_code}: {command}'
+            raise RuntimeError(err_msg)
 
     finally:
         timestamp = datetime.datetime.now(datetime.UTC)
