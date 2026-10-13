@@ -1,5 +1,4 @@
 import json
-import os
 import shutil
 import subprocess
 import time
@@ -21,6 +20,7 @@ from bioflow_ai.core.paths import DEPLOY_DIR
 
 COMPOSE_TEMPLATE_ROOT = DEPLOY_DIR
 COMPOSE_FILE = Path('docker-compose.yml')
+VOLUME_INIT_SERVICES = frozenset({'milvus-volume-init', 'rustfs-volume-init'})
 REQUIRED_SERVICES = frozenset(
     {
         'etcd',
@@ -188,7 +188,7 @@ def check_exist_container(compose_command: list[str], runtime: str) -> RunningSe
         )
 
     try:
-        records = _parse_podman_ps_json(result.stdout)
+        records = _parse_compose_ps_json(result.stdout)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         return RunningServicesResult(success=False, services=[], error=f'Unable to parse Compose service status: {exc}')
 
@@ -202,8 +202,8 @@ def check_exist_container(compose_command: list[str], runtime: str) -> RunningSe
     return RunningServicesResult(success=True, services=services)
 
 
-def _parse_podman_ps_json(output: str) -> list[dict[str, object]]:
-    """Parse JSON emitted by ``podman compose ps --format json``."""
+def _parse_compose_ps_json(output: str) -> list[dict[str, object]]:
+    """Parse a JSON array or newline-delimited objects emitted by Compose ps."""
     content = output.strip()
     if not content:
         return []
@@ -241,6 +241,28 @@ def _podman_ps_service(record: dict[str, object]) -> str:
     return ''
 
 
+def check_unready_volume_initializers(compose_command: list[str], runtime: str) -> list[str]:
+    """Require successful initializer exits, including with Podman Compose providers."""
+    command = [*compose_command, '-f', str(COMPOSE_FILE), 'ps']
+    if runtime == 'docker':
+        command.append('--all')
+    result = run_command([*command, '--format', 'json'])
+    if result.returncode != 0:
+        return sorted(VOLUME_INIT_SERVICES)
+
+    try:
+        records = _parse_compose_ps_json(result.stdout)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return sorted(VOLUME_INIT_SERVICES)
+
+    completed = set()
+    for record in records:
+        if _podman_ps_state(record) in {'exited', 'stopped'} and record.get('ExitCode') == 0:
+            service = str(record.get('Service', '')) if runtime == 'docker' else _podman_ps_service(record)
+            completed.add(service)
+    return sorted(VOLUME_INIT_SERVICES - completed)
+
+
 def check_unready_services(compose_command: list[str], runtime: str) -> list[str]:
     """Return missing, stopped, or unhealthy project services."""
     running_result = check_exist_container(compose_command, runtime)
@@ -249,6 +271,7 @@ def check_unready_services(compose_command: list[str], runtime: str) -> list[str
 
     running_services = set(running_result.services)
     unready = set(REQUIRED_SERVICES - running_services)
+    unready.update(check_unready_volume_initializers(compose_command, runtime))
     for service, check_service in SERVICE_HEALTH_CHECKS.items():
         if service in running_services and not check_service(compose_command, COMPOSE_FILE):
             unready.add(service)
@@ -262,7 +285,7 @@ def wait_for_project_services(
     timeout: float = SERVICE_READY_TIMEOUT_SECONDS,
     poll_interval: float = SERVICE_READY_POLL_SECONDS,
 ) -> OperationResult:
-    """Wait until all compose services run and initialization dependencies report healthy."""
+    """Wait for volume initialization, running services, and dependency health checks."""
     deadline = time.monotonic() + timeout
     while True:
         unready_services = check_unready_services(compose_command, runtime)
@@ -272,46 +295,6 @@ def wait_for_project_services(
             names = ', '.join(unready_services)
             return OperationResult(success=False, error=f'Timed out waiting for project services: {names}')
         time.sleep(poll_interval)
-
-
-def prepare_container_volumes(runtime: str) -> OperationResult:
-    """Prepare compose mount directories and their required ownership."""
-    volume_owners = {
-        Path('volumes') / 'rustfs': (10001, 10001),
-        Path('volumes') / 'milvus': (999, 999),
-    }
-    for path, (uid, gid) in volume_owners.items():
-        path_existed = path.exists()
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            return OperationResult(success=False, error=f'Unable to create container data directory {path}: {exc}')
-
-        if runtime == 'podman':
-            # Rootless Podman must translate container IDs through its user namespace.
-            result = run_command(['podman', 'unshare', 'chown', f'{uid}:{gid}', str(path)])
-            if result.returncode != 0:
-                error = result.stderr.strip() or f'exit code {result.returncode}'
-                return OperationResult(
-                    success=False, error=f'Unable to set ownership for Podman data directory {path}: {error}'
-                )
-            continue
-
-        if path_existed:
-            continue
-        try:
-            os.chown(path, uid, gid)
-        except OSError as exc:
-            return OperationResult(
-                success=False,
-                error=f'Unable to set owner {uid}:{gid} for container data directory {path}: {exc}',
-            )
-
-    rustfs_path, milvus_path = volume_owners
-    return OperationResult(
-        success=True,
-        message=f'Initialized RustFS and Milvus data directories: {rustfs_path}, {milvus_path}',
-    )
 
 
 def start_project_services(command: list[str]) -> subprocess.CompletedProcess[bytes]:

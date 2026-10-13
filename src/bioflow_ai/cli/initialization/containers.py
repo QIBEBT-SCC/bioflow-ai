@@ -4,12 +4,9 @@ from bioflow_ai.cli.initialization import tui
 from bioflow_ai.core.config import Settings
 from bioflow_ai.services.initialization.containers import (
     COMPOSE_FILE,
-    REQUIRED_SERVICES,
     check_compose_command,
-    check_exist_container,
     compose_template_file,
     load_compose_file,
-    prepare_container_volumes,
     start_project_services,
     wait_for_project_services,
 )
@@ -55,30 +52,7 @@ def initialize_project_containers(
     for message in compose_file_result.updated_port:
         tui.render_notice(f'Updated {message}.', style='#10b981')
 
-    running_result = check_exist_container(compose_command, runtime)
-    if not running_result.success:
-        tui.render_notice(running_result.error or 'Unable to read Compose service status.', style='#f59e0b')
-    running_services = set(running_result.services)
-    if running_services:
-        tui.console.print(
-            f'[bold #10b981]Running services detected:[/bold #10b981] {", ".join(running_result.services)}'
-        )
-    if running_services >= REQUIRED_SERVICES:
-        tui.render_notice('Project containers are already running; checking service health.', style='#94a3b8')
-        ready_result = wait_for_project_services(compose_command, runtime)
-        if ready_result.success:
-            tui.render_notice(ready_result.message or 'Project services are ready.', style='#10b981')
-            return True
-        tui.render_notice(ready_result.error or 'Project services are not ready.', style='#ef4444')
-        return False
-
-    volume_result = prepare_container_volumes(runtime)
-    if not volume_result.success:
-        tui.render_notice(volume_result.error or 'Failed to prepare Compose volume directories.', style='#ef4444')
-        return False
-    if volume_result.message:
-        tui.render_notice(volume_result.message, style='#10b981')
-
+    # Reconcile Compose even when services are running so volume initializers are not skipped.
     command = [*compose_command, '-f', str(COMPOSE_FILE), 'up', '-d']
     tui.console.print()
     tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {" ".join(command)}')
