@@ -1,5 +1,9 @@
 from typing import Literal
 
+from sqlalchemy.orm import Session
+
+from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.schemas.workflow_config import ToolOutput
 
 
@@ -7,14 +11,28 @@ def set_value(
     *,
     value: str,
     value_type: Literal['string'],
+    sample_uid: str | None = None,
 ) -> ToolOutput:
-    """返回变量值."""
-    match value_type:
-        case 'string':
-            return ToolOutput(result={'value': value})
-        # case 'number':
-        #     if '.' in value:
-        #         return ToolOutput(result={'value': float(value)})
-        #     return ToolOutput(result={'value': int(value)})
-        case _:
-            raise ValueError
+    """Return literal text or a metadata value from the current sample."""
+    if value_type != 'string':
+        raise ValueError(value_type)
+    if value.startswith('sample:'):
+        if sample_uid is None:
+            message = f'Cannot resolve {value}: no current sample.'
+            raise ValueError(message)
+        key = value.removeprefix('sample:')
+        with Session(engine) as session:
+            sample = sample_crud.get(session, sample_uid)
+            if sample is None:
+                message = f'Sample not found: {sample_uid}'
+                raise KeyError(message)
+            metadata = sample.meta_data or {}
+            if key not in metadata or metadata[key] is None:
+                message = f'Sample {sample.sample_name!r} has no metadata field {key!r}'
+                raise KeyError(message)
+            metadata_value = metadata[key]
+            if not isinstance(metadata_value, (str, int, float, bool)):
+                message = f'Sample metadata field {key!r} must be a scalar value'
+                raise TypeError(message)
+            value = str(metadata_value)
+    return ToolOutput(result={'value': value})

@@ -171,7 +171,7 @@ class DbResourceSchema(BaseModel):
 
 
 class ValueStringResourceSchema(BaseModel):
-    value: str
+    value: str = Field(description='Literal text or sample:<key> to read the current sample metadata field.')
 
 
 class SequenceResourceSchema(BaseModel):
@@ -409,7 +409,7 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'value_string': {
         'name': 'String Value',
-        'description': 'This node encapsulates a string variable, which can be used as input for other nodes. Use the `value` parameter to specify the content of string',
+        'description': 'Outputs literal text or reads the current sample metadata when `value` is `sample:<key>`, for example `sample:organism`. Standard optional metadata keys are `organism`, `assay`, `layout`, and `platform`; custom keys work too. Reads metadata at node execution and fails if the sample or field is missing. Connect its `value` output to a text input such as NCBI genome `species_name`. This does not load sample files or project mappings.',
         'args': ValueStringResourceSchema,
         'input_handles': [],
         'output_handles': [Handle(name='value', description='string value')],

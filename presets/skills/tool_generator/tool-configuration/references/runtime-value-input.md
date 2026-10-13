@@ -8,8 +8,8 @@ input handle. It is not a general replacement for static parameters.
 Use a `value:` input only when all of the following are true:
 
 1. The argument is a text value, not a file, directory, or path prefix.
-2. Its value can only be derived from data produced or inspected during the current workflow run.
-3. An earlier node performs that derivation and the tool needs an input handle connected to that node's output.
+2. Its value depends on data produced or inspected during the current workflow run, or on the current sample's registered metadata.
+3. An earlier node performs that computation or metadata lookup and the tool needs an input handle connected to that node's output.
 
 If any condition is false, do not create a `value:` file mount. Put ordinary literal arguments in
 `immutable_static_params` or `modifiable_static_params` instead.
@@ -17,7 +17,15 @@ If any condition is false, do not create a `value:` file mount. Put ordinary lit
 In particular, do not use `value:` merely because a parameter is textual, optional, or user-adjustable. Thread
 counts, quality thresholds, flag masks, Boolean switches, species names, modes, presets, and similar tool settings
 remain static parameters when they do not depend on an upstream runtime result. A value being editable between runs
-is not sufficient: it must be computed by the workflow during the run.
+is not sufficient: an upstream node must compute it or load it from the current sample during the run.
+
+## Current-Sample Metadata
+
+A `value_string` node with `value="sample:organism"` reads `Sample.meta_data["organism"]` for the current sample.
+Its `value` output can feed a tool's `value:{organism}` input when the tool needs the sample-specific organism.
+The same lookup supports common keys `assay`, `layout`, and `platform`, as well as custom metadata keys. Metadata
+is optional at sample registration; the text node fails if a referenced field is missing. Do not put `sample:organism`
+directly in the tool command or mount definition: the text node resolves it and passes the resulting text downstream.
 
 ## Database-Backed Example: `samtools view (bam2bam with regions)`
 
@@ -80,6 +88,6 @@ When the admission rule is satisfied:
    This is the sole exception to the normal requirement that filesystem mount roots be direct children of `/data`.
 3. Reference the value from `dynamic_params` in the same way as any other runtime variable, preserving whether the
    target command expects it positionally or behind an option name.
-4. Describe which upstream computation produces the value and why it cannot be represented by a static parameter.
+4. Describe which upstream computation or current-sample metadata lookup produces the value and why it needs an input handle.
 5. Before accepting the configuration, explicitly verify that no proposed `value:` handle is actually a thread
    count, threshold, flag, mode, preset, or other ordinary static setting.

@@ -93,7 +93,7 @@ async def add_samples(
 
     Args:
         names: The list of sample names. Each sample name must be unique and may use uppercase letters, hyphens, and numbers.
-        meta_data: Meta information of the sample
+        meta_data: Confirmed input-file metadata. Common optional keys are organism (scientific name), assay (experimental assay), layout (single-end or paired-end), and platform (acquisition platform). Omit unknown fields; custom keys are allowed.
     """
     duplicates = sorted({n for n in names if names.count(n) > 1})
     if duplicates:

@@ -172,7 +172,11 @@ def prepare_node(
 
     if node_type == 'value_string':
         return PreparedExecutor(
-            kwargs={'value': data.get('value', ''), 'value_type': 'string'},
+            kwargs={
+                'value': data.get('value', ''),
+                'value_type': 'string',
+                'sample_uid': str(context.run.sample_uid) if context.run.sample_uid else None,
+            },
             name='value',
             track_progress=False,
         )

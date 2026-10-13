@@ -1,6 +1,6 @@
 ---
 name: file-system
-description: Load initial or dynamically marked project/sample files, publish outputs for later workflows, and collect sample outputs for project-level aggregation. Use when a workflow reads or transfers files through project/sample mappings.
+description: Load project/sample files or sample metadata, publish outputs for later workflows, and collect sample outputs for project-level aggregation. Use when a workflow reads sample metadata as text or transfers files through project/sample mappings.
 ---
 
 # File System and Dynamic Marks
@@ -17,6 +17,17 @@ Initial files and workflow-generated marks use the same project/sample mapping s
 
 The same syntax loads both initial and dynamic mappings. Use the general `file` resource for ordinary files and
 directories. Use the dedicated `sequence` resource only for paired R1/R2 inputs.
+
+## Sample Metadata as Text
+
+In a `value_string` resource, `value="sample:<key>"` reads the current sample's `meta_data` at node execution,
+instead of looking up a file tag. For example, connect `value="sample:organism"` to the NCBI genome resource's
+`species_name` input. Common optional keys are `organism`, `assay`, `layout`, and `platform`; custom keys work too.
+Inspect the registered metadata before choosing a key. A missing sample or metadata field makes the text node fail.
+Other text remains literal; project metadata lookup and inline interpolation are not supported.
+
+Use this in a sample-level workflow. Downstream Docker tools must expose a `value:` text input to consume the output;
+ordinary file inputs still expect paths. File resources continue to resolve `sample:<tag>` through sample file mappings.
 
 ## Discovering Existing Marks
 

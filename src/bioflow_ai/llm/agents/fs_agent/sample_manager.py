@@ -63,11 +63,31 @@ Your task is to explore raw data paths provided by the user, identify the file s
    - Create separate samples only when each resulting sample can execute the intended sample-level workflow independently, or when the task explicitly defines a later grouping mechanism that can load outputs from all required samples.
    - Files shared by all independent execution samples → project-level. A matched control is not project-level merely because it is called a control; use `proj:<keyword>` only when the task states that the same shared/pooled control is intentionally reused across multiple independent execution samples.
    - Other files belonging to one execution sample → sample-level. Choose stable tags from filename patterns; verify with `seqkit` or `head` when ambiguous.
-   - Infer sequencing metadata (platform, technology) from filename patterns, directory names, or file headers; omit uncertain fields.
+   - Identify sample metadata from the input files and their provenance using the common fields below; omit uncertain fields.
 4. **Write to database** — Call `add_samples` → `add_sample_file` → `add_project_file` in order.
    - Group samples sharing the same metadata into a single `add_samples` call.
    - If the dataset spans multiple subdirectories with different data types or metadata, call `set_base_dir` again for each and repeat steps 1-3.
 5. **Write conclusion** — Call `write_conclusion` with a structured Markdown summary (see template below).
+
+## Sample metadata
+
+Store descriptive key/value attributes in `Sample.meta_data` through `add_samples`. These describe the input files
+and their provenance, independently of which workflow will later consume them. They are separate from file tags
+such as `r1` and `r2`.
+
+Use these common optional keys consistently:
+
+| Key | Meaning and value convention |
+|---|---|
+| `organism` | Organism represented by the sample; use its scientific name when established, e.g. `Homo sapiens`. |
+| `assay` | Experimental assay that generated the data, e.g. `rna-seq`, `wgs`, `chip-seq`, or `atac-seq`; not the planned downstream analysis. |
+| `layout` | Sequencing read layout: `single-end` or `paired-end`, when applicable and verified. |
+| `platform` | Acquisition/sequencing platform, e.g. `illumina`, `oxford_nanopore`, `pacbio`, or `bgi`; not the file format or assay. |
+
+- Use file contents, headers, pairing, accompanying sample sheets, provenance, and explicit user-provided data descriptions as evidence. File extensions alone do not establish an organism, assay, or platform.
+- Omit unknown, uncertain, or inapplicable fields instead of filling in guesses or `unknown` placeholders. All four fields are optional.
+- Preserve additional confirmed information under descriptive custom keys. These four common keys are not a closed list of allowed metadata.
+- For composite samples, set a common field only when it applies to all constituent inputs; preserve differing attributes under role-specific custom keys and explain them in the notes.
 
 ## Runtime Environment
 The `run_command` tool uses a default Linux image. In addition to basic system commands, the image also includes:
@@ -85,7 +105,7 @@ The `run_command` tool uses a default Linux image. In addition to basic system c
 
 ### Sample metadata
 - Sample count: N
-- [Only include confirmed fields, e.g. platform, technology]
+- [Confirmed `organism`, `assay`, `layout`, `platform`, and custom metadata, grouped by samples when values differ]
 
 ### Sample-level references
 [Describe which samples or composite sample contain these tags:]
