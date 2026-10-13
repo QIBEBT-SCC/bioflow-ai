@@ -7,7 +7,7 @@ from typing import Any, Optional
 import psutil
 from loguru import logger
 from podman import PodmanClient  # ty: ignore[unresolved-import]
-from podman.errors import ImageNotFound  # ty: ignore[unresolved-import]
+from podman.errors import APIError, ImageNotFound  # ty: ignore[unresolved-import]
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
@@ -137,7 +137,7 @@ def run_podman_background(
     *,
     user: str | None = CONTAINER_ROOT_USER,
     **kwargs: Any,
-) -> Generator[dict[str, Any], None, None]:
+) -> Generator[dict[str, Any] | None, None, None]:
     """后台运行podman容器, 并实时返回容器资源占用信息.
 
     在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
@@ -152,7 +152,7 @@ def run_podman_background(
         **kwargs: 其他容器参数
 
     Yields:
-        dict[str, Any]: 当前时刻容器的资源占用信息 (如CPU、内存等)
+        dict[str, Any] | None: 当前时刻容器的资源占用信息, 容器在采样时已停止则返回 None
 
     Raises:
         podman.errors.ContainerError: 容器运行失败时抛出
@@ -191,8 +191,12 @@ def run_podman_background(
                 if container.status == 'exited':
                     break
 
-                stat = container.stats(stream=False, decode=True)
-                yield calculate_podman_stats(stat, start_time, pid)  # ty: ignore[invalid-yield]
+                try:
+                    stat = container.stats(stream=False, decode=True)
+                except APIError:
+                    yield None
+                else:
+                    yield calculate_podman_stats(stat, start_time, pid)
                 time.sleep(interval)
         finally:
             timestamp = datetime.datetime.now(datetime.UTC)
