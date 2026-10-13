@@ -39,6 +39,10 @@ _TEXT_EXTENSIONS = {
     '.ini',
     '.conf',
     '.r',
+    '.pdb',
+    '.ent',
+    '.cif',
+    '.mmcif',
 }
 _NEWICK_EXTENSIONS = {'.bionj', '.contree', '.dnd', '.newick', '.nwk', '.tre', '.tree', '.treefile', '.trees'}
 _MSA_EXTENSIONS = {'.afa', '.aln', '.clustal', '.clw', '.msa', '.phy', '.phylip', '.sto', '.stockholm'}
