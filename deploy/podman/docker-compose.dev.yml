@@ -1,5 +1,6 @@
-x-milvus-image: &milvus-image docker.io/milvusdb/milvus:v3.0.0
-x-rustfs-image: &rustfs-image docker.io/rustfs/rustfs:1.0.0-alpha.97
+x-milvus-image: &milvus-image docker.io/milvusdb/milvus:v3.0.2
+x-rustfs-image: &rustfs-image docker.io/rustfs/rustfs:1.0.1
+x-webui-image: &webui-image ghcr.io/qibebt-scc/bioflow-ai-web:0.4.0
 
 services:
   # Remove the matching owner marker after restoring files owned by a different user.
@@ -180,7 +181,7 @@ services:
 
   web-ui:
     container_name: bioflow-ai-web
-    image: ghcr.io/qibebt-scc/bioflow-ai-web:0.4.1
+    image: *webui-image
     environment:
       BACKEND_API_URL: http://host.docker.internal:8000/api/v1
     extra_hosts:
