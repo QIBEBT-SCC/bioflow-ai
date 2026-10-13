@@ -122,7 +122,10 @@ def run_podman(
             )
             status_code = container.wait()
             log = b''.join(container.logs())
-            return status_code, log.decode('utf-8').rstrip()
+            try:
+                return status_code, log.decode('utf-8').rstrip()
+            except UnicodeDecodeError as e:
+                return status_code, f'Output decode error. {e}'
         finally:
             if container:
                 container.remove()
