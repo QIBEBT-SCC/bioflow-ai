@@ -182,6 +182,6 @@ config.toml
 db_info.md
 
 # Local deployment helper
-src/bioflow_ai/cli/maintenance/
+dev_codes/*
 rsync_git_changes.sh
 update_from_github.sh
