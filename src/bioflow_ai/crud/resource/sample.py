@@ -272,16 +272,18 @@ def get_files_by_tag_in_project(
     tag: str,
     *,
     limit: int = 3,
+    is_dynamic: bool | None = None,
 ) -> list[tuple[SampleFiles, str]]:
-    """Return a few sample files that already occupy a tag in a project."""
+    """Return a few sample files occupying a tag, optionally filtered by dynamic status."""
     statement = (
         select(SampleFiles, Sample.sample_name)
         .join(Sample, Sample.uid == SampleFiles.sample_uid)
         .where(Sample.project_id == project_id, SampleFiles.tag == tag)
         .order_by(Sample.sample_name)
-        .limit(limit)
     )
-    return [(sample_file, sample_name) for sample_file, sample_name in session.execute(statement)]
+    if is_dynamic is not None:
+        statement = statement.where(SampleFiles.is_dynamic.is_(is_dynamic))
+    return [(sample_file, sample_name) for sample_file, sample_name in session.execute(statement.limit(limit))]
 
 
 def delete_file(session: Session, file_uid: UUIDLike) -> SampleFiles | None:

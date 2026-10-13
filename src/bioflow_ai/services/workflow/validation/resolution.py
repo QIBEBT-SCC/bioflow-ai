@@ -53,7 +53,7 @@ def collect_tool_uids(graph: Any) -> list[str]:
 
 
 def mark_storage_conflicts(session: Session, project_id: int, graph: Any) -> dict[str, str]:
-    """Resolve each referenced mark once using the existing project rules."""
+    """Reject marks that collide with static resources; dynamic marks can be replaced."""
     conflicts = {}
     checked = set()
     for node in graph_nodes(graph):
@@ -67,11 +67,12 @@ def mark_storage_conflicts(session: Session, project_id: int, graph: Any) -> dic
         checked.add(key)
         if kind == 'project_mark':
             mapping = mapping_crud.get_by_keyword(session, project_id, name)
-            if mapping is not None:
-                source = 'dynamic mark' if mapping.is_dynamic else 'initial project resource'
-                conflicts[key] = f'Cannot add mark `{name}` because `proj:{name}` already exists as a {source}.'
+            if mapping is not None and not mapping.is_dynamic:
+                conflicts[key] = (
+                    f'Cannot add mark `{name}` because `proj:{name}` already exists as an initial project resource.'
+                )
         else:
-            matches = sample_crud.get_files_by_tag_in_project(session, project_id, name)
+            matches = sample_crud.get_files_by_tag_in_project(session, project_id, name, is_dynamic=False)
             if matches:
                 names = ', '.join(sample_name for _, sample_name in matches)
                 conflicts[key] = (
