@@ -4,7 +4,6 @@ from typing import Any, NotRequired
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import AgentState
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, RemoveMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.output_parsers import StrOutputParser
@@ -12,7 +11,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
 
-# Verbatim Codex templates: codex-rs/prompts/templates/compact/.
+from bioflow_ai.llm.models import get_long_context_model
+
 COMPACTION_PROMPT = """You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 
 Include:
@@ -31,43 +31,29 @@ SUMMARY_PREFIX = (
     'to assist with your own analysis:'
 )
 
+SUMMARY_LLM = get_long_context_model()
+
 
 class ContextCompactionState(AgentState):
     msg_to_keep: NotRequired[int]
 
 
-class ContextCompactionMiddleware(AgentMiddleware[ContextCompactionState]):
-    """Check history size, summarize once, then replace messages in graph state.
-
-    Pass the agent's unbound model to build the summary chain. The default trigger
-    is 90% of its profile's input window, following Codex; no window or configured
-    limit means no automatic compaction. Like todo.py, retain the ``msg_to_keep``
-    initial messages (default 1). This adapter uses Codex's prompt and prefix;
-    history cleanup follows this repository's todo convention.
-    """
+class ContextCompactionMiddleware(AgentMiddleware):
+    """Check history size, summarize once, then replace messages in graph state."""
 
     state_schema = ContextCompactionState
 
     def __init__(
         self,
-        model: BaseChatModel,
-        *,
-        model_context_window: int | None = None,
-        model_auto_compact_token_limit: int | None = None,
+        token_limit: int | None = None,
     ) -> None:
         super().__init__()
-        window = model_context_window
-        if window is None:
-            window = (model.profile or {}).get('max_input_tokens')
-        limit = model_auto_compact_token_limit
-        if window is not None:
-            default = window * 9 // 10
-            limit = default if limit is None else min(limit, default)
-        self.token_limit = limit
+
+        self.token_limit = token_limit
         prompt = ChatPromptTemplate.from_messages(
             [MessagesPlaceholder('messages'), HumanMessage(content=COMPACTION_PROMPT)]
         )
-        self.summary_chain = prompt | model | StrOutputParser()
+        self.summary_chain = prompt | SUMMARY_LLM | StrOutputParser()
 
     def _should_compact(self, state: ContextCompactionState) -> bool:
         return (
