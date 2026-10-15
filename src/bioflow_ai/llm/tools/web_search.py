@@ -110,7 +110,12 @@ def _search_sync(query: str) -> list[dict]:
     settings = get_settings().network
     proxy = settings.get_proxy_url() if settings.USE_PROXY else None
     with DDGS(proxy=proxy, timeout=10) as ddgs:
-        return ddgs.text(query, region='us-en', max_results=10)
+        return ddgs.text(
+            query,
+            region='us-en',
+            max_results=10,
+            backend='google,bing,duckduckgo,wikipedia,grokipedia',
+        )
 
 
 def _split_lines(markdown: str) -> list[str]:
