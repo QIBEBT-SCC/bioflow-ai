@@ -10,6 +10,7 @@ from bioflow_ai.llm.middleware import (
     ContextCompactionMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
+    ProjectPrepareProgressMiddleware,
     RequireToolCallMiddleware,
     SkillMiddleware,
     StatusBarMiddleware,
@@ -295,6 +296,7 @@ def _build_prepare_agent(
         system_prompt=system_prompt,
         middleware=[
             SkillMiddleware('workflow_planner'),
+            ProjectPrepareProgressMiddleware(),
             DisableParallelToolCallsMiddleware(disabled_tools=disabled_tools),
             EndLoopMiddleware(),
             RequireToolCallMiddleware(FINISH_REMINDER.format(ASK_HUMAN_HINT if allow_human_input else '')),

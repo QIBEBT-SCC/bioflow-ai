@@ -38,18 +38,14 @@ def _collect_types(annotation: object, seen: set[type]) -> None:
         seen.add(annotation)
 
 
-def allowed_msgpack_modules() -> list[tuple[str, str]]:
-    """Return msgpack allowlist entries for agent state types and their nested models.
-
-    Entries use each class's defining module, because msgpack records ``__module__``
-    rather than the path a class was imported from.
-    """
+def checkpoint_serializer() -> JsonPlusRedisSerializer:
+    """Build the Redis checkpoint serializer that can revive agent state types."""
     seen: set[type] = set()
     for state_type in _STATE_TYPES:
         _collect_types(state_type, seen)
-    return sorted((cls.__module__, cls.__name__) for cls in seen)
+    allowed_msgpack_modules = sorted((cls.__module__, cls.__name__) for cls in seen)
 
-
-def checkpoint_serializer() -> JsonPlusRedisSerializer:
-    """Build the Redis checkpoint serializer that can revive agent state types."""
-    return JsonPlusRedisSerializer(allowed_msgpack_modules=allowed_msgpack_modules())
+    return JsonPlusRedisSerializer(
+        allowed_json_modules=True,
+        allowed_msgpack_modules=allowed_msgpack_modules,
+    )

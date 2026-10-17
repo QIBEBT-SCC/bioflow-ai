@@ -18,76 +18,49 @@ BUILD_REQUEST = 'Please complete the task of constructing a workflow based on th
 
 
 class WorkflowGenerationState(BuildState, total=False):
-    """Shared state for the durable Sample -> Plan -> Build orchestration."""
+    """Shared state for the durable Prepare -> Build orchestration."""
 
-    summary: str
-    plan: str
     samples_ready: bool
     samples_changed: bool
-    plan_ready: bool
+    prepare_ready: bool
 
 
 def _phase(phase: str, status: str) -> None:
     get_stream_writer()({'workflow_phase': {'phase': phase, 'status': status}})
 
 
-async def inspect_samples(
+async def inspect_prepare(
     state: WorkflowGenerationState,  # noqa: ARG001
     runtime: Runtime[ProjectContext],
 ) -> dict[str, bool]:
-    """Decide whether sample initialization can be reused."""
-    ready = (Path(runtime.context.workdir) / SAMPLES_FILENAME).is_file()
-    _phase('sample_manager', 'skipped' if ready else 'running')
-    return {'samples_ready': ready}
+    """Decide whether the prepared samples and accepted plan can be reused."""
+    workdir = Path(runtime.context.workdir)
+    samples_ready = (workdir / SAMPLES_FILENAME).is_file()
+    prepare_ready = samples_ready and (workdir / PLAN_FILENAME).is_file()
+    _phase('project_prepare', 'skipped' if prepare_ready else 'running')
+    return {'samples_ready': samples_ready, 'prepare_ready': prepare_ready}
 
 
-async def route_samples(state: WorkflowGenerationState) -> Literal['load_samples', 'sample_manager']:
-    """Route to sample reuse or generation."""
-    return 'load_samples' if state.get('samples_ready', False) else 'sample_manager'
+async def route_prepare(state: WorkflowGenerationState) -> Literal['load_prepared', 'project_prepare']:
+    """Route to reuse or run the project-prepare agent."""
+    return 'load_prepared' if state.get('prepare_ready', False) else 'project_prepare'
 
 
-async def load_samples(
+async def load_prepared(
     state: WorkflowGenerationState,
     runtime: Runtime[ProjectContext],
 ) -> dict[str, object]:
-    """Load the authoritative sample summary into downstream agent context."""
-    content = (Path(runtime.context.workdir) / SAMPLES_FILENAME).read_text(encoding='utf-8')
-    if not state.get('samples_ready', False):
-        _phase('sample_manager', 'completed')
+    """Load the authoritative sample summary and plan, then hand them to the builder."""
+    workdir = Path(runtime.context.workdir)
+    samples = (workdir / SAMPLES_FILENAME).read_text(encoding='utf-8')
+    plan = (workdir / PLAN_FILENAME).read_text(encoding='utf-8')
+    if not state.get('prepare_ready', False):
+        _phase('project_prepare', 'completed')
+    _phase('workflow_builder', 'running')
     return {
-        'messages': [HumanMessage(content=content)],
+        'messages': [HumanMessage(content=samples), HumanMessage(content=plan), HumanMessage(content=BUILD_REQUEST)],
         'samples_changed': not state.get('samples_ready', False),
     }
-
-
-async def inspect_plan(
-    state: WorkflowGenerationState,  # noqa: ARG001
-    runtime: Runtime[ProjectContext],
-) -> dict[str, bool]:
-    """Decide whether an accepted project plan can be reused."""
-    workdir = Path(runtime.context.workdir)
-    plan_file = workdir / PLAN_FILENAME
-    ready = plan_file.is_file()
-    _phase('workflow_planner', 'skipped' if ready else 'running')
-    return {'plan_ready': ready}
-
-
-async def route_plan(state: WorkflowGenerationState) -> Literal['load_plan', 'workflow_planner']:
-    """Route to plan reuse or interactive planning."""
-    return 'load_plan' if state.get('plan_ready', False) else 'workflow_planner'
-
-
-async def load_plan(
-    state: WorkflowGenerationState,
-    runtime: Runtime[ProjectContext],
-) -> dict[str, list[HumanMessage]]:
-    """Load the authoritative plan and hand the prepared context to the builder."""
-    workdir = Path(runtime.context.workdir)
-    content = (workdir / PLAN_FILENAME).read_text(encoding='utf-8')
-    if not state.get('plan_ready', False):
-        _phase('workflow_planner', 'completed')
-    _phase('workflow_builder', 'running')
-    return {'messages': [HumanMessage(content=content), HumanMessage(content=BUILD_REQUEST)]}
 
 
 async def finish_workflow(
@@ -99,11 +72,12 @@ async def finish_workflow(
 
 
 def build_workflow_generation(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
-    """Build the durable interactive Sample -> Plan -> Build parent graph.
+    """Build the durable interactive Prepare -> Build parent graph.
 
-    Existing ``SAMPLES.md`` and ``PLAN.md`` files are authoritative reusable stage outputs.
-    Missing files cause the corresponding agent to run. All nested agents inherit the parent
-    checkpoint, so any human interrupt pauses and resumes the same web run at the exact stage.
+    Existing ``SAMPLES.md`` and ``PLAN.md`` files are authoritative reusable outputs: when both exist the
+    project-prepare agent is skipped; otherwise it runs and itself skips sample registration if
+    ``SAMPLES.md`` already exists. All nested agents inherit the parent checkpoint, so any human
+    interrupt pauses and resumes the same web run at the exact stage.
 
     Args:
         checkpointer: Checkpointer used by the top-level web AgentRun.
@@ -111,43 +85,30 @@ def build_workflow_generation(checkpointer: Optional[BaseCheckpointSaver] = None
     Returns:
         Compiled workflow-generation graph.
     """
-    from bioflow_ai.llm.agents.fs_agent.sample_manager import build_create_sample_agent
+    from bioflow_ai.llm.agents.fs_agent.project_prepare import build_prepare_agent
     from bioflow_ai.llm.agents.workflow_agent.workflow_builder import build_workflow_builder
-    from bioflow_ai.llm.agents.workflow_agent.workflow_designer_v2 import build_workflow_planner
 
-    return _compile_workflow_generation(
-        build_create_sample_agent(),
-        build_workflow_planner(),
-        build_workflow_builder(),
-        checkpointer,
-    )
+    return _compile_workflow_generation(build_prepare_agent(), build_workflow_builder(), checkpointer)
 
 
 def _compile_workflow_generation(
-    sample_manager: CompiledStateGraph,
-    workflow_planner: CompiledStateGraph,
+    project_prepare: CompiledStateGraph,
     workflow_builder: CompiledStateGraph,
     checkpointer: Optional[BaseCheckpointSaver] = None,
 ) -> CompiledStateGraph:
     """Compile the parent graph around already-built child graphs."""
     # ty: ignore[invalid-argument-type]
     graph = StateGraph(WorkflowGenerationState, context_schema=ProjectContext)
-    graph.add_node('inspect_samples', inspect_samples)
-    graph.add_node('sample_manager', sample_manager)
-    graph.add_node('load_samples', load_samples)
-    graph.add_node('inspect_plan', inspect_plan)
-    graph.add_node('workflow_planner', workflow_planner)
-    graph.add_node('load_plan', load_plan)
+    graph.add_node('inspect_prepare', inspect_prepare)
+    graph.add_node('project_prepare', project_prepare)
+    graph.add_node('load_prepared', load_prepared)
     graph.add_node('workflow_builder', workflow_builder)
     graph.add_node('finish_workflow', finish_workflow)
 
-    graph.add_edge(START, 'inspect_samples')
-    graph.add_conditional_edges('inspect_samples', route_samples)
-    graph.add_edge('sample_manager', 'load_samples')
-    graph.add_edge('load_samples', 'inspect_plan')
-    graph.add_conditional_edges('inspect_plan', route_plan)
-    graph.add_edge('workflow_planner', 'load_plan')
-    graph.add_edge('load_plan', 'workflow_builder')
+    graph.add_edge(START, 'inspect_prepare')
+    graph.add_conditional_edges('inspect_prepare', route_prepare)
+    graph.add_edge('project_prepare', 'load_prepared')
+    graph.add_edge('load_prepared', 'workflow_builder')
     graph.add_edge('workflow_builder', 'finish_workflow')
     graph.add_edge('finish_workflow', END)
 

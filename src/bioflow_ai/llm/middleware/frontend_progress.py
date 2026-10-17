@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable, Mapping
+from pathlib import PurePosixPath
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -72,6 +73,49 @@ def _tool_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | No
     if name == 'ask_human':
         return {'sample_ask_human': common}
     return None
+
+
+PATCH_FILE_HEADERS = ('*** Add File: ', '*** Update File: ', '*** Delete File: ')
+
+
+def _patch_files(patch: str | None) -> str | None:
+    if not patch:
+        return None
+    names = [
+        PurePosixPath(line.split(': ', 1)[1].strip()).name
+        for line in patch.splitlines()
+        if line.startswith(PATCH_FILE_HEADERS)
+    ]
+    return ', '.join(dict.fromkeys(name for name in names if name)) or None
+
+
+def _web_query(args: Mapping[str, Any]) -> str | None:
+    queries = args.get('search_query')
+    if isinstance(queries, list) and queries and isinstance(queries[0], Mapping):
+        return _text_arg(queries[0], 'q')
+    return None
+
+
+def project_prepare_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | None:
+    """Translate one project-prepare tool call into a frontend activity.
+
+    Sample registration tools reuse the Sample Manager activities; planning tools get ``prepare_*`` activities.
+    """
+    name = request.tool_call.get('name')
+    args = _args(request)
+    common = {'tool_call_id': request.tool_call['id'], 'status': status}
+
+    if name == 'apply_patch':
+        files = _patch_files(_text_arg(args, 'patch'))
+        return {'prepare_write_file': {**common, **({'path': files} if files else {})}}
+    if name == 'web_run':
+        query = _web_query(args)
+        return {'prepare_web_run': {**common, **({'subject': query} if query else {})}}
+    if name == 'view_pdf':
+        return {'prepare_view_pdf': common}
+    if name == 'confirm_plan':
+        return {'prepare_confirm_plan': common}
+    return _tool_progress(request, status)
 
 
 WORKFLOW_MANAGERS = {
@@ -230,3 +274,17 @@ class WorkflowBuilderProgressMiddleware(AgentMiddleware):
         result = await handler(request)
         self._emit(request, 'completed')
         return result
+
+
+class ProjectPrepareProgressMiddleware(SampleManagerProgressMiddleware):
+    """Publish one frontend activity for each project-prepare tool call."""
+
+    @staticmethod
+    def _emit(request: ToolCallRequest, status: str) -> None:
+        payload = project_prepare_progress(request, status)
+        if payload is None:
+            return
+        try:
+            request.runtime.stream_writer(payload)
+        except Exception:
+            logger.warning('Unable to publish project-prepare progress; agent execution will continue.')

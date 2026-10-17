@@ -14,6 +14,12 @@ SAMPLE_MANAGER_PROGRESS_KEYS = (
     'sample_write_conclusion',
     'sample_ask_human',
 )
+PROJECT_PREPARE_PROGRESS_KEYS = (
+    'prepare_write_file',
+    'prepare_web_run',
+    'prepare_view_pdf',
+    'prepare_confirm_plan',
+)
 
 WORKFLOW_PHASE_KEY = 'workflow_phase'
 WORKFLOW_MANAGER_ACTION_KEY = 'workflow_manager_action'
@@ -25,7 +31,9 @@ def event_payload(payload: object) -> dict[str, Any]:
     if isinstance(payload, str):
         return {'kind': 'info', 'message': payload}
 
-    sample_progress_key = next((key for key in SAMPLE_MANAGER_PROGRESS_KEYS if key in converted), None)
+    sample_progress_key = next(
+        (key for key in (*SAMPLE_MANAGER_PROGRESS_KEYS, *PROJECT_PREPARE_PROGRESS_KEYS) if key in converted), None
+    )
     if sample_progress_key is not None:
         sample_progress = converted[sample_progress_key]
         if isinstance(sample_progress, dict):
