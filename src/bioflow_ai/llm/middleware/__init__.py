@@ -5,7 +5,7 @@ from bioflow_ai.llm.middleware.chat_attachment import ChatAttachmentMiddleware
 from bioflow_ai.llm.middleware.cleanup import ClearContainerMiddleware
 from bioflow_ai.llm.middleware.context_compaction import ContextCompactionMiddleware
 from bioflow_ai.llm.middleware.end_loop import AskAndEndMiddleware, EndLoopMiddleware
-from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
+from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware, RequireToolCallMiddleware
 from bioflow_ai.llm.middleware.frontend_progress import (
     SampleManagerProgressMiddleware,
     WorkflowBuilderProgressMiddleware,
@@ -34,6 +34,7 @@ __all__ = [
     'InitedTodoMiddleware',
     'MaxRetriesMiddleware',
     'ParentHandoffMiddleware',
+    'RequireToolCallMiddleware',
     'SampleManagerProgressMiddleware',
     'SaveMessagesMiddleware',
     'SkillMiddleware',

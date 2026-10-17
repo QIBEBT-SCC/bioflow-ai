@@ -117,36 +117,6 @@ class CheckStateExistMiddleware(AgentMiddleware):
         if state.get(self.state_name) and state['updated']:
             return None
 
-        # 当存在错误的工具调用尝试时, 模型也会解析到这里, 需要额外处理
-        invalid_tool_calls = getattr(last_message, 'invalid_tool_calls', [])
-        if invalid_tool_calls:
-            messages = [
-                ToolMessage(
-                    content=(
-                        f'The `{tool_call["name"]}` tool call failed because its arguments could not be parsed. '
-                        'Please correct the arguments and try the tool call again.'
-                    ),
-                    tool_call_id=tool_call['id'],
-                )
-                for tool_call in invalid_tool_calls
-            ]
-
-            messages.extend(
-                ToolMessage(
-                    content=(
-                        'This tool call was not executed because another tool call in the same response failed. '
-                        'Please try the tool call again.'
-                    ),
-                    tool_call_id=tool_call['id'],
-                )
-                for tool_call in getattr(last_message, 'tool_calls', [])
-            )
-
-            return {
-                'jump_to': 'model',
-                'messages': messages,
-            }
-
         return {
             'jump_to': 'model',
             'messages': [
@@ -158,4 +128,35 @@ class CheckStateExistMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=['model'])
     async def aafter_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
+        return self.after_model(state, runtime)
+
+
+class RequireToolCallMiddleware(AgentMiddleware):
+    """拦截不带工具调用的纯文本回复.
+
+    适用于只能通过工具 (如 confirm_plan 设置 should_end) 结束的智能体: 正常流程中模型不会直接输出纯文本,
+    一旦出现即说明它试图跳过流程提前结束, 此时附上提醒打回模型. 连续失败超过 ``max_retries`` 次时抛出 MaxCheckError.
+    """
+
+    state_schema = CheckState
+
+    def __init__(self, reminder: str, max_retries: int = 3) -> None:
+        super().__init__()
+
+        self.reminder = reminder
+        self.max_retries = max_retries
+
+    @hook_config(can_jump_to=['model'])
+    def after_model(self, state: CheckState, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
+        last_message = state['messages'][-1]
+        check_failed_count = state.get('check_failed_count', 0)
+
+        if getattr(last_message, 'tool_calls', None):
+            return {'check_failed_count': 0} if check_failed_count else None
+
+        logger.warning('Model replied without a tool call, sending it back.')
+        return _handle_check_failed(check_failed_count, [HumanMessage(content=self.reminder)], self.max_retries)
+
+    @hook_config(can_jump_to=['model'])
+    async def aafter_model(self, state: CheckState, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
         return self.after_model(state, runtime)

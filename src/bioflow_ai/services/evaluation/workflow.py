@@ -45,19 +45,6 @@ class EvaluationUsageError(ValueError):
     """Raised when evaluation options cannot be combined."""
 
 
-def _get_interrupt_question(interrupt_value: Any) -> str:
-    """Return the question carried by a workflow-builder interrupt."""
-    if not isinstance(interrupt_value, dict):
-        message = f'Workflow interrupt payload must be an object, got {type(interrupt_value).__name__}.'
-        raise TypeError(message)
-
-    question = interrupt_value.get('question')
-    if not isinstance(question, str) or not question.strip():
-        message = 'Workflow interrupt payload does not contain a non-empty question.'
-        raise ValueError(message)
-    return question
-
-
 def _update_interrupted_project(session: Session, project_id: int, question: str) -> None:
     """Mark an evaluate project as missing and replace its description with the interrupt question."""
     from sqlalchemy import select
@@ -86,31 +73,19 @@ def _mark_project_interrupted(project_id: int, interrupt_value: Any) -> str:
     """Persist workflow interrupt metadata on its evaluate project."""
     from bioflow_ai.infrastructure.database import engine
 
-    question = _get_interrupt_question(interrupt_value)
+    if not isinstance(interrupt_value, dict):
+        message = f'Workflow interrupt payload must be an object, got {type(interrupt_value).__name__}.'
+        raise TypeError(message)
+
+    question = interrupt_value.get('question')
+    if not isinstance(question, str) or not question.strip():
+        message = 'Workflow interrupt payload does not contain a non-empty question.'
+        raise ValueError(message)
+
     with Session(engine) as session:
         _update_interrupted_project(session, project_id, question)
     logger.info(f'Marked evaluate project {project_id} with tag {MISSING_PROJECT_TAG!r}.')
     return question
-
-
-def _prepare_workflow_resume_input(state: Any, resume: str) -> Any:
-    """Build the LangGraph input required to continue an incomplete checkpoint."""
-    from langgraph.types import Command
-
-    interrupts = state.interrupts
-    if interrupts:
-        logger.info(f'Resuming workflow builder from {len(interrupts)} interrupt(s).')
-        return Command(resume=resume)
-
-    if state.next:
-        logger.info(f'Resuming incomplete workflow builder checkpoint at: {", ".join(state.next)}.')
-        return None
-
-    message = (
-        'The workflow builder checkpoint has no pending work to resume. '
-        'Run without --resume to start normally, or use --clean-checkpoint to rebuild it.'
-    )
-    raise WorkflowResumeUnavailableError(message)
 
 
 def _prepare_workflow_stream_input(
@@ -126,8 +101,23 @@ def _prepare_workflow_stream_input(
     matching ToolMessage and OpenAI rejects the resulting history. Resume ordinary pending
     graph work in place, while requiring an explicit value for human interrupts.
     """
+    from langgraph.types import Command
+
     if resume is not None:
-        return _prepare_workflow_resume_input(state, resume)
+        interrupts = state.interrupts
+        if interrupts:
+            logger.info(f'Resuming workflow builder from {len(interrupts)} interrupt(s).')
+            return Command(resume=resume)
+
+        if state.next:
+            logger.info(f'Resuming incomplete workflow builder checkpoint at: {", ".join(state.next)}.')
+            return None
+
+        message = (
+            'The workflow builder checkpoint has no pending work to resume. '
+            'Run without --resume to start normally, or use --clean-checkpoint to rebuild it.'
+        )
+        raise WorkflowResumeUnavailableError(message)
 
     if state.interrupts:
         message = (
@@ -388,58 +378,6 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, st
     return task_project_id, task_project_name, f'{project_path}'
 
 
-async def _get_sample_info(
-    user_input: HumanMessage,
-    project_id: int,
-    workdir: str,
-    checkpoint: Any,
-    *,
-    on_event: ProgressCallback | None = None,
-) -> str:
-    from langchain_core.runnables import RunnableConfig
-    from uuid_extensions import uuid7str
-
-    from bioflow_ai.core.config import get_settings
-    from bioflow_ai.llm.agents.fs_agent.sample_manager import build_evaluate_sample_agent
-    from bioflow_ai.llm.context import ProjectContext
-
-    sample_file = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}' / 'SAMPLES.md'
-    if await sample_file.exists():
-        sample_info = await sample_file.read_text(encoding='utf-8')
-        logger.info(f'Reusing persisted sample info from {sample_file}.')
-        return sample_info
-
-    thread_id = uuid7str()
-    logger.info(f'Generating sample info for project {project_id}; checkpoint thread_id={thread_id}.')
-    agent = build_evaluate_sample_agent(checkpointer=checkpoint)
-    config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
-    agent_input = {'messages': [user_input]}
-
-    state = await consume_agent_graph(
-        agent,
-        agent_input,
-        config,
-        context=ProjectContext(
-            user_id=2,
-            project_id=project_id,
-            workdir=workdir,
-        ),
-        execution_log=AgentRunLogger('sample-manager', thread_id, thread_id=thread_id),
-        on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
-    )
-    # 有中断
-    if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
-        for task in state.tasks:
-            if hasattr(task, 'interrupts'):
-                for interrupt in task.interrupts:
-                    emit_progress(on_event, 'interrupt', interrupt)
-                    sys.exit(-1)
-
-    sample_info = await sample_file.read_text(encoding='utf-8')
-    logger.info(f'Sample info generated at {sample_file} ({len(sample_info)} chars).')
-    return sample_info
-
-
 async def _build_input(
     con: sqlite3.Connection,
     task_file: str,
@@ -508,45 +446,51 @@ async def _build_input(
     return human_input
 
 
-async def _generate_plan(
-    human_input: list[HumanMessage],
+async def _prepare_project(
+    user_input: HumanMessage,
     project_id: int,
     workdir: str,
     checkpoint: Any,
     *,
     on_event: ProgressCallback | None = None,
-) -> str:
+) -> tuple[str, str]:
+    """注册样本并生成分析计划, 返回 SAMPLES.md 与 PLAN.md 的内容."""
     from langchain_core.runnables import RunnableConfig
     from uuid_extensions import uuid7str
 
-    from bioflow_ai.core.config import get_settings
-    from bioflow_ai.llm.agents.workflow_agent.workflow_designer_v2 import build_evaluate_workflow_planner
+    from bioflow_ai.llm.agents.fs_agent.project_prepare import build_evaluate_prepare_agent
     from bioflow_ai.llm.context import ProjectContext
 
-    plan_file = Path(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}' / 'PLAN.md'
-    if await plan_file.exists():
-        plan = await plan_file.read_text(encoding='utf-8')
-        logger.info(f'Reusing persisted plan from {plan_file}.')
-        return plan
+    sample_file = Path(workdir) / 'SAMPLES.md'
+    plan_file = Path(workdir) / 'PLAN.md'
+    if await sample_file.exists() and await plan_file.exists():
+        logger.info(f'Reusing persisted sample info and plan from {workdir}.')
+        return await sample_file.read_text(encoding='utf-8'), await plan_file.read_text(encoding='utf-8')
 
+    # SAMPLES.md 已存在时, 智能体会自行跳过样本注册, 直接进入规划
     thread_id = uuid7str()
-    logger.info(f'Generating plan for project {project_id}; checkpoint thread_id={thread_id}.')
-    agent = build_evaluate_workflow_planner(checkpointer=checkpoint)
+    logger.info(f'Preparing project {project_id}; checkpoint thread_id={thread_id}.')
+    agent = build_evaluate_prepare_agent(checkpointer=checkpoint)
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
-    agent_input = {'messages': human_input}
 
-    await consume_agent_graph(
+    state = await consume_agent_graph(
         agent,
-        agent_input,
+        {'messages': [user_input]},
         config,
         context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir, auto_approve=True),
-        execution_log=AgentRunLogger('workflow-planner', thread_id, thread_id=thread_id),
+        execution_log=AgentRunLogger('project-prepare', thread_id, thread_id=thread_id),
         on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
     )
+    # 有中断
+    for task in state.tasks or []:
+        for interrupt in getattr(task, 'interrupts', None) or []:
+            emit_progress(on_event, 'interrupt', interrupt)
+            sys.exit(-1)
 
+    sample_info = await sample_file.read_text(encoding='utf-8')
     plan = await plan_file.read_text(encoding='utf-8')
-    logger.info(f'Plan generated at {plan_file} ({len(plan)} chars).')
-    return plan
+    logger.info(f'Project prepared: SAMPLES.md ({len(sample_info)} chars), PLAN.md ({len(plan)} chars).')
+    return sample_info, plan
 
 
 async def _generate_workflow(
@@ -752,9 +696,8 @@ async def wf_eval(
         ) as checkpoint:
             checkpoint.serde = checkpoint_serializer()
 
-            sample_info = await _get_sample_info(user_input, project_id, workdir, checkpoint, on_event=on_event)
-            standard_plan = await _generate_plan(
-                [user_input, HumanMessage(content=sample_info)], project_id, workdir, checkpoint, on_event=on_event
+            sample_info, standard_plan = await _prepare_project(
+                user_input, project_id, workdir, checkpoint, on_event=on_event
             )
 
             agent_input = [

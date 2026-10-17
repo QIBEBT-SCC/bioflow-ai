@@ -84,6 +84,20 @@ class SampleState(AgentState, total=False):
     summary: str
 
 
+# =====================project prepare state==========================
+class ProjectPrepareState(AgentState, total=False):
+    # 样本注册工具使用
+    base_path: str
+    sample_maps: Annotated[dict[str, str], operator.or_]  # {sample_name: sample_id}
+
+    # 文件工具未显式指定工作目录时的默认容器目录, 缺省为 /work
+    default_dir: Literal['/app/data', '/work']
+
+    # view_pdf / web_run 使用
+    paper_id: str
+    web_refs: Annotated[dict[str, dict], operator.or_]
+
+
 # =====================workflow assistant state==========================
 class WorkflowAssistantState(AgentState, total=False):
     diagnosis_path: str
