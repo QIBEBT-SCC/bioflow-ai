@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -24,6 +25,18 @@ def delete(session: Session, db_id: int) -> bool:
     session.delete(bio_db)
     session.flush()
     return True
+
+
+def update(session: Session, db_id: int, changes: Mapping[str, Any]) -> BioDb | None:
+    """Stage field updates to a biological database entry."""
+    bio_db = get(session, db_id)
+    if bio_db is None:
+        return None
+    for field, value in changes.items():
+        setattr(bio_db, field, value)
+    session.flush()
+    session.refresh(bio_db)
+    return bio_db
 
 
 def update_download_result(session: Session, db_id: int, *, path: str, last_update: str) -> BioDb | None:

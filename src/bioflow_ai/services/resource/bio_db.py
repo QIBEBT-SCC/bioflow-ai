@@ -11,7 +11,12 @@ from bioflow_ai.infrastructure.redis.client import monitor_redis_client
 from bioflow_ai.infrastructure.redis.operations import decode_redis_value, get_bio_db_download_task_key
 from bioflow_ai.models.resource import BioDb
 from bioflow_ai.runtime.celery_app import celery_app
-from bioflow_ai.schemas.resource import BioDbDownloadResponse, BioDbDownloadStatus, BioDbDownloadStatusResponse
+from bioflow_ai.schemas.resource import (
+    BioDbDownloadResponse,
+    BioDbDownloadStatus,
+    BioDbDownloadStatusResponse,
+    BioDbUpdate,
+)
 from bioflow_ai.services._transaction import committing
 from bioflow_ai.utils.system import random_uid
 
@@ -39,6 +44,14 @@ class BioDbConflictError(BioDbServiceError):
     """Raised when a biological database name already exists."""
 
 
+class BioDbNameRequiredError(BioDbServiceError):
+    """Raised when an update would clear the database name."""
+
+
+class BioDbSourceRequiredError(BioDbServiceError):
+    """Raised when an entry would have neither a path nor a download command."""
+
+
 class BioDbDownloadNotConfiguredError(BioDbServiceError):
     """Raised when a download is requested without a configured command."""
 
@@ -61,6 +74,42 @@ def create_bio_db(session: Session, bio_db: BioDb) -> BioDb:
         raise BioDbConflictError
     with committing(session):
         db_crud.insert(session, bio_db)
+    session.refresh(bio_db)
+    return bio_db
+
+
+def update_bio_db(session: Session, db_id: int, data: BioDbUpdate) -> BioDb:
+    """Apply a partial update and commit it.
+
+    Blank strings clear optional fields. Changing the path drops the cached size.
+
+    Raises:
+        BioDbNotFoundError: The entry does not exist.
+        BioDbNameRequiredError: The update clears the name.
+        BioDbConflictError: Another entry already uses the new name.
+        BioDbSourceRequiredError: The update leaves neither a path nor a download command.
+    """
+    bio_db = get_bio_db(session, db_id)
+    changes = {
+        field: value.strip() or None if isinstance(value, str) else value
+        for field, value in data.model_dump(exclude_unset=True).items()
+    }
+    if 'name' in changes:
+        if changes['name'] is None:
+            raise BioDbNameRequiredError
+        existing = db_crud.get_by_name(session, changes['name'])
+        if existing is not None and existing.id != db_id:
+            raise BioDbConflictError
+
+    path = changes.get('path', bio_db.path)
+    download_command = changes.get('download_command', bio_db.download_command)
+    if not path and not download_command:
+        raise BioDbSourceRequiredError
+    if 'path' in changes and changes['path'] != bio_db.path:
+        changes['size'] = None
+
+    with committing(session):
+        db_crud.update(session, db_id, changes)
     session.refresh(bio_db)
     return bio_db
 

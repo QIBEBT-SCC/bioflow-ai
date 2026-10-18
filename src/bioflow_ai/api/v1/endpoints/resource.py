@@ -21,6 +21,7 @@ from bioflow_ai.schemas.resource import (
     BioDbDownloadStatusResponse,
     BioDbPublic,
     BioDbSimple,
+    BioDbUpdate,
     SampleListItem,
 )
 from bioflow_ai.schemas.user_config import UserRole
@@ -56,6 +57,28 @@ def new_bio_db(
         return BioDbPublic.model_validate(db_service.create_bio_db(session, bio_db))
     except db_service.BioDbConflictError as error:
         raise HTTPException(HTTP_409_CONFLICT, 'name already exist') from error
+
+
+@db_router.patch('/{db_id}')
+def update_db(
+    db_id: int,
+    bio_db_update: BioDbUpdate,
+    session: SessionDep,
+    _current_user: AdminDep,
+) -> BioDbPublic:
+    """Update fields of a bio database entry; omitted fields stay unchanged."""
+    try:
+        return BioDbPublic.model_validate(db_service.update_bio_db(session, db_id, bio_db_update))
+    except db_service.BioDbNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Bio database not found') from error
+    except db_service.BioDbConflictError as error:
+        raise HTTPException(HTTP_409_CONFLICT, 'name already exist') from error
+    except db_service.BioDbSourceRequiredError as error:
+        raise HTTPException(
+            HTTP_422_UNPROCESSABLE_CONTENT, 'Either path or download_command must be provided'
+        ) from error
+    except db_service.BioDbNameRequiredError as error:
+        raise HTTPException(HTTP_422_UNPROCESSABLE_CONTENT, 'name must not be empty') from error
 
 
 @db_router.delete('/{db_id}')

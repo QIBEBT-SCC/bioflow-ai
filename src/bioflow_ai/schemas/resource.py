@@ -28,6 +28,17 @@ class BioDbCreate(BaseModel):
     download_image: str | None = None
 
 
+class BioDbUpdate(BaseModel):
+    """Partial update of a biological database entry; omitted fields stay unchanged."""
+
+    name: str | None = Field(default=None, min_length=1)
+    description: str | None = None
+    path: str | None = None
+    last_update: str | None = None
+    download_command: str | None = None
+    download_image: str | None = None
+
+
 class BioDbSimple(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
