@@ -35,6 +35,10 @@ class WeComChannelConfig(BaseModel):
     ws_url: str = 'wss://openws.work.weixin.qq.com'
 
 
+class DiscordChannelConfig(BaseModel):
+    """Discord incoming webhooks keep the destination in the secret webhook URL."""
+
+
 class NotificationChannelCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     provider: NotificationProvider

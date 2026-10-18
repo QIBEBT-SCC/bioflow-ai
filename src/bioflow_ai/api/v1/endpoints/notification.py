@@ -52,7 +52,7 @@ async def create_notification_channel(
         channel = channel_service.create_channel(session, data)
     except channel_service.NotificationChannelConflictError as error:
         raise HTTPException(status_code=409, detail='Notification channel name already exists.') from error
-    except channel_service.UnsupportedNotificationProviderError as error:
+    except channel_service.InvalidNotificationChannelError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     await gateway.invalidate(channel.id)
     return channel
@@ -73,6 +73,8 @@ async def update_notification_channel(
         raise HTTPException(status_code=404, detail='Notification channel not found.') from error
     except channel_service.NotificationChannelConflictError as error:
         raise HTTPException(status_code=409, detail='Notification channel name already exists.') from error
+    except channel_service.InvalidNotificationChannelError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     await gateway.invalidate(channel.id)
     return channel
 
@@ -108,7 +110,7 @@ async def send_test_notification(
     event = await publish_notification(
         NOTIFICATION_TEST_EVENT,
         source='api',
-        message='## BioFlow AI 通知测试\n> 企业微信通知渠道已配置成功。\n\n这是一条测试消息，无需处理。',  # noqa: RUF001
+        message='## BioFlow AI 通知测试\n> 通知渠道已配置成功。\n\n这是一条测试消息，无需处理。',  # noqa: RUF001
         target_channel_id=channel_id,
     )
     return {'event_id': event.id, 'status': 'queued'}

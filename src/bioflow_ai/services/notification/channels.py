@@ -1,3 +1,6 @@
+import re
+
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -5,6 +8,7 @@ import bioflow_ai.crud.notification.channel as channel_crud
 from bioflow_ai.core.secret_cipher import decrypt_secret, encrypt_secret
 from bioflow_ai.models.notification import NotificationChannel, NotificationSubscription
 from bioflow_ai.schemas.notification import (
+    DiscordChannelConfig,
     NotificationChannelCreate,
     NotificationChannelPublic,
     NotificationChannelUpdate,
@@ -16,6 +20,9 @@ from bioflow_ai.schemas.notification import (
 from bioflow_ai.utils.system import utc_now
 
 NOTIFICATION_CREDENTIAL_PURPOSE = 'notification-credentials'
+DISCORD_WEBHOOK_PATTERN = re.compile(
+    r'https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api(?:/v\d+)?/webhooks/\d+/[\w-]+'
+)
 
 
 class NotificationChannelError(ValueError):
@@ -30,15 +37,33 @@ class NotificationChannelConflictError(NotificationChannelError):
     """Raised when a channel name already exists."""
 
 
-class UnsupportedNotificationProviderError(NotificationChannelError):
-    """Raised when a provider is known but not implemented yet."""
+class InvalidNotificationChannelError(NotificationChannelError):
+    """Raised when a provider is unsupported or its configuration or credential is invalid."""
+
+
+CONFIG_MODELS = {
+    NotificationProvider.WECOM: WeComChannelConfig,
+    NotificationProvider.DISCORD: DiscordChannelConfig,
+}
 
 
 def _validate_config(provider: NotificationProvider, config: dict) -> dict:
-    if provider is NotificationProvider.WECOM:
-        return WeComChannelConfig.model_validate(config).model_dump()
-    message = f'Provider {provider.value!r} is not implemented yet.'
-    raise UnsupportedNotificationProviderError(message)
+    model = CONFIG_MODELS.get(provider)
+    if model is None:
+        message = f'Provider {provider.value!r} is not implemented yet.'
+        raise InvalidNotificationChannelError(message)
+    try:
+        return model.model_validate(config).model_dump()
+    except ValidationError as error:
+        message = f'Invalid {provider.value} channel configuration: {error.errors()[0]["msg"]}'
+        raise InvalidNotificationChannelError(message) from error
+
+
+def _encrypt_secret(provider: NotificationProvider, secret: str) -> str:
+    if provider is NotificationProvider.DISCORD and not DISCORD_WEBHOOK_PATTERN.fullmatch(secret.strip()):
+        message = 'Enter a Discord webhook URL such as https://discord.com/api/webhooks/<id>/<token>.'
+        raise InvalidNotificationChannelError(message)
+    return encrypt_secret(secret.strip(), purpose=NOTIFICATION_CREDENTIAL_PURPOSE)
 
 
 def _set_subscriptions(channel: NotificationChannel, event_types: list[NotificationEventType]) -> None:
@@ -84,10 +109,7 @@ def create_channel(session: Session, data: NotificationChannelCreate) -> Notific
         provider=data.provider.value,
         enabled=data.enabled,
         config=config,
-        secret_ciphertext=encrypt_secret(
-            data.secret.get_secret_value(),
-            purpose=NOTIFICATION_CREDENTIAL_PURPOSE,
-        ),
+        secret_ciphertext=_encrypt_secret(data.provider, data.secret.get_secret_value()),
     )
     _set_subscriptions(channel, data.event_types)
     try:
@@ -112,9 +134,8 @@ def update_channel(
     if data.config is not None:
         channel.config = _validate_config(NotificationProvider(channel.provider), data.config)
     if data.secret is not None and data.secret.get_secret_value():
-        channel.secret_ciphertext = encrypt_secret(
-            data.secret.get_secret_value(),
-            purpose=NOTIFICATION_CREDENTIAL_PURPOSE,
+        channel.secret_ciphertext = _encrypt_secret(
+            NotificationProvider(channel.provider), data.secret.get_secret_value()
         )
     if data.event_types is not None:
         _set_subscriptions(channel, data.event_types)

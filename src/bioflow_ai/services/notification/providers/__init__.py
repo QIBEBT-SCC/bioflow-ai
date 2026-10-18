@@ -1,6 +1,7 @@
 from typing import Protocol
 
 from bioflow_ai.schemas.notification import NotificationEvent, NotificationProvider, RuntimeNotificationChannel
+from bioflow_ai.services.notification.providers.discord import DiscordNotificationProvider
 from bioflow_ai.services.notification.providers.wecom.provider import WeComNotificationProvider
 
 
@@ -20,5 +21,7 @@ def build_provider(channel: RuntimeNotificationChannel) -> NotificationProviderC
     """Build the provider adapter required by one runtime channel."""
     if channel.provider is NotificationProvider.WECOM:
         return WeComNotificationProvider(channel)
+    if channel.provider is NotificationProvider.DISCORD:
+        return DiscordNotificationProvider(channel)
     msg = f'Provider {channel.provider.value!r} is not implemented.'
     raise ValueError(msg)
