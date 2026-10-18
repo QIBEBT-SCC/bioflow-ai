@@ -63,6 +63,33 @@ def display_preview(content: Any, limit: int) -> str:
     return text if len(text) <= limit else f'{text[:limit]}...'
 
 
+def message_text_parts(message: Any) -> tuple[str, str]:
+    """Split a model message into displayed reasoning and text.
+
+    Chat Completions put text in a string and reasoning in ``additional_kwargs``; the Responses API returns
+    a list of ``reasoning``, ``text`` and ``function_call`` blocks whose tool calls are shown separately.
+    """
+    reasoning = [str(value)] if (value := message.additional_kwargs.get('reasoning_content')) else []
+    content = message.content
+    if isinstance(content, str):
+        return '\n'.join(reasoning), content
+
+    texts = []
+    for block in content:
+        if isinstance(block, str):
+            texts.append(block)
+        elif not isinstance(block, dict):
+            continue
+        elif block.get('type') == 'text':
+            texts.append(str(block.get('text', '')))
+        elif block.get('type') == 'reasoning':
+            if summary := block.get('summary'):
+                reasoning.extend(str(part.get('text', '')) for part in summary if isinstance(part, dict))
+            elif block.get('reasoning'):
+                reasoning.append(str(block['reasoning']))
+    return '\n'.join(part for part in reasoning if part), ''.join(texts)
+
+
 def _truncate_value(value: Any, limit: int) -> Any:
     if isinstance(value, str):
         return display_preview(value, limit)

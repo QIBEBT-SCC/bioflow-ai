@@ -13,6 +13,7 @@ from bioflow_ai.llm.observability.stream_display import (
     REASONING_CONTENT_PREVIEW,
     TOOL_CONTENT_PREVIEW,
     display_preview,
+    message_text_parts,
     select_stream_display,
     tool_call_parts,
 )
@@ -59,7 +60,7 @@ def print_stream_chunk(
     namespace = display.namespace
     last_msg: AIMessage | None = display.model_message
     if last_msg is not None:
-        reasoning_content = last_msg.additional_kwargs.get('reasoning_content')
+        reasoning_content, text_content = message_text_parts(last_msg)
         model_name = last_msg.response_metadata.get('model_name', '')
 
         has_tools = bool(last_msg.tool_calls)
@@ -67,11 +68,11 @@ def print_stream_chunk(
 
         body = Text()
         if reasoning_content:
-            body.append(f'* {display_preview(str(reasoning_content), REASONING_CONTENT_PREVIEW)}', style='dim')
+            body.append(f'* {display_preview(reasoning_content, REASONING_CONTENT_PREVIEW)}', style='dim')
             body.append('\n')
 
-        if last_msg.content:
-            body.append(str(last_msg.content))
+        if text_content:
+            body.append(text_content)
             if has_tools:
                 body.append('\n\n')
 
