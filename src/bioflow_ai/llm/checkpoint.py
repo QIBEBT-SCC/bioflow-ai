@@ -1,11 +1,15 @@
-"""Checkpoint serialization shared by every agent checkpointer."""
+"""Postgres checkpointer and serialization shared by every agent."""
 
 import enum
 import typing
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from langgraph.checkpoint.redis.jsonplus_redis import JsonPlusRedisSerializer
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel
 
+from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.middleware.todo import Todo
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowDraft
 from bioflow_ai.llm.tools.test_run_report import TestRunReport
@@ -38,14 +42,33 @@ def _collect_types(annotation: object, seen: set[type]) -> None:
         seen.add(annotation)
 
 
-def checkpoint_serializer() -> JsonPlusRedisSerializer:
-    """Build the Redis checkpoint serializer that can revive agent state types."""
+def checkpoint_serializer() -> JsonPlusSerializer:
+    """Build the checkpoint serializer that can revive agent state types."""
     seen: set[type] = set()
     for state_type in _STATE_TYPES:
         _collect_types(state_type, seen)
     allowed_msgpack_modules = sorted((cls.__module__, cls.__name__) for cls in seen)
 
-    return JsonPlusRedisSerializer(
+    return JsonPlusSerializer(
         allowed_json_modules=True,
         allowed_msgpack_modules=allowed_msgpack_modules,
     )
+
+
+@asynccontextmanager
+async def open_checkpointer(*, setup: bool = False) -> AsyncIterator[AsyncPostgresSaver]:
+    """Open a Postgres checkpointer on the checkpoint database.
+
+    Args:
+        setup: Create or migrate the checkpoint tables before yielding.
+
+    Yields:
+        A checkpointer configured with the shared agent state serializer.
+    """
+    async with AsyncPostgresSaver.from_conn_string(
+        get_settings().persistent.database.CHECKPOINT_URL.unicode_string(),
+        serde=checkpoint_serializer(),
+    ) as saver:
+        if setup:
+            await saver.setup()
+        yield saver

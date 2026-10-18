@@ -34,6 +34,7 @@ from bioflow_ai.infrastructure.redis.client import (
     setup_cache_redis,
     wait_for_cache_redis,
 )
+from bioflow_ai.llm.checkpoint import open_checkpointer
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services.notification.gateway import NotificationGateway
 
@@ -43,6 +44,8 @@ meta = metadata('bioflow-ai')
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     create_db_and_tables()
+    async with open_checkpointer(setup=True):
+        pass
     init_bucket()
     await wait_for_cache_redis()
     main_app.state.redis = await setup_cache_redis()

@@ -50,14 +50,15 @@ def apply_update_port(settings: 'Settings', update_port: UpdatePort) -> None:
         settings.persistent.database.DB_URL = PostgresDsn(
             f'postgresql+psycopg://bioflow_ai:123456@127.0.0.1:{postgres_port}/bioflow_ai'
         )
+        settings.persistent.database.CHECKPOINT_URL = PostgresDsn(
+            f'postgresql://bioflow_ai:123456@127.0.0.1:{postgres_port}/langchain'
+        )
 
     if redis_port := update_port.redis:
-        settings.persistent.cache.LLM_CACHE = RedisDsn(f'redis://localhost:{redis_port}/0')
         settings.persistent.cache.MONITOR_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
         settings.persistent.cache.API_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
         settings.persistent.cache.NOTIFICATION_CACHE = RedisDsn(f'redis://localhost:{redis_port}/2')
         settings.celery.BACKEND = RedisDsn(f'redis://localhost:{redis_port}/1')
-        settings.develop.CHECKPOINT_URL = RedisDsn(f'redis://localhost:{redis_port}/0')
 
     if rabbitmq_port := update_port.rabbitmq:
         settings.celery.BROKER = AmqpDsn(f'amqp://bioflow_ai:123456@localhost:{rabbitmq_port}//')

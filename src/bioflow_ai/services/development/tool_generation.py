@@ -14,7 +14,7 @@ from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
 from bioflow_ai.services.agents.execution import consume_agent_graph
 
 if TYPE_CHECKING:
-    from langgraph.checkpoint.redis import AsyncRedisSaver
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from langgraph.graph.state import CompiledStateGraph
 
     from bioflow_ai.schemas.tool_config import ImageConfig
@@ -83,20 +83,12 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUI
 
 
 @asynccontextmanager
-async def _tool_agent_session(
-    *, setup: bool = False
-) -> AsyncGenerator[tuple['AsyncRedisSaver', 'CompiledStateGraph'], None]:
+async def _tool_agent_session() -> AsyncGenerator[tuple['AsyncPostgresSaver', 'CompiledStateGraph'], None]:
     """初始化 CreateToolAgent 会话."""
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-
-    from bioflow_ai.core.config import get_settings
     from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
-    from bioflow_ai.llm.checkpoint import checkpoint_serializer
+    from bioflow_ai.llm.checkpoint import open_checkpointer
 
-    async with AsyncRedisSaver.from_conn_string(get_settings().develop.CHECKPOINT_URL.unicode_string()) as checkpoint:
-        checkpoint.serde = checkpoint_serializer()
-        if setup:
-            await checkpoint.setup()
+    async with open_checkpointer(setup=True) as checkpoint:
         agent = CreateToolAgent().build(memory=checkpoint)
         yield checkpoint, agent
 
@@ -204,7 +196,7 @@ async def init_tools(
 
     completed_count = 0
 
-    async with _tool_agent_session(setup=True) as (_, agent):
+    async with _tool_agent_session() as (_, agent):
         for row in todo_rows:
             row_index: int = row['index']
             tool_name: str = row['tool_name']

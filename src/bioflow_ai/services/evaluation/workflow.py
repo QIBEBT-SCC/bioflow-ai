@@ -663,9 +663,7 @@ async def wf_eval(
     on_event: ProgressCallback | None = None,
 ) -> None:
     """运行bioflow ai 测试."""
-    from langgraph.checkpoint.redis import AsyncRedisSaver
-
-    from bioflow_ai.llm.checkpoint import checkpoint_serializer
+    from bioflow_ai.llm.checkpoint import open_checkpointer
 
     configure_langsmith_tracing('bioflow-ai-eval', enabled=langsmith_tracing)
 
@@ -691,11 +689,7 @@ async def wf_eval(
             await _clean_project_contents(con, thread_id, project_id)
         elif reset_checkpoint:
             await _clean_project_workflows(con, thread_id, project_id)
-        async with AsyncRedisSaver.from_conn_string(
-            get_settings().persistent.cache.LLM_CACHE.unicode_string()
-        ) as checkpoint:
-            checkpoint.serde = checkpoint_serializer()
-
+        async with open_checkpointer(setup=True) as checkpoint:
             sample_info, standard_plan = await _prepare_project(
                 user_input, project_id, workdir, checkpoint, on_event=on_event
             )

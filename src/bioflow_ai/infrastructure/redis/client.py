@@ -2,7 +2,6 @@ import asyncio
 from typing import Annotated, TypeAlias
 
 from fastapi import Depends
-from langgraph.checkpoint.redis import AsyncRedisSaver
 from loguru import logger
 from redis import Redis as SyncRedis
 from redis.asyncio import Redis
@@ -24,7 +23,6 @@ async def wait_for_cache_redis(*, timeout: float = 120, poll_interval: float = 2
     """Wait for the API's Redis dependencies before startup initialization."""
     caches = {
         'API cache': settings.API_CACHE,
-        'LLM checkpoint': settings.LLM_CACHE,
         'notifications': settings.NOTIFICATION_CACHE,
     }
     try:
@@ -57,10 +55,6 @@ async def setup_cache_redis() -> Redis:
     """初始化缓存."""
     redis = Redis.from_url(settings.API_CACHE.unicode_string(), decode_responses=True)
     await redis.ping()
-
-    async with AsyncRedisSaver.from_conn_string(settings.LLM_CACHE.unicode_string()) as checkpoint:
-        await checkpoint.asetup()
-
     return redis
 
 

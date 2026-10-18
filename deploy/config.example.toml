@@ -28,9 +28,9 @@ use_proxy = false
 
 [persistent.database]
 db_url = "postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai"
+checkpoint_url = "postgresql://bioflow_ai:123456@127.0.0.1:5432/langchain"
 
 [persistent.cache]
-llm_cache = "redis://localhost:6379/0"
 monitor_cache = "redis://localhost:6379/2"
 api_cache = "redis://localhost:6379/2"
 catalog_generation_key_prefix = "bioflow:catalog-generation"
@@ -107,5 +107,3 @@ timeout = 600
 api_url = "http://localhost:8000"
 timeout = 600
 
-[develop]
-checkpoint_url = "redis://localhost:6379/0"

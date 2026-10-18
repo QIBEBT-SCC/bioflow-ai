@@ -77,10 +77,10 @@ class NetworkConfig(BaseSectionConfig):
 
 class DatabaseConfig(BaseSectionConfig):
     DB_URL: PostgresDsn = PostgresDsn('postgresql+psycopg://bioflow_ai:123456@127.0.0.1:5432/bioflow_ai')
+    CHECKPOINT_URL: PostgresDsn = PostgresDsn('postgresql://bioflow_ai:123456@127.0.0.1:5432/langchain')
 
 
 class CacheConfig(BaseSectionConfig):
-    LLM_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/0')
     MONITOR_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
     API_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
     NOTIFICATION_CACHE: RedisDsn = RedisDsn('redis://localhost:6379/2')
@@ -179,10 +179,6 @@ class KnowledgeBaseConfig(BaseSectionConfig):
     TIMEOUT: float = 60
 
 
-class DevelopConfig(BaseSectionConfig):
-    CHECKPOINT_URL: RedisDsn = RedisDsn('redis://localhost:6379/0')
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         toml_file='config.toml',
@@ -203,7 +199,6 @@ class Settings(BaseSettings):
     workflow: WorkflowConfig = WorkflowConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
     pdf_parser: PDFParserConfig = PDFParserConfig()
-    develop: DevelopConfig = DevelopConfig()
 
     @classmethod
     def settings_customise_sources(

@@ -7,7 +7,6 @@ from typing import Any
 from celery import Task
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.redis import AsyncRedisSaver
 from langgraph.types import Command
 from loguru import logger
 from redis.asyncio import Redis
@@ -16,7 +15,7 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.checkpoint import checkpoint_serializer
+from bioflow_ai.llm.checkpoint import open_checkpointer
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.prebuild.dispatch import AGENTS
@@ -134,7 +133,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
         get_settings().persistent.cache.API_CACHE.unicode_string(),
         decode_responses=True,
     )
-    checkpoint_url = get_settings().persistent.cache.LLM_CACHE.unicode_string()
     try:
         with Session(engine) as session:
             run = agent_crud.get_run(session, run_uid)
@@ -182,9 +180,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
         if started is None or started.status != AgentRunStatus.RUNNING.value:
             return
 
-        async with AsyncRedisSaver.from_conn_string(checkpoint_url) as checkpoint:
-            checkpoint.serde = checkpoint_serializer()
-            await checkpoint.asetup()
+        async with open_checkpointer() as checkpoint:
             spec = AGENTS[agent_name.value]
             graph = spec.factory(checkpoint)
             config = RunnableConfig(
