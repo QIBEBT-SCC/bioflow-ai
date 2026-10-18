@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from loguru import logger
@@ -20,18 +19,12 @@ NOTIFICATION_CONSUMER_GROUP = 'notification-gateway'
 NOTIFICATION_CONSUMER_NAME = 'server'
 
 
-@dataclass(slots=True)
-class _CachedProvider:
-    version: str
-    provider: NotificationProviderClient
-
-
 class NotificationGateway:
     """Consume provider-neutral events and dispatch them through configured channels."""
 
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
-        self._providers: dict[int, _CachedProvider] = {}
+        self._providers: dict[int, tuple[str, NotificationProviderClient]] = {}
         self._runner: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -56,7 +49,7 @@ class NotificationGateway:
                 await self._runner
         providers, self._providers = self._providers, {}
         await asyncio.gather(
-            *(cached.provider.close() for cached in providers.values()),
+            *(provider.close() for _, provider in providers.values()),
             return_exceptions=True,
         )
 
@@ -64,7 +57,7 @@ class NotificationGateway:
         """Drop a cached provider after a channel configuration change."""
         cached = self._providers.pop(channel_id, None)
         if cached is not None:
-            await cached.provider.close()
+            await cached[1].close()
 
     async def _run(self) -> None:
         while True:
@@ -146,12 +139,13 @@ class NotificationGateway:
 
     async def _provider_for(self, channel: RuntimeNotificationChannel) -> NotificationProviderClient:
         cached = self._providers.get(channel.id)
-        if cached is not None and cached.version == channel.version:
-            return cached.provider
         if cached is not None:
-            await cached.provider.close()
+            version, provider = cached
+            if version == channel.version:
+                return provider
+            await provider.close()
         provider = build_provider(channel)
-        self._providers[channel.id] = _CachedProvider(version=channel.version, provider=provider)
+        self._providers[channel.id] = (channel.version, provider)
         return provider
 
     async def _finish(self, message_id: str, event_id: str) -> None:
@@ -168,14 +162,18 @@ class NotificationGateway:
         succeeded_at: datetime | None,
         error: str | None,
     ) -> None:
+        def save() -> None:
+            with Session(engine) as session:
+                channel_crud.record_delivery_result(
+                    session,
+                    channel_id,
+                    attempted_at=attempted_at,
+                    succeeded_at=succeeded_at,
+                    error=error,
+                )
+
         try:
-            await asyncio.to_thread(
-                self._save_delivery_result,
-                channel_id,
-                attempted_at,
-                succeeded_at,
-                error,
-            )
+            await asyncio.to_thread(save)
         except Exception:
             logger.exception('Failed to persist notification delivery status for channel {}.', channel_id)
 
@@ -187,19 +185,3 @@ class NotificationGateway:
     def _load_channels(event: NotificationEvent) -> list[RuntimeNotificationChannel]:
         with Session(engine) as session:
             return runtime_channels_for_event(session, event.type, event.target_channel_id)
-
-    @staticmethod
-    def _save_delivery_result(
-        channel_id: int,
-        attempted_at: datetime,
-        succeeded_at: datetime | None,
-        error: str | None,
-    ) -> None:
-        with Session(engine) as session:
-            channel_crud.record_delivery_result(
-                session,
-                channel_id,
-                attempted_at=attempted_at,
-                succeeded_at=succeeded_at,
-                error=error,
-            )

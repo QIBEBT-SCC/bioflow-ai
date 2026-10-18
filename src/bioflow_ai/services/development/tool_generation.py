@@ -3,6 +3,8 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 from anyio import Path
@@ -34,26 +36,19 @@ from bioflow_ai.services.development.database import (
 from bioflow_ai.services.progress import ProgressCallback, emit_progress
 
 
-def _format_notification_duration(duration_ms: int) -> str:
-    seconds = max(0, round(duration_ms / 1000))
-    minutes, remainder = divmod(seconds, 60)
-    if minutes:
-        return f'{minutes} min {remainder} sec'
-    return f'{remainder} sec'
+async def _notify_tool_creation(
+    event_type: str, title: str, *, tool_name: str, index: int, started_at: float, note: str | None = None
+) -> None:
+    from bioflow_ai.services.notification.events import format_duration, notify
 
-
-async def _publish_tool_creation_event(event_type: str, message: str) -> None:
-    """Publish a tool-creation event without changing the underlying task outcome."""
-    try:
-        from bioflow_ai.services.notification.events import publish_notification
-
-        await publish_notification(
-            event_type,
-            source='develop.create_tool',
-            message=message,
-        )
-    except Exception:
-        logger.exception('The tool creation status was updated, but the notification event could not be published.')
+    duration = timedelta(seconds=time.monotonic() - started_at)
+    await notify(
+        event_type,
+        source='develop.create_tool',
+        title=title,
+        fields={'Tool': f'**{tool_name}**', 'Index': index, 'Duration': format_duration(duration)},
+        note=note,
+    )
 
 
 def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUID, 'ImageConfig', uuid.UUID] | None:
@@ -194,8 +189,6 @@ async def init_tools(
             [*skip_tools, TOOL_STATUS_PENDING],
         )
 
-    completed_count = 0
-
     async with _tool_agent_session() as (_, agent):
         for row in todo_rows:
             row_index: int = row['index']
@@ -231,7 +224,9 @@ async def init_tools(
                 save_message=True,
                 test_run_id=thread_id,
             )
-            started_at_monotonic = time.monotonic()
+            notify_tool = partial(
+                _notify_tool_creation, tool_name=tool_name, index=row_index, started_at=time.monotonic()
+            )
 
             con.execute(
                 """UPDATE tool_functions
@@ -258,7 +253,6 @@ async def init_tools(
                 )
             except Exception as error:
                 error_message = f'{type(error).__name__}: {error}'
-                duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
                 con.execute(
                     """UPDATE tool_functions
                        SET status = ?,
@@ -268,13 +262,8 @@ async def init_tools(
                        WHERE index = ?""",
                     [TOOL_STATUS_FAILED, error_message, row_index],
                 )
-                await _publish_tool_creation_event(
-                    NotificationEventType.TOOL_CREATE_FAILED,
-                    '## BioFlow AI tool creation failed\n'
-                    f'- Tool: **{tool_name}**\n'
-                    f'- Index: {row_index}\n'
-                    f'- Duration: {_format_notification_duration(duration_ms)}\n'
-                    f'> Error: `{type(error).__name__}` {str(error)[:1000]}',
+                await notify_tool(
+                    NotificationEventType.TOOL_CREATE_FAILED, 'tool creation failed', note=f'Error: {error_message}'
                 )
                 raise
 
@@ -287,14 +276,10 @@ async def init_tools(
                 )
                 logger.error(f'{thread_id} interrupted')
                 emit_progress(on_event, 'interrupt', response.interrupts)
-                duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
-                await _publish_tool_creation_event(
+                await notify_tool(
                     NotificationEventType.TOOL_CREATE_INTERRUPTED,
-                    '## BioFlow AI tool creation interrupted\n'
-                    f'- Tool: **{tool_name}**\n'
-                    f'- Index: {row_index}\n'
-                    f'- Duration: {_format_notification_duration(duration_ms)}\n'
-                    f'> Interrupt: {response.interrupts[0].value}',
+                    'tool creation interrupted',
+                    note=f'Interrupt: {response.interrupts[0].value}',
                 )
             else:
                 tool_uid = response.values['tool_uid']
@@ -308,26 +293,14 @@ async def init_tools(
                     [TOOL_STATUS_COMPLETED, tool_uid, row_index],
                 )
                 logger.success(f'{thread_id} done')
-                completed_count += 1
-                duration_ms = round((time.monotonic() - started_at_monotonic) * 1000)
-                if node_name := response.values.get('name'):
-                    await _publish_tool_creation_event(
-                        NotificationEventType.TOOL_CREATE_SUCCEEDED,
-                        '## BioFlow AI tool creation succeeded\n'
-                        f'- Tool: **{tool_name}**\n'
-                        f'- Index: {row_index}\n'
-                        f'- Node name: `{node_name}`\n'
-                        f'- Duration: {_format_notification_duration(duration_ms)}',
-                    )
-                else:
-                    await _publish_tool_creation_event(
-                        NotificationEventType.TOOL_CREATE_SUCCEEDED,
-                        '## BioFlow AI tool creation succeeded\n'
-                        f'- Tool: **{tool_name}**\n'
-                        f'- Index: {row_index}\n'
-                        f'- Duration: {_format_notification_duration(duration_ms)}\n'
-                        'An existing node was found in the database; no new node was created.',
-                    )
+                node_name = response.values.get('name')
+                await notify_tool(
+                    NotificationEventType.TOOL_CREATE_SUCCEEDED,
+                    'tool creation succeeded',
+                    note=f'Node name: `{node_name}`'
+                    if node_name
+                    else 'An existing node was found in the database; no new node was created.',
+                )
 
     con.close()
 

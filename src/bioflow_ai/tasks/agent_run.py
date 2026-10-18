@@ -23,11 +23,13 @@ from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType, AgentName, AgentRunStatus
+from bioflow_ai.schemas.notification import NotificationEventType
 from bioflow_ai.services.agents import sessions as agent_service
 from bioflow_ai.services.agents.execution import execute_agent_graph
 from bioflow_ai.services.agents.messages import load_langchain_messages, wrap_request
 from bioflow_ai.services.agents.progress import event_payload, result_payload
 from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input
+from bioflow_ai.services.notification.events import format_duration, notify
 from bioflow_ai.services.workflow import fix as workflow_fix_service
 from bioflow_ai.services.workflow.diagnosis import load_latest_diagnosis_report
 from bioflow_ai.utils.system import utc_now
@@ -36,6 +38,19 @@ HEARTBEAT_INTERVAL_SECONDS = 10
 AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
 MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow assistant or fix target is missing.'
 MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow assistant or fix source run no longer exists.'
+RUN_NOTIFICATIONS = {
+    (AgentName.WORKFLOW_BUILDER, AgentRunStatus.COMPLETED): NotificationEventType.WORKFLOW_BUILD_SUCCEEDED,
+    (AgentName.WORKFLOW_BUILDER, AgentRunStatus.WAITING_INPUT): NotificationEventType.WORKFLOW_BUILD_INTERRUPTED,
+    (AgentName.WORKFLOW_BUILDER, AgentRunStatus.FAILED): NotificationEventType.WORKFLOW_BUILD_FAILED,
+    (AgentName.TOOL_GENERATOR, AgentRunStatus.COMPLETED): NotificationEventType.TOOL_CREATE_SUCCEEDED,
+    (AgentName.TOOL_GENERATOR, AgentRunStatus.WAITING_INPUT): NotificationEventType.TOOL_CREATE_INTERRUPTED,
+    (AgentName.TOOL_GENERATOR, AgentRunStatus.FAILED): NotificationEventType.TOOL_CREATE_FAILED,
+}
+NOTIFICATION_STATUS_WORDS = {
+    AgentRunStatus.COMPLETED: 'succeeded',
+    AgentRunStatus.WAITING_INPUT: 'interrupted',
+    AgentRunStatus.FAILED: 'failed',
+}
 
 
 def _message_text(message: BaseMessage | None) -> str:
@@ -102,6 +117,11 @@ async def _transition(
             if AgentRunStatus(run.status) in TERMINAL_AGENT_RUN_STATUSES:
                 return None
             raise
+        notification = RUN_NOTIFICATIONS.get((AgentName(updated.agent_name), status))
+        subject = ''
+        if notification is not None:
+            agent_session = updated.agent_session
+            subject = agent_session.project.name if agent_session.project is not None else agent_session.title
         session.expunge(updated)
     execution_log.status(
         'resumed'
@@ -114,7 +134,30 @@ async def _transition(
         or (kwargs.get('payload', {}).get('value') if status == AgentRunStatus.WAITING_INPUT else ''),
     )
     await _publish_wakeup(redis, run_uid)
+    if notification is not None:
+        await _notify_run_finished(updated, notification, subject)
     return updated
+
+
+async def _notify_run_finished(run: AgentRun, event_type: NotificationEventType, subject: str) -> None:
+    status = AgentRunStatus(run.status)
+    is_builder = run.agent_name == AgentName.WORKFLOW_BUILDER.value
+    result = run.result_payload or {}
+    fields: dict[str, object] = {'Project' if is_builder else 'Session': f'**{subject or "-"}**', 'Run': f'`{run.uid}`'}
+    if run.start_time is not None:
+        fields['Duration'] = format_duration((run.end_time or utc_now()) - run.start_time)
+    note = None
+    if status == AgentRunStatus.COMPLETED:
+        if is_builder:
+            fields['Workflows'] = len(result.get('workflow_uids') or [])
+        elif node_name := result.get('name'):
+            fields['Node name'] = f'`{node_name}`'
+    elif status == AgentRunStatus.WAITING_INPUT:
+        note = f'Interrupt: {run.interrupt_payload}'
+    else:
+        note = f'Error: {run.error_code}: {run.error_message}'
+    title = f'{"workflow build" if is_builder else "tool creation"} {NOTIFICATION_STATUS_WORDS[status]}'
+    await notify(event_type, source=f'agent.{run.agent_name}', title=title, fields=fields, note=note)
 
 
 async def _heartbeat(run_uid: uuid.UUID, agent_task: asyncio.Task[Any]) -> None:

@@ -42,17 +42,12 @@ def _validate_config(provider: NotificationProvider, config: dict) -> dict:
 
 
 def _set_subscriptions(channel: NotificationChannel, event_types: list[NotificationEventType]) -> None:
-    desired_types = [event_type.value for event_type in dict.fromkeys(event_types)]
-    desired_type_set = set(desired_types)
-    existing_by_type = {subscription.event_type: subscription for subscription in channel.subscriptions}
-
-    for subscription in list(channel.subscriptions):
-        if subscription.event_type not in desired_type_set:
-            channel.subscriptions.remove(subscription)
-
-    for event_type in desired_types:
-        if event_type not in existing_by_type:
-            channel.subscriptions.append(NotificationSubscription(event_type=event_type))
+    desired = list(dict.fromkeys(event_type.value for event_type in event_types))
+    kept = [subscription for subscription in channel.subscriptions if subscription.event_type in desired]
+    existing = {subscription.event_type for subscription in kept}
+    channel.subscriptions = kept + [
+        NotificationSubscription(event_type=event_type) for event_type in desired if event_type not in existing
+    ]
 
 
 def to_public(channel: NotificationChannel) -> NotificationChannelPublic:
@@ -71,6 +66,14 @@ def to_public(channel: NotificationChannel) -> NotificationChannelPublic:
         created_at=channel.created_at,
         updated_at=channel.updated_at,
     )
+
+
+def get_channel(session: Session, channel_id: int) -> NotificationChannel:
+    """Return one stored channel or raise when it does not exist."""
+    channel = channel_crud.get(session, channel_id)
+    if channel is None:
+        raise NotificationChannelNotFoundError(channel_id)
+    return channel
 
 
 def create_channel(session: Session, data: NotificationChannelCreate) -> NotificationChannelPublic:
@@ -92,10 +95,7 @@ def create_channel(session: Session, data: NotificationChannelCreate) -> Notific
     except IntegrityError as error:
         session.rollback()
         raise NotificationChannelConflictError(data.name) from error
-    loaded = channel_crud.get(session, channel.id)
-    if loaded is None:
-        raise NotificationChannelNotFoundError(channel.id)
-    return to_public(loaded)
+    return to_public(channel)
 
 
 def update_channel(
@@ -104,10 +104,7 @@ def update_channel(
     data: NotificationChannelUpdate,
 ) -> NotificationChannelPublic:
     """Update a notification channel while preserving an omitted secret."""
-    channel = channel_crud.get(session, channel_id)
-    if channel is None:
-        raise NotificationChannelNotFoundError(channel_id)
-
+    channel = get_channel(session, channel_id)
     if data.name is not None:
         channel.name = data.name
     if data.enabled is not None:
@@ -128,18 +125,12 @@ def update_channel(
     except IntegrityError as error:
         session.rollback()
         raise NotificationChannelConflictError(data.name or channel.name) from error
-    loaded = channel_crud.get(session, channel.id)
-    if loaded is None:
-        raise NotificationChannelNotFoundError(channel.id)
-    return to_public(loaded)
+    return to_public(channel)
 
 
 def delete_channel(session: Session, channel_id: int) -> None:
     """Delete one notification channel."""
-    channel = channel_crud.get(session, channel_id)
-    if channel is None:
-        raise NotificationChannelNotFoundError(channel_id)
-    channel_crud.delete(session, channel)
+    channel_crud.delete(session, get_channel(session, channel_id))
 
 
 def list_channels(session: Session) -> list[NotificationChannelPublic]:

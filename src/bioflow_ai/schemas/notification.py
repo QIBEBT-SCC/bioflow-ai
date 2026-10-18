@@ -15,6 +15,9 @@ class NotificationEventType(StrEnum):
     TOOL_CREATE_SUCCEEDED = 'tool.create.succeeded'
     TOOL_CREATE_INTERRUPTED = 'tool.create.interrupted'
     TOOL_CREATE_FAILED = 'tool.create.failed'
+    WORKFLOW_BUILD_SUCCEEDED = 'workflow.build.succeeded'
+    WORKFLOW_BUILD_INTERRUPTED = 'workflow.build.interrupted'
+    WORKFLOW_BUILD_FAILED = 'workflow.build.failed'
 
 
 NOTIFICATION_TEST_EVENT = 'notification.test'

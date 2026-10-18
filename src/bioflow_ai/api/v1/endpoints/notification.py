@@ -12,7 +12,7 @@ from bioflow_ai.schemas.notification import (
     NotificationEventDefinition,
 )
 from bioflow_ai.services.notification import channels as channel_service
-from bioflow_ai.services.notification.events import list_notification_events, publish_notification
+from bioflow_ai.services.notification.events import NOTIFICATION_EVENT_CATALOG, publish_notification
 from bioflow_ai.services.notification.gateway import NotificationGateway
 
 router = APIRouter()
@@ -28,7 +28,7 @@ NotificationGatewayDep: TypeAlias = Annotated[NotificationGateway, Depends(_get_
 @router.get('/events')
 def get_notification_events(_admin: AdminDep) -> list[NotificationEventDefinition]:
     """Return every event type that can be subscribed to a channel."""
-    return list_notification_events()
+    return NOTIFICATION_EVENT_CATALOG
 
 
 @router.get('/channels')
@@ -99,12 +99,10 @@ async def send_test_notification(
     _admin: AdminDep,
 ) -> dict[str, str]:
     """Queue a test message for one configured channel."""
-    channel = next(
-        (channel for channel in channel_service.list_channels(session) if channel.id == channel_id),
-        None,
-    )
-    if channel is None:
-        raise HTTPException(status_code=404, detail='Notification channel not found.')
+    try:
+        channel = channel_service.get_channel(session, channel_id)
+    except channel_service.NotificationChannelNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Notification channel not found.') from error
     if not channel.enabled:
         raise HTTPException(status_code=409, detail='Enable the notification channel before testing it.')
     event = await publish_notification(

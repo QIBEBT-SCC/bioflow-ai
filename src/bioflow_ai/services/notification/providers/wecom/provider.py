@@ -1,9 +1,10 @@
 from bioflow_ai.schemas.notification import NotificationEvent, RuntimeNotificationChannel, WeComChannelConfig
-from bioflow_ai.services.notification.providers.base import NotificationProviderClient
 from bioflow_ai.services.notification.providers.wecom.client import WeComClient
 
 
-class WeComNotificationProvider(NotificationProviderClient):
+class WeComNotificationProvider:
+    """Deliver notification events to one WeCom group chat."""
+
     def __init__(self, channel: RuntimeNotificationChannel) -> None:
         config = WeComChannelConfig.model_validate(channel.config)
         self._chat_id = config.chat_id
