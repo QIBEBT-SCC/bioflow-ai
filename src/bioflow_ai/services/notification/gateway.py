@@ -118,15 +118,19 @@ class NotificationGateway:
                     succeeded_at=None,
                     error=error_message,
                 )
-                logger.exception(
-                    'Notification delivery failed for event {} on channel {}; it will be retried.',
+                # No traceback: frame locals would print channel credentials such as webhook URLs.
+                logger.warning(
+                    'Notification delivery failed for event {} on channel {}; it will be retried: {}',
                     event.id,
                     channel.id,
+                    error_message,
                 )
                 if self._event_expired(event):
                     await self._finish(message_id, event.id)
-                    return
-                raise
+                else:
+                    # The message stays pending and is re-read from offset 0 on the next iteration.
+                    await asyncio.sleep(5)
+                return
             await self._redis.execute_command('SADD', delivery_key, channel_key)
             await self._redis.expire(delivery_key, NOTIFICATION_EVENT_TTL_SECONDS)
             await self._record_delivery_result(

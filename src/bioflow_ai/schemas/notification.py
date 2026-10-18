@@ -84,5 +84,5 @@ class RuntimeNotificationChannel(BaseModel):
     id: int
     provider: NotificationProvider
     config: dict[str, Any]
-    secret: str
+    secret: str = Field(repr=False)
     version: str
