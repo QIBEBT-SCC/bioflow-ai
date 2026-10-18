@@ -10,9 +10,9 @@ description: Use this skill when the user wants the agent to design, revise, ext
 You must strictly follow the interactive workflow below:
 
 1. Read the provided literature excerpt.
-   - If the user provides a paper, use the `read_paper` tool to request the full text.
-   - If the user’s plan or original paper mentions a tool you are unfamiliar with, use `research_tool` to search for information about that tool. Note that **this tool call is extremely costly**; perform an online search only when additional information is genuinely necessary and the document cannot otherwise be written. Do not call this tool merely to improve or supplement the information.
-2. Based on the information collected, call `write_plan` to write a complete analysis plan in Markdown format.
+   - If the user provides a paper, use `view_pdf` to read its full text or the relevant Methods paragraphs.
+   - If the user’s plan or original paper mentions a tool you are unfamiliar with, use `web_run` to search for information about that tool. Perform an online search only when additional information is genuinely necessary and the plan cannot otherwise be written. Do not search merely to improve or supplement the information.
+2. Based on the information collected, write the analysis plan to `PLAN.md` with `apply_patch`, then request approval with `confirm_plan`.
 
 ## Fidelity Principle
 

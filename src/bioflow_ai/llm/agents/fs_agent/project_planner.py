@@ -10,7 +10,7 @@ from bioflow_ai.llm.middleware import (
     ContextCompactionMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
-    ProjectPrepareProgressMiddleware,
+    ProjectPlannerProgressMiddleware,
     RequireToolCallMiddleware,
     SkillMiddleware,
     StatusBarMiddleware,
@@ -18,7 +18,7 @@ from bioflow_ai.llm.middleware import (
     UserLanguageMiddleware,
 )
 from bioflow_ai.llm.models import get_long_context_model
-from bioflow_ai.llm.states import ProjectPrepareState
+from bioflow_ai.llm.states import ProjectPlannerState
 from bioflow_ai.llm.tools.human import ask_human_with_choices, confirm_plan
 from bioflow_ai.llm.tools.project_workspace import project_apply_patch, project_run_command, set_base_dir
 from bioflow_ai.llm.tools.sample import (
@@ -265,7 +265,7 @@ LANGUAGE_PROMPT = """## 输出语言
 使用 {} 编写样本说明、分析计划以及所有面向用户的消息。文件名、工具名、引用标识和元数据键保持原样。"""
 
 
-def _build_prepare_agent(
+def _build_project_planner(
     *,
     system_prompt: str,
     allow_human_input: bool,
@@ -295,39 +295,39 @@ def _build_prepare_agent(
         tools=tools,
         system_prompt=system_prompt,
         middleware=[
-            SkillMiddleware('workflow_planner'),
-            ProjectPrepareProgressMiddleware(),
+            SkillMiddleware('project_planner'),
+            ProjectPlannerProgressMiddleware(),
             DisableParallelToolCallsMiddleware(disabled_tools=disabled_tools),
             EndLoopMiddleware(),
             RequireToolCallMiddleware(FINISH_REMINDER.format(ASK_HUMAN_HINT if allow_human_input else '')),
             ChatAttachmentMiddleware(),
             ContextCompactionMiddleware(token_limit=100000),
             StatusBarMiddleware(),
-            TokenStatisticMiddleware('project_prepare', **metadata),
+            TokenStatisticMiddleware('project_planner', **metadata),
             UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
-        state_schema=ProjectPrepareState,
+        state_schema=ProjectPlannerState,
         context_schema=ProjectContext,
         **kwargs,
     )
 
 
-def build_prepare_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
-    """Build the interactive frontend project-prepare agent."""
-    return _build_prepare_agent(
+def build_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+    """Build the interactive frontend project-planner agent."""
+    return _build_project_planner(
         system_prompt=f'{SYSTEM_PROMPT}\n{FRONTEND_INTERACTION_PROMPT}',
         allow_human_input=True,
         checkpointer=checkpointer,
     )
 
 
-def build_evaluate_prepare_agent(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
-    """Build the autonomous evaluation project-prepare agent without human-interaction tools."""
-    return _build_prepare_agent(
+def build_evaluate_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+    """Build the autonomous evaluation project-planner agent without human-interaction tools."""
+    return _build_project_planner(
         system_prompt=SYSTEM_PROMPT,
         allow_human_input=False,
         checkpointer=checkpointer,
     )
 
 
-prepare_agent = build_prepare_agent()
+project_planner_agent = build_project_planner()

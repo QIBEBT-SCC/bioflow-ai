@@ -19,62 +19,6 @@ def _text_arg(args: Mapping[str, Any], name: str) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def _tool_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | None:
-    name = request.tool_call.get('name')
-    args = _args(request)
-    common = {'tool_call_id': request.tool_call['id'], 'status': status}
-
-    if name == 'list_project_samples':
-        return {'sample_list_project_samples': common}
-    if name == 'set_base_dir':
-        base_path = _text_arg(args, 'base_path')
-        return {
-            'sample_set_base_dir': {
-                **common,
-                **({'path': base_path} if base_path else {}),
-            }
-        }
-    if name == 'run_command':
-        command = _text_arg(args, 'command')
-        return {
-            'sample_run_command': {
-                **common,
-                **({'command': command} if command else {}),
-            }
-        }
-    if name == 'add_samples':
-        names = args.get('names')
-        return {
-            'sample_add_samples': {
-                **common,
-                **({'count': len(names)} if isinstance(names, list) else {}),
-            }
-        }
-    if name == 'add_sample_file':
-        details = {
-            key: value
-            for key, value in {
-                'sample': _text_arg(args, 'sample_name'),
-                'tag': _text_arg(args, 'tag'),
-            }.items()
-            if value is not None
-        }
-        return {'sample_add_sample_file': {**common, **details}}
-    if name == 'add_project_file':
-        keyword = _text_arg(args, 'keyword')
-        return {
-            'sample_add_project_file': {
-                **common,
-                **({'keyword': keyword} if keyword else {}),
-            }
-        }
-    if name == 'write_conclusion':
-        return {'sample_write_conclusion': common}
-    if name == 'ask_human':
-        return {'sample_ask_human': common}
-    return None
-
-
 PATCH_FILE_HEADERS = ('*** Add File: ', '*** Update File: ', '*** Delete File: ')
 
 
@@ -96,26 +40,48 @@ def _web_query(args: Mapping[str, Any]) -> str | None:
     return None
 
 
-def project_prepare_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | None:
-    """Translate one project-prepare tool call into a frontend activity.
-
-    Sample registration tools reuse the Sample Manager activities; planning tools get ``prepare_*`` activities.
-    """
-    name = request.tool_call.get('name')
-    args = _args(request)
-    common = {'tool_call_id': request.tool_call['id'], 'status': status}
-
+def _planner_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the activity details for one project-planner tool, or ``None`` when it is not displayed."""
+    if name in {'list_project_samples', 'view_pdf', 'confirm_plan', 'ask_human'}:
+        return {}
+    if name == 'set_base_dir':
+        base_path = _text_arg(args, 'base_path')
+        return {'path': base_path} if base_path else {}
+    if name == 'run_command':
+        command = _text_arg(args, 'command')
+        return {'command': command} if command else {}
+    if name == 'add_samples':
+        names = args.get('names')
+        return {'count': len(names)} if isinstance(names, list) else {}
+    if name == 'add_sample_file':
+        return {
+            key: value
+            for key, value in {'sample': _text_arg(args, 'sample_name'), 'tag': _text_arg(args, 'tag')}.items()
+            if value is not None
+        }
+    if name == 'add_project_file':
+        keyword = _text_arg(args, 'keyword')
+        return {'keyword': keyword} if keyword else {}
     if name == 'apply_patch':
         files = _patch_files(_text_arg(args, 'patch'))
-        return {'prepare_write_file': {**common, **({'path': files} if files else {})}}
+        return {'path': files} if files else {}
     if name == 'web_run':
         query = _web_query(args)
-        return {'prepare_web_run': {**common, **({'subject': query} if query else {})}}
-    if name == 'view_pdf':
-        return {'prepare_view_pdf': common}
-    if name == 'confirm_plan':
-        return {'prepare_confirm_plan': common}
-    return _tool_progress(request, status)
+        return {'subject': query} if query else {}
+    return None
+
+
+PLANNER_ACTIVITY_NAMES = {'apply_patch': 'write_file'}
+
+
+def project_planner_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | None:
+    """Translate one project-planner tool call into a ``planner_*`` frontend activity."""
+    name = request.tool_call.get('name')
+    details = _planner_details(name, _args(request)) if isinstance(name, str) else None
+    if details is None:
+        return None
+    activity = PLANNER_ACTIVITY_NAMES.get(name, name)
+    return {f'planner_{activity}': {'tool_call_id': request.tool_call['id'], 'status': status, **details}}
 
 
 WORKFLOW_MANAGERS = {
@@ -204,18 +170,18 @@ def workflow_builder_progress(request: ToolCallRequest, status: str) -> dict[str
     }
 
 
-class SampleManagerProgressMiddleware(AgentMiddleware):
-    """Publish one frontend activity for each Sample Manager tool call."""
+class ProjectPlannerProgressMiddleware(AgentMiddleware):
+    """Publish one frontend activity for each project-planner tool call."""
 
     @staticmethod
     def _emit(request: ToolCallRequest, status: str) -> None:
-        payload = _tool_progress(request, status)
+        payload = project_planner_progress(request, status)
         if payload is None:
             return
         try:
             request.runtime.stream_writer(payload)
         except Exception:
-            logger.warning('Unable to publish Sample Manager progress; agent execution will continue.')
+            logger.warning('Unable to publish project-planner progress; agent execution will continue.')
 
     def wrap_tool_call(
         self,
@@ -274,17 +240,3 @@ class WorkflowBuilderProgressMiddleware(AgentMiddleware):
         result = await handler(request)
         self._emit(request, 'completed')
         return result
-
-
-class ProjectPrepareProgressMiddleware(SampleManagerProgressMiddleware):
-    """Publish one frontend activity for each project-prepare tool call."""
-
-    @staticmethod
-    def _emit(request: ToolCallRequest, status: str) -> None:
-        payload = project_prepare_progress(request, status)
-        if payload is None:
-            return
-        try:
-            request.runtime.stream_writer(payload)
-        except Exception:
-            logger.warning('Unable to publish project-prepare progress; agent execution will continue.')

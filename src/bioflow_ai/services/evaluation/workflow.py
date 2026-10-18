@@ -458,7 +458,7 @@ async def _prepare_project(
     from langchain_core.runnables import RunnableConfig
     from uuid_extensions import uuid7str
 
-    from bioflow_ai.llm.agents.fs_agent.project_prepare import build_evaluate_prepare_agent
+    from bioflow_ai.llm.agents.fs_agent.project_planner import build_evaluate_project_planner
     from bioflow_ai.llm.context import ProjectContext
 
     sample_file = Path(workdir) / 'SAMPLES.md'
@@ -470,7 +470,7 @@ async def _prepare_project(
     # SAMPLES.md 已存在时, 智能体会自行跳过样本注册, 直接进入规划
     thread_id = uuid7str()
     logger.info(f'Preparing project {project_id}; checkpoint thread_id={thread_id}.')
-    agent = build_evaluate_prepare_agent(checkpointer=checkpoint)
+    agent = build_evaluate_project_planner(checkpointer=checkpoint)
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
 
     state = await consume_agent_graph(
@@ -478,7 +478,7 @@ async def _prepare_project(
         {'messages': [user_input]},
         config,
         context=ProjectContext(user_id=2, project_id=project_id, workdir=workdir, auto_approve=True),
-        execution_log=AgentRunLogger('project-prepare', thread_id, thread_id=thread_id),
+        execution_log=AgentRunLogger('project-planner', thread_id, thread_id=thread_id),
         on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
     )
     # 有中断

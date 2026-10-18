@@ -5,13 +5,13 @@ from typing import Literal, Optional
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from bioflow_ai.llm.agents.fs_agent.sample_manager import build_create_sample_agent
+from bioflow_ai.llm.agents.fs_agent.project_planner import build_project_planner
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.agents.workflow_agent.workflow_assistant import build_workflow_assistant
 from bioflow_ai.llm.agents.workflow_agent.workflow_fixer import build_workflow_fixer
 from bioflow_ai.llm.agents.workflow_agent.workflow_generation import build_workflow_generation
 
-RouteTask = Literal['workflow-builder', 'workflow-assistant', 'workflow-fixer', 'sample-manager', 'tool-generator']
+RouteTask = Literal['workflow-builder', 'workflow-assistant', 'workflow-fixer', 'project-planner', 'tool-generator']
 
 AgentFactory = Callable[[Optional[BaseCheckpointSaver]], CompiledStateGraph]
 
@@ -42,9 +42,9 @@ AGENTS: dict[RouteTask, AgentSpec] = {
         description='Repair the current workflow template from the user request and any available diagnosis.',
         factory=build_workflow_fixer,
     ),
-    'sample-manager': AgentSpec(
-        description="Explore raw data paths and register samples/files into the project's index.",
-        factory=build_create_sample_agent,
+    'project-planner': AgentSpec(
+        description='Register project samples from raw data and produce an approved analysis plan.',
+        factory=build_project_planner,
     ),
     'tool-generator': AgentSpec(
         description='Create and save a reusable bioinformatics tool node.',

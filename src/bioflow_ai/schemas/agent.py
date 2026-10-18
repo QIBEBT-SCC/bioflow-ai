@@ -15,7 +15,7 @@ class AgentName(StrEnum):
     WORKFLOW_BUILDER = 'workflow-builder'
     WORKFLOW_ASSISTANT = 'workflow-assistant'
     WORKFLOW_FIXER = 'workflow-fixer'
-    SAMPLE_MANAGER = 'sample-manager'
+    PROJECT_PLANNER = 'project-planner'
     TOOL_GENERATOR = 'tool-generator'
 
 

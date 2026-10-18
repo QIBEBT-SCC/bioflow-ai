@@ -76,16 +76,8 @@ class ToolGeneratorState(AgentState, total=False):
     validated: bool
 
 
-# =====================sample manager state==========================
-class SampleState(AgentState, total=False):
-    base_path: str
-    sample_maps: Annotated[dict[str, str], operator.or_]  # {sample_name: sample_id}
-
-    summary: str
-
-
-# =====================project prepare state==========================
-class ProjectPrepareState(AgentState, total=False):
+# =====================project planner state==========================
+class ProjectPlannerState(AgentState, total=False):
     # 样本注册工具使用
     base_path: str
     sample_maps: Annotated[dict[str, str], operator.or_]  # {sample_name: sample_id}
@@ -103,32 +95,6 @@ class WorkflowAssistantState(AgentState, total=False):
     diagnosis_path: str
     source_run_uid: str
     workflow_uid: str | None
-
-
-# =====================unified planner state==========================
-class PlannerState(AgentState, total=False):
-    """聚合三种规划场景 (自主设计/工具扩展/文献复现) 所需的全部可选状态字段.
-
-    所有字段均为可选: 不同场景只会写入其中一部分, 后续处理时按需读取.
-    """
-
-    task: str
-    plan: str
-
-    # 工具探索用
-    tool_report: str
-
-    # 文献复现用
-    paper_id: str
-    paper_context: str
-
-    # 写入类工具标记
-    updated: bool
-
-    # 透传给下游 workflow_builder
-    workflow_uids: list[uuid.UUID]
-    new_tools: list[uuid.UUID]
-    new_dbs: list[int]
 
 
 # =====================build workflow agent state==========================

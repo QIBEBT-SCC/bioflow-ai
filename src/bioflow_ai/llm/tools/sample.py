@@ -1,3 +1,5 @@
+"""Sample and project-file registration tools for the project-planner agent."""
+
 import uuid
 
 from anyio import Path
@@ -10,82 +12,19 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
-from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
-from bioflow_ai.llm.states import SampleState
+from bioflow_ai.llm.states import ProjectPlannerState
 from bioflow_ai.models.resource import Sample, SampleFiles
-from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.services.projects import file_mapping as project_file_mapping_service
 from bioflow_ai.services.resource import sample as sample_service
-
-
-def _truncate_output(output: str) -> str:
-    if len(output) <= 3000:  # noqa: PLR2004
-        return output
-    return f'{output[:1500]}\n...\n{output[-500:]}'
-
-
-@tool(parse_docstring=True)
-async def set_base_dir(base_path: str, runtime: ToolRuntime) -> Command:
-    """Set the root directory.
-
-    After setting, all subsequent operations (including run_command and all register-type tools) use this as the working directory.
-    This should be called again each time the dataset is switched.
-
-    Args:
-        base_path: Root directory of the currently operating
-    """
-    return Command(
-        update={
-            'base_path': base_path,
-            'messages': [
-                ToolMessage(
-                    content=f'The root directory has been set to {base_path}', tool_call_id=runtime.tool_call_id
-                )
-            ],
-        }
-    )
-
-
-@tool('run_command', parse_docstring=True)
-async def run_command_tool(command: str, runtime: ToolRuntime[ProjectContext, SampleState]) -> str:
-    """Execute shell commands inside a Docker container.
-
-    Available commands: seqkit, awk, grep, find, head, file, etc.
-    The configured root directory is mapped to the /app/data path of the container.
-
-    Args:
-        command: Shell command to run in the container
-    """
-    base_dir = runtime.state.get('base_path')
-    if not base_dir:
-        return 'Call `set_base_dir` to set the root directory first.'
-
-    if not await Path(base_dir).exists():
-        return 'The root directory does not exist. Call the `set_base_dir` tool to set the correct root directory, or ask human to confirm the correct path.'
-
-    run_image = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
-    file_mount = ContainerMount(source=base_dir, target='/app/data', read_only=True)
-    code, result = await run_command_async(run_image, [file_mount], command)
-
-    run_status = 'successfully' if code == 0 else 'failed'
-    if clean_out := result.strip():
-        return_msg = (
-            _truncate_output(clean_out)
-            if code == 0
-            else f'Command ran {run_status}.\n\n......\n{_truncate_output(clean_out)}'
-        )
-    else:
-        return_msg = f'Command ran {run_status}. No other output.'
-    return return_msg
 
 
 @tool(parse_docstring=True)
 async def add_samples(
     names: list[str],
     meta_data: dict[str, str] | None,
-    runtime: ToolRuntime[ProjectContext, SampleState],
+    runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
 ) -> Command | str:
     """Create sample objects.
 
@@ -137,7 +76,7 @@ async def add_sample_file(
     sample_name: str,
     tag: str,
     file_path: str,
-    runtime: ToolRuntime[ProjectContext, SampleState],
+    runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
 ) -> str:
     """Register the sample file.
 
@@ -181,7 +120,7 @@ async def add_project_file(
     keyword: str,
     file_path: str,
     description: str,
-    runtime: ToolRuntime[ProjectContext, SampleState],
+    runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
 ) -> str:
     """Register project-level shared files.
 
@@ -214,7 +153,7 @@ async def add_project_file(
 
 
 @tool(parse_docstring=True)
-async def list_project_samples(runtime: ToolRuntime[ProjectContext, SampleState]) -> str:
+async def list_project_samples(runtime: ToolRuntime[ProjectContext, ProjectPlannerState]) -> str:
     """List existing samples already registered in the database for the current project.
 
     Returns an aggregated summary grouped by shared metadata and tag set, suitable for projects
@@ -248,38 +187,3 @@ async def list_project_samples(runtime: ToolRuntime[ProjectContext, SampleState]
         lines.extend(f'- proj:{pf.keyword} — {pf.description}' for pf in proj_files)
 
     return '\n'.join(lines)
-
-
-@tool('remove_sample_file', parse_docstring=True)
-async def remove_sample_file(sample_name: str, tag: str, runtime: ToolRuntime[ProjectContext, SampleState]) -> str:
-    """Remove a registered sample file by sample name and tag.
-
-    Use this only on the "local files updated" branch to drop stale entries before
-    re-registering them. Does not delete the sample itself.
-
-    Args:
-        sample_name: Name of the sample whose file should be removed.
-        tag: Tag of the file to remove (e.g. 'r1', 'r2').
-    """
-    with Session(engine) as session:
-        deleted = sample_service.delete_file_by_name_tag(session, runtime.context.project_id, sample_name, tag)
-    if deleted:
-        return f'Removed file "{tag}" of sample {sample_name}.'
-    return f'No file with tag "{tag}" found on sample {sample_name}.'
-
-
-@tool
-async def write_conclusion(content: str, runtime: ToolRuntime[ProjectContext, SampleState]) -> Command:
-    """Write a summary for the file system."""
-    sample_summary_file = Path(runtime.context.workdir) / 'SAMPLES.md'
-    await sample_summary_file.parent.mkdir(parents=True, exist_ok=True)
-    await sample_summary_file.write_text(content, encoding='utf-8')
-
-    return Command(
-        update={
-            'summary': 'done',
-            'updated': True,
-            'should_end': True,
-            'messages': [ToolMessage(content='Done.', tool_call_id=runtime.tool_call_id)],
-        }
-    )

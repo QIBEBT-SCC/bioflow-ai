@@ -4,21 +4,18 @@ from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.schemas.agent import AgentName
 from bioflow_ai.utils.jsonable import to_json_object
 
-SAMPLE_MANAGER_PROGRESS_KEYS = (
-    'sample_list_project_samples',
-    'sample_set_base_dir',
-    'sample_run_command',
-    'sample_add_samples',
-    'sample_add_sample_file',
-    'sample_add_project_file',
-    'sample_write_conclusion',
-    'sample_ask_human',
-)
-PROJECT_PREPARE_PROGRESS_KEYS = (
-    'prepare_write_file',
-    'prepare_web_run',
-    'prepare_view_pdf',
-    'prepare_confirm_plan',
+PROJECT_PLANNER_PROGRESS_KEYS = (
+    'planner_list_project_samples',
+    'planner_set_base_dir',
+    'planner_run_command',
+    'planner_add_samples',
+    'planner_add_sample_file',
+    'planner_add_project_file',
+    'planner_ask_human',
+    'planner_write_file',
+    'planner_web_run',
+    'planner_view_pdf',
+    'planner_confirm_plan',
 )
 
 WORKFLOW_PHASE_KEY = 'workflow_phase'
@@ -31,13 +28,11 @@ def event_payload(payload: object) -> dict[str, Any]:
     if isinstance(payload, str):
         return {'kind': 'info', 'message': payload}
 
-    sample_progress_key = next(
-        (key for key in (*SAMPLE_MANAGER_PROGRESS_KEYS, *PROJECT_PREPARE_PROGRESS_KEYS) if key in converted), None
-    )
-    if sample_progress_key is not None:
-        sample_progress = converted[sample_progress_key]
-        if isinstance(sample_progress, dict):
-            return {'kind': sample_progress_key, **sample_progress}
+    planner_progress_key = next((key for key in PROJECT_PLANNER_PROGRESS_KEYS if key in converted), None)
+    if planner_progress_key is not None:
+        planner_progress = converted[planner_progress_key]
+        if isinstance(planner_progress, dict):
+            return {'kind': planner_progress_key, **planner_progress}
 
     workflow_phase = converted.get(WORKFLOW_PHASE_KEY)
     if isinstance(workflow_phase, dict):
@@ -116,8 +111,7 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
             }
             result.update(tool_uid=uid, name=values.get('name'), artifacts=[artifact])
             changes.append({'resource': 'tool', 'uid': uid})
-    elif run.agent_name == AgentName.SAMPLE_MANAGER.value:
-        result['summary'] = values.get('summary')
+    elif run.agent_name == AgentName.PROJECT_PLANNER.value:
         changes.extend(
             [
                 {'resource': 'sample', 'project_id': run.project_id},

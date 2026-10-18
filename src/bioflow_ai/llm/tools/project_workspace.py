@@ -1,4 +1,4 @@
-"""Workspace tools for the project-prepare agent: read-only /app/data plus the read-write /work project dir."""
+"""Workspace tools for the project-planner agent: read-only /app/data plus the read-write /work project dir."""
 
 import asyncio
 import posixpath
@@ -13,9 +13,8 @@ from pydantic import Field
 
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async
 from bioflow_ai.llm.context import ProjectContext
-from bioflow_ai.llm.states import ProjectPrepareState
+from bioflow_ai.llm.states import ProjectPlannerState
 from bioflow_ai.llm.tools.apply_patch import OPERATION_HEADERS, apply_workspace_patch, parse_patch
-from bioflow_ai.llm.tools.sample import _truncate_output
 from bioflow_ai.llm.utils.patch import MAX_PATCH_CHARS, PatchError
 from bioflow_ai.schemas.tool_config import ImageConfig
 
@@ -23,6 +22,12 @@ DATA_DIR = '/app/data'
 WORK_DIR = '/work'
 MOVE_HEADER = '*** Move to: '
 RUN_IMAGE = 'docker.io/aye1032/biokit-seq:1.0.0'
+
+
+def _truncate_output(output: str) -> str:
+    if len(output) <= 3000:  # noqa: PLR2004
+        return output
+    return f'{output[:1500]}\n...\n{output[-500:]}'
 
 
 def _under(path: str, root: str) -> bool:
@@ -81,7 +86,7 @@ def apply_project_patch(patch: str, workdir: Path, cwd: str) -> str:
 
 @tool(parse_docstring=True)
 async def set_base_dir(
-    runtime: ToolRuntime[ProjectContext, ProjectPrepareState],
+    runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     base_path: str | None = None,
 ) -> Command | str:
     """Manage the /app/data mount and switch the default working dir of the file tools.
@@ -109,7 +114,7 @@ async def set_base_dir(
 @tool('run_command', parse_docstring=True)
 async def project_run_command(
     command: str,
-    runtime: ToolRuntime[ProjectContext, ProjectPrepareState],
+    runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     workdir: str | None = None,
 ) -> str:
     """Run a read-only shell command in a container.
@@ -154,7 +159,7 @@ async def project_run_command(
 @tool('apply_patch', parse_docstring=True)
 async def project_apply_patch(
     patch: Annotated[str, Field(max_length=MAX_PATCH_CHARS)],
-    runtime: ToolRuntime[ProjectContext, ProjectPrepareState],
+    runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     workdir: str | None = None,
 ) -> str:
     """Create, edit, move or delete UTF-8 files in the project dir /work using a Codex-format patch.
