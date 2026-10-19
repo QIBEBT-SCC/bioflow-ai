@@ -1,7 +1,7 @@
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from anyio import Path
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.paths import PRESETS_DIR
@@ -13,24 +13,27 @@ PREBUILD_REPO = 'Aye10032/bioflow-ai-prebuild'
 BATCH_SIZE = 50
 
 
-@dataclass(frozen=True)
-class AdminInitResult:
+class AdminInitResult(BaseModel):
     """Default administrator initialization result."""
+
+    model_config = ConfigDict(frozen=True)
 
     created: bool
 
 
-@dataclass(frozen=True)
-class PresetFileResult:
+class PresetFileResult(BaseModel):
     """Preset parquet file resolution result."""
+
+    model_config = ConfigDict(frozen=True)
 
     path: str
     downloaded: bool
 
 
-@dataclass(frozen=True)
-class PresetImportResult:
+class PresetImportResult(BaseModel):
     """Preset SQL/vector import result."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     preset_file: str
@@ -41,9 +44,10 @@ class PresetImportResult:
     warning_count: int = 0
 
 
-@dataclass(frozen=True)
-class PresetDatabaseInitResult:
+class PresetDatabaseInitResult(BaseModel):
     """Preset database initialization result."""
+
+    model_config = ConfigDict(frozen=True)
 
     admin: AdminInitResult
     images: PresetImportResult

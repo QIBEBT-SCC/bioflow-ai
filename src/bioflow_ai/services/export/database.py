@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.services.export import PREBUILD_BUCKET_ID
 
@@ -8,9 +9,10 @@ DOCS_OUTPUT = Path('presets/tool_docs.parquet')
 TOOLS_OUTPUT = Path('presets/tools.parquet')
 
 
-@dataclass(frozen=True)
-class DatabaseExportResult:
+class DatabaseExportResult(BaseModel):
     """Summary of one exported preset database dataset."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     output: Path

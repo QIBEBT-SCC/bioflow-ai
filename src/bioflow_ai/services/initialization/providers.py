@@ -1,8 +1,8 @@
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from decimal import Decimal
 from urllib.parse import urlparse
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.setting.llm_provider as provider_crud
@@ -15,9 +15,10 @@ CUSTOM_PROVIDER_KEY = 'custom'
 ZERO_PRICE = Decimal(0)
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderPreset:
+class ProviderPreset(BaseModel):
     """Built-in connection details and model suggestions for an official provider."""
+
+    model_config = ConfigDict(frozen=True)
 
     key: str
     name: str
@@ -26,17 +27,19 @@ class ProviderPreset:
     models: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ModelConfiguration:
+class ModelConfiguration(BaseModel):
     """One model selected in the initialization wizard."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     display_name: str
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderConfiguration:
+class ProviderConfiguration(BaseModel):
     """Provider and model values collected by the initialization wizard."""
+
+    model_config = ConfigDict(frozen=True)
 
     key: str
     name: str

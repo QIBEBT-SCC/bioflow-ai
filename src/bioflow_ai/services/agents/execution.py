@@ -1,7 +1,8 @@
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from dataclasses import dataclass
 from typing import Any, Protocol
+
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 
@@ -20,8 +21,9 @@ ProgressCallback = Callable[[object], Awaitable[None]]
 ChunkCallback = Callable[[Any], None]
 
 
-@dataclass(frozen=True)
-class AgentExecutionResult:
+class AgentExecutionResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     values: dict[str, Any]
     interrupt: dict[str, Any] | None
 

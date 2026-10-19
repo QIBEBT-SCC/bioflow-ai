@@ -1,10 +1,9 @@
 import os
 import re
-from dataclasses import dataclass, field
 from ipaddress import ip_address
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.schemas.tool_config import ImageConfig
@@ -22,25 +21,27 @@ class ContainerMount(BaseModel):
     read_only: bool
 
 
-@dataclass(frozen=True)
-class ContainerTmpfs:
+class ContainerTmpfs(BaseModel):
     """One temporary filesystem mounted into a container."""
+
+    model_config = ConfigDict(frozen=True)
 
     target: str
     options: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
-class ContainerProcessSpec:
+class ContainerProcessSpec(BaseModel):
     """Runtime-neutral description of a native container subprocess."""
+
+    model_config = ConfigDict(frozen=True)
 
     image: ImageConfig
     command: tuple[str, ...]
     name: str
     mounts: tuple[ContainerMount, ...] = ()
     tmpfs: tuple[ContainerTmpfs, ...] = ()
-    environment: dict[str, str] = field(default_factory=dict, repr=False)
-    host_environment: dict[str, str] = field(default_factory=dict, repr=False)
+    environment: dict[str, str] = Field(default_factory=dict, repr=False)
+    host_environment: dict[str, str] = Field(default_factory=dict, repr=False)
     workdir: str | None = None
     user: str | None = None
     podman_keep_id: tuple[int, int] | None = None
@@ -54,17 +55,19 @@ class ContainerProcessSpec:
     use_proxy: bool = False
 
 
-@dataclass(frozen=True)
-class ContainerProcessLaunch:
+class ContainerProcessLaunch(BaseModel):
     """Native command and host environment used to start a container subprocess."""
 
+    model_config = ConfigDict(frozen=True)
+
     argv: list[str]
-    host_environment: dict[str, str] = field(repr=False)
+    host_environment: dict[str, str] = Field(repr=False)
 
 
-@dataclass(frozen=True)
-class ContainerUser:
+class ContainerUser(BaseModel):
     """Container identity plus runtime-specific host ownership requirements."""
+
+    model_config = ConfigDict(frozen=True)
 
     identity: str
     host_owner: int | None

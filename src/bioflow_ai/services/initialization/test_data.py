@@ -1,7 +1,8 @@
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.services.initialization.common import proxy_environment, resolve_path
 
@@ -11,8 +12,9 @@ if TYPE_CHECKING:
 TESTDATA_SOURCE = 'hf://buckets/Aye10032/bioflow-ai-testdata'
 
 
-@dataclass(frozen=True)
-class TestDataInspection:
+class TestDataInspection(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     path: Path
     proxy_text: str
     has_existing_data: bool

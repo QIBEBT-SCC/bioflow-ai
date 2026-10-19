@@ -1,8 +1,8 @@
 """Load a persisted workflow template into workflow-builder editing state."""
 
 import uuid
-from dataclasses import dataclass
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowDraft
@@ -21,9 +21,10 @@ class WorkflowLoadError(ValueError):
     """A persisted workflow cannot be represented by the builder managers."""
 
 
-@dataclass(frozen=True)
-class LoadedWorkflowDraft:
+class LoadedWorkflowDraft(BaseModel):
     """Canonical editing draft plus its persisted-to-editing node ID mapping."""
+
+    model_config = ConfigDict(frozen=True)
 
     draft: WorkflowDraft
     node_id_mapping: dict[str, str]

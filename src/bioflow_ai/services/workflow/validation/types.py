@@ -1,7 +1,6 @@
 """Workflow documents and the single validation result contract."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -37,12 +36,13 @@ class ValidationContext(BaseModel):
     mark_conflicts: dict[str, str] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class WorkflowDocument:
+class WorkflowDocument(BaseModel):
     """A graph plus resolved definitions and facts needed to understand it."""
 
+    model_config = ConfigDict(frozen=True)
+
     graph: Any
-    context: ValidationContext = field(default_factory=ValidationContext)
+    context: ValidationContext = Field(default_factory=ValidationContext)
     catalog: Mapping[str, WorkflowToolDefinition] | None = None
 
 

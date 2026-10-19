@@ -5,7 +5,6 @@ import re
 import shlex
 import uuid
 from collections import defaultdict, deque
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +12,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -395,9 +395,10 @@ def _evidence_error(code: str, message: str) -> EvidenceSourceError:
     return EvidenceSourceError(code, message)
 
 
-@dataclass(frozen=True)
-class ResolvedEvidence:
+class ResolvedEvidence(BaseModel):
     """A validated host resource that may be mounted into the evidence container."""
+
+    model_config = ConfigDict(frozen=True)
 
     source: str
     path: Path

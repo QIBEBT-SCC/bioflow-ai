@@ -1,11 +1,11 @@
 import base64
 import unicodedata
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import orjson
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from bioflow_ai.services.export import PREBUILD_BUCKET_ID
@@ -15,9 +15,10 @@ TOOL_ID_LENGTH = 22
 BUCKET_PATH = 'tools.duckdb'
 
 
-@dataclass(frozen=True)
-class MCPExportResult:
+class MCPExportResult(BaseModel):
     """Summary of a completed MCP catalog export."""
+
+    model_config = ConfigDict(frozen=True)
 
     output: Path
     tool_count: int

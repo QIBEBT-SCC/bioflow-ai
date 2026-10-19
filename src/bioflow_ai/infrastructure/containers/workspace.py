@@ -62,7 +62,7 @@ async def run_workspace_command(
         command=('/bin/bash', '-c', command),
         name=name,
         mounts=(ContainerMount(target='/workspace', source=str(root), read_only=True),),
-        tmpfs=(ContainerTmpfs('/tmp', ('rw', 'nosuid', 'nodev', 'size=64m', 'mode=1777')),),  # noqa: S108
+        tmpfs=(ContainerTmpfs(target='/tmp', options=('rw', 'nosuid', 'nodev', 'size=64m', 'mode=1777')),),  # noqa: S108
         environment={'HOME': '/tmp'},  # noqa: S108
         workdir=str(directory),
         user=identity.identity,

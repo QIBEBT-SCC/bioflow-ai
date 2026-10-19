@@ -8,13 +8,13 @@ the portable ``Document`` and ``Embeddings`` interfaces.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self
 
 import numpy as np
 from langchain_core.documents import Document
 from langchain_core.vectorstores import VectorStore
 from langchain_core.vectorstores.utils import maximal_marginal_relevance
+from pydantic import BaseModel, ConfigDict
 from pymilvus import (
     AnnSearchRequest,
     AsyncMilvusClient,
@@ -31,9 +31,10 @@ if TYPE_CHECKING:
     from langchain_core.embeddings import Embeddings
 
 
-@dataclass(frozen=True)
-class MilvusCollectionStatus:
+class MilvusCollectionStatus(BaseModel):
     """Operational information for a Milvus collection."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     exists: bool

@@ -7,11 +7,11 @@ Node implementations are plain Python callables and have no Celery lifecycle.
 
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import nanoid
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.react_flow import Node, TaskInput, WorkflowDefinition
@@ -42,18 +42,20 @@ from bioflow_ai.tasks.summary_task.summary import build_downstream_summary
 from bioflow_ai.utils.file.paths import to_safe_path_segment
 
 
-@dataclass(frozen=True, slots=True)
-class ExecutorContext:
+class ExecutorContext(BaseModel):
     """Run-scoped inputs shared by every node frozen during one compilation."""
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     run: WorkflowRun
     sample_name: str | None
     tool_definitions: dict[str, WorkflowToolDefinition]
 
 
-@dataclass(frozen=True, slots=True)
-class PreparedExecutor:
+class PreparedExecutor(BaseModel):
     """JSON-serializable node execution plan and public metadata."""
+
+    model_config = ConfigDict(frozen=True)
 
     kwargs: dict[str, Any]
     name: str

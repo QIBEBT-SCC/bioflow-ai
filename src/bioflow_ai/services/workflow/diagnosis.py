@@ -1,19 +1,20 @@
 """Read optional diagnosis reports for workflow questions and repair."""
 
 import uuid
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.models.agent import AgentRun
 
 
-@dataclass(frozen=True)
-class WorkflowDiagnosisReport:
+class WorkflowDiagnosisReport(BaseModel):
     """A readable report belonging to a completed assistant run."""
+
+    model_config = ConfigDict(frozen=True)
 
     run_uid: uuid.UUID
     content: str

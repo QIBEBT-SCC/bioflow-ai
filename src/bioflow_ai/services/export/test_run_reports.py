@@ -4,9 +4,10 @@ import csv
 import json
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.llm.observability.trajectories import iter_trajectory_events
 from bioflow_ai.services.progress import ProgressIterator, with_progress
@@ -17,9 +18,10 @@ TEST_RUN_REPORT_COLUMNS = ('run_id', 'with_validation', 'without_validation', 'f
 ERROR_PREVIEW_LIMIT = 5
 
 
-@dataclass(frozen=True)
-class TestRunReportExportResult:
+class TestRunReportExportResult(BaseModel):
     """Summary of one test-run report export."""
+
+    model_config = ConfigDict(frozen=True)
 
     output: Path
     event_count: int
@@ -32,21 +34,24 @@ class TestRunReportExportResult:
     validation_retry_count: int
 
 
-@dataclass(frozen=True)
-class _ToolRecord:
+class _ToolRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     lookup_id: str
     run_id: str | None
     tool_uid: str
 
 
-@dataclass(frozen=True)
-class _ReportAttempt:
+class _ReportAttempt(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     report: Any
     accepted: bool
 
 
-@dataclass(frozen=True)
-class _ReportVersions:
+class _ReportVersions(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     with_validation: Mapping[str, Any]
     without_validation: Any
     first_pass: bool

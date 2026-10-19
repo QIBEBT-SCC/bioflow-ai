@@ -2,13 +2,13 @@ import shutil
 import sqlite3
 import sys
 import uuid
-from dataclasses import dataclass
 from pathlib import Path as FilePath
 from typing import Any
 
 from anyio import Path
 from langchain_core.messages import HumanMessage
 from loguru import logger
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
@@ -22,8 +22,7 @@ DB_PATH = 'presets/build/evaluate.sqlite3'
 MISSING_PROJECT_TAG = 'missing'
 
 
-@dataclass
-class WorkflowGenerationResult:
+class WorkflowGenerationResult(BaseModel):
     workflow_uids: list[str]
     new_tool_uids: list[str]
     new_db_ids: list[int]
@@ -541,7 +540,7 @@ async def _generate_workflow(
     )
 
     state = None
-    result = WorkflowGenerationResult([], [], [])
+    result = WorkflowGenerationResult(workflow_uids=[], new_tool_uids=[], new_db_ids=[])
     try:
         await consume_agent_graph(
             agent,

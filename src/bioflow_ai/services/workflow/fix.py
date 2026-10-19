@@ -1,11 +1,11 @@
 """Prepare the current template and optional diagnosis for a workflow-fixer run."""
 
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.workflow as workflow_crud
@@ -22,9 +22,10 @@ TEMPLATE_NOT_FOUND_ERROR = 'The source workflow template no longer exists.'
 SOURCE_PATH_NOT_FOUND_ERROR = 'The source batch subgraph no longer matches the current workflow template.'
 
 
-@dataclass(frozen=True)
-class WorkflowFixPreparation:
+class WorkflowFixPreparation(BaseModel):
     """Inputs loaded once before starting a Fix graph."""
+
+    model_config = ConfigDict(frozen=True)
 
     state: dict[str, Any]
     diagnosis_report: str | None

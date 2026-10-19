@@ -1,8 +1,8 @@
 import re
-from dataclasses import dataclass
 from pathlib import Path
 
 import frontmatter
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.core.paths import SKILLS_DIR
 
@@ -12,9 +12,10 @@ MAX_SKILL_NAME_LENGTH = 64
 MAX_SKILL_DESCRIPTION_LENGTH = 1024
 
 
-@dataclass(frozen=True)
-class SkillDefinition:
+class SkillDefinition(BaseModel):
     """A validated Agent Skill loaded from disk."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     description: str
@@ -34,21 +35,13 @@ def parse_skill_definition(skill_directory: Path, content: str) -> SkillDefiniti
 
     name = post.get('name')
     description = post.get('description')
-    if (
-        not isinstance(name, str)
-        or not SKILL_NAME_PATTERN.fullmatch(name)
-        or len(name) > MAX_SKILL_NAME_LENGTH
-    ):
+    if not isinstance(name, str) or not SKILL_NAME_PATTERN.fullmatch(name) or len(name) > MAX_SKILL_NAME_LENGTH:
         msg = f'Invalid skill name in {skill_path}: use 1-64 lowercase letters, numbers, and hyphens'
         raise ValueError(msg)
     if name != skill_directory.name:
         msg = f'Skill name {name!r} must match its directory name {skill_directory.name!r}'
         raise ValueError(msg)
-    if (
-        not isinstance(description, str)
-        or not description.strip()
-        or len(description) > MAX_SKILL_DESCRIPTION_LENGTH
-    ):
+    if not isinstance(description, str) or not description.strip() or len(description) > MAX_SKILL_DESCRIPTION_LENGTH:
         msg = f'Invalid skill description in {skill_path}: use 1-1024 characters'
         raise ValueError(msg)
 

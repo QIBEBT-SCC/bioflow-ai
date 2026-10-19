@@ -5,10 +5,11 @@
 
 import gzip
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 from urllib.parse import unquote
+
+from pydantic import BaseModel, ConfigDict
 
 ANNOTATION_KINDS = frozenset({'gff', 'gtf'})
 ANNOTATION_COLUMN_COUNT = 9
@@ -22,9 +23,10 @@ class AnnotationPreviewError(ValueError):
     """A genomic annotation that cannot be previewed."""
 
 
-@dataclass(frozen=True)
-class AnnotationRecord:
+class AnnotationRecord(BaseModel):
     """One normalized 0-based, half-open annotation feature."""
+
+    model_config = ConfigDict(frozen=True)
 
     chrom: str
     start: int

@@ -5,8 +5,9 @@
 
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 TEXT_SIGNAL_KINDS = frozenset({'bedgraph', 'wig'})
 BEDGRAPH_COLUMN_COUNT = 4
@@ -18,9 +19,10 @@ class SignalPreviewError(ValueError):
     """A text signal track that cannot be previewed."""
 
 
-@dataclass(frozen=True)
-class SignalRecord:
+class SignalRecord(BaseModel):
     """One 0-based, half-open signal interval."""
+
+    model_config = ConfigDict(frozen=True)
 
     chrom: str
     start: int

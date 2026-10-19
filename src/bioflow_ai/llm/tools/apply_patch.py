@@ -3,13 +3,12 @@
 import asyncio
 import stat
 import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Annotated
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from bioflow_ai.llm.context import CodingContext
 from bioflow_ai.llm.utils.patch import (
@@ -24,19 +23,17 @@ from bioflow_ai.schemas.code import CodeNodeType
 OPERATION_HEADERS = ('*** Add File: ', '*** Delete File: ', '*** Update File: ')
 
 
-@dataclass
-class FilePatch:
+class FilePatch(BaseModel):
     """A parsed file operation."""
 
     operation: str
     path: str
     contents: str = ''
     move_path: str | None = None
-    chunks: list[PatchChunk] = field(default_factory=list)
+    chunks: list[PatchChunk] = Field(default_factory=list)
 
 
-@dataclass
-class PreparedChange:
+class PreparedChange(BaseModel):
     """A file change whose paths and source text have already been verified."""
 
     operation: str
@@ -66,7 +63,7 @@ def parse_patch(patch: str) -> list[FilePatch]:
         if not path.strip():
             msg = 'File paths must not be empty.'
             raise PatchError(msg)
-        operation = FilePatch(header.split()[1], path)
+        operation = FilePatch(operation=header.split()[1], path=path)
         operations.append(operation)
         index += 1
         body: list[str] = []
@@ -170,7 +167,9 @@ def _prepare_changes(
             except UnicodeEncodeError as exc:
                 msg = f'Patch contents must be valid UTF-8: {operation.path}'
                 raise PatchError(msg) from exc
-        prepared.append(PreparedChange(operation.operation, source, target, contents, mode))
+        prepared.append(
+            PreparedChange(operation=operation.operation, source=source, target=target, contents=contents, mode=mode)
+        )
     return prepared
 
 

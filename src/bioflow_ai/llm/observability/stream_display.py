@@ -3,8 +3,9 @@
 import json
 import re
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 TOOL_CONTENT_PREVIEW = 200
 REASONING_CONTENT_PREVIEW = 200
@@ -12,9 +13,10 @@ TOOL_ARGUMENT_PREVIEW = 50
 INLINE_IMAGE = re.compile(r'data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+')
 
 
-@dataclass(frozen=True)
-class StreamDisplay:
+class StreamDisplay(BaseModel):
     """The contents shown by the terminal renderer for one graph update."""
+
+    model_config = ConfigDict(frozen=True)
 
     namespace: tuple[str, ...]
     model_message: Any

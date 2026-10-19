@@ -3,10 +3,10 @@
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
 from typing import Literal
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 from redis.asyncio import Redis
 from redis.asyncio.lock import Lock
 from redis.exceptions import LockError
@@ -14,9 +14,10 @@ from redis.exceptions import LockError
 from bioflow_ai.core.config import get_settings
 
 
-@dataclass(frozen=True)
-class CreationPermit:
+class CreationPermit(BaseModel):
     """Whether a workflow may create a tool catalog entry from its last search."""
+
+    model_config = ConfigDict(frozen=True)
 
     allowed: bool
     reason: Literal['missing_search', 'stale_search'] | None = None

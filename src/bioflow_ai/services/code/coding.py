@@ -6,11 +6,11 @@ import shutil
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import nullcontext, suppress
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 from langchain_core.messages import BaseMessage, HumanMessage
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.llm.context import CodingContext
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
@@ -33,9 +33,10 @@ class CodingAgent(Protocol):
         ...
 
 
-@dataclass(frozen=True)
-class CodingTurnResult:
+class CodingTurnResult(BaseModel):
     """Only a complete turn can update conversation history and offer a candidate."""
+
+    model_config = ConfigDict(frozen=True)
 
     messages: list[BaseMessage]
     proposal: CodeAgentProposal | None

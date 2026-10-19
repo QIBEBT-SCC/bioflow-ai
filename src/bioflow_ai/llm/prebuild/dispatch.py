@@ -1,9 +1,9 @@
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Literal, Optional
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.llm.agents.fs_agent.project_planner import build_project_planner
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
@@ -16,14 +16,15 @@ RouteTask = Literal['workflow-builder', 'workflow-assistant', 'workflow-fixer', 
 AgentFactory = Callable[[Optional[BaseCheckpointSaver]], CompiledStateGraph]
 
 
-@dataclass(frozen=True)
-class AgentSpec:
+class AgentSpec(BaseModel):
     """Registry entry for a top-level routable agent.
 
     Attributes:
         description: Human-readable purpose of the agent.
         factory: Builds the compiled agent with the given checkpointer.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     description: str
     factory: AgentFactory

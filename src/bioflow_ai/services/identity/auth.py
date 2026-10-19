@@ -1,9 +1,8 @@
 import hashlib
 import secrets
 import time
-from dataclasses import dataclass
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 from redis.asyncio import Redis
 
 from bioflow_ai.core.config import get_settings
@@ -22,15 +21,17 @@ class SessionRecord(BaseModel):
     absolute_expires_at: int
 
 
-@dataclass(frozen=True, slots=True)
-class IssuedSession:
+class IssuedSession(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     session_id: str
     csrf_token: str
     absolute_expires_at: int
 
 
-@dataclass(frozen=True, slots=True)
-class AuthSession:
+class AuthSession(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     digest: str
     record: SessionRecord
 

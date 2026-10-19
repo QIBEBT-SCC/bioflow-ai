@@ -1,10 +1,10 @@
 """Helpers for planning and resolving deterministic container mount paths."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -59,9 +59,10 @@ def resolve_registered_database_input_path(container_path: str, mounts: Iterable
     raise ValueError(msg)
 
 
-@dataclass(frozen=True)
-class ProjectDataMountPlan:
+class ProjectDataMountPlan(BaseModel):
     """Deterministic container mounts for the registered files of one project."""
+
+    model_config = ConfigDict(frozen=True)
 
     mounts: tuple[ContainerMount, ...] = ()
 

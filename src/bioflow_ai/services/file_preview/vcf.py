@@ -7,9 +7,10 @@ import gzip
 import math
 import re
 from contextlib import suppress
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
+
+from pydantic import BaseModel, ConfigDict, Field
 
 QUOTED_VALUE_MIN_LENGTH = 2
 REQUIRED_COLUMN_COUNT = 8
@@ -21,9 +22,10 @@ class VcfPreviewError(ValueError):
     """A VCF file or preview query that cannot be evaluated."""
 
 
-@dataclass(frozen=True)
-class VcfRecord:
+class VcfRecord(BaseModel):
     """One parsed VCF body record."""
+
+    model_config = ConfigDict(frozen=True)
 
     index: int
     line_number: int
@@ -39,18 +41,17 @@ class VcfRecord:
     sample_values: tuple[str, ...]
 
 
-@dataclass
-class VcfDocument:
+class VcfDocument(BaseModel):
     """VCF header metadata and records loaded from one file."""
 
     version: str
     samples: list[str]
     records: list[VcfRecord]
-    contig_order: list[str] = field(default_factory=list)
-    contig_lengths: dict[str, int] = field(default_factory=dict)
-    info_definitions: dict[str, dict[str, str]] = field(default_factory=dict)
-    format_definitions: dict[str, dict[str, str]] = field(default_factory=dict)
-    filter_definitions: dict[str, dict[str, str]] = field(default_factory=dict)
+    contig_order: list[str] = Field(default_factory=list)
+    contig_lengths: dict[str, int] = Field(default_factory=dict)
+    info_definitions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    format_definitions: dict[str, dict[str, str]] = Field(default_factory=dict)
+    filter_definitions: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 def vcf_file_kind(path: Path) -> str:

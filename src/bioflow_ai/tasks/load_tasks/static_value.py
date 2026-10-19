@@ -14,8 +14,6 @@ def set_value(
     sample_uid: str | None = None,
 ) -> ToolOutput:
     """Return literal text or a metadata value from the current sample."""
-    if value_type != 'string':
-        raise ValueError(value_type)
     if value.startswith('sample:'):
         if sample_uid is None:
             message = f'Cannot resolve {value}: no current sample.'
@@ -31,8 +29,5 @@ def set_value(
                 message = f'Sample {sample.sample_name!r} has no metadata field {key!r}'
                 raise KeyError(message)
             metadata_value = metadata[key]
-            if not isinstance(metadata_value, (str, int, float, bool)):
-                message = f'Sample metadata field {key!r} must be a scalar value'
-                raise TypeError(message)
             value = str(metadata_value)
     return ToolOutput(result={'value': value})

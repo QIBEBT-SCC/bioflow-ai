@@ -2,9 +2,10 @@
 
 import csv
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 from bioflow_ai.llm.observability.trajectories import iter_trajectory_events
 from bioflow_ai.services.progress import ProgressIterator, with_progress
@@ -32,8 +33,7 @@ NODE_STATS_COLUMNS = (
 )
 
 
-@dataclass
-class _AgentRunStats:
+class _AgentRunStats(BaseModel):
     rounds: int = 0
     total_tokens: int | None = None
     max_input_tokens: int | None = None

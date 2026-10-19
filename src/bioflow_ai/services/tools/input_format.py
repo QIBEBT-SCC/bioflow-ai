@@ -1,17 +1,19 @@
 import os
 import re
 import string
-from dataclasses import dataclass
 from itertools import takewhile
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.schemas.react_flow import TaskNode
 from bioflow_ai.schemas.tool_config import FileMount, ParamDefine
 
 
-@dataclass(frozen=True)
-class _UnresolvedField:
+class _UnresolvedField(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     name: str
     conversion: str | None = None
 
@@ -30,14 +32,14 @@ class PartialFormatter(string.Formatter):
         except (KeyError, IndexError):
             if self.strict:
                 raise
-            return _UnresolvedField(str(key))
+            return _UnresolvedField(name=str(key))
 
     def get_field(self, field_name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[Any, str | int]:
         """Resolve only the three supported properties of declared path inputs."""
         if '.' not in field_name and '[' not in field_name:
             return super().get_field(field_name, args, kwargs)
         if self.input_paths is None:
-            return _UnresolvedField(field_name), field_name
+            return _UnresolvedField(name=field_name), field_name
 
         input_name, _, attribute = field_name.partition('.')
         if attribute not in {'name', 'stem', 'suffix'} or '[' in field_name:
@@ -55,7 +57,7 @@ class PartialFormatter(string.Formatter):
     def convert_field(self, value: Any, conversion: str | None) -> Any:
         """Keep conversions attached to unresolved placeholders across formatting stages."""
         if isinstance(value, _UnresolvedField):
-            return _UnresolvedField(value.name, conversion)
+            return _UnresolvedField(name=value.name, conversion=conversion)
         return super().convert_field(value, conversion)
 
     def format_field(self, value: Any, format_spec: str) -> str:

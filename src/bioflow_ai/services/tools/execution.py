@@ -2,11 +2,11 @@
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_background
 from bioflow_ai.infrastructure.containers.mount_paths import resolve_mount_path
@@ -23,17 +23,19 @@ from bioflow_ai.services.workflow.output_validation import (
 MOUNTLIST_PREFIX = 'mountlist:'
 
 
-@dataclass(frozen=True)
-class ResolvedToolInput:
+class ResolvedToolInput(BaseModel):
     """A tool input already resolved to a host path or literal value."""
+
+    model_config = ConfigDict(frozen=True)
 
     value: str
     sample_name: str | None = None
 
 
-@dataclass(frozen=True)
-class DockerToolExecutionConfig:
+class DockerToolExecutionConfig(BaseModel):
     """The executable subset of a generated Docker tool definition."""
+
+    model_config = ConfigDict(frozen=True)
 
     image: ImageConfig
     command_template: str
@@ -43,9 +45,10 @@ class DockerToolExecutionConfig:
     file_mounts: list[FileMount]
 
 
-@dataclass(frozen=True)
-class DockerToolExecution:
+class DockerToolExecution(BaseModel):
     """A fully prepared Docker tool invocation."""
+
+    model_config = ConfigDict(frozen=True)
 
     image: ImageConfig
     command: str
@@ -54,28 +57,32 @@ class DockerToolExecution:
     required_output_names: frozenset[str] | None = None
 
 
-@dataclass(frozen=True)
-class DockerToolExecutionResult:
+class DockerToolExecutionResult(BaseModel):
     """Observable result of a synchronous prepared-tool execution."""
+
+    model_config = ConfigDict(frozen=True)
 
     output: ToolOutput
     exit_code: int
     console_output: str
     missing_outputs: list[Path]
 
+    @computed_field
     @property
     def succeeded(self) -> bool:
         """Return whether the command exited cleanly and produced every required output."""
         return self.exit_code == 0 and not self.missing_outputs
 
 
-@dataclass(frozen=True)
-class ImageCommandResult:
+class ImageCommandResult(BaseModel):
     """Result of running an ad-hoc command in a configured tool image."""
+
+    model_config = ConfigDict(frozen=True)
 
     exit_code: int
     output: str
 
+    @computed_field
     @property
     def succeeded(self) -> bool:
         """Return whether the command exited successfully."""
