@@ -75,8 +75,9 @@ def build_command_template(
     file_mounts: list[FileMount],
 ) -> str:
     """构建到最后一级的指令模板字符串."""
-    position_params: list[ParamDefine] = sorted(
-        [param for param in dynamic_params if param.is_position], key=lambda x: x.index
+    position_params: list[ParamDefine] = sorted(  # ty: ignore[no-matching-overload]
+        [param for param in dynamic_params if param.is_position],
+        key=lambda x: x.index,
     )
     optional_params = [param.command for param in dynamic_params if not param.is_position]
 
@@ -84,7 +85,7 @@ def build_command_template(
     modifiable_static_params = modifiable_static_params or ''
     static_params = f'{immutable_static_params} {modifiable_static_params}'.strip()
     if static_params:
-        optional_params.append(static_params)
+        optional_params.insert(0, static_params)
 
     formatter = PartialFormatter()
     command_template = formatter.format(
