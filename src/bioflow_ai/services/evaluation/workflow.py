@@ -653,7 +653,6 @@ async def wf_eval(
     paper_file: str | None,
     thread_id: str | None,
     *,
-    drop_old: bool,
     clean_checkpoint: bool = False,
     clean_all: bool = False,
     resume: str | None = None,
@@ -669,7 +668,7 @@ async def wf_eval(
     if db_index is not None:
         logger.warning('--db-index is ignored because evaluate records now use a single SQLite database.')
 
-    if resume is not None and (drop_old or clean_checkpoint or clean_all):
+    if resume is not None and (clean_checkpoint or clean_all):
         message = '--resume cannot be combined with checkpoint cleanup options.'
         raise EvaluationUsageError(message)
 
@@ -678,9 +677,7 @@ async def wf_eval(
     project_id: int | None = None
     project_name: str | None = None
     try:
-        if drop_old:
-            logger.warning('--drop-old is deprecated; use --clean-checkpoint instead.')
-        reset_checkpoint = drop_old or clean_checkpoint or clean_all
+        reset_checkpoint = clean_checkpoint or clean_all
 
         user_input = await _build_input(con, task_file, paper_file, thread_id)
         project_id, project_name, workdir = _init_project(con, thread_id)

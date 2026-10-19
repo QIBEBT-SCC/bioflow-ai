@@ -25,7 +25,6 @@ def cli() -> None:
 @click.option('--paper', '-p', 'paper_file', default=None, type=click.Path(exists=True), help='PDF paper file path.')
 @click.option('--thread-id', '-t', default=None, help='Checkpoint thread ID.')
 @click.option('--db-index', '-d', default=None, type=click.IntRange(min=1), help='Deprecated; ignored.')
-@click.option('--drop-old', is_flag=True, default=False, help='Deprecated alias for --clean-checkpoint.')
 @click.option(
     '--clean-checkpoint',
     is_flag=True,
@@ -54,7 +53,6 @@ def wf_cmd(
     paper_file: str | None,
     thread_id: str | None,
     db_index: int | None,
-    drop_old: bool,  # noqa: FBT001
     clean_checkpoint: bool,  # noqa: FBT001
     clean_all: bool,  # noqa: FBT001
     langsmith_tracing: bool,  # noqa: FBT001
@@ -67,7 +65,6 @@ def wf_cmd(
                 task_file,
                 paper_file,
                 thread_id,
-                drop_old=drop_old,
                 clean_checkpoint=clean_checkpoint,
                 clean_all=clean_all,
                 resume=resume,
