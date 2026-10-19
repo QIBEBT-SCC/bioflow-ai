@@ -97,24 +97,6 @@ def render_python_script(code: str, dependencies: Any) -> str:
     return f'# /// script\n{commented_metadata}\n# ///\n\n{code.rstrip()}\n'
 
 
-def build_python_command(
-    arguments: list[str],
-    index_url: str = DEFAULT_PYTHON_INDEX_URL,
-) -> str:
-    """Build the uv command with the configured default Python package index."""
-    return shlex.join(
-        [
-            'uv',
-            'run',
-            '--default-index',
-            index_url,
-            '--script',
-            '/app/main.py',
-            *arguments,
-        ]
-    )
-
-
 def normalize_r_dependencies(dependencies: Any) -> list[str]:
     """Normalize R dependency data into distinct CRAN package names."""
     if dependencies is None:
@@ -305,7 +287,17 @@ def execute_python(
             ContainerMount(source=str(output_path), target='/data/output', read_only=False),
         ]
         index_url = str(get_settings().code.PYTHON_INDEX_URL)
-        command = build_python_command(arguments, index_url)
+        command = shlex.join(
+            [
+                'uv',
+                'run',
+                '--default-index',
+                index_url,
+                '--script',
+                '/app/main.py',
+                *arguments,
+            ]
+        )
         logger.debug(f'python executor: {command}')
         status, console_output = run_command(
             PYTHON_CODE_IMAGE,
