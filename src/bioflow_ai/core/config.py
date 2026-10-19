@@ -19,10 +19,6 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
-INSECURE_NONE_COOKIE_ERROR = 'SameSite=None cookies require cookie_secure=true'
-DEFAULT_CRAN_REPOSITORY = 'https://cloud.r-project.org'
-DEFAULT_PYTHON_INDEX_URL = 'https://pypi.org/simple'
-
 
 class BaseSectionConfig(BaseModel):
     model_config = ConfigDict(
@@ -47,7 +43,8 @@ class SecurityConfig(BaseSectionConfig):
     def validate_cookie_transport(self) -> 'SecurityConfig':
         """Require encrypted transport for cross-site cookies."""
         if self.COOKIE_SAMESITE == 'none' and not self.COOKIE_SECURE:
-            raise ValueError(INSECURE_NONE_COOKIE_ERROR)
+            err_msg = 'SameSite=None cookies require cookie_secure=true'
+            raise ValueError(err_msg)
         return self
 
 
@@ -129,8 +126,8 @@ class DockerConfig(BaseSectionConfig):
 
 
 class CodeConfig(BaseSectionConfig):
-    CRAN_REPOSITORY: AnyHttpUrl = AnyHttpUrl(DEFAULT_CRAN_REPOSITORY)
-    PYTHON_INDEX_URL: AnyHttpUrl = AnyHttpUrl(DEFAULT_PYTHON_INDEX_URL)
+    CRAN_REPOSITORY: AnyHttpUrl = AnyHttpUrl('https://cloud.r-project.org')
+    PYTHON_INDEX_URL: AnyHttpUrl = AnyHttpUrl('https://pypi.org/simple')
 
 
 class CodeEditingConfig(BaseSectionConfig):

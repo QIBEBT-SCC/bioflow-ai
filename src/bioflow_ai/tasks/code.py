@@ -9,13 +9,14 @@ from typing import Any
 import tomli_w
 from loguru import logger
 
-from bioflow_ai.core.config import DEFAULT_CRAN_REPOSITORY, DEFAULT_PYTHON_INDEX_URL, get_settings
+from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command
 from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.workflow.execution_context import get_node_output, get_prefix
 
+BASH_CODE_IMAGE = ImageConfig.from_str('')
 PYTHON_CODE_IMAGE = ImageConfig.from_str('ghcr.io/astral-sh/uv:python3.13-bookworm-slim')
 R_CODE_IMAGE = ImageConfig.from_str('r-base:4.4.3')
 R_CODE_MAX_DEPENDENCIES = 32
@@ -136,7 +137,7 @@ def normalize_r_dependencies(dependencies: Any) -> list[str]:
 
 def render_r_dependency_script(
     dependencies: Any,
-    repository: str = DEFAULT_CRAN_REPOSITORY,
+    repository: str,
 ) -> str:
     """Render a backend-controlled installer for R 4.4.3-compatible CRAN packages."""
     packages = normalize_r_dependencies(dependencies)
