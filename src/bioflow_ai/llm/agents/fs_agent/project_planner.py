@@ -17,7 +17,7 @@ from bioflow_ai.llm.middleware import (
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
 )
-from bioflow_ai.llm.models import get_long_context_model
+from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import ProjectPlannerState
 from bioflow_ai.llm.tools.human import ask_human_with_choices, confirm_plan
 from bioflow_ai.llm.tools.project_workspace import project_apply_patch, project_run_command, set_base_dir
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
     from bioflow_ai.llm.llm_client import LLMMetadata
 
-AGENT_LLM = get_long_context_model()
+AGENT_LLM = get_agent_model()
 metadata = cast('LLMMetadata', AGENT_LLM.metadata)
 
 SYSTEM_PROMPT = """你的任务是把用户的原始数据和分析需求转化为已注册的样本、可供后续智能体读取的样本说明，以及经过用户批准的分析计划。
