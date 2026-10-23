@@ -42,7 +42,6 @@ def _collect_snapshot() -> list[dict[str, Any]]:
     from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc, ToolImage
     from bioflow_ai.schemas.tools import ToolDefinitionImport
-    from bioflow_ai.services.tools.input_format import build_command_template
 
     with (
         engine.connect().execution_options(isolation_level='REPEATABLE READ') as connection,
@@ -106,13 +105,7 @@ def _collect_snapshot() -> list[dict[str, Any]]:
                     'description': validated.description,
                     'aliases': aliases,
                     'image': image.image.get_image() if image is not None and image.image is not None else None,
-                    'complete_command': build_command_template(
-                        validated.command_template,
-                        validated.dynamic_params,
-                        validated.immutable_static_params,
-                        validated.modifiable_static_params,
-                        validated.file_mounts,
-                    ),
+                    'complete_command': tool.complete_command,
                     'parameters': [value.model_dump(mode='json') for value in validated.dynamic_params],
                     'inputs': [mount for mount in mounts if mount['file_type'] == 'INPUT'],
                     'outputs': [mount for mount in mounts if mount['file_type'] == 'OUTPUT'],

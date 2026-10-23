@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import and_, case, func, or_, select, text
+from sqlalchemy.exc import DataError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -54,8 +55,6 @@ def insert(session: Session, tool: ToolDefine) -> ToolDefine:
     """Insert a new tool into the database."""
     session.add(tool)
     session.flush()
-    session.refresh(tool)
-
     return tool
 
 
@@ -63,10 +62,6 @@ def insert_all(session: Session, tools: list[ToolDefine]) -> list[ToolDefine]:
     """Insert multiple tools into the database."""
     session.add_all(tools)
     session.flush()
-
-    for tool in tools:
-        session.refresh(tool)
-
     return tools
 
 
@@ -98,8 +93,6 @@ def update(session: Session, tool: ToolDefine) -> ToolDefine:
     """Update an existing tool in the database."""
     session.add(tool)
     session.flush()
-    session.refresh(tool)
-
     return tool
 
 
@@ -173,6 +166,38 @@ def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int)
     predicate, _ordering = _name_search_expressions(name)
     count_stmt = select(func.count()).select_from(ToolDefine).where(predicate)
     return get_by_name_fuzzy(session, name, limit, offset), session.scalar(count_stmt) or 0
+
+
+def search_by_command(session: Session, patterns: Sequence[str], limit: int) -> tuple[Sequence[ToolDefine], int]:
+    """Return tools whose rendered command matches every pattern, together with the total match count.
+
+    Patterns are case-insensitive PostgreSQL regular expressions, similar to chaining ``rg -i``.
+    If any pattern is not a valid regular expression, all patterns are matched as literal substrings.
+    """
+    try:
+        with session.begin_nested():
+            predicate = and_(*(ToolDefine.complete_command.regexp_match(pattern, flags='i') for pattern in patterns))
+            return _search_by_predicate(session, predicate, limit)
+    except DataError:
+        predicate = and_(*(ToolDefine.complete_command.icontains(pattern, autoescape=True) for pattern in patterns))
+        return _search_by_predicate(session, predicate, limit)
+
+
+def _search_by_predicate(
+    session: Session,
+    predicate: ColumnElement[bool],
+    limit: int,
+) -> tuple[Sequence[ToolDefine], int]:
+    """Return a name-ordered page of tools matching a predicate and the total match count."""
+    total = session.scalar(select(func.count()).select_from(ToolDefine).where(predicate)) or 0
+    stmt = (
+        select(ToolDefine)
+        .where(predicate)
+        .order_by(ToolDefine.name)
+        .options(selectinload(ToolDefine.tags), selectinload(ToolDefine.image))
+        .limit(limit)
+    )
+    return session.scalars(stmt).all(), total
 
 
 def get(session: Session, tool_uid: UUIDLike) -> ToolDefine | None:

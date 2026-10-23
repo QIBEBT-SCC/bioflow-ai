@@ -65,55 +65,15 @@ async def rebuild_image_index(*, progress: ProgressIterator | None = None) -> No
 
 async def rebuild_tool_index(*, progress: ProgressIterator | None = None) -> None:
     """重建工具库向量索引."""
-    from langchain_core.documents import Document
-
-    from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.database import engine
-    from bioflow_ai.llm.models import qwen3_embedding
-    from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.tools import ToolDefine
-
-    embedding = qwen3_embedding()
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=embedding,
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-        drop_old=True,
-    )
+    from bioflow_ai.services.tools.index import index_tools
 
     with Session(engine) as session:
-        statement = select(ToolDefine)
-        results = session.scalars(statement).all()
+        tools = session.scalars(select(ToolDefine)).all()
 
-    docs_to_add = []
-    empty_tools = []
-    batch_size = 10
-
-    for tool_data in with_progress(results, progress):
-        if tool_data.description:
-            docs_to_add.append(
-                Document(
-                    page_content=tool_data.description,
-                    metadata={
-                        'image_uid': str(tool_data.image_uid),
-                        'tool_uid': str(tool_data.uid),
-                        'name': tool_data.name,
-                    },
-                )
-            )
-
-            if len(docs_to_add) >= batch_size:
-                async with vectorstore:
-                    await vectorstore.aadd_documents(docs_to_add)
-                docs_to_add = []
-        else:
-            empty_tools.append(str(tool_data.uid))
-
-    if docs_to_add:
-        async with vectorstore:
-            await vectorstore.aadd_documents(docs_to_add)
+    empty_tools = await index_tools(tools, drop_old=True, progress=progress)
 
     if empty_tools:
         empty_file = Path('empty_tools.txt')
-        await empty_file.write_text('\n'.join(empty_tools) + '\n')
+        await empty_file.write_text('\n'.join(str(tool.uid) for tool in empty_tools) + '\n')

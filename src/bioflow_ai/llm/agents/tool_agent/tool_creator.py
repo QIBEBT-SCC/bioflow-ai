@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, cast
 
 from langchain.agents import AgentState, create_agent
-from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -22,7 +21,6 @@ import bioflow_ai.crud.tools.tool as tool_crud
 import bioflow_ai.crud.tools.tool_doc as doc_crud
 import bioflow_ai.crud.tools.tool_group as group_crud
 import bioflow_ai.crud.tools.tool_tag as tag_crud
-from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers import run_command_async
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.agents.tool_agent.config_generator import config_generate_agent
@@ -32,16 +30,16 @@ from bioflow_ai.llm.agents.tool_agent.searcher import search_image_agent
 from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from bioflow_ai.llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
 from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMiddleware
-from bioflow_ai.llm.models import get_agent_model, qwen3_embedding
+from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
 from bioflow_ai.llm.tools.database import select_group, view_groups
 from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.llm.utils.formatters import handle_formatter, search_nodes_formatter
 from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
-from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
 from bioflow_ai.schemas.tool_config import ToolType
 from bioflow_ai.schemas.tools import ToolNodePublic
+from bioflow_ai.services.tools.index import index_tools
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
@@ -370,28 +368,7 @@ class CreateToolAgent:
 
             tool_data = tool_crud.insert(session, tool_data)
             session.commit()
-
-            # 添加描述的向量索引
-            embedding_model = qwen3_embedding()
-            vectorstore = MilvusVectorStore(
-                collection_name='ToolCollection',
-                embedding_function=embedding_model,
-                uri=get_settings().knowledge_base.MILVUS_URL,
-                hybrid=True,
-            )
-
-            docs = [
-                Document(
-                    page_content=tool_data.description,
-                    metadata={
-                        'image_uid': str(tool_data.image_uid),
-                        'tool_uid': str(tool_data.uid),
-                        'name': tool_data.name,
-                    },
-                ),
-            ]
-            async with vectorstore:
-                await vectorstore.aadd_documents(docs)
+            await index_tools([tool_data])
 
             mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
 

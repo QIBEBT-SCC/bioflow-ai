@@ -1,6 +1,5 @@
 """Application services for managing the tool catalog."""
 
-from langchain_core.documents import Document
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,7 +10,6 @@ import bioflow_ai.crud.tools.tool_doc as doc_crud
 import bioflow_ai.crud.tools.tool_group as group_crud
 import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from bioflow_ai.schemas.tool_config import ToolType
@@ -27,6 +25,7 @@ from bioflow_ai.services._transaction import committing
 from bioflow_ai.services.tools import cache as tool_cache
 from bioflow_ai.services.tools.execution import ImageCommandResult, execute_image_command
 from bioflow_ai.services.tools.image_references import assign_image_refs, lock_and_get_all
+from bioflow_ai.services.tools.index import index_tools, refresh_tool_index, remove_tool_index
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 
 _IMAGE_NOT_FOUND = 'Tool image not found'
@@ -170,46 +169,6 @@ def refresh_help_document(session: Session, doc_uid: UUIDLike) -> ToolHelpDoc:
     return doc
 
 
-def _tool_index_document(tool: ToolDefine) -> Document:
-    """Build the vector document used to discover a tool."""
-    return Document(
-        page_content=tool.description,
-        metadata={
-            'image_uid': str(tool.image_uid),
-            'tool_uid': str(tool.uid),
-            'name': tool.name,
-        },
-    )
-
-
-async def _add_tool_index(tool: ToolDefine) -> None:
-    """Add a tool description projection to the vector index."""
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=qwen3_embedding(),
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    async with vectorstore:
-        await vectorstore.aadd_documents([_tool_index_document(tool)])
-
-
-async def _refresh_tool_index(tool: ToolDefine) -> None:
-    """Replace a tool's vector projection after its description changes."""
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=qwen3_embedding(),
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    async with vectorstore:
-        await vectorstore.adelete(
-            filter_expression='tool_uid == {uid}',
-            filter_params={'uid': str(tool.uid)},
-        )
-        await vectorstore.aadd_documents([_tool_index_document(tool)])
-
-
 async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefine:
     """Create a Docker tool, reusing or generating its help document, then index it."""
     image = image_crud.get(session, tool_data.image_uid)
@@ -250,7 +209,7 @@ async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefi
         tool_crud.insert(session, tool)
         tool_uid = tool.uid
 
-    await _add_tool_index(tool)
+    await index_tools([tool])
 
     persisted_tool = tool_crud.get(session, tool_uid)
     if persisted_tool is None:
@@ -287,7 +246,7 @@ async def update_tool(
 
     await tool_cache.invalidate_tool_projections(redis, tool_uid)
     if description_changed:
-        await _refresh_tool_index(tool)
+        await refresh_tool_index(tool)
     return tool_crud.get(session, tool_uid)
 
 
@@ -340,13 +299,5 @@ async def delete_tool(
         raise
 
     await tool_cache.invalidate_tool_projections(redis, tool_uid)
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-    await vectorstore.adelete(
-        filter_expression='tool_uid == {uid}',
-        filter_params={'uid': str(tool_uid)},
-    )
+    await remove_tool_index(tool_uid)
     return True

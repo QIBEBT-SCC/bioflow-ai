@@ -497,43 +497,32 @@ async def delete_prebuild_tool(indices: list[int]) -> None:
     import duckdb
 
     import bioflow_ai.crud.tools.tool as tool_crud
-    from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.database import engine
-    from bioflow_ai.llm.vectorstores import MilvusVectorStore
+    from bioflow_ai.services.tools.cache import invalidate_tool_projections_sync
+    from bioflow_ai.services.tools.index import remove_tool_index
 
     con = duckdb.connect(DB_PATH)
     thread_ids_to_delete: list[str] = []
     valid_indices: list[int] = []
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
 
-    async with vectorstore:
-        for index in indices:
-            tool_info = row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
-            if tool_info is None:
-                logger.warning(f'No data found for index {index}; skipping')
-                continue
-            logger.info(f'Data to delete (index={index}): {tool_info}')
-            valid_indices.append(index)
+    for index in indices:
+        tool_info = row_to_dict(con, 'SELECT * FROM tool_functions WHERE index = ?', [index])
+        if tool_info is None:
+            logger.warning(f'No data found for index {index}; skipping')
+            continue
+        logger.info(f'Data to delete (index={index}): {tool_info}')
+        valid_indices.append(index)
 
-            if tool_uid := tool_info.get('tool_uid'):
-                with Session(engine) as session:
-                    tool_crud.delete(session, tool_uid)
-                    session.commit()
-                    from bioflow_ai.services.tools.cache import invalidate_tool_projections_sync
+        if tool_uid := tool_info.get('tool_uid'):
+            with Session(engine) as session:
+                tool_crud.delete(session, tool_uid)
+                session.commit()
+            invalidate_tool_projections_sync(tool_uid)
+            logger.info(f'Deleted a database record (index={index})')
+            await remove_tool_index(tool_uid)
 
-                    invalidate_tool_projections_sync(tool_uid)
-                    logger.info(f'Deleted a database record (index={index})')
-                await vectorstore.adelete(
-                    filter_expression='tool_uid == {uid}',
-                    filter_params={'uid': tool_uid},
-                )
-
-            if thread_id := tool_info.get('thread_id'):
-                thread_ids_to_delete.append(thread_id)
+        if thread_id := tool_info.get('thread_id'):
+            thread_ids_to_delete.append(thread_id)
 
     await _cleanup_threads(con, thread_ids_to_delete, valid_indices, delete_trajectories=True)
     con.close()

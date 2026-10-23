@@ -205,17 +205,15 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
     """Initialize the tool database and tool vector index."""
     import orjson
     import polars as pl
-    from langchain_core.documents import Document
     from pydantic import ValidationError
 
     import bioflow_ai.crud.tools.tool as tool_crud
     import bioflow_ai.crud.tools.tool_tag as tag_crud
-    from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.database import engine
-    from bioflow_ai.llm.models import qwen3_embedding
-    from bioflow_ai.llm.vectorstores import MilvusVectorStore
     from bioflow_ai.models.tools import ToolDefine
     from bioflow_ai.schemas.tools import ToolDefinitionImport
+    from bioflow_ai.services.tools.cache import invalidate_all_tool_definitions_sync
+    from bioflow_ai.services.tools.index import index_tools
 
     preset_file = await _ensure_preset_file('tools.parquet')
     tools_df = pl.read_parquet(preset_file.path)
@@ -246,15 +244,6 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
         except ValidationError:
             validation_error_count += 1
 
-    embedding = qwen3_embedding()
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=embedding,
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-        drop_old=drop_old,
-    )
-
     delete_count = None
     warning_count = 0
     with Session(engine) as session:
@@ -274,26 +263,8 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
 
         tools = tool_crud.insert_all(session, tools)
         session.commit()
-
-        from bioflow_ai.services.tools.cache import invalidate_all_tool_definitions_sync
-
         invalidate_all_tool_definitions_sync()
-
-        for i in with_progress(range(0, len(tools), BATCH_SIZE), progress):
-            batch_tools = tools[i : i + BATCH_SIZE]
-
-            docs = [
-                Document(
-                    page_content=tool.description,
-                    # ty: ignore[unresolved-attribute]
-                    metadata={'tool_uid': str(tool.uid), 'image_uid': str(tool.image.uid), 'name': tool.name},
-                )
-                for tool in batch_tools
-                if tool.description
-            ]
-
-            async with vectorstore:
-                await vectorstore.aadd_documents(docs)
+        await index_tools(tools, drop_old=drop_old, progress=progress)
 
     return PresetImportResult(
         name='tools',

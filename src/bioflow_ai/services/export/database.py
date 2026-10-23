@@ -34,15 +34,23 @@ def _export_dataset(
     output: Path,
     *,
     upload: bool,
+    derived_columns: tuple[str, ...] = (),
 ) -> DatabaseExportResult:
-    """Export one PostgreSQL query to a sorted Parquet file and optionally upload it."""
+    """Export one PostgreSQL query to a sorted Parquet file and optionally upload it.
+
+    Derived columns are dropped because importing regenerates them from their source fields.
+    """
     import polars as pl
 
-    data = pl.read_database_uri(
-        query,
-        uri=_database_uri(),
-        engine='connectorx',
-    ).sort('uid')
+    data = (
+        pl.read_database_uri(
+            query,
+            uri=_database_uri(),
+            engine='connectorx',
+        )
+        .sort('uid')
+        .drop(derived_columns)
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     data.write_parquet(output, compression='snappy')
 
@@ -100,4 +108,5 @@ def export_tools(*, upload: bool = False) -> DatabaseExportResult:
         """,
         TOOLS_OUTPUT,
         upload=upload,
+        derived_columns=('complete_command',),
     )

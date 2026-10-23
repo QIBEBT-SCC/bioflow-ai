@@ -1,12 +1,14 @@
 import uuid
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, event
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.engine import Connection
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
 
 from bioflow_ai.models.base import Base
 from bioflow_ai.models.decorator.special_field import IntEnumType, PydanticJson
 from bioflow_ai.schemas import tool_config
+from bioflow_ai.services.tools.input_format import build_command_template
 from bioflow_ai.utils.system import random_uid
 
 
@@ -100,6 +102,20 @@ class ToolDefine(Base):
         PydanticJson(list[tool_config.FileMount]),
         nullable=True,
     )
+    complete_command: Mapped[str] = mapped_column(default='')
 
     help_doc: Mapped['ToolHelpDoc | None'] = relationship(back_populates='tools')
     image: Mapped['ToolImage | None'] = relationship(back_populates='tools')
+
+
+@event.listens_for(ToolDefine, 'before_insert')
+@event.listens_for(ToolDefine, 'before_update')
+def _render_complete_command(_mapper: Mapper[ToolDefine], _connection: Connection, tool: ToolDefine) -> None:
+    """Keep the searchable rendered command aligned with the command definition."""
+    tool.complete_command = build_command_template(
+        command_template=tool.command_template,
+        dynamic_params=tool.dynamic_params or [],
+        immutable_static_params=tool.immutable_static_params,
+        modifiable_static_params=tool.modifiable_static_params,
+        file_mounts=tool.file_mounts or [],
+    )

@@ -8,7 +8,7 @@ from langgraph.config import get_stream_writer
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.tools.tool as tool_crud
@@ -34,11 +34,32 @@ from bioflow_ai.services.tools.input_format import build_command_template
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
 
+SEARCH_RESULT_LIMIT = 15
+
 
 class SearchToolSchema(BaseModel):
-    """Search for tool nodes by name."""
+    """Search tool nodes by their complete command, like chaining `rg -i` over every node's command line."""
 
-    name: str = Field(description='Name of the tool to search for, e.g. `samtools`')
+    patterns: list[str] = Field(
+        min_length=1,
+        description=(
+            'Case-insensitive regular expressions matched against the complete command of each tool node; '
+            'a node is returned only when every pattern matches. Use one pattern per command fragment so that '
+            'option order does not matter, e.g. `["samtools sort"]`, `["gatk", "HaplotypeCaller"]` or '
+            '`["emapper", "-m cache"]`. Start with the program and subcommand, then add mode-defining options '
+            'to narrow down the results.'
+        ),
+    )
+
+    @field_validator('patterns')
+    @classmethod
+    def drop_blank_patterns(cls, patterns: list[str]) -> list[str]:
+        """Remove blank patterns and require at least one meaningful pattern."""
+        patterns = [pattern.strip() for pattern in patterns if pattern.strip()]
+        if not patterns:
+            msg = 'At least one non-blank pattern is required'
+            raise ValueError(msg)
+        return patterns
 
 
 class AddToolSchema(BaseModel):
@@ -120,7 +141,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            return await _search_tool(validate_param.name, runtime)
+            return await _search_tool(validate_param.patterns, runtime)
 
         case 'add':
             try:
@@ -323,7 +344,7 @@ def _stale_tool_search_command(reason: str | None, runtime: ToolRuntime[ProjectC
     )
 
 
-async def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]) -> Command:
     writer = get_stream_writer()
     thread_id = workflow_thread_id(runtime.config)
     async with (
@@ -337,7 +358,7 @@ async def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Comma
         guard.search(),
     ):
         with Session(engine) as session:
-            exist_tools = tool_crud.get_by_name_fuzzy(session, name, 15, 0)
+            exist_tools, total = tool_crud.search_by_command(session, patterns, SEARCH_RESULT_LIMIT)
             new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
 
     if exist_tools:
@@ -351,14 +372,20 @@ async def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Comma
                 msg = f'Invalid tool definition "{exist_tool.name}" ({exist_tool.uid}): {error}'
                 raise InvalidToolDefinitionError(msg) from error
 
+        truncated_hint = (
+            f'\n\n{total} tool nodes matched; only the first {len(tool_nodes)} are shown. '
+            'Add more patterns to narrow down the results.'
+            if total > len(tool_nodes)
+            else ''
+        )
         return Command(
             update={
                 'id_mapper': merged_mapper,
                 'messages': [
                     ToolMessage(
                         content=(
-                            f'Based on the keywords, the following tool nodes are available:\n'
-                            f'{search_nodes_formatter(tool_nodes, merged_mapper)}'
+                            f'The following tool nodes have commands matching all patterns:\n'
+                            f'{search_nodes_formatter(tool_nodes, merged_mapper)}{truncated_hint}'
                         ),
                         tool_call_id=runtime.tool_call_id,
                     )
@@ -371,8 +398,9 @@ async def _search_tool(name: str, runtime: ToolRuntime[ProjectContext]) -> Comma
             'messages': [
                 ToolMessage(
                     content=(
-                        'Based on the keywords you provided, no results found. '
-                        'Consider first searching with relatively concise keywords (e.g., STAR), then gradually adding restrictions. '
+                        'No tool node command matches all patterns. '
+                        'Remove some patterns or search for the program name alone (e.g., ["STAR"]), '
+                        'then add restrictions gradually. '
                         'If you confirm that the desired tool cannot be found, use action="create" to create a new tool node.'
                     ),
                     tool_call_id=runtime.tool_call_id,
