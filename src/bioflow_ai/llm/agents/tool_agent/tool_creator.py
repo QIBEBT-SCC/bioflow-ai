@@ -1,13 +1,13 @@
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, cast
 
 from langchain.agents import AgentState, create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_stream_writer
-from langgraph.constants import END
+from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
@@ -25,7 +25,6 @@ from bioflow_ai.infrastructure.containers import run_command_async
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.agents.tool_agent.config_generator import config_generate_agent
 from bioflow_ai.llm.agents.tool_agent.report_generator_v2 import test_run_agent
-from bioflow_ai.llm.agents.tool_agent.routes import route_after_image_selection, route_after_tool_report
 from bioflow_ai.llm.agents.tool_agent.searcher import search_image_agent
 from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from bioflow_ai.llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
@@ -72,7 +71,7 @@ To complete this task, you can follow these steps:
 
 class ToolInfoSchema(BaseModel):
     homepage: str = Field(description="Tool's homepage, prioritizing the GitHub source code repository")
-    paper_url: Optional[str] = Field(description="Link to the tool's publication, leave blank if not applicable")
+    paper_url: str | None = Field(description="Link to the tool's publication, leave blank if not applicable")
 
 
 class TempIDClass(BaseModel):
@@ -83,13 +82,15 @@ class SelectGroupState(AgentState):
     group_id: NotRequired[int]
 
 
+PostReportRoute = Literal['__end__'] | list[Literal['choose_group', 'generate_tool_config', 'process_help_doc']]
+
+
 class CreateToolAgent:
     def __init__(self) -> None:
         self.think_llm = get_agent_model()
 
         # sub agents
         metadata = cast('LLMMetadata', self.think_llm.metadata)
-        # ty: ignore[no-matching-overload]
         self.select_group_agent = create_agent(
             model=self.think_llm,
             tools=[view_groups, select_group],
@@ -391,18 +392,28 @@ class CreateToolAgent:
         }
 
     @staticmethod
-    def whether_local_search(
+    def route_after_image_selection(
         state: CreateToolState,
         runtime: Runtime[CreateToolContext],
     ) -> Literal['search_exist_tool', 'get_report', '__end__']:
         """如果是以智能体模式运行, 需要检查冗余."""
-        return route_after_image_selection(state, skip_search=runtime.context.skip_search)
+        if state.get('return_to_parent'):
+            return '__end__'
+        return 'get_report' if runtime.context.skip_search else 'search_exist_tool'
 
-    def build(self, memory: Optional[BaseCheckpointSaver] = None, *, visualize: bool = False) -> CompiledStateGraph:
+    @staticmethod
+    def route_after_tool_report(state: CreateToolState) -> PostReportRoute:
+        """End on a parent handoff or fan out the independent post-report work."""
+        if state.get('return_to_parent'):
+            return '__end__'
+        return ['choose_group', 'generate_tool_config', 'process_help_doc']
+
+    def build(
+        self, memory: BaseCheckpointSaver | None = None, *, visualize: bool = False
+    ) -> CompiledStateGraph[Any, CreateToolContext, Any, CreateToolOutput]:
         """Create Tool Agent."""
         graph = StateGraph(
-            # ty: ignore[invalid-argument-type]
-            state_schema=CreateToolState,
+            state_schema=CreateToolState,  # ty: ignore[invalid-argument-type]
             context_schema=CreateToolContext,
             output_schema=CreateToolOutput,
         )
@@ -415,9 +426,13 @@ class CreateToolAgent:
         graph.add_node('process_help_doc', self.process_help_doc_node)
         graph.add_node('save_tool', self.save_tool_node)
 
-        graph.set_entry_point('select_image')
-        graph.add_conditional_edges('select_image', self.whether_local_search)
-        graph.add_conditional_edges('get_report', route_after_tool_report)
+        graph.add_edge(START, 'select_image')
+        graph.add_conditional_edges('select_image', self.route_after_image_selection)
+        graph.add_conditional_edges(
+            'get_report',
+            self.route_after_tool_report,
+            ['choose_group', 'generate_tool_config', 'process_help_doc', END],
+        )
         graph.add_edge(['choose_group', 'generate_tool_config', 'process_help_doc'], 'save_tool')
         graph.add_edge('save_tool', END)
 
@@ -430,5 +445,4 @@ class CreateToolAgent:
             with Path('images/create_tool_agent.md').open('w') as f:
                 f.write(f'```mermaid\n{mermaid_code}\n```')
 
-        # ty: ignore[invalid-return-type]
         return compiled_graph
