@@ -97,14 +97,14 @@ async def run_coding_turn(
             prompt = (
                 f'Current target CODE node type: {node_type.value}\n'
                 'The workspace was rebuilt from the latest editor source and dependencies for this turn. '
-                'Previous output/ fixtures are absent; recreate any needed small fixtures with apply_patch.\n\n'
+                'Previous output/ fixtures are absent; recreate any needed fixtures.\n\n'
                 f'User request:\n{request}'
             )
             if input_contract is not None:
                 prompt += '\n\nAuthoritative input contract:\n' + json.dumps(input_contract, ensure_ascii=False)
             messages = [*(history or []), HumanMessage(prompt)]
             if agent is None:
-                from bioflow_ai.llm.agents.coding_agent.simple_coding import build_simple_coding_agent
+                from bioflow_ai.llm.agents.fs_agent.simple_coding import build_simple_coding_agent
 
                 agent = cast('CodingAgent', build_simple_coding_agent())
             final: dict[str, Any] | None = None
