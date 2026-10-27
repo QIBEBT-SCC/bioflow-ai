@@ -162,9 +162,13 @@ async def init_tools(
 
     import duckdb
     from langchain_core.messages import HumanMessage
+    from redis.asyncio import Redis
 
+    from bioflow_ai.core.config import get_settings
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.llm.context import CreateToolContext
     from bioflow_ai.schemas.notification import NotificationEventType
+    from bioflow_ai.services.tools.catalog import mark_tool_as_ai_checked
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig
@@ -195,6 +199,7 @@ async def init_tools(
             tool_name: str = row['tool_name']
             function: str = row['function_description']
             help_command: str = row['help_command'].strip()
+            logger.info(f'Start create tool: ({row_index}){tool_name}')
 
             resources = _prepare_tool_resources(tool_name, help_command)
             if resources is None:
@@ -206,7 +211,8 @@ async def init_tools(
                     HumanMessage(
                         content=f'<Require>\n'
                         f'tool_name: {tool_name}\n'
-                        f'function: {function}\nhelp_command: `{help_command}`\n'
+                        f'function: {function}\n'
+                        f'help_command: `{help_command}`\n'
                         f'</Require>'
                     )
                 ],
@@ -283,6 +289,14 @@ async def init_tools(
                 )
             else:
                 tool_uid = response.values['tool_uid']
+                async with Redis.from_url(
+                    get_settings().persistent.cache.API_CACHE.unicode_string(),
+                    decode_responses=True,
+                    socket_connect_timeout=1,
+                    socket_timeout=1,
+                ) as redis:
+                    with Session(engine) as session:
+                        await mark_tool_as_ai_checked(session, redis, tool_uid)
                 con.execute(
                     """UPDATE tool_functions
                        SET status = ?,
