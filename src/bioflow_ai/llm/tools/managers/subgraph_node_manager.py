@@ -186,7 +186,6 @@ async def _create(values: CreateSubgraph, runtime: ToolRuntime[ProjectContext]) 
         'subgraph_creation_id': f'{workflow_thread_id(runtime.config)}:{runtime.tool_call_id}',
     }
     child_context = runtime.context.model_copy(update={'delegate_human_requests': True})
-    # ty: ignore[invalid-argument-type]
     response = await child.ainvoke(initial, context=child_context)
     if response.get('return_to_parent'):
         return _message(

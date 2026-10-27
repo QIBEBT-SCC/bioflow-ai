@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from langchain.agents import create_agent
 from langchain_core.messages import ToolMessage
@@ -213,7 +213,9 @@ WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
 }
 
 
-def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
+def build_workflow_builder(
+    checkpointer: Optional[BaseCheckpointSaver] = None,
+) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Compile the workflow-builder agent.
 
     Pass a checkpointer to run it as a top-level graph with native interrupt/resume; pass
@@ -226,7 +228,6 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
         The compiled workflow-builder agent.
     """
     if checkpointer:
-        # ty: ignore[no-matching-overload]
         return create_agent(
             BUILDER_LLM,
             [
@@ -258,7 +259,6 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
             context_schema=ProjectContext,
             checkpointer=checkpointer,
         )
-    # ty: ignore[no-matching-overload]
     return create_agent(
         BUILDER_LLM,
         [
@@ -291,4 +291,4 @@ def build_workflow_builder(checkpointer: Optional[BaseCheckpointSaver] = None) -
     )
 
 
-build_workflow_agent: CompiledStateGraph = build_workflow_builder()
+build_workflow_agent: CompiledStateGraph[Any, ProjectContext, Any, Any] = build_workflow_builder()

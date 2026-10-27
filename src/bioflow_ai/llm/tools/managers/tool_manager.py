@@ -245,7 +245,6 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
             delegate_human_requests=True,
         )
         try:
-            # ty: ignore[invalid-argument-type]
             response = await sub_agent.ainvoke(agent_input, context=context)
         except MaxRetriesError:
             logger.warning('Tool node creation exceeded the validation retry limit: {}', name)

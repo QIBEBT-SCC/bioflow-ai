@@ -270,7 +270,6 @@ def set_tool_info(
 GENERATOR_LLM = get_high_performance_model()
 metadata = cast('LLMMetadata', GENERATOR_LLM.metadata)
 
-# ty: ignore[no-matching-overload]
 config_generate_agent = create_agent(
     GENERATOR_LLM,
     [

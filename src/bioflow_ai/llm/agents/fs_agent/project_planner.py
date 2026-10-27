@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import create_agent
 
@@ -270,7 +270,7 @@ def _build_project_planner(
     system_prompt: str,
     allow_human_input: bool,
     checkpointer: BaseCheckpointSaver | None,
-) -> CompiledStateGraph:
+) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     tools = [
         set_base_dir,
         project_run_command,
@@ -289,7 +289,6 @@ def _build_project_planner(
         disabled_tools.add('ask_human')
 
     kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
-    # ty: ignore[no-matching-overload]
     return create_agent(
         model=AGENT_LLM,
         tools=tools,
@@ -312,7 +311,7 @@ def _build_project_planner(
     )
 
 
-def build_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+def build_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Build the interactive frontend project-planner agent."""
     return _build_project_planner(
         system_prompt=f'{SYSTEM_PROMPT}\n{FRONTEND_INTERACTION_PROMPT}',
@@ -321,7 +320,7 @@ def build_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> Co
     )
 
 
-def build_evaluate_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
+def build_evaluate_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Build the autonomous evaluation project-planner agent without human-interaction tools."""
     return _build_project_planner(
         system_prompt=SYSTEM_PROMPT,

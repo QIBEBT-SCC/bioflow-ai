@@ -105,14 +105,13 @@ def json_output[SchemaT: BaseModel](
 ) -> Runnable[LanguageModelInput, SchemaT]:
     """Create a structured-output runnable backed by a forced tool-call agent."""
     prompt = f'{system_prompt}\n\n{FORCE_TOOL_PROMPT}'
-    middleware: list[AgentMiddleware] = [
+    middleware: list[AgentMiddleware[AgentState[Any], BaseContext]] = [
         CheckStateExistMiddleware('target_structure', 'submit_structured_output'),
         EndLoopMiddleware(),
     ]
     if metadata:
         middleware.append(TokenStatisticMiddleware(name, **metadata))
 
-    # ty: ignore[no-matching-overload]
     structure_agent = create_agent(
         llm,
         [_create_output_tool(schema)],

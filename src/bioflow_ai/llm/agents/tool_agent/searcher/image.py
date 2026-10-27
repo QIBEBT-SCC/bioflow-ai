@@ -55,7 +55,6 @@ class SearchImageState(AgentState, total=False):
 
 
 # TODO: 目前是手动补充
-# ty: ignore[no-matching-overload]
 search_image_agent = create_agent(
     model=get_agent_model(),
     tools=[

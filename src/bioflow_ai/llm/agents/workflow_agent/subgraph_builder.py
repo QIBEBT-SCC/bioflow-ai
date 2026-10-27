@@ -1,7 +1,7 @@
 # ruff: noqa: RUF001
 """Delegated builder for one immediately persisted reusable subgraph."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain.agents import create_agent
 
@@ -46,10 +46,9 @@ SYSTEM_PROMPT = """你是 BioFlowAI 的子图构建智能体。你的面板已�
 LANGUAGE_PROMPT = 'Use {} for notes and messages shown to the user.'
 
 
-def build_subgraph_builder() -> 'CompiledStateGraph':
+def build_subgraph_builder() -> 'CompiledStateGraph[Any, ProjectContext, Any, Any]':
     """Create an isolated one-subgraph agent for the parent manager to invoke."""
     model = get_long_context_model()
-    # ty: ignore[no-matching-overload]
     return create_agent(
         model,
         [

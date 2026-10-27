@@ -84,7 +84,6 @@ class BioDbCreatorState(WebResearchState, total=False):
     new_db: Annotated[list[int], operator.add]
 
 
-# ty: ignore[no-matching-overload]
 bio_db_creator = create_agent(
     AGENT_MODEL,
     [

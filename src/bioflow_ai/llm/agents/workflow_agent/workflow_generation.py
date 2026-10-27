@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -71,7 +71,9 @@ async def finish_workflow(
     _phase('workflow_builder', 'completed')
 
 
-def build_workflow_generation(checkpointer: Optional[BaseCheckpointSaver] = None) -> CompiledStateGraph:
+def build_workflow_generation(
+    checkpointer: Optional[BaseCheckpointSaver] = None,
+) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Build the durable interactive Plan -> Build parent graph.
 
     Existing ``SAMPLES.md`` and ``PLAN.md`` files are authoritative reusable outputs: when both exist the
@@ -92,13 +94,12 @@ def build_workflow_generation(checkpointer: Optional[BaseCheckpointSaver] = None
 
 
 def _compile_workflow_generation(
-    project_planner: CompiledStateGraph,
-    workflow_builder: CompiledStateGraph,
+    project_planner: CompiledStateGraph[Any, ProjectContext, Any, Any],
+    workflow_builder: CompiledStateGraph[Any, ProjectContext, Any, Any],
     checkpointer: Optional[BaseCheckpointSaver] = None,
-) -> CompiledStateGraph:
+) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Compile the parent graph around already-built child graphs."""
-    # ty: ignore[invalid-argument-type]
-    graph = StateGraph(WorkflowGenerationState, context_schema=ProjectContext)
+    graph = StateGraph(WorkflowGenerationState, context_schema=ProjectContext)  # ty: ignore[invalid-argument-type]
     graph.add_node('inspect_plan', inspect_plan)
     graph.add_node('project_planner', project_planner)
     graph.add_node('load_plan', load_plan)
@@ -112,5 +113,4 @@ def _compile_workflow_generation(
     graph.add_edge('workflow_builder', 'finish_workflow')
     graph.add_edge('finish_workflow', END)
 
-    # ty: ignore[invalid-return-type]
     return graph.compile(checkpointer=checkpointer)

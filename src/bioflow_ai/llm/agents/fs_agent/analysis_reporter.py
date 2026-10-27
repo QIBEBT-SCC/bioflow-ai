@@ -187,7 +187,6 @@ async def run_command(command: str, runtime: ToolRuntime, workdir: Optional[str]
     return return_msg
 
 
-# ty: ignore[no-matching-overload]
 summary_analysis_agent = create_agent(
     get_coding_model(),
     [run_command],

@@ -1,8 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING, cast
 
-from langchain.agents import create_agent
-from langgraph.graph import MessagesState
+from langchain.agents import AgentState, create_agent
 
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMiddleware
@@ -73,14 +72,13 @@ Because inputs and outputs are directly bound to the node, this must be taken in
 """
 
 
-class SearchToolNodeState(MessagesState, total=False):
+class SearchToolNodeState(AgentState, total=False):
     id_mapper: BidirectionalMapper
 
     image_uid: uuid.UUID
     tool_uid: str
 
 
-# ty: ignore[no-matching-overload]
 search_exist_tool_agent = create_agent(
     model=get_agent_model(),
     tools=[

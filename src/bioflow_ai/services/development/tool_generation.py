@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from langgraph.graph.state import CompiledStateGraph
 
+    from bioflow_ai.llm.context import CreateToolContext
+    from bioflow_ai.llm.states import CreateToolOutput
     from bioflow_ai.schemas.tool_config import ImageConfig
 
 
@@ -78,7 +80,9 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUI
 
 
 @asynccontextmanager
-async def _tool_agent_session() -> AsyncGenerator[tuple['AsyncPostgresSaver', 'CompiledStateGraph'], None]:
+async def _tool_agent_session() -> AsyncGenerator[
+    tuple['AsyncPostgresSaver', 'CompiledStateGraph[Any, CreateToolContext, Any, CreateToolOutput]'], None
+]:
     """初始化 CreateToolAgent 会话."""
     from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
     from bioflow_ai.llm.checkpoint import open_checkpointer

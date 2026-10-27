@@ -1,7 +1,7 @@
 # ruff: noqa: RUF001
 """Read-only assistant for questions and diagnosis about one workflow run."""
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from langchain.agents import create_agent
 
@@ -41,12 +41,13 @@ LANGUAGE_PROMPT = """## 语言
 回答和诊断报告一律使用 {}。"""
 
 
-def build_workflow_assistant(checkpointer: Optional['BaseCheckpointSaver'] = None) -> 'CompiledStateGraph':
+def build_workflow_assistant(
+    checkpointer: Optional['BaseCheckpointSaver'] = None,
+) -> 'CompiledStateGraph[Any, WorkflowAssistantContext, Any, Any]':
     """Build the workflow run assistant with optional diagnosis skills."""
     model = get_high_performance_model()
     metadata = cast('LLMMetadata', model.metadata)
     kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
-    # ty: ignore[no-matching-overload]
     return create_agent(
         model,
         [workflow_reader, run_evidence_command, view_image, write_diagnosis],
