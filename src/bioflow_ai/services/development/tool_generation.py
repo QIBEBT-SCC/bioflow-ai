@@ -189,7 +189,7 @@ async def init_tools(
         placeholders = ','.join(['?' for _ in skip_tools])
         todo_rows = rows_to_dicts(
             con,
-            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND status = ?',  # noqa: S608
+            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND status = ? ORDER BY index ASC',
             [*skip_tools, TOOL_STATUS_PENDING],
         )
 
