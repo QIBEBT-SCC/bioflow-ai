@@ -37,6 +37,7 @@ from bioflow_ai.infrastructure.redis.client import (
 from bioflow_ai.llm.checkpoint import open_checkpointer
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services.notification.gateway import NotificationGateway
+from bioflow_ai.services.workflow.dispatcher import WorkflowDispatcher
 
 meta = metadata('bioflow-ai')
 
@@ -52,9 +53,12 @@ async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
     notification_gateway = NotificationGateway(notification_redis_client)
     await notification_gateway.start()
     main_app.state.notification_gateway = notification_gateway
+    dispatcher = WorkflowDispatcher()
+    dispatcher.start()
 
     yield
 
+    dispatcher.stop()
     await notification_gateway.close()
     await notification_redis_client.aclose()
     await close_cache_regis(main_app.state.redis)

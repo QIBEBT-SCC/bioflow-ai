@@ -29,7 +29,7 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 **Package boundaries**
 
 - `cli/` handles command parameters, prompts, presentation, and exception conversion.
-- `runtime/` starts the API, workers, and dispatcher; tasks must not import CLI modules.
+- `runtime/` starts the API and workers; tasks must not import CLI modules.
 - `services/` groups business logic by responsibility. Services accept presentation callbacks
   when needed and must not import CLI or terminal UI libraries.
 - `infrastructure/` owns database, Redis, object storage, container runtimes, and external transport.

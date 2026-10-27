@@ -47,11 +47,10 @@ uv run bioflow-ai auto-init
 
 The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.mdx) for every prompt, accepted value, and default.
 
-After initialization, start the API, workflow dispatcher, shared execution worker, and agent worker in separate terminals:
+After initialization, start the API (which also hosts the workflow dispatcher), the shared execution worker, and the agent worker in separate terminals:
 
 ```bash
 uv run bioflow-ai api
-uv run bioflow-ai workflow-dispatcher
 uv run bioflow-ai execution-worker --concurrency 4
 uv run bioflow-ai agent-worker
 ```

@@ -43,17 +43,6 @@ def execution_worker(*, concurrency: int) -> None:
     execution_main(concurrency=concurrency)
 
 
-@cli.command(name='workflow-dispatcher')
-@click.option('--stale-after', type=click.IntRange(min=30), default=300, show_default=True)
-def workflow_dispatcher(*, stale_after: int) -> None:
-    """Start the workflow node dispatcher and recovery scanner."""
-    from bioflow_ai.infrastructure.logging import init_logging
-    from bioflow_ai.runtime.workflow_dispatcher import main
-
-    init_logging()
-    main(stale_after_seconds=stale_after)
-
-
 @cli.command(name='auto-init')
 def auto_init() -> None:
     """Run the interactive system initialization wizard."""

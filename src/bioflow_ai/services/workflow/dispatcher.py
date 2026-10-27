@@ -1,5 +1,7 @@
 """Publisher that moves READY workflow nodes onto the Celery queue."""
 
+import threading
+import time
 import uuid
 
 from loguru import logger
@@ -8,8 +10,15 @@ from sqlalchemy.orm import Session
 from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.schemas.workflow_run import NodeRunStatus
+from bioflow_ai.services.workflow.foreach import advance_foreach
+from bioflow_ai.services.workflow.runtime import recover_runtime
 from bioflow_ai.tasks.workflow import execute_node
 from bioflow_ai.utils.system import utc_now
+
+POLL_INTERVAL_SECONDS = 0.25
+ERROR_BACKOFF_SECONDS = 5.0
+RECOVERY_INTERVAL_SECONDS = 30.0
+FOREACH_INTERVAL_SECONDS = 2.0
 
 
 def _queue_ready_nodes(limit: int) -> list[uuid.UUID]:
@@ -23,14 +32,14 @@ def _queue_ready_nodes(limit: int) -> list[uuid.UUID]:
     return node_uids
 
 
-def _return_to_ready(node_uids: list[uuid.UUID]) -> int:
+def _return_to_ready(node_uids: list[uuid.UUID]) -> None:
     with Session(engine) as session, session.begin():
-        return node_run_crud.update_if_status(
+        node_run_crud.update_if_status(
             session, node_uids, [NodeRunStatus.QUEUED], {'status': NodeRunStatus.READY, 'queued_at': None}
         )
 
 
-def requeue_unpublished() -> int:
+def requeue_unpublished() -> None:
     """Return QUEUED nodes to READY when the dispatcher starts.
 
     A dispatcher that stopped between committing QUEUED and publishing leaves
@@ -38,9 +47,11 @@ def requeue_unpublished() -> int:
     broker is harmless: ``claim_node`` lets only one message start it.
     """
     with Session(engine) as session, session.begin():
-        return node_run_crud.update_by_status(
+        requeued = node_run_crud.update_by_status(
             session, [NodeRunStatus.QUEUED], {'status': NodeRunStatus.READY, 'queued_at': None}
         )
+    if requeued:
+        logger.info(f'Requeued {requeued} workflow nodes left QUEUED by a previous dispatcher')
 
 
 def dispatch_pending(*, limit: int = 100) -> int:
@@ -58,3 +69,50 @@ def dispatch_pending(*, limit: int = 100) -> int:
         else:
             published += 1
     return published
+
+
+class WorkflowDispatcher:
+    """Publish pending nodes and periodically repair durable state.
+
+    Every step locks the rows it touches, so several API instances may each run a dispatcher.
+    """
+
+    def __init__(self) -> None:
+        self._stopping = threading.Event()
+        self._thread = threading.Thread(target=self._run, name='workflow-dispatcher', daemon=True)
+
+    def start(self) -> None:
+        """Start the dispatcher thread."""
+        self._thread.start()
+
+    def stop(self, timeout: float = 10.0) -> None:
+        """Signal the loop to stop and wait for the current iteration to finish."""
+        self._stopping.set()
+        self._thread.join(timeout)
+
+    def _run(self) -> None:
+        try:
+            requeue_unpublished()
+        except Exception:
+            logger.exception('Failed to requeue unpublished workflow nodes')
+        last_recovery = 0.0
+        last_foreach = 0.0
+        logger.info('workflow dispatcher started')
+        while not self._stopping.is_set():
+            try:
+                published = dispatch_pending()
+                now = time.monotonic()
+                if now - last_foreach >= FOREACH_INTERVAL_SECONDS:
+                    advance_foreach()
+                    last_foreach = now
+                if now - last_recovery >= RECOVERY_INTERVAL_SECONDS:
+                    recover_runtime()
+                    last_recovery = now
+            except Exception:
+                # A dead thread would silently stop all workflows while the API keeps serving.
+                logger.exception('Workflow dispatcher iteration failed')
+                self._stopping.wait(ERROR_BACKOFF_SECONDS)
+                continue
+            if published == 0:
+                self._stopping.wait(POLL_INTERVAL_SECONDS)
+        logger.info('workflow dispatcher stopped')

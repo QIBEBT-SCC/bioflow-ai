@@ -145,6 +145,8 @@ class WorkflowConfig(BaseSectionConfig):
     """System-wide execution limits for workflow coordination."""
 
     MAX_PARALLEL_ITEMS: int = Field(default=4, ge=1)
+    # Seconds without a heartbeat before a running node is marked failed; workers beat every 30 seconds.
+    HEARTBEAT_TIMEOUT: int = Field(default=300, ge=90)
 
 
 class MinerUConfig(BaseSectionConfig):

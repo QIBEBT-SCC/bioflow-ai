@@ -47,11 +47,10 @@ uv run bioflow-ai auto-init
 
 自动初始化程序会引导完成系统配置、测试数据、依赖容器、数据库、管理员账号和模型 Provider 的初始化。每项提示、可填写内容和默认值请参阅[自动初始化指南](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.zh.mdx)。
 
-初始化完成后，分别在独立终端中启动 API、工作流 Dispatcher、统一执行 Worker 和智能体 Worker：
+初始化完成后，分别在独立终端中启动 API（内置工作流 Dispatcher）、统一执行 Worker 和智能体 Worker：
 
 ```bash
 uv run bioflow-ai api
-uv run bioflow-ai workflow-dispatcher
 uv run bioflow-ai execution-worker --concurrency 4
 uv run bioflow-ai agent-worker
 ```

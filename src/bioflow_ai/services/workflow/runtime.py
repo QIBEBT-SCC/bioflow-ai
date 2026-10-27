@@ -10,6 +10,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import node_dependency as dependency_crud
 from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import workflow_run as run_crud
@@ -173,10 +174,14 @@ def mark_node_failed(node_run_uid: uuid.UUID, error: BaseException | str) -> boo
     return True
 
 
-def recover_runtime(*, stale_after: timedelta) -> dict[str, int]:
-    """Fail stale workers and settle converged runs."""
+def recover_runtime() -> None:
+    """Fail stale workers and settle converged runs.
+
+    The settle sweep also catches parents of a failed ForEach whose started children finish later.
+    """
     stale = 0
     settled = 0
+    stale_after = timedelta(seconds=get_settings().workflow.HEARTBEAT_TIMEOUT)
     cutoff = utc_now() - stale_after
 
     with Session(engine) as session:
@@ -191,4 +196,3 @@ def recover_runtime(*, stale_after: timedelta) -> dict[str, int]:
             settled += int(_settle_run_if_complete(session, run_uid))
     if stale or settled:
         logger.info(f'Workflow recovery: stale={stale}, settled={settled}')
-    return {'stale': stale, 'settled': settled}
