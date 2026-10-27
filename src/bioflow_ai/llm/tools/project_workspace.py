@@ -2,25 +2,21 @@
 
 import asyncio
 import posixpath
-from pathlib import Path
-from typing import Annotated
+from pathlib import Path, PurePosixPath
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from pydantic import Field
 
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import ProjectPlannerState
-from bioflow_ai.llm.tools.apply_patch import OPERATION_HEADERS, apply_workspace_patch, parse_patch
-from bioflow_ai.llm.utils.patch import MAX_PATCH_CHARS, PatchError
+from bioflow_ai.llm.tools.apply_patch import apply_workspace_patch
 from bioflow_ai.schemas.tool_config import ImageConfig
 
 DATA_DIR = '/app/data'
 WORK_DIR = '/work'
-MOVE_HEADER = '*** Move to: '
 RUN_IMAGE = 'docker.io/aye1032/biokit-seq:1.0.0'
 
 
@@ -38,7 +34,7 @@ def _resolve_container_path(path: str, cwd: str) -> str:
     """Resolve a container path against ``cwd`` and normalize ``.``/``..`` without touching the host."""
     if '\\' in path or '\x00' in path:
         msg = f'Invalid path: {path!r}'
-        raise PatchError(msg)
+        raise ValueError(msg)
     return posixpath.normpath(posixpath.join(cwd, path))
 
 
@@ -49,39 +45,18 @@ def _resolve_cwd(workdir: str | None, default_dir: str) -> str:
     cwd = _resolve_container_path(workdir, default_dir)
     if not (_under(cwd, WORK_DIR) or _under(cwd, DATA_DIR)):
         msg = f'Working dir must be inside {WORK_DIR} or {DATA_DIR}: {workdir}'
-        raise PatchError(msg)
+        raise ValueError(msg)
     return cwd
 
 
-def _work_relative(path: str, cwd: str) -> str:
-    """Map a patch path to a path relative to /work, rejecting /app/data and anything outside /work."""
-    resolved = _resolve_container_path(path, cwd)
-    if _under(resolved, DATA_DIR):
-        msg = f'{DATA_DIR} is read-only; write project files under {WORK_DIR}: {path}'
-        raise PatchError(msg)
-    if not _under(resolved, WORK_DIR) or resolved == WORK_DIR:
-        msg = f'Path must be a file inside {WORK_DIR}: {path}'
-        raise PatchError(msg)
-    return posixpath.relpath(resolved, WORK_DIR)
-
-
-def apply_project_patch(patch: str, workdir: Path, cwd: str) -> str:
-    """Apply a patch whose paths are relative to ``cwd`` (or absolute container paths) to the project dir.
-
-    Paths in the operation headers are rewritten to /work-relative form, then the patch goes through the shared
-    workspace implementation, which verifies every hunk and rejects symlinks and escapes before writing.
-    """
-    parse_patch(patch)  # Report structural errors against the paths the model actually wrote.
-    lines = patch.replace('\r\n', '\n').split('\n')
-    for index, line in enumerate(lines):
-        header = next((prefix for prefix in (*OPERATION_HEADERS, MOVE_HEADER) if line.startswith(prefix)), None)
-        if header is not None:
-            lines[index] = header + _work_relative(line[len(header) :], cwd)
-    workdir.mkdir(parents=True, exist_ok=True)
-    result = apply_workspace_patch('\n'.join(lines), workdir)
+async def apply_project_patch(patch: str, workdir: Path, cwd: str) -> str:
+    """Apply the original patch in the host directory corresponding to ``cwd``."""
+    directory = workdir / PurePosixPath(cwd).relative_to(WORK_DIR)
+    await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
+    result = await apply_workspace_patch(patch, directory)
     # Report changed files with their container paths.
     head, _, changes = result.partition('\n')
-    return '\n'.join([head, *(f'{change[:2]}{WORK_DIR}/{change[2:]}' for change in changes.splitlines())])
+    return '\n'.join([head, *(f'{change[:2]}{cwd}/{change[2:]}' for change in changes.splitlines())])
 
 
 @tool(parse_docstring=True)
@@ -129,7 +104,7 @@ async def project_run_command(
     """
     try:
         cwd = _resolve_cwd(workdir, runtime.state.get('default_dir', WORK_DIR))
-    except PatchError as exc:
+    except ValueError as exc:
         return str(exc)
 
     project_dir = Path(runtime.context.workdir)
@@ -158,7 +133,7 @@ async def project_run_command(
 
 @tool('apply_patch', parse_docstring=True)
 async def project_apply_patch(
-    patch: Annotated[str, Field(max_length=MAX_PATCH_CHARS)],
+    patch: str,
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     workdir: str | None = None,
 ) -> str:
@@ -173,13 +148,13 @@ async def project_apply_patch(
     - Move: put `*** Move to: new_path` immediately after the Update header, before its hunks.
     - To anchor the final hunk at the end of a file, finish it with `*** End of File`.
     - Do not use unified-diff line numbers. Combine hunks for the same file.
-    - Relative paths resolve against `workdir`, or the current default dir when it is omitted; absolute paths must
-      be under /work. /app/data is read-only.
-    - All hunks are verified before writing. Filesystem failures may leave partial changes, which are reported.
+    - All file paths must be relative to `workdir`, or the current default dir when it is omitted. Do not use absolute
+      paths in the patch. The working directory must be inside /work; /app/data is read-only.
+    - Files are applied in patch order. An error can leave earlier file changes in place; inspect files before retrying.
     - Minimal patch (send its contents without the code fences):
       ```text
       *** Begin Patch
-      *** Add File: /work/PLAN.md
+      *** Add File: PLAN.md
       +# Plan
       *** End Patch
       ```
@@ -190,6 +165,6 @@ async def project_apply_patch(
     """
     try:
         cwd = _resolve_cwd(workdir, runtime.state.get('default_dir', WORK_DIR))
-        return await asyncio.to_thread(apply_project_patch, patch, Path(runtime.context.workdir), cwd)
-    except (PatchError, OSError) as exc:
-        return f'Patch rejected: {exc}'
+        return await apply_project_patch(patch, Path(runtime.context.workdir), cwd)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return f'Patch failed: {exc}\nPlease check that the paths are correct and relative to the working directory.'

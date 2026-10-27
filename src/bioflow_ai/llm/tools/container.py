@@ -1,19 +1,17 @@
 import re
 from pathlib import PurePosixPath
-from typing import Annotated, Any
+from typing import Any
 
 from anyio import Path
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from pydantic import Field
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_async
+from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async
 from bioflow_ai.infrastructure.containers.mount_paths import PROJECT_DATA_ROOTS, build_project_data_mount_plan
-from bioflow_ai.infrastructure.containers.workspace import run_workspace_command
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import CodingContext, TestRunContext
 from bioflow_ai.schemas.tool_config import ImageConfig
@@ -21,48 +19,6 @@ from bioflow_ai.services.tools import catalog as tool_catalog
 
 MAX_CHAR = 3000
 DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')
-
-
-@tool('run_command', parse_docstring=True)
-def run_command_tool(command: str, runtime: ToolRuntime[Any]) -> str:
-    """Run command in a container and return the result.
-
-    **This tool prohibits parallel calls! You are only allowed to run one command at a time!**
-
-    Args:
-        command: the command you need to run
-    """
-    image = runtime.state.get('image', DEFAULT_LINUX_IMAGE)
-    _code, result = run_command(image, [], command)
-
-    return f'[Container: {image.get_image()}]\n{result}'
-
-
-@tool('run_command', parse_docstring=True)
-async def coding_run_command(
-    command: str,
-    runtime: ToolRuntime[CodingContext],
-    workdir: str = '/workspace',
-    timeout: Annotated[int, Field(ge=1, le=120)] = 30,
-) -> str:
-    """Read, search, and inspect files using Bash in the biokit-utils container.
-
-    The authoring workspace is mounted read-only. Use rg, fd, ls, sed, head, tail,
-    jq, yq, mlr, and bash -n as appropriate. Edit files with apply_patch.
-    Python and R target runtimes are separate from this inspection environment.
-
-    Args:
-        command: Shell command to inspect the workspace; narrow large outputs.
-        workdir: Absolute container directory inside /workspace.
-        timeout: Maximum command duration in seconds, from 1 to 120.
-    """
-    try:
-        code, output = await run_workspace_command(runtime.context.workspace_path, command, workdir, timeout)
-    except TimeoutError:
-        return f'Exit code: timeout\nCommand exceeded {timeout} seconds; the container was removed.'
-    except (OSError, ValueError) as exc:
-        return f'Command failed: {exc}'
-    return f'Exit code: {code}\nOutput:\n{output or "(no output)"}'
 
 
 def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:
@@ -236,3 +192,32 @@ async def advance_run_command_tool(
         recorded_mounts.update({mount.target: mount for mount in extra_mounts})
         update['test_run_mounts'] = list(recorded_mounts.values())
     return Command(update=update)
+
+
+@tool('run_command', parse_docstring=True)
+async def coding_run_command(
+    command: str,
+    runtime: ToolRuntime[CodingContext],
+    workdir: str = '/workspace',
+) -> str:
+    """Run shell commands in the biokit-utils container.
+
+    The authoring workspace is mounted read-write at /workspace. Commands can
+    read or modify files and run checks. Python and R target runtimes are separate
+    from this authoring environment.
+
+    Args:
+        command: Shell command to run; narrow large outputs.
+        workdir: Working directory inside the container.
+    """
+    mounts = [ContainerMount(target='/workspace', source=str(runtime.context.workspace_path), read_only=False)]
+    code, output = await run_command_async(DEFAULT_LINUX_IMAGE, mounts, command, workdir)
+
+    msgs = []
+    if code != 0:
+        msgs.append(f'Exit code: {code}')
+    if output.strip():
+        msgs.append(_truncate_output(command, output))
+    else:
+        msgs.append('(no output)')
+    return '\n'.join(msgs)

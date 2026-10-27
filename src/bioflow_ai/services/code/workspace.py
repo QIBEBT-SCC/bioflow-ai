@@ -69,20 +69,12 @@ def write_baseline(workspace: Path, node_type: CodeNodeType, source: str, depend
         dependency_path.chmod(0o666)
 
 
-def _read_allowed_file(workspace: Path, filename: str) -> str:
-    path = workspace / filename
-    if path.is_symlink() or workspace.resolve() not in path.resolve(strict=True).parents:
-        message = f'Agent replaced {filename} with an unsafe path'
-        raise ValueError(message)
-    return path.read_text(encoding='utf-8')
-
-
 def read_candidate(
     workspace: Path, node_type: CodeNodeType, *, allow_empty: bool = False
 ) -> tuple[str, list[str], list[str]]:
-    """Read and validate the allowed candidate files, ignoring everything else."""
+    """Read the script and dependencies used to build the CODE proposal."""
     filename = {CodeNodeType.BASH: 'script.sh', CodeNodeType.PYTHON: 'script.py', CodeNodeType.R: 'script.R'}[node_type]
-    source = _read_allowed_file(workspace, filename)
+    source = (workspace / filename).read_text(encoding='utf-8')
     if not source.strip() and not allow_empty:
         message = 'Agent produced an empty script'
         raise ValueError(message)
@@ -90,17 +82,13 @@ def read_candidate(
     if node_type is not CodeNodeType.BASH:
         dependency_path = workspace / 'dependencies.txt'
         if dependency_path.exists():
-            dependencies = _read_allowed_file(workspace, 'dependencies.txt').splitlines()
+            dependencies = dependency_path.read_text(encoding='utf-8').splitlines()
         dependencies = (
             normalize_python_dependencies(dependencies)
             if node_type is CodeNodeType.PYTHON
             else normalize_r_dependencies(dependencies)
         )
-    allowed = {'AGENTS.md', filename, 'output', '.lease'}
-    if node_type is not CodeNodeType.BASH:
-        allowed.add('dependencies.txt')
-    warnings = [f'Ignored extra file: {path.name}' for path in workspace.iterdir() if path.name not in allowed]
-    return source, dependencies, warnings
+    return source, dependencies, []
 
 
 def proposal_diff(

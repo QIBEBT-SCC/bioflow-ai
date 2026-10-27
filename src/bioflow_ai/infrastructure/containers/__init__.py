@@ -1,5 +1,4 @@
 import asyncio
-from contextlib import suppress
 
 from docker.types import Mount
 
@@ -7,12 +6,6 @@ from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers._general import (
     CONTAINER_ROOT_USER,
     ContainerMount,
-    ContainerProcessLaunch,
-    ContainerProcessSpec,
-    ContainerTmpfs,
-    ContainerUser,
-    build_process_arguments,
-    resolve_container_user,
 )
 from bioflow_ai.schemas.tool_config import ImageConfig
 
@@ -42,41 +35,6 @@ def create_container(image: ImageConfig, mounts: list[ContainerMount]) -> str:
     return container_id
 
 
-def build_container_process_launch(spec: ContainerProcessSpec) -> ContainerProcessLaunch:
-    """Build a native subprocess invocation for the configured container runtime."""
-    runtime = get_settings().docker.CONTAINER
-    runtime_arguments: tuple[str, ...] = ()
-    if runtime == 'podman' and spec.podman_keep_id is not None:
-        uid, gid = spec.podman_keep_id
-        runtime_arguments = (f'--userns=keep-id:uid={uid},gid={gid}',)
-    arguments, host_environment = build_process_arguments(spec, runtime, runtime_arguments=runtime_arguments)
-    return ContainerProcessLaunch(argv=[runtime, *arguments], host_environment=host_environment)
-
-
-async def remove_container_process(identifier: str, timeout: float = 10) -> None:
-    """Force-remove a container through the configured native runtime."""
-    runtime = get_settings().docker.CONTAINER
-    process: asyncio.subprocess.Process | None = None
-    try:
-        process = await asyncio.create_subprocess_exec(
-            runtime,
-            'rm',
-            '--force',
-            identifier,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await asyncio.wait_for(process.wait(), timeout=timeout)
-    except FileNotFoundError:
-        return
-    except TimeoutError:
-        if process is not None:
-            with suppress(ProcessLookupError):
-                process.kill()
-            with suppress(TimeoutError):
-                await asyncio.wait_for(process.wait(), timeout=3)
-
-
 def run_command(
     image_cfg: ImageConfig,
     mounts: list[ContainerMount],
@@ -104,7 +62,13 @@ def run_command(
     if get_settings().docker.CONTAINER == 'podman':
         from bioflow_ai.infrastructure.containers.podman import run_podman
 
-        status, output = run_podman(image_cfg, command, _convert_to_podman_mount(mounts), workdir, user=user)
+        status, output = run_podman(
+            image_cfg,
+            command,
+            _convert_to_podman_mount(mounts),
+            workdir,
+            user=user,
+        )
     else:
         from bioflow_ai.infrastructure.containers.docker import run_docker
 
@@ -226,15 +190,8 @@ def remove_container(container_id: str) -> None:
 __all__ = [
     'CONTAINER_ROOT_USER',
     'ContainerMount',
-    'ContainerProcessLaunch',
-    'ContainerProcessSpec',
-    'ContainerTmpfs',
-    'ContainerUser',
-    'build_container_process_launch',
     'create_container',
     'remove_container',
-    'remove_container_process',
-    'resolve_container_user',
     'run_command',
     'run_command_async',
     'run_command_background',

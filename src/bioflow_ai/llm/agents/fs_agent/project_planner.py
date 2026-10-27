@@ -63,7 +63,7 @@ SYSTEM_PROMPT = """你的任务是把用户的原始数据和分析需求转化�
     - `run_command` 的容器除基础命令外，还提供 `fd`、`rg`、`jq`、`yq`、`mlr`（Miller）和 `seqkit` 工具
 - `apply_patch`：创建或修改可写目录内的文件，补丁格式遵循工具说明。
     - 默认目录为 `/work` 时可直接使用 `SAMPLES.md` 等相对路径
-    - 为 `/app/data` 时，需显式指定 `/work` 为工作目录，或使用指向 `/work` 的路径
+    - 为 `/app/data` 时，需显式指定 `/work` 为工作目录；补丁中的文件名始终使用相对路径
 
 - `add_samples`：创建样本并保存元数据，同一次调用中的样本共享同一组元数据
 - `add_sample_file`：将当前数据目录中的文件注册到指定样本，使用相对于当前根目录的文件路径
@@ -311,7 +311,9 @@ def _build_project_planner(
     )
 
 
-def build_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
+def build_project_planner(
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Build the interactive frontend project-planner agent."""
     return _build_project_planner(
         system_prompt=f'{SYSTEM_PROMPT}\n{FRONTEND_INTERACTION_PROMPT}',
@@ -320,7 +322,9 @@ def build_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> Co
     )
 
 
-def build_evaluate_project_planner(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
+def build_evaluate_project_planner(
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     """Build the autonomous evaluation project-planner agent without human-interaction tools."""
     return _build_project_planner(
         system_prompt=SYSTEM_PROMPT,

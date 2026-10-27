@@ -21,7 +21,6 @@ from bioflow_ai.llm.prebuild.code_node import (
 )
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
-from bioflow_ai.llm.utils.patch import MAX_PATCH_CHARS
 from bioflow_ai.llm.utils.retrievers import retrieve_auxiliary_nodes
 from bioflow_ai.llm.workflow_builder.code_editing import CodeEditingError, read_code_node, update_code_node
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
@@ -59,8 +58,6 @@ class UpdateCodeSchema(BaseModel):
 
     node_id: str = Field(description='Current panel ID returned by read_code')
     patch: str = Field(
-        min_length=1,
-        max_length=MAX_PATCH_CHARS,
         description=(
             'Raw context hunks for this node only, without Markdown fences or file-operation headers. '
             'Start each hunk with `@@` or `@@ <anchor line>`. Prefix unchanged lines with a space, removals with `-`, '
@@ -245,7 +242,7 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
                         ]
                     }
                 )
-            return _update_panel_code(validate_param, runtime)
+            return await _update_panel_code(validate_param, runtime)
 
         case 'add_processor':
             try:
@@ -374,10 +371,10 @@ def _read_panel_code(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Comm
     return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
 
 
-def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
+async def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
     """Patch one workflow-local CODE node without changing graph identity."""
     try:
-        updated_nodes = update_code_node(
+        updated_nodes = await update_code_node(
             runtime.state.get('exist_nodes', []),
             params.node_id,
             params.patch,

@@ -2,9 +2,13 @@
 
 import ast
 from collections.abc import Sequence
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
-from bioflow_ai.llm.utils.patch import MAX_PATCH_CHARS, PatchError, derive_new_contents, parse_patch_chunks
+from anyio import Path as AsyncPath
+from apply_patch_py import apply_patch
+
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.workflow_build import BuildNode
 
@@ -38,7 +42,7 @@ def read_code_node(nodes: Sequence[BuildNode], node_id: str) -> dict[str, Any]:
     }
 
 
-def update_code_node(
+async def update_code_node(
     nodes: Sequence[BuildNode],
     node_id: str,
     patch: str,
@@ -56,14 +60,17 @@ def update_code_node(
     if not isinstance(current_code, str) or not current_code.strip():
         message = f'CODE node "{node_id}" has no editable source code.'
         raise CodeEditingError(message)
-    if len(patch) > MAX_PATCH_CHARS:
-        message = 'Patch exceeds the maximum size.'
-        raise CodeEditingError(message)
 
     try:
-        chunks = parse_patch_chunks(patch.replace('\r\n', '\n').strip('\n').split('\n'), node_id)
-        patched_code = derive_new_contents(current_code, chunks, node_id)
-    except PatchError as error:
+        with TemporaryDirectory(prefix='bioflow-code-patch-') as directory:
+            script = AsyncPath(directory) / 'script.py'
+            await script.write_text(current_code, encoding='utf-8')
+            await apply_patch(
+                f'*** Begin Patch\n*** Update File: script.py\n{patch}\n*** End Patch',
+                workdir=Path(directory),
+            )
+            patched_code = await script.read_text(encoding='utf-8')
+    except (OSError, RuntimeError, ValueError) as error:
         raise CodeEditingError(str(error)) from error
     if not patched_code.strip():
         message = 'Patched code must not be empty.'

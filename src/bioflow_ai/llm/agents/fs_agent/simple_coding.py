@@ -12,14 +12,11 @@ from bioflow_ai.llm.middleware import (
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
 )
-from bioflow_ai.llm.models import get_coding_model, invalidate_model_cache
+from bioflow_ai.llm.models import get_coding_model
 from bioflow_ai.llm.tools.apply_patch import coding_apply_patch
 from bioflow_ai.llm.tools.container import coding_run_command
-from bioflow_ai.models.setting import ModelRole
 
 if TYPE_CHECKING:
-    from langchain.agents.middleware import AgentMiddleware
-
     from bioflow_ai.llm.llm_client import LLMMetadata
 
 CODING_SYSTEM = """You are the BioFlowAI coding agent editing one reusable workflow CODE definition.
@@ -45,6 +42,7 @@ proposal review, and persistence; your tools edit temporary files only.
 
 - /workspace is a temporary authoring workspace, separate from the saved CODE node's runtime working directory.
 - run_command mounts /workspace read-write. Both run_command and apply_patch can modify workspace files.
+- In apply_patch, use paths relative to /workspace, such as script.py and output/example.txt; do not use absolute paths.
 - Leave a complete, directly runnable script without Markdown fences. Do not make it depend on /workspace paths.
 - output/ is available for test fixtures and check results; its contents are excluded from the proposal.
   These fixtures will not be available to the saved CODE node. Treat upstream input files as read-only during checks.
@@ -56,24 +54,25 @@ proposal review, and persistence; your tools edit temporary files only.
 - If a request cannot be implemented in the selected CODE runtime, explain the limitation before making changes.
 """
 
+CODING_LLM = get_coding_model()
+metadata = cast('LLMMetadata', CODING_LLM.metadata)
+
 
 def build_simple_coding_agent(
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph[Any, CodingContext, Any, Any]:
     """Build the coding agent, optionally with a session checkpointer."""
-    invalidate_model_cache(ModelRole.CODING)
-    coding_llm = get_coding_model()
-    metadata = cast('LLMMetadata', coding_llm.metadata)
-    middleware: list[AgentMiddleware[Any, Any]] = [
-        SkillMiddleware('coding_agent'),
-        UserLanguageMiddleware('Write explanations and questions in {}. Preserve code identifiers and CLI options.'),
-        TokenStatisticMiddleware('simple_coding', **metadata),
-    ]
     return create_agent(
-        coding_llm,
+        CODING_LLM,
         [coding_run_command, coding_apply_patch],
         system_prompt=CODING_SYSTEM,
-        middleware=middleware,
+        middleware=[
+            SkillMiddleware('coding_agent'),
+            UserLanguageMiddleware(
+                'Write explanations and questions in {}. Preserve code identifiers and CLI options.'
+            ),
+            TokenStatisticMiddleware('simple_coding', **metadata),
+        ],
         context_schema=CodingContext,
         checkpointer=checkpointer,
         name='simple_coding',
