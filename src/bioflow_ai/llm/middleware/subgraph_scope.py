@@ -3,6 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
@@ -19,7 +20,7 @@ FORBIDDEN_WORKFLOW_ACTIONS = {
 }
 
 
-class SubgraphBuilderScopeMiddleware(AgentMiddleware):
+class SubgraphBuilderScopeMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Prevent a child from changing parent drafts or recursively creating children."""
 
     @staticmethod

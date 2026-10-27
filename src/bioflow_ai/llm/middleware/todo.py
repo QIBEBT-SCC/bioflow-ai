@@ -386,7 +386,7 @@ def view_todos(runtime: ToolRuntime[Any, TodoState]) -> Command:
     )
 
 
-class TodoMiddleware(AgentMiddleware):
+class TodoMiddleware(AgentMiddleware[AgentState[Any], Any]):
     state_schema = TodoState
     tools = [add_todos, update_todo_state]  # noqa: RUF012
 
@@ -456,7 +456,7 @@ class TodoMiddleware(AgentMiddleware):
         return self.after_model(state, runtime)
 
 
-class BuildTodoMiddleware(AgentMiddleware):
+class BuildTodoMiddleware(AgentMiddleware[AgentState[Any], Any]):
     state_schema = TodoState
     tools = [add_todos, update_todo_content, delete_todo, view_todos]  # noqa: RUF012
 
@@ -469,7 +469,7 @@ class BuildTodoMiddleware(AgentMiddleware):
         return {'msg_to_keep': init_msgs}
 
 
-class InitedTodoMiddleware(AgentMiddleware):
+class InitedTodoMiddleware(AgentMiddleware[AgentState[Any], Any]):
     tools = [update_todo_state, view_todos]  # noqa: RUF012
 
     def wrap_model_call(  # noqa: D102

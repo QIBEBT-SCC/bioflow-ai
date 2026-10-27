@@ -9,7 +9,6 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command
-from langgraph.typing import ContextT
 
 from bioflow_ai.llm.context import BaseContext
 
@@ -60,7 +59,7 @@ class ParentHandoffState(AgentState, total=False):
     parent_request: str
 
 
-class ParentHandoffMiddleware(AgentMiddleware):
+class ParentHandoffMiddleware[ContextT: BaseContext](AgentMiddleware[AgentState[Any], ContextT]):
     """Swap human interrupts for an early, structured parent handoff in delegated runs."""
 
     tools = [return_to_parent]  # noqa: RUF012

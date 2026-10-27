@@ -49,7 +49,7 @@ def _handle_check_failed(
     }
 
 
-class CheckTaskReportMiddleware(AgentMiddleware):
+class CheckTaskReportMiddleware[ContextT: FolderContext](AgentMiddleware[AgentState[Any], ContextT]):
     state_schema = CheckState
 
     def __init__(
@@ -93,7 +93,7 @@ class StateUpdateSchema(AgentState):
     updated: NotRequired[bool]
 
 
-class CheckStateExistMiddleware(AgentMiddleware):
+class CheckStateExistMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """正常来说, 模型只能由ask human确认之后退出, 不会自己走到end loop, 也就是说只要模型自己结束了循环一定是出问题了."""
 
     state_schema = StateUpdateSchema
@@ -131,7 +131,7 @@ class CheckStateExistMiddleware(AgentMiddleware):
         return self.after_model(state, runtime)
 
 
-class RequireToolCallMiddleware(AgentMiddleware):
+class RequireToolCallMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """拦截不带工具调用的纯文本回复.
 
     适用于只能通过工具 (如 confirm_plan 设置 should_end) 结束的智能体: 正常流程中模型不会直接输出纯文本,

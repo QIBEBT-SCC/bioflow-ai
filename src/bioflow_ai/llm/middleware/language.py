@@ -1,11 +1,13 @@
 from collections.abc import Awaitable, Callable
+from typing import Any
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 from langchain_core.messages import SystemMessage
 
 
-class UserLanguageMiddleware(AgentMiddleware):
+class UserLanguageMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Append an agent-specific language prompt using the runtime context."""
 
     def __init__(self, language_prompt: str) -> None:

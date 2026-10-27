@@ -2,7 +2,9 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import Any
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
@@ -46,7 +48,7 @@ def move_tool_images(messages: list[AnyMessage]) -> list[AnyMessage]:
     return result
 
 
-class ChatAttachmentMiddleware(AgentMiddleware):
+class ChatAttachmentMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Hydrate references and adapt tool images in an isolated request copy."""
 
     @staticmethod

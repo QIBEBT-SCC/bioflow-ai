@@ -11,7 +11,7 @@ class EndLoopSchema(AgentState):
     should_end: NotRequired[bool]
 
 
-class EndLoopMiddleware(AgentMiddleware):
+class EndLoopMiddleware(AgentMiddleware[AgentState[Any], Any]):
     state_schema = EndLoopSchema
 
     def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102

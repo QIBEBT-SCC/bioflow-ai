@@ -2,6 +2,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from pathlib import PurePosixPath
 from typing import Any
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
@@ -170,7 +171,7 @@ def workflow_builder_progress(request: ToolCallRequest, status: str) -> dict[str
     }
 
 
-class ProjectPlannerProgressMiddleware(AgentMiddleware):
+class ProjectPlannerProgressMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Publish one frontend activity for each project-planner tool call."""
 
     @staticmethod
@@ -206,7 +207,7 @@ class ProjectPlannerProgressMiddleware(AgentMiddleware):
         return result
 
 
-class WorkflowBuilderProgressMiddleware(AgentMiddleware):
+class WorkflowBuilderProgressMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Publish frontend activities for workflow-builder manager actions."""
 
     @staticmethod

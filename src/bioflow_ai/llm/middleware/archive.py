@@ -8,6 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelCallResult, ToolCallRequest
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage, message_to_dict
@@ -109,7 +110,7 @@ def _model_response_payload(response: ModelCallResult) -> dict[str, Any]:
     }
 
 
-class SaveMessagesMiddleware(AgentMiddleware):
+class SaveMessagesMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Persist complete model and tool trajectories without affecting agent execution.
 
     Every event is committed independently through a ``TrajectoryStore``. The default local

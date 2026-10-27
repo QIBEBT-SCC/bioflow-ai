@@ -38,7 +38,7 @@ class ContextCompactionState(AgentState):
     msg_to_keep: NotRequired[int]
 
 
-class ContextCompactionMiddleware(AgentMiddleware):
+class ContextCompactionMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Check history size, summarize once, then replace messages in graph state."""
 
     state_schema = ContextCompactionState

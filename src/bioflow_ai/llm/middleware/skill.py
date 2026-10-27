@@ -2,6 +2,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, cast
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 from langchain_core.messages import SystemMessage
@@ -28,7 +29,7 @@ Available skills:
 """
 
 
-class SkillMiddleware(AgentMiddleware):
+class SkillMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Discover and progressively load the skills assigned to one agent."""
 
     def __init__(self, agent_name: str, skills_dir: Path = SKILLS_DIR):

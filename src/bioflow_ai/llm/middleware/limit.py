@@ -19,7 +19,7 @@ The following tools must be called alone in a separate response. They cannot be 
 """
 
 
-class DisableParallelToolCallsMiddleware(AgentMiddleware):
+class DisableParallelToolCallsMiddleware(AgentMiddleware[AgentState[Any], Any]):
     def __init__(
         self,
         disabled_tools: Optional[set[str]] = None,
@@ -105,7 +105,7 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware):
         return self.after_model(state, runtime)
 
 
-class TokenLimitMiddleware(AgentMiddleware):
+class TokenLimitMiddleware(AgentMiddleware[AgentState[Any], Any]):
     def __init__(self, max_token: int = 12000):
         self.max_token = max_token
 
@@ -131,7 +131,7 @@ class MaxRetriesError(Exception):
     pass
 
 
-class MaxRetriesMiddleware(AgentMiddleware):
+class MaxRetriesMiddleware(AgentMiddleware[AgentState[Any], Any]):
     state_schema = RetryState
 
     def __init__(self, max_retries: int = 5):

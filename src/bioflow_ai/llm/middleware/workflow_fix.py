@@ -3,6 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
@@ -17,7 +18,7 @@ FORBIDDEN_DRAFT_ACTIONS = {
 }
 
 
-class WorkflowFixScopeMiddleware(AgentMiddleware):
+class WorkflowFixScopeMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """Prevent unsupported draft and workflow-metadata operations."""
 
     @staticmethod

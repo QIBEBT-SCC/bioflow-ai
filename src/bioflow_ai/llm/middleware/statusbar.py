@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult
 
@@ -9,7 +10,7 @@ if TYPE_CHECKING:
     from bioflow_ai.schemas.tool_config import ImageConfig
 
 
-class StatusBarMiddleware(AgentMiddleware):
+class StatusBarMiddleware(AgentMiddleware[AgentState[Any], Any]):
     @staticmethod
     def _add_status_to_request(request: ModelRequest) -> ModelRequest:
         """添加状态信息到请求的最后一条消息中."""
