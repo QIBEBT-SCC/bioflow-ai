@@ -7,7 +7,7 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 import bioflow_ai.crud.code as code_crud
 from bioflow_ai.core.auth import AdminDep, UserDep
 from bioflow_ai.infrastructure.database import SessionDep
-from bioflow_ai.llm.prebuild.code_node import generate_code_metadata
+from bioflow_ai.llm.prebuild.chains import generate_code_metadata
 from bioflow_ai.schemas.code import (
     CodeCreate,
     CodeMetadataPublic,
