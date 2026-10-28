@@ -17,7 +17,12 @@ In the node manager's `request`, describe the exact transformation, the meaning 
 
 ## Outputs
 
-The script writes results into its current working directory. The R node exposes that directory through `output_folder`. Add one `select_file_in_folder` processor per result consumed by another node, with `file_name` exactly matching the script's deterministic output name.
+The script runs from the workspace root and writes every result directly into its `output/` directory using a
+deterministic plain file name. Keep this directory flat.
+
+The R node's `output_folder` refers to that output directory. Add one `select_file_in_folder` processor per result
+consumed by another node, with `file_name` exactly matching the plain file name written by the script, without an
+`output/` prefix.
 
 ## Construction Order
 

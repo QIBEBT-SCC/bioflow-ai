@@ -46,6 +46,3 @@ celery_app.autodiscover_tasks(
 def on_worker_process_init(**kwargs) -> None:  # noqa: ARG001
     """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
     engine.dispose()
-    from bioflow_ai.services.code.workspace import cleanup_stale_workspaces
-
-    cleanup_stale_workspaces()

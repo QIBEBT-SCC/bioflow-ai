@@ -32,3 +32,8 @@ for example `references/DETAILS.md`.
 The `name` must match its directory and contain only lowercase letters, numbers, and hyphens. At startup, only skill
 names and descriptions enter the model context. The agent loads `SKILL.md` with `load_skill`, then reads referenced
 text resources individually with `read_skill_resource`.
+
+The CODE agent's language instructions live in `presets/code/{bash,python,r}/AGENTS.md`. Initialization copies the
+selected language's template into its workspace, and the agent reads that file before editing code.
+The CODE agent keeps `SkillMiddleware('coding_agent')` enabled; `presets/skills/coding_agent/` is currently empty and
+can hold programming skills as they are added.

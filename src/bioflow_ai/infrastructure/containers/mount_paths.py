@@ -1,5 +1,6 @@
 """Helpers for planning and resolving deterministic container mount paths."""
 
+import os
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
@@ -17,6 +18,26 @@ from bioflow_ai.models.resource import BioDb
 PROJECT_SAMPLES_ROOT = '/data/project_samples'
 PROJECT_REFERENCE_ROOT = '/data/project_reference'
 PROJECT_DATA_ROOTS = (PROJECT_SAMPLES_ROOT, PROJECT_REFERENCE_ROOT)
+
+
+def build_uv_mounts() -> list[ContainerMount]:
+    """Mount host uv storage at the container root user's default locations."""
+    user_home = Path.home()
+    cache_home = Path(os.environ.get('XDG_CACHE_HOME') or user_home / '.cache')
+    data_home = Path(os.environ.get('XDG_DATA_HOME') or user_home / '.local' / 'share')
+    locations = [
+        (os.environ.get('UV_CACHE_DIR') or cache_home / 'uv', '/root/.cache/uv'),
+        (os.environ.get('UV_PYTHON_INSTALL_DIR') or data_home / 'uv' / 'python', '/root/.local/share/uv/python'),
+    ]
+    mounts = []
+    for source, target in locations:
+        directory = Path(source).expanduser().resolve()
+        directory.mkdir(parents=True, exist_ok=True)
+        mounts.append(ContainerMount(source=str(directory), target=target, read_only=False))
+        if target == '/root/.local/share/uv/python' and str(directory) != target:
+            # uv's managed Python aliases can contain absolute host paths.
+            mounts.append(ContainerMount(source=str(directory), target=str(directory), read_only=False))
+    return mounts
 
 
 def resolve_registered_database_input_path(container_path: str, mounts: Iterable[ContainerMount]) -> Path:

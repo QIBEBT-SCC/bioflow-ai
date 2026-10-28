@@ -28,9 +28,12 @@ rules that are genuinely required. The manager passes the actual binding options
 
 ## Outputs
 
-The request must require every result to be written under a deterministic plain file name such as `normalized.tsv`.
+The Python script runs from the workspace root and writes every result directly into its `output/` directory, using
+a deterministic plain file name such as `normalized.tsv`. Keep this output directory flat.
 
-The Python node outputs `output_folder`, not individual files. Add one `select_file_in_folder` processor for every result that another node must consume, with `file_name` exactly matching the name written by the script.
+The Python node's `output_folder` refers to that output directory. Add one `select_file_in_folder` processor for every
+result that another node must consume, with `file_name` exactly matching the plain file name written by the script
+(for example, `normalized.tsv`, without an `output/` prefix).
 
 ## Construction Order
 

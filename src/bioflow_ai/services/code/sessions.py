@@ -13,7 +13,7 @@ from redis.exceptions import WatchError
 from bioflow_ai.core.config import CodeEditingConfig, get_settings
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.code_agent import CodeAgentEvent, CodeAgentSessionPublic, CodeAgentTurnCreate
-from bioflow_ai.services.code.workspace import baseline_hash
+from bioflow_ai.services.code.coding import baseline_hash
 
 State = dict[str, Any]
 Events = list[tuple[str, dict[str, Any]]]

@@ -11,6 +11,7 @@ from loguru import logger
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command
+from bioflow_ai.infrastructure.containers.mount_paths import build_uv_mounts
 from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
@@ -79,15 +80,13 @@ def render_python_script(code: str, dependencies: Any) -> str:
         raise ValueError(msg)
 
     user_dependencies = normalize_python_dependencies(dependencies)
-    runtime_dependencies = [
-        PYTHON_CODE_CLI_DEPENDENCY,
-        *(
-            dependency
-            for dependency in user_dependencies
-            if (match := PYTHON_PACKAGE_NAME_PATTERN.match(dependency)) is None
-            or match.group().lower().replace('_', '-').replace('.', '-') != 'click'
-        ),
-    ]
+    runtime_dependencies = list(user_dependencies)
+    if not any(
+        (match := PYTHON_PACKAGE_NAME_PATTERN.match(dependency)) is not None
+        and match.group().lower().replace('_', '-').replace('.', '-') == 'click'
+        for dependency in runtime_dependencies
+    ):
+        runtime_dependencies.insert(0, PYTHON_CODE_CLI_DEPENDENCY)
     metadata = tomli_w.dumps(
         {
             'requires-python': PYTHON_CODE_REQUIRES_PYTHON,
@@ -209,11 +208,7 @@ def execute_bash(
     code: str,
     output_dir: str,
 ) -> ToolOutput:
-    """直接用 subprocess 执行 bash 脚本.
-
-    输入来自 bind_param 节点, 每个输入是 JSON 字符串 {param: file_path}.
-    输出为脚本工作目录 (folder_path).
-    """
+    """Run Bash from a temporary workspace and persist files written directly under output/."""
     # 1. 收集所有 bind_param 输入, 解析 {param: file_path}
     raw_inputs = inputs.get('input_files', [])
     if not isinstance(raw_inputs, list):
@@ -226,27 +221,29 @@ def execute_bash(
         param_args.update(json.loads(json_str))
         input_sample_names.append(sample_name)
 
-    # 2. 准备输出目录并写入脚本
+    # 2. 准备输出目录
     output_path = Path(output_dir).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
-    script_path = output_path / '_script.sh'
-    script_path.write_text(code)
+    with tempfile.TemporaryDirectory(prefix='bioflow-bash-code-') as staging_dir:
+        workspace = Path(staging_dir)
+        (workspace / 'output').symlink_to(output_path, target_is_directory=True)
+        script_path = workspace / 'script.sh'
+        script_path.write_text(code, encoding='utf-8')
 
-    # 3. 构建命令: bash _script.sh -param /path/to/file ...
-    args = [str(script_path)]
-    for param, file_path in param_args.items():
-        args.extend([param, file_path])
+        args = [str(script_path)]
+        for param, file_path in param_args.items():
+            args.extend([param, file_path])
 
-    logger.debug(f'bash executor: bash {" ".join(args)}')
+        logger.debug(f'bash executor: bash {" ".join(args)}')
 
-    result = subprocess.run(
-        ['/usr/bin/bash', *args],
-        cwd=output_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+        result = subprocess.run(
+            ['/usr/bin/bash', *args],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     log_path = output_path / '11_run.log'
     log_path.write_text(
         f'[stdout]\n{result.stdout}\n[stderr]\n{result.stderr}',
@@ -271,7 +268,7 @@ def execute_python(
     dependencies: list[str] | str | None,
     output_dir: str,
 ) -> ToolOutput:
-    """Run a single-file Python code node in an isolated uv container."""
+    """Run Python from /workspace and persist files written directly under output/."""
     output_path = Path(output_dir).absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -279,13 +276,16 @@ def execute_python(
     script_content = render_python_script(code, dependencies)
 
     with tempfile.TemporaryDirectory(prefix='bioflow-python-code-') as staging_dir:
-        script_path = Path(staging_dir) / 'main.py'
+        workspace = Path(staging_dir)
+        (workspace / 'output').mkdir()
+        script_path = workspace / 'main.py'
         script_path.write_text(script_content, encoding='utf-8')
 
         mounts = [
-            ContainerMount(source=staging_dir, target='/app', read_only=True),
+            ContainerMount(source=staging_dir, target='/workspace', read_only=False),
+            *build_uv_mounts(),
             *input_mounts,
-            ContainerMount(source=str(output_path), target='/data/output', read_only=False),
+            ContainerMount(source=str(output_path), target='/workspace/output', read_only=False),
         ]
         index_url = str(get_settings().code.PYTHON_INDEX_URL)
         command = shlex.join(
@@ -295,7 +295,7 @@ def execute_python(
                 '--default-index',
                 index_url,
                 '--script',
-                '/app/main.py',
+                '/workspace/main.py',
                 *arguments,
             ]
         )
@@ -304,7 +304,7 @@ def execute_python(
             PYTHON_CODE_IMAGE,
             mounts,
             command,
-            workdir='/data/output',
+            workdir='/workspace',
             ensure_ascii=False,
         )
     log_path = output_path / '11_run.log'
@@ -328,7 +328,7 @@ def execute_r(
     dependencies: list[str] | str | None,
     output_dir: str,
 ) -> ToolOutput:
-    """Run a single-file R script in an isolated R 4.4.3 container."""
+    """Run R from /workspace and persist files written directly under output/."""
     if not code.strip():
         msg = 'R code must not be empty'
         raise ValueError(msg)
@@ -342,10 +342,12 @@ def execute_r(
     normalized_dependencies = normalize_r_dependencies(dependencies)
 
     with tempfile.TemporaryDirectory(prefix='bioflow-r-code-') as staging_dir:
-        script_path = Path(staging_dir) / 'main.R'
+        workspace = Path(staging_dir)
+        (workspace / 'output').mkdir()
+        script_path = workspace / 'script.R'
         script_path.write_text(f'{code.rstrip()}\n', encoding='utf-8')
         if normalized_dependencies:
-            dependency_script = Path(staging_dir) / 'install_dependencies.R'
+            dependency_script = workspace / 'install_dependencies.R'
             repository = str(get_settings().code.CRAN_REPOSITORY)
             dependency_script.write_text(
                 render_r_dependency_script(normalized_dependencies, repository),
@@ -353,14 +355,14 @@ def execute_r(
             )
 
         mounts = [
-            ContainerMount(source=staging_dir, target='/app', read_only=True),
+            ContainerMount(source=staging_dir, target='/workspace', read_only=False),
             *input_mounts,
-            ContainerMount(source=str(output_path), target='/data/output', read_only=False),
+            ContainerMount(source=str(output_path), target='/workspace/output', read_only=False),
         ]
-        run_script_command = shlex.join(['Rscript', '--vanilla', '/app/main.R', *arguments])
+        run_script_command = shlex.join(['Rscript', '--vanilla', '/workspace/script.R', *arguments])
         if normalized_dependencies:
             library_dir = '/data/r-library'
-            install_command = shlex.join(['Rscript', '--vanilla', '/app/install_dependencies.R'])
+            install_command = shlex.join(['Rscript', '--vanilla', '/workspace/install_dependencies.R'])
             command = (
                 f'mkdir -p {shlex.quote(library_dir)} && '
                 f'export R_LIBS_USER={shlex.quote(library_dir)} && '
@@ -373,7 +375,7 @@ def execute_r(
             R_CODE_IMAGE,
             mounts,
             command,
-            workdir='/data/output',
+            workdir='/workspace',
             ensure_ascii=False,
         )
 

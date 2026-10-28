@@ -20,7 +20,7 @@ Use a `text_file` resource for static text such as:
 
 Set `file_name` to a plain file name such as `samples.txt` and set `content` to the exact file contents. The node writes UTF-8 text and directly outputs `file_path`, so connect that output to the downstream tool input. Do not create a bash node merely to run `echo`, `printf`, or a heredoc for known text.
 
-Use Bash when the output depends on upstream files or directories and can be expressed clearly with the commands available in the node's Linux environment. A Bash node outputs its working directory rather than an individual file, so write each result under a stable, explicit file name and use `select_file_in_folder` to retrieve it.
+Use Bash when the output depends on upstream files or directories and can be expressed clearly with the commands available in the node's Linux environment. The script runs from the workspace root and writes every result directly into its `output/` directory using a stable, explicit file name. Keep this directory flat. The Bash node exposes that directory through `output_folder`; use `select_file_in_folder` to retrieve each result.
 
 Do not use a Bash node for:
 
@@ -67,8 +67,8 @@ if the code node requires multiple input parameters, multiple `bind_param` nodes
 
 ### select_file_in_folder Node
 
-The processor node `select_file_in_folder` is used to select a file with a specific name from a folder. The output of the code node is always the folder of its working directory; to retrieve files from
-it, this processor must be used.  
+The processor node `select_file_in_folder` is used to select a file with a specific name from a folder. The code node's `output_folder` refers to the workspace's `output/` directory; to retrieve files from
+it, this processor must be used. Use the plain file name without an `output/` prefix.
 To use it, set the node's `file_name` parameter to the name of the file you want to select from the folder. The output of this node is the file with that name in the directory. Note that this node can
 select only one file at a time; to expose multiple files as separate workflow outputs, use multiple instances of this node.
 

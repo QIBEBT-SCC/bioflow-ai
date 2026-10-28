@@ -51,6 +51,40 @@ def format_json(
     return format_text(formatted, max_chars=max_chars)
 
 
+def format_code_inputs(inputs: list[dict[str, Any]]) -> str:
+    """Describe bound input parameters and ForEach manifests in readable Markdown."""
+    if not inputs:
+        return 'No upstream input parameters are bound to this script.'
+    parameters = [
+        f'- `{item["parameter"]}`: {item["description"]} '
+        f'(from `{item["source_node"]}`, output `{item["source_handle"]}`).'
+        for item in inputs
+    ]
+    sections = ['This script expects the following input parameters:\n\n' + '\n'.join(parameters)]
+    for item in inputs:
+        if not (input_format := item.get('format_contract')):
+            continue
+        schema = input_format['schema']
+        fields = ', '.join(
+            f'`{field}` ({description.replace("<", "").replace(">", "")})'
+            for field, description in schema['items'][0].items()
+            if field != 'outputs'
+        )
+        note = (
+            f'The input for `{item["parameter"]}` is a ForEach results directory containing '
+            f'`{input_format["manifest_file"]}`. The manifest has version `{schema["version"]}` and an `items` list. '
+            f'Each item contains {fields}, and `outputs`.'
+        )
+        ports = '; '.join(
+            f'`{port["id"]}` ({port["name"]}): {port["description"]}' for port in input_format['output_ports']
+        )
+        if ports:
+            note += f' Exported outputs: {ports}.'
+        note += ' ' + input_format['path_rule']
+        sections.append(note)
+    return '\n\n'.join(sections)
+
+
 def _extract_nested_model(annotation: Any) -> type[BaseModel] | None:
     """Extract a BaseModel subclass from an annotation, handling generics like list[X] or Optional[X]."""
     if annotation is None:
