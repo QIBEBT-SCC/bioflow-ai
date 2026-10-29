@@ -14,7 +14,7 @@ from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import search_local_image, select_image
 from bioflow_ai.llm.tools.human import ask_human
 from bioflow_ai.schemas.tool_config import ImageConfig
-from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

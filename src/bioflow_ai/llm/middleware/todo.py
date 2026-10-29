@@ -14,7 +14,7 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 SYSTEM_PROMPT = """## Todo List
 Use the todo tools for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.
@@ -398,7 +398,7 @@ class TodoMiddleware(AgentMiddleware[AgentState[Any], Any]):
     def before_agent(self, state: StateT, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: D102
         return {'msg_to_keep': len(state['messages'])}
 
-    # def wrap_model_call(  # noqa: D102
+    # def wrap_model_call(
     #     self,
     #     request: ModelRequest,
     #     handler: Callable[[ModelRequest], ModelResponse],
@@ -410,7 +410,7 @@ class TodoMiddleware(AgentMiddleware[AgentState[Any], Any]):
     #     new_system_message = SystemMessage(content=new_content)
     #     return handler(request.override(system_message=new_system_message))
 
-    # async def awrap_model_call(  # noqa: D102
+    # async def awrap_model_call(
     #     self,
     #     request: ModelRequest,
     #     handler: Callable[[ModelRequest], Awaitable[ModelResponse]],

@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping, Sequence
 
 from bioflow_ai.llm.states import BuildEdge, BuildNode
-from bioflow_ai.utils.llm.uid_mapper import generate_char_index
+from bioflow_ai.utils.uid_mapper import generate_char_index
 
 LETTER_NODE_ID = re.compile(r'^[A-Z]+$')
 
@@ -53,10 +53,7 @@ def canonicalize_build_graph(
         raise ValueError(msg)
 
     ordered_ids = sorted(node_ids, key=node_id_sort_key)
-    id_mapping = {
-        old_id: generate_char_index(index)
-        for index, old_id in enumerate(ordered_ids, start=1)
-    }
+    id_mapping = {old_id: generate_char_index(index) for index, old_id in enumerate(ordered_ids, start=1)}
 
     canonical_nodes = [node.model_copy(deep=True) for node in nodes]
     for node in canonical_nodes:

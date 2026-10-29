@@ -21,8 +21,8 @@ from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow.validation import validate_workflow
-from bioflow_ai.utils.llm.uid_mapper import generate_char_index
 from bioflow_ai.utils.system import utc_now
+from bioflow_ai.utils.uid_mapper import generate_char_index
 
 
 def _preserve_canvas_metadata(

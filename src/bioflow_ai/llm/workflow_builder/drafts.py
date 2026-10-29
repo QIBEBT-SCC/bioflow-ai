@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowDraft
-from bioflow_ai.utils.llm.uid_mapper import generate_char_index
+from bioflow_ai.utils.uid_mapper import generate_char_index
 
 WorkflowScope = Literal['sample_level', 'project_level']
 

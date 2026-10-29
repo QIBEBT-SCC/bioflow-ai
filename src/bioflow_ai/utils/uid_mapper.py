@@ -1,12 +1,12 @@
+"""Bidirectional UID/index mappings and alphabetic identifiers."""
+
 import uuid
 from collections.abc import Mapping, Sequence
-from typing import Any, Optional, Protocol, Self, runtime_checkable
+from typing import Any, Protocol, Self
 
-from langchain_core.documents import Document
 from pydantic import BaseModel, Field
 
 
-@runtime_checkable
 class HasUid(Protocol):
     uid: uuid.UUID
 
@@ -17,13 +17,11 @@ class BidirectionalMapper(BaseModel):
 
     def __init__(
         self,
-        datas: Sequence[HasUid | Document] | None = None,
+        datas: Sequence[HasUid] | None = None,
         *,
         uid_to_idx: dict[str, int] | None = None,
         idx_to_uid: dict[int, str] | None = None,
-        use_metadata: bool = False,
-        metadata_field: Optional[str] = None,
-    ):
+    ) -> None:
         super().__init__(
             uid_to_idx=uid_to_idx or {},
             idx_to_uid=idx_to_uid or {},
@@ -32,19 +30,8 @@ class BidirectionalMapper(BaseModel):
         if not datas:
             return
 
-        if use_metadata:
-            if metadata_field is None:
-                err_msg = 'When use_metadata=True is set, the metadata_field parameter must be specified.'
-                raise ValueError(err_msg)
-            self.uid_to_idx = {
-                getattr(data, 'metadata', {}).get(metadata_field, ''): idx for idx, data in enumerate(datas)
-            }
-            self.idx_to_uid = {
-                idx: getattr(data, 'metadata', {}).get(metadata_field, '') for idx, data in enumerate(datas)
-            }
-        else:
-            self.uid_to_idx = {str(getattr(data, 'uid', '')): idx for idx, data in enumerate(datas)}
-            self.idx_to_uid = {idx: str(getattr(data, 'uid', '')) for idx, data in enumerate(datas)}
+        self.uid_to_idx = {str(getattr(data, 'uid', '')): idx for idx, data in enumerate(datas)}
+        self.idx_to_uid = {idx: str(getattr(data, 'uid', '')) for idx, data in enumerate(datas)}
 
     @classmethod
     def from_dicts(cls, uid_to_idx: dict[str, int], idx_to_uid: dict[int, str]) -> Self:
@@ -73,7 +60,7 @@ def restore_mapper(value: MapperState) -> BidirectionalMapper:
 
 
 def merge_mappers(existing: MapperState, new: MapperState) -> BidirectionalMapper:
-    """LangGraph reducer: merges new search results into the existing mapper.
+    """Merge new UID mappings into the existing mapper.
 
     New UIDs get indices continuing from the current max. Duplicate UIDs keep their existing index.
     """

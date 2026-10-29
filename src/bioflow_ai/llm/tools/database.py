@@ -18,7 +18,7 @@ from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.tools import catalog as tool_catalog
 
 if TYPE_CHECKING:
-    from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
+    from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 
 @tool(parse_docstring=True)

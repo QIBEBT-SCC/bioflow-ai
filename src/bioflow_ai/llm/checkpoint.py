@@ -14,7 +14,7 @@ from bioflow_ai.llm.middleware.todo import Todo
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowDraft
 from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine
-from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 _STATE_TYPES: tuple[type, ...] = (
     BidirectionalMapper,
