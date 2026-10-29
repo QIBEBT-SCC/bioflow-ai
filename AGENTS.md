@@ -70,6 +70,7 @@ This project uses `uv` to manage the Python environment and dependencies.
 - Run Python modules, scripts, debugging commands, and tests through `uv run` so they execute inside the project environment.
 - Prefer commands such as `uv run python ...`, `uv run pytest ...`, `uv run ruff check ...`, and `uv run bioflow-ai ...` over invoking global Python or globally installed tools directly.
 - The equivalent module entry point is `uv run python -m bioflow_ai`.
+- Using `uv run ty ...` for static type checking.
 - Run `uv run python -m pytest` for migration contract and offline service tests.
 - See `MIGRATION.md` for the original module mapping, validation limits, and deployment cutover.
 
