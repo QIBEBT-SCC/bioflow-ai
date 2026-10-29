@@ -68,6 +68,8 @@ def _build_file_tree_sync(base_dir: Path, current_dir: Path) -> list[OutputFileN
         return nodes
 
     for entry in entries:
+        if entry.name == '.venv' and entry.is_dir():
+            continue
         rel_path = str(entry.relative_to(base_dir))
         if entry.is_dir():
             children = _build_file_tree_sync(base_dir, entry)

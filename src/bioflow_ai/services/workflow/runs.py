@@ -480,7 +480,10 @@ def package_project_workflow_runs(
                 if run.sample_uid
                 else 'project'
             )
-            for file_path in run_dir.rglob('*'):
-                if file_path.is_file():
-                    archive.write(file_path, arcname=Path(root_name) / file_path.relative_to(run_dir))
+            for directory, subdirectories, filenames in run_dir.walk():
+                subdirectories[:] = [name for name in subdirectories if name != '.venv']
+                for filename in filenames:
+                    file_path = directory / filename
+                    if file_path.is_file():
+                        archive.write(file_path, arcname=Path(root_name) / file_path.relative_to(run_dir))
     return buffer.getvalue()
