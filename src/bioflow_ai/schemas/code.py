@@ -3,8 +3,6 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-BASH_DEPENDENCIES_ERROR = 'Bash CODE definitions cannot declare runtime dependencies'
-
 
 class CodeNodeType(StrEnum):
     """Workflow CODE node types that can be persisted for reuse."""
@@ -25,13 +23,6 @@ class CodeData(BaseModel):
     code: str = Field(min_length=1)
     dependencies: list[str] = Field(default_factory=list)
 
-    @model_validator(mode='after')
-    def validate_dependencies(self) -> 'CodeData':
-        """Allow runtime dependencies for containerized Python and R definitions."""
-        if self.node_type is CodeNodeType.BASH and self.dependencies:
-            raise ValueError(BASH_DEPENDENCIES_ERROR)
-        return self
-
 
 class CodeCreate(CodeData):
     """Properties accepted when creating a reusable CODE definition."""
@@ -45,13 +36,6 @@ class CodeMetadataRequest(BaseModel):
     node_type: CodeNodeType
     code: str = Field(min_length=1)
     dependencies: list[str] = Field(default_factory=list)
-
-    @model_validator(mode='after')
-    def validate_dependencies(self) -> 'CodeMetadataRequest':
-        """Allow runtime dependencies for containerized Python and R definitions."""
-        if self.node_type is CodeNodeType.BASH and self.dependencies:
-            raise ValueError(BASH_DEPENDENCIES_ERROR)
-        return self
 
 
 class CodeMetadataPublic(BaseModel):
