@@ -20,7 +20,7 @@ workspace/
 
 ### Environment and dependency management
 
-- The script runs with `/usr/bin/bash`. Use standard Linux commands and the additional tools listed above.
+- Development checks and workflow execution use the same linux environment. Use standard Linux commands and the additional tools listed above.
 - Do not invoke Python, R, bioinformatics programs, or network clients from the script.
 - If the task requires unavailable software, explain the limitation before editing. Do not reimplement a requested
   bioinformatics tool in Bash.

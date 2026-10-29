@@ -7,7 +7,7 @@ description: Workflow-builder guidance for choosing an R code node, preparing it
 
 Use an R code node for a bounded, deterministic file transformation whose output is required by a later workflow node and is naturally expressed in base R. The node runs one script with R 4.4.3 in a fixed container.
 
-Prefer a tool node for bioinformatics command-line software and `downstream_summary` for terminal statistical analysis, clustering, visualization, biological interpretation, or other systematic scientific analysis. The R code node can install declared CRAN packages from the repository.
+Prefer a tool node for bioinformatics command-line software and `downstream_summary` for terminal statistical analysis, clustering, visualization, biological interpretation, or other systematic scientific analysis. When additional R packages are needed, the script itself checks availability and installs missing packages.
 
 ## Inputs and Request
 
@@ -29,7 +29,8 @@ consumed by another node, with `file_name` exactly matching the plain file name 
 1. Confirm the task is a small R transformation rather than a tool invocation or terminal downstream analysis.
 2. Add one `bind_param` node per upstream input and assign distinct named options.
 3. Add the R code node with all binding outputs connected to `input_files`.
-4. Inspect the returned source and dependency list for R 4.4.3 compatibility, exact option parsing, and output file names.
+4. Inspect the returned source for R 4.4.3 compatibility, package setup, exact option parsing, and output file names.
 5. Add `select_file_in_folder` nodes for every result required later in the workflow.
 
-Declare CRAN dependencies by package name only. Do not request version constraints, Bioconductor packages, GitHub repositories, URLs, local packages, or installation commands inside the user script.
+Do not request a separate dependency list or installer script. Package checks and any required installation belong
+in `script.R`; the platform executes that script directly.

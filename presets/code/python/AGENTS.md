@@ -21,6 +21,9 @@ workspace/
 - `uv` – Fast Python package installer and resolver (replaces pip/poetry)
 - `ruff` – Fast Python linter and formatter
 - `ty` – Static type checking
+- `fd` and `rg` – File discovery and text search
+- `jq` and `yq` – JSON and YAML processing
+- `mlr` – Structured CSV, TSV, and record processing
 
 ### Environment and dependency management
 
