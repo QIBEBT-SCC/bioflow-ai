@@ -11,7 +11,7 @@ from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.code.catalog import AUXILIARY_NODE_COLLECTION
-from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper, HasUid
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper, HasUid
 
 
 async def retrieve_tools(

@@ -5,16 +5,10 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-import bioflow_ai.crud.tools.tool as tool_crud
-from bioflow_ai.core.config import get_settings
-from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.models import qwen3_embedding
-from bioflow_ai.llm.vectorstores import MilvusVectorStore
-from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.utils.llm.formatters import search_nodes_formatter
-from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
+from bioflow_ai.utils.llm.retrievers import retrieve_tools
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper, merge_mappers
 
 TOOL_DESCRIPTION = """Search existing tools from the vector database based on functionality
 **This tool prohibits parallel calls! You are only allowed to make one search at a time!**
@@ -34,27 +28,8 @@ class SearchToolArgsSchema(BaseModel):
 @tool('search_tools', description=TOOL_DESCRIPTION, args_schema=SearchToolArgsSchema)
 async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
     """Search existing tools from the vector database based on functionality."""
-    embedding = qwen3_embedding()
-    vectorstore = MilvusVectorStore(
-        collection_name='ToolCollection',
-        embedding_function=embedding,
-        uri=get_settings().knowledge_base.MILVUS_URL,
-        hybrid=True,
-    )
-
-    task = 'Provide a search query to search for tools with relevant functions'
-    query = f'Instruct: {task}\nQuery:{query}'
-    image_uid = runtime.state.get('image_uid', None)
-
-    async with vectorstore:
-        results = await vectorstore.asimilarity_search(
-            query,
-            k=10,
-            filter_expression=f'image_uid == "{image_uid!s}"' if image_uid else '',
-            weights=(0.85, 0.15),
-        )
-
-    if not results:
+    tool_nodes, new_mapper = await retrieve_tools(query, image_uid=runtime.state.get('image_uid'))
+    if new_mapper is None:
         return Command(
             update={
                 'messages': [
@@ -66,11 +41,6 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
             }
         )
 
-    with Session(engine) as session:
-        exist_tools = list(tool_crud.get_all_by_uid(session, [t.metadata['tool_uid'] for t in results]))
-        new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', exist_tools))
-
-    tool_nodes = [ToolNodePublic.model_validate(exist_tool) for exist_tool in exist_tools]
     exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
     merged_mapper = merge_mappers(exist_mapper, new_mapper)
 
