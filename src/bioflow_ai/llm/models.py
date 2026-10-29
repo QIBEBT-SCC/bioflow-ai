@@ -12,8 +12,9 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
 from bioflow_ai.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort, is_deepseek_provider
 from bioflow_ai.services import llm_setting as setting_service
+from bioflow_ai.utils.cache import MemoryCache
 
-_model_cache: dict[ModelRole, BaseChatModel] = {}
+_model_cache: MemoryCache[ModelRole, BaseChatModel] = MemoryCache()
 AnthropicEffort = Literal['low', 'medium', 'high', 'xhigh', 'max']
 GoogleThinkingLevel = Literal['minimal', 'low', 'medium', 'high']
 GEMINI_25_REASONING_BUDGETS = {
@@ -151,13 +152,14 @@ def invalidate_model_cache(role: ModelRole | None = None) -> None:
     if role is None:
         _model_cache.clear()
     else:
-        _model_cache.pop(role, None)
+        _model_cache.delete(role)
 
 
 def get_model(role: ModelRole) -> BaseChatModel:
     """获取指定类型的模型配置."""
-    if role in _model_cache:
-        return _model_cache[role]
+    cached_model = _model_cache.get(role)
+    if cached_model is not None:
+        return cached_model
 
     with Session(engine) as session:
         model_id = setting_service.get_role_model_id(session, role)
@@ -169,7 +171,7 @@ def get_model(role: ModelRole) -> BaseChatModel:
             'output_price': model_config.output_price,
             'cache_read_price': model_config.cache_read_price,
         }
-    _model_cache[role] = model
+    _model_cache.set(role, model)
     return model
 
 

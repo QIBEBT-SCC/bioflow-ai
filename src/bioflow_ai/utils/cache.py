@@ -1,29 +1,25 @@
-"""Process-local caching for reusable values and function results."""
+"""Process-local caching for reusable values."""
 
-import hashlib
-import json
 import time
-from collections.abc import Callable
-from functools import wraps
-from typing import Any
+from collections.abc import Hashable
 
 from loguru import logger
 from pydantic import BaseModel
 
 
-class CachedItem(BaseModel):
-    value: Any
+class CachedItem[ValueT](BaseModel):
+    value: ValueT
     last_used: float
     ttl: int | None
 
 
-class MemoryCache:
+class MemoryCache[KeyT: Hashable, ValueT]:
     """Cache values with an idle timeout renewed on each successful lookup."""
 
     def __init__(self) -> None:
-        self._cache: dict[str, CachedItem] = {}
+        self._cache: dict[KeyT, CachedItem[ValueT]] = {}
 
-    def get(self, key: str) -> Any | None:
+    def get(self, key: KeyT) -> ValueT | None:
         """Return a cached value and renew its timeout, or return None on a miss."""
         if key not in self._cache:
             return None
@@ -40,9 +36,13 @@ class MemoryCache:
         item.last_used = current_time
         return item.value
 
-    def set(self, key: str, value: Any, ttl: int | None = None) -> None:
+    def set(self, key: KeyT, value: ValueT, ttl: int | None = None) -> None:
         """Store a value with an optional idle timeout in seconds."""
         self._cache[key] = CachedItem(value=value, last_used=time.time(), ttl=ttl)
+
+    def delete(self, key: KeyT) -> None:
+        """Remove one cached value if it exists."""
+        self._cache.pop(key, None)
 
     def clear(self) -> None:
         """Remove all cached values."""
@@ -61,43 +61,3 @@ class MemoryCache:
             del self._cache[key]
         if expired_keys:
             logger.info(f'已清除 {len(expired_keys)} 个过期的缓存')
-
-
-# 全局缓存实例
-_cache = MemoryCache()
-
-
-def cache_result(ttl: int | None = 3600) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Cache synchronous function results in the current process.
-
-    Args:
-        ttl: Idle timeout in seconds, renewed on each cache hit. None disables expiration.
-    """
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            # 创建缓存键
-            cache_key_dict = {
-                'func_name': func.__name__,
-                'args': args,
-                'kwargs': {k: str(v) for k, v in kwargs.items()},
-            }
-            cache_key = hashlib.md5(
-                json.dumps(cache_key_dict, sort_keys=True).encode(), usedforsecurity=False
-            ).hexdigest()
-
-            # 尝试从缓存获取
-            cached_value = _cache.get(cache_key)
-            if cached_value is not None:
-                logger.debug(f'使用缓存的函数结果: {func.__name__}')
-                return cached_value
-
-            # 未命中时执行原函数并缓存结果
-            result = func(*args, **kwargs)
-            _cache.set(cache_key, result, ttl)
-            return result
-
-        return wrapper
-
-    return decorator

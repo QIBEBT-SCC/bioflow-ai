@@ -185,6 +185,7 @@ async def delete_llm_model(model_id: int, session: SessionDep, _current_user: Ad
         setting_service.delete_model(session, model_id)
     except setting_service.LLMModelNotFoundError as error:
         raise HTTPException(status_code=404, detail='Model not found') from error
+    invalidate_model_cache()
     return {'message': 'Model deleted successfully'}
 
 
