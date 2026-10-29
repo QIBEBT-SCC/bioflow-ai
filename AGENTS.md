@@ -33,8 +33,8 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 - `services/` groups business logic by responsibility. Services accept presentation callbacks
   when needed and must not import CLI or terminal UI libraries.
 - `infrastructure/` owns database, Redis, object storage, container runtimes, and external transport.
-- `llm/` owns agents, tools, protocols, middleware, observability, and workflow generation.
-- `utils/` contains domain-independent helpers only.
+- `llm/` owns agents, tools, protocols, middleware, and workflow generation.
+- `utils/` groups shared helpers by responsibility, including domain-specific subpackages.
 - `core/paths.py` locates repository resources in root-level `presets/` and `deploy/`.
   Editable skills stay outside the wheel. Configuration and runtime output paths follow
   the existing working-directory and settings rules.

@@ -19,7 +19,7 @@ from langgraph.types import Command
 from loguru import logger
 from pydantic import BaseModel, SecretStr
 
-from bioflow_ai.llm.observability.trajectories import LocalEventStore, TrajectoryStore
+from bioflow_ai.utils.observability.trajectories import LocalEventStore, TrajectoryStore
 
 _SENSITIVE_KEYS = {
     'access_key',

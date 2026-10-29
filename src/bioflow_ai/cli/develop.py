@@ -8,7 +8,6 @@ from loguru import logger
 from bioflow_ai.cli.development_render import render_statistics, render_tools, render_updated_requirement
 from bioflow_ai.cli.errors import handle_service_errors
 from bioflow_ai.cli.render import create_iterator_renderer, create_progress_renderer
-from bioflow_ai.llm.observability.execution_logging import agent_logging_to_console
 from bioflow_ai.services.development.database import DB_PATH
 from bioflow_ai.services.development.records import search_tools, statistic, update_tool_requirement
 from bioflow_ai.services.development.tool_generation import (
@@ -19,6 +18,7 @@ from bioflow_ai.services.development.tool_generation import (
     read_interrupt,
 )
 from bioflow_ai.services.export.trajectories import compact_trajectories, default_trajectory_dataset_path
+from bioflow_ai.utils.observability.execution_logging import agent_logging_to_console
 
 
 @click.group()
@@ -229,8 +229,8 @@ def export_node_stats_cmd(db_path: FilePath, input_dir: FilePath | None, output:
 
     Token counts cover saved test_run and tool_generator model calls. Missing usage is blank.
     """
-    from bioflow_ai.llm.observability.trajectories import get_trajectory_root
     from bioflow_ai.services.export.node_generation_stats import export_node_stats
+    from bioflow_ai.utils.observability.trajectories import get_trajectory_root
 
     trajectory_root = input_dir or get_trajectory_root()
     try:
@@ -269,8 +269,8 @@ def export_node_stats_cmd(db_path: FilePath, input_dir: FilePath | None, output:
 @handle_service_errors
 def export_test_run_reports_cmd(db_path: FilePath, input_dir: FilePath | None, output: FilePath) -> None:
     """Export first-submission and validated report text for recorded tool entries."""
-    from bioflow_ai.llm.observability.trajectories import get_trajectory_root
     from bioflow_ai.services.export.test_run_reports import export_test_run_reports
+    from bioflow_ai.utils.observability.trajectories import get_trajectory_root
 
     trajectory_root = input_dir or get_trajectory_root()
     try:
@@ -331,7 +331,7 @@ def compact_trajectories_cmd(
     overwrite: bool,
 ) -> None:
     """Compact raw agent JSON events into events/runs Parquet datasets."""
-    from bioflow_ai.llm.observability.trajectories import get_trajectory_root
+    from bioflow_ai.utils.observability.trajectories import get_trajectory_root
 
     resolved_input = input_dir or str(get_trajectory_root())
     resolved_output = output_dir or default_trajectory_dataset_path()

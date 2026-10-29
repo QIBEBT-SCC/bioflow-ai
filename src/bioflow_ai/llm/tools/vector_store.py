@@ -11,10 +11,10 @@ import bioflow_ai.crud.tools.tool as tool_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.models import qwen3_embedding
-from bioflow_ai.llm.utils.formatters import search_nodes_formatter
-from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.schemas.tools import ToolNodePublic
+from bioflow_ai.utils.llm.formatters import search_nodes_formatter
+from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
 
 TOOL_DESCRIPTION = """Search existing tools from the vector database based on functionality
 **This tool prohibits parallel calls! You are only allowed to make one search at a time!**

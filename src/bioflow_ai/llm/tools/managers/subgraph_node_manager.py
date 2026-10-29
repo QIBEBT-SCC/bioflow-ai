@@ -17,8 +17,6 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode, SubgraphBuildState, WorkflowDraft
 from bioflow_ai.llm.tools.managers.subgraph_interface_manager import NamedPort
-from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command
-from bioflow_ai.llm.utils.session import workflow_thread_id
 from bioflow_ai.llm.workflow_builder.foreach_manifest import foreach_manifest_contract
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
@@ -29,6 +27,8 @@ from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow import catalog as workflow_catalog
 from bioflow_ai.services.workflow.ports import effective_nodes
 from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.utils.llm.formatters import format_validation_error, manager_help_command
+from bioflow_ai.utils.llm.session import workflow_thread_id
 
 
 class SearchSubgraph(BaseModel):

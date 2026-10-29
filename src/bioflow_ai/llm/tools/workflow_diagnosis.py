@@ -22,12 +22,12 @@ from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowAssistantContext
-from bioflow_ai.llm.utils.formatters import format_json
 from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id, enter_subgraphs
+from bioflow_ai.utils.formatters import format_json
 
 EVIDENCE_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
 EVIDENCE_MOUNT_PATH = '/app/data/input'

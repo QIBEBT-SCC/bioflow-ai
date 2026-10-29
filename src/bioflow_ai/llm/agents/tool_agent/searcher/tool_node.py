@@ -8,7 +8,7 @@ from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMi
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import read_tool_doc, select_tool
 from bioflow_ai.llm.tools.vector_store import search_tools_by_function
-from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
+from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

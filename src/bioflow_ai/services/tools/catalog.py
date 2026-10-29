@@ -15,7 +15,6 @@ import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.models import get_long_context_model
-from bioflow_ai.llm.utils.structured_output import json_output
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from bioflow_ai.schemas.tool_config import ToolType
@@ -33,6 +32,7 @@ from bioflow_ai.services.tools.execution import ImageCommandResult, execute_imag
 from bioflow_ai.services.tools.image_references import assign_image_refs, lock_and_get_all
 from bioflow_ai.services.tools.index import index_tools, refresh_tool_index, remove_tool_index
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
+from bioflow_ai.utils.llm.structured_output import json_output
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

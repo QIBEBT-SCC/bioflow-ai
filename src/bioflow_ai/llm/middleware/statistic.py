@@ -7,7 +7,7 @@ from langgraph.config import get_config
 from langgraph.runtime import Runtime
 
 from bioflow_ai.llm.context import BaseContext
-from bioflow_ai.llm.observability.token_usage import store_token_usage
+from bioflow_ai.utils.observability.token_usage import store_token_usage
 
 
 class TokenStatisticMiddleware[ContextT: BaseContext](AgentMiddleware[AgentState[Any], ContextT]):

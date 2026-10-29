@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.llm.models import get_long_context_model
-from bioflow_ai.llm.observability.token_usage import store_token_usage
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.schemas.agent import ImageMessagePart, WorkflowNodeMessagePart
 from bioflow_ai.services.agents.chat_attachment import image_reference_content
+from bioflow_ai.utils.observability.token_usage import store_token_usage
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

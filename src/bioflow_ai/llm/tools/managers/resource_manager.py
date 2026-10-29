@@ -14,12 +14,6 @@ from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
-from bioflow_ai.llm.utils.formatters import (
-    format_marker_registry,
-    format_validation_error,
-    manager_help_command,
-    node_formatter,
-)
 from bioflow_ai.llm.workflow_builder.drafts import snapshot_active_workflow
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
@@ -27,6 +21,12 @@ from bioflow_ai.schemas.workflow_nodes import RESOURCES
 from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
+from bioflow_ai.utils.llm.formatters import (
+    format_marker_registry,
+    format_validation_error,
+    manager_help_command,
+    node_formatter,
+)
 
 
 class ViewResourceSchema(BaseModel):

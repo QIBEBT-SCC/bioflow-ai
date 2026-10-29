@@ -9,7 +9,7 @@ from typing import Any
 
 from loguru import logger
 
-from bioflow_ai.llm.observability.stream_display import redact_image_payloads, select_stream_display
+from bioflow_ai.utils.observability.stream_display import redact_image_payloads, select_stream_display
 
 LOG_CONTENT_LIMIT = 2_000
 TERMINAL_EVENTS = {'completed', 'waiting_input', 'failed', 'cancelled', 'timed_out'}

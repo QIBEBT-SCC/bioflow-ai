@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowFixContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode, WorkflowFixState
-from bioflow_ai.llm.utils.uid_mapper import generate_char_index
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import compose_node_id_mappings
 from bioflow_ai.llm.workflow_builder.serialization import build_workflow_definition
@@ -22,6 +21,7 @@ from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow.validation import validate_workflow
+from bioflow_ai.utils.llm.uid_mapper import generate_char_index
 from bioflow_ai.utils.system import utc_now
 
 

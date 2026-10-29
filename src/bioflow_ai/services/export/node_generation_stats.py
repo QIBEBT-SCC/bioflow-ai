@@ -7,8 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from bioflow_ai.llm.observability.trajectories import iter_trajectory_events
 from bioflow_ai.services.progress import ProgressIterator, with_progress
+from bioflow_ai.utils.observability.trajectories import iter_trajectory_events
 
 INTERRUPTED_STATUS = 'INTERRUPTED'
 NODE_STATS_COLUMNS = (

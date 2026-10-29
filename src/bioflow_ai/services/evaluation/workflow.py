@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import workflow_run as run_crud
-from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
-from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
 from bioflow_ai.services.agents.execution import consume_agent_graph
 from bioflow_ai.services.progress import ProgressCallback, emit_progress
+from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
+from bioflow_ai.utils.observability.tracing import configure_langsmith_tracing
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
 MISSING_PROJECT_TAG = 'missing'
@@ -385,7 +385,7 @@ async def _build_input(
 ) -> HumanMessage:
     import base64
 
-    from bioflow_ai.llm.utils.multimodal import filter_multimedia_message
+    from bioflow_ai.utils.llm.multimodal import filter_multimedia_message
 
     task_path = Path(task_file)
     if not await task_path.exists():
@@ -508,7 +508,7 @@ async def _generate_workflow(
 
     from bioflow_ai.llm.agents.workflow_agent.workflow_builder import build_workflow_builder
     from bioflow_ai.llm.context import ProjectContext
-    from bioflow_ai.llm.utils.session import delete_checkpoint
+    from bioflow_ai.utils.llm.session import delete_checkpoint
 
     async def persist_state() -> tuple[Any, WorkflowGenerationResult]:
         state = await agent.aget_state(config)

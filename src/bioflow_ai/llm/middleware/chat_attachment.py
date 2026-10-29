@@ -10,7 +10,7 @@ from langchain.agents.middleware.types import ModelCallResult
 from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
-from bioflow_ai.llm.utils.multimodal import rebuild_multimodal_messages
+from bioflow_ai.utils.llm.multimodal import rebuild_multimodal_messages
 
 
 def move_tool_images(messages: list[AnyMessage]) -> list[AnyMessage]:

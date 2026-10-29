@@ -8,11 +8,11 @@ from langchain_core.messages import messages_from_dict, messages_to_dict
 from redis.asyncio import Redis
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.services.code.coding import CodingAgent, run_coding_turn
 from bioflow_ai.services.code.sessions import CodeSessionStore, StaleCodingTurnError
+from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 
 
 async def execute_turn(

@@ -11,44 +11,13 @@ from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 from bioflow_ai.services.tools.input_format import build_command_template
-from bioflow_ai.utils.jsonable import dumps_jsonable
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.states import BuildNode, ToolGeneratorState, WorkflowDraft
-    from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
     from bioflow_ai.models.project import ProjectFileMapping
     from bioflow_ai.models.resource import SampleFiles
     from bioflow_ai.schemas.tools import Handle, ToolNodePublic
-
-DEFAULT_FORMAT_MAX_CHARS = 50_000
-
-
-def truncate_text(content: Any, limit: int, *, notice: str = '...') -> str:
-    """Convert content to text and truncate it to a bounded preview."""
-    text = content if isinstance(content, str) else str(content)
-    if len(text) <= limit:
-        return text
-    return f'{text[:limit]}{notice}'
-
-
-def format_text(content: Any, *, max_chars: int = DEFAULT_FORMAT_MAX_CHARS) -> str:
-    """Format text with an explicit notice when content is omitted."""
-    text = content if isinstance(content, str) else str(content)
-    omitted = max(0, len(text) - max_chars)
-    return truncate_text(text, max_chars, notice=f'\n... [truncated {omitted} characters]')
-
-
-def format_json(
-    value: Any,
-    *,
-    max_chars: int | None = DEFAULT_FORMAT_MAX_CHARS,
-    indent: int | None = 2,
-) -> str:
-    """Format a safe JSON value, optionally bounding the result."""
-    formatted = dumps_jsonable(value, indent=indent)
-    if max_chars is None:
-        return formatted
-    return format_text(formatted, max_chars=max_chars)
+    from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
 
 
 def format_code_inputs(inputs: list[dict[str, Any]]) -> str:

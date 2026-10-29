@@ -14,7 +14,7 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper
+from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper
 
 SYSTEM_PROMPT = """## Todo List
 Use the todo tools for complex objectives to ensure that you are tracking each necessary step and giving the user visibility into your progress.

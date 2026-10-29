@@ -9,7 +9,8 @@ from rich.pretty import Pretty
 from rich.text import Text
 from tqdm import tqdm
 
-from bioflow_ai.llm.observability.stream_display import (
+from bioflow_ai.services.progress import ProgressCallback, ProgressIterator
+from bioflow_ai.utils.observability.stream_display import (
     REASONING_CONTENT_PREVIEW,
     TOOL_CONTENT_PREVIEW,
     display_preview,
@@ -17,7 +18,6 @@ from bioflow_ai.llm.observability.stream_display import (
     select_stream_display,
     tool_call_parts,
 )
-from bioflow_ai.services.progress import ProgressCallback, ProgressIterator
 
 if TYPE_CHECKING:
     from langchain_core.messages import AIMessage, ToolMessage

@@ -17,7 +17,6 @@ from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.checkpoint import open_checkpointer
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
-from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
@@ -31,6 +30,7 @@ from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assis
 from bioflow_ai.services.notification.events import format_duration, notify
 from bioflow_ai.services.workflow import fix as workflow_fix_service
 from bioflow_ai.services.workflow.diagnosis import load_latest_diagnosis_report
+from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 from bioflow_ai.utils.system import utc_now
 
 HEARTBEAT_INTERVAL_SECONDS = 10

@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping, Sequence
 
 from bioflow_ai.llm.states import BuildEdge, BuildNode
-from bioflow_ai.llm.utils.uid_mapper import generate_char_index
+from bioflow_ai.utils.llm.uid_mapper import generate_char_index
 
 LETTER_NODE_ID = re.compile(r'^[A-Z]+$')
 

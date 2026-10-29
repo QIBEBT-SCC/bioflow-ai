@@ -14,8 +14,6 @@ import bioflow_ai.crud.code as code_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ProjectContext, WorkflowFixContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
-from bioflow_ai.llm.utils.formatters import format_validation_error, manager_help_command, node_formatter
-from bioflow_ai.llm.utils.retrievers import retrieve_auxiliary_nodes
 from bioflow_ai.llm.workflow_builder.code_editing import CodeEditingError, read_code_node, update_code_node
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
@@ -26,6 +24,8 @@ from bioflow_ai.services.code.catalog import CODE_NODE_KIND
 from bioflow_ai.services.code.coding import build_code_inputs, message_text, run_coding_turn
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
+from bioflow_ai.utils.llm.formatters import format_validation_error, manager_help_command, node_formatter
+from bioflow_ai.utils.llm.retrievers import retrieve_auxiliary_nodes
 
 # ---- Schemas ----
 

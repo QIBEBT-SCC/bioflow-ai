@@ -11,7 +11,7 @@ from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.agents.workflow_agent.workflow_assistant import build_workflow_assistant
 from bioflow_ai.llm.agents.workflow_agent.workflow_fixer import build_workflow_fixer
 from bioflow_ai.llm.agents.workflow_agent.workflow_generation import build_workflow_generation
-from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
+from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 
 RouteTask = Literal['workflow-builder', 'workflow-assistant', 'workflow-fixer', 'project-planner', 'tool-generator']
 

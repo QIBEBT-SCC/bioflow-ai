@@ -10,11 +10,11 @@ import bioflow_ai.crud.code as code_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.models import get_coding_model, qwen3_embedding
-from bioflow_ai.llm.utils.structured_output import json_output
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.code import CodeDefine
 from bioflow_ai.schemas.code import CodeCreate, CodeMetadataPublic, CodeMetadataRequest, CodeUpdate
 from bioflow_ai.services._transaction import committing
+from bioflow_ai.utils.llm.structured_output import json_output
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata

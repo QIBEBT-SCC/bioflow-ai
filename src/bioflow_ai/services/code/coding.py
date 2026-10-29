@@ -17,8 +17,6 @@ from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.context import CodingContext
-from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
-from bioflow_ai.llm.utils.formatters import format_code_inputs
 from bioflow_ai.llm.workflow_builder.foreach_manifest import foreach_manifest_contract
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.code_agent import CodeAgentProposal
@@ -26,6 +24,8 @@ from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 from bioflow_ai.services.code.workspace import SCRIPT_FILENAMES, initialize_code_workspace_async
 from bioflow_ai.tasks.code import normalize_python_dependencies
+from bioflow_ai.utils.llm.formatters import format_code_inputs
+from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 
 ProgressCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 

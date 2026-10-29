@@ -11,9 +11,9 @@ from anyio import Path
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
-from bioflow_ai.llm.observability.tracing import configure_langsmith_tracing
 from bioflow_ai.services.agents.execution import consume_agent_graph
+from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
+from bioflow_ai.utils.observability.tracing import configure_langsmith_tracing
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -105,8 +105,8 @@ async def _cleanup_threads(
     """
     from bioflow_ai.core.config import get_settings
     from bioflow_ai.infrastructure.containers import remove_container
-    from bioflow_ai.llm.observability.trajectories import delete_trajectory_run
-    from bioflow_ai.llm.utils.session import delete_checkpoint
+    from bioflow_ai.utils.llm.session import delete_checkpoint
+    from bioflow_ai.utils.observability.trajectories import delete_trajectory_run
 
     if TYPE_CHECKING:
         from langchain_core.runnables import RunnableConfig

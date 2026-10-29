@@ -3,13 +3,13 @@ import asyncio
 import click
 
 from bioflow_ai.cli.render import create_progress_renderer
-from bioflow_ai.llm.observability.execution_logging import agent_logging_to_console
 from bioflow_ai.services.evaluation.workflow import (
     EvaluationUsageError,
     WorkflowResumeRequiredError,
     WorkflowResumeUnavailableError,
     wf_eval,
 )
+from bioflow_ai.utils.observability.execution_logging import agent_logging_to_console
 
 
 @click.group()

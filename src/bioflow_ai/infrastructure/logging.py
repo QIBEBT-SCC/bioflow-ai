@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.llm.observability.execution_logging import agent_record_visible
+from bioflow_ai.utils.observability.execution_logging import agent_record_visible
 
 if TYPE_CHECKING:
     from types import FrameType

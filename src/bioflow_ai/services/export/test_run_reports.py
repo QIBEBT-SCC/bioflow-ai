@@ -9,8 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from bioflow_ai.llm.observability.trajectories import iter_trajectory_events
 from bioflow_ai.services.progress import ProgressIterator, with_progress
+from bioflow_ai.utils.observability.trajectories import iter_trajectory_events
 
 TEST_RUN_AGENT = 'test_run'
 WRITE_REPORT_TOOL = 'write_tool_report'
