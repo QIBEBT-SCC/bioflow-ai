@@ -20,8 +20,8 @@ from bioflow_ai.llm.context import CodingContext, TestRunContext
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.services.code.workspace import CODE_IMAGES, build_workspace_mounts
 from bioflow_ai.services.tools import catalog as tool_catalog
+from bioflow_ai.utils.llm.truncation import truncate_output
 
-MAX_CHAR = 3000
 DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')
 
 
@@ -117,12 +117,6 @@ def _blocked_command(content: str, tool_call_id: str | None) -> Command:
     )
 
 
-def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('about.md', 'DESCRIPTION.md')) or len(output) <= MAX_CHAR:
-        return output
-    return f'{output[:1500]}\n\n...(collapsed)...\n\n{output[-500:]}'
-
-
 @tool('run_command', parse_docstring=True)
 async def advance_run_command_tool(
     command: str,
@@ -174,10 +168,12 @@ async def advance_run_command_tool(
 
     image_name = image_ref or 'linux_default'
     if output.strip():
+        if not any(k in command for k in ('about.md', 'DESCRIPTION.md')):
+            output = truncate_output(output)
         return_msg = (
-            f'[Image: {image_name}]\n{_truncate_output(command, output)}'
+            f'[Image: {image_name}]\n{output}'
             if code == 0
-            else f'[Image: {image_name}]\nCommand ran {status}.\n\n......\n{_truncate_output(command, output)}'
+            else f'[Image: {image_name}]\nCommand ran {status}.\n\n......\n{output}'
         )
     else:
         return_msg = f'[Image: {image_name}]\nCommand ran {status}. No other output.'
@@ -222,7 +218,9 @@ async def coding_run_command(
     if code != 0:
         msgs.append(f'Exit code: {code}')
     if output.strip():
-        msgs.append(_truncate_output(command, output))
+        if not any(k in command for k in ('about.md', 'DESCRIPTION.md')):
+            output = truncate_output(output)
+        msgs.append(output)
     else:
         msgs.append('(no output)')
     return '\n'.join(msgs)
