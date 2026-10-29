@@ -13,7 +13,6 @@ from bioflow_ai.core.auth import AdminDep
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.models.setting import ModelRole
-from bioflow_ai.schemas.code import BASH_DEPENDENCIES_ERROR, CodeNodeType
 from bioflow_ai.schemas.code_agent import (
     CodeAgentAvailability,
     CodeAgentProposalDecision,
@@ -23,24 +22,9 @@ from bioflow_ai.schemas.code_agent import (
 )
 from bioflow_ai.services import llm_setting
 from bioflow_ai.services.code.sessions import CodeSessionBusyError, CodeSessionNotFoundError, CodeSessionStore
-from bioflow_ai.tasks.code import normalize_python_dependencies, normalize_r_dependencies
 from bioflow_ai.tasks.code_editing import execute_code_turn
 
 router = APIRouter()
-
-
-def dependencies_for(node_type: CodeNodeType, dependencies: list[str]) -> list[str]:
-    """Validate the editor baseline against the existing CODE dependency contract."""
-    try:
-        if node_type is CodeNodeType.PYTHON:
-            return normalize_python_dependencies(dependencies)
-        if node_type is CodeNodeType.R:
-            return normalize_r_dependencies(dependencies)
-    except (TypeError, ValueError) as error:
-        raise HTTPException(422, str(error)) from error
-    if dependencies:
-        raise HTTPException(422, BASH_DEPENDENCIES_ERROR)
-    return []
 
 
 def session_error(error: CodeSessionNotFoundError | CodeSessionBusyError) -> HTTPException:
@@ -102,9 +86,7 @@ async def submit_turn(
     store = CodeSessionStore(redis)
     sid = str(session_id)
     try:
-        state = await store.get(sid, current_user.id)
-        # Validate, but retain the exact original baseline for the proposal fingerprint.
-        dependencies_for(CodeNodeType(state['node_type']), data.dependencies)
+        await store.get(sid, current_user.id)
         state = await store.submit(sid, current_user.id, data)
     except (CodeSessionNotFoundError, CodeSessionBusyError) as error:
         raise session_error(error) from error
