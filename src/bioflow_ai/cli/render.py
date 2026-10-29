@@ -85,6 +85,8 @@ def print_stream_chunk(
                 Panel(
                     body,
                     title=f'[bold {color}]LLM: {model_name}[/bold {color}]',
+                    subtitle=_format_token_usage(last_msg),
+                    subtitle_align='right',
                     border_style=color,
                 ),
                 namespace,
@@ -132,6 +134,26 @@ def _render_tools_update(console: Console, tools_state: Mapping[str, Any], names
         ),
         namespace,
     )
+
+
+def _format_token_usage(message: 'AIMessage') -> Text | None:
+    """Show per-call token usage, with cache counts as part of the input."""
+    usage = message.usage_metadata
+    if not usage:
+        return None
+
+    input_details = usage.get('input_token_details') or {}
+    cache_parts = []
+    if (cache_read := input_details.get('cache_read')) is not None:
+        cache_parts.append(f'Cache {cache_read:,}')
+    if (cache_creation := input_details.get('cache_creation')) is not None:
+        cache_parts.append(f'Write {cache_creation:,}')
+
+    text = f'In {usage["input_tokens"]:,}'
+    if cache_parts:
+        text += f' ({", ".join(cache_parts)})'
+    text += f' · Out {usage["output_tokens"]:,}'
+    return Text(text, style='dim')
 
 
 def _format_tool_calls(tool_calls: list) -> Text:
