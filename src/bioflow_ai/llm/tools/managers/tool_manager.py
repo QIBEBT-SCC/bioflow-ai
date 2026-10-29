@@ -25,14 +25,14 @@ from bioflow_ai.services.tools.catalog import check_update_args
 from bioflow_ai.services.tools.input_format import build_command_template
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
-from bioflow_ai.utils.llm.formatters import (
+from bioflow_ai.utils.formatters import (
     format_validation_error,
     manager_help_command,
     node_formatter,
     search_nodes_formatter,
 )
 from bioflow_ai.utils.llm.session import workflow_thread_id
-from bioflow_ai.utils.llm.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
 
 SEARCH_RESULT_LIMIT = 15
 

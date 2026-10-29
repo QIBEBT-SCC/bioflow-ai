@@ -6,7 +6,7 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from bioflow_ai.utils.llm.formatters import search_nodes_formatter
+from bioflow_ai.utils.formatters import search_nodes_formatter
 from bioflow_ai.utils.llm.retrievers import retrieve_tools
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper, merge_mappers
 

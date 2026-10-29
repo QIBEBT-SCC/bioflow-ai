@@ -37,7 +37,7 @@ from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
 from bioflow_ai.schemas.tool_config import ToolType
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.index import index_tools
-from bioflow_ai.utils.llm.formatters import handle_formatter, search_nodes_formatter
+from bioflow_ai.utils.formatters import handle_formatter, search_nodes_formatter
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:

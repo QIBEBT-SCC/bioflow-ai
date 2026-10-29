@@ -21,7 +21,7 @@ from bioflow_ai.schemas.workflow_nodes import RESOURCES
 from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
-from bioflow_ai.utils.llm.formatters import (
+from bioflow_ai.utils.formatters import (
     format_marker_registry,
     format_validation_error,
     manager_help_command,

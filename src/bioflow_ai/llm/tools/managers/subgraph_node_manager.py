@@ -27,7 +27,7 @@ from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow import catalog as workflow_catalog
 from bioflow_ai.services.workflow.ports import effective_nodes
 from bioflow_ai.services.workflow.validation import validate_workflow
-from bioflow_ai.utils.llm.formatters import format_validation_error, manager_help_command
+from bioflow_ai.utils.formatters import format_validation_error, manager_help_command
 from bioflow_ai.utils.llm.session import workflow_thread_id
 
 

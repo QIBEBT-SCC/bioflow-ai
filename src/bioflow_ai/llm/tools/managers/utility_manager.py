@@ -24,7 +24,7 @@ from bioflow_ai.services.code.catalog import CODE_NODE_KIND
 from bioflow_ai.services.code.coding import build_code_inputs, message_text, run_coding_turn
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
-from bioflow_ai.utils.llm.formatters import format_validation_error, manager_help_command, node_formatter
+from bioflow_ai.utils.formatters import format_validation_error, manager_help_command, node_formatter
 from bioflow_ai.utils.llm.retrievers import retrieve_auxiliary_nodes
 
 # ---- Schemas ----

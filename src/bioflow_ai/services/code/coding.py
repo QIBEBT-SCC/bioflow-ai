@@ -24,7 +24,7 @@ from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 from bioflow_ai.services.code.workspace import SCRIPT_FILENAMES, initialize_code_workspace_async
 from bioflow_ai.tasks.code import normalize_python_dependencies
-from bioflow_ai.utils.llm.formatters import format_code_inputs
+from bioflow_ai.utils.formatters import format_code_inputs
 from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 
 ProgressCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
