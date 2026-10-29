@@ -4,6 +4,7 @@ import asyncio
 import base64
 import re
 from html import escape
+from typing import Any
 
 from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
 from sqlalchemy.orm import Session
@@ -19,6 +20,12 @@ from bioflow_ai.services.resource.file import store_file_bytes
 IMAGE_TAG = re.compile(r'<Image id="([0-9]+)"\s*/?>')
 
 
+def _part_text(part: str | dict[str, Any]) -> str:
+    if isinstance(part, str):
+        return part
+    return part.get('text', '') if part.get('type') == 'text' else ''
+
+
 def rebuild_multimodal_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
     """Expand image tags in Human/Tool request copies; PDF tags remain plain text.
 
@@ -31,7 +38,7 @@ def rebuild_multimodal_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
             continue
         contents = message.content if isinstance(message.content, list) else [message.content]
         for part in contents:
-            text = part if isinstance(part, str) else part.get('text', '') if part.get('type') == 'text' else ''
+            text = _part_text(part)
             image_ids.extend(IMAGE_TAG.findall(text))
     if not image_ids:
         return messages
@@ -45,7 +52,7 @@ def rebuild_multimodal_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
         expanded = []
         changed = False
         for part in contents:
-            text = part if isinstance(part, str) else part.get('text', '') if part.get('type') == 'text' else ''
+            text = _part_text(part)
             matches = list(IMAGE_TAG.finditer(text))
             if not matches:
                 expanded.append(part)
