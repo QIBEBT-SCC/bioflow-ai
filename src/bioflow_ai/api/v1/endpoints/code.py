@@ -7,7 +7,6 @@ from starlette.status import HTTP_404_NOT_FOUND, HTTP_422_UNPROCESSABLE_CONTENT
 import bioflow_ai.crud.code as code_crud
 from bioflow_ai.core.auth import AdminDep, UserDep
 from bioflow_ai.infrastructure.database import SessionDep
-from bioflow_ai.llm.prebuild.chains import generate_code_metadata
 from bioflow_ai.schemas.code import (
     CodeCreate,
     CodeMetadataPublic,
@@ -66,7 +65,7 @@ async def generate_metadata(
     current_user: AdminDep,
 ) -> CodeMetadataPublic:
     """Generate a catalog name and description without persisting the code."""
-    return await generate_code_metadata(request, current_user.id)
+    return await code_catalog.generate_code_metadata(request, current_user.id)
 
 
 @router.get('/{code_uid}')

@@ -17,7 +17,6 @@ from bioflow_ai.infrastructure.redis.operations import open_catalog_generation_g
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext
 from bioflow_ai.llm.middleware.limit import MaxRetriesError
-from bioflow_ai.llm.prebuild.chains import check_update_args
 from bioflow_ai.llm.states import BuildEdge, BuildNode, CreateToolState
 from bioflow_ai.llm.utils.formatters import (
     format_validation_error,
@@ -30,6 +29,7 @@ from bioflow_ai.llm.utils.uid_mapper import BidirectionalMapper, HasUid, merge_m
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
 from bioflow_ai.schemas.tools import ToolNodePublic
+from bioflow_ai.services.tools.catalog import check_update_args
 from bioflow_ai.services.tools.input_format import build_command_template
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges

@@ -18,14 +18,13 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.checkpoint import open_checkpointer
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAssistantContext, WorkflowFixContext
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
-from bioflow_ai.llm.prebuild.dispatch import AGENTS
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
 from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType, AgentName, AgentRunStatus
 from bioflow_ai.schemas.notification import NotificationEventType
 from bioflow_ai.services.agents import sessions as agent_service
-from bioflow_ai.services.agents.execution import execute_agent_graph
+from bioflow_ai.services.agents.execution import AGENTS, execute_agent_graph
 from bioflow_ai.services.agents.messages import load_langchain_messages, wrap_request
 from bioflow_ai.services.agents.progress import event_payload, result_payload
 from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input

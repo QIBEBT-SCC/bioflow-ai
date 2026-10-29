@@ -1,3 +1,5 @@
+"""Build reusable structured-output runnables for LLM calls."""
+
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 

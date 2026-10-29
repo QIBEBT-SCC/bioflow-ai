@@ -1,15 +1,22 @@
-"""Convert durable domain messages without dropping their visual content."""
+"""Prepare conversation messages and generate their display titles."""
 
 from html import escape
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langgraph.config import get_config
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
+from bioflow_ai.llm.models import get_long_context_model
+from bioflow_ai.llm.observability.token_usage import store_token_usage
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.schemas.agent import ImageMessagePart, WorkflowNodeMessagePart
 from bioflow_ai.services.agents.chat_attachment import image_reference_content
+
+if TYPE_CHECKING:
+    from bioflow_ai.llm.llm_client import LLMMetadata
 
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
 
@@ -69,3 +76,30 @@ def wrap_request(content: str | list[str | dict], opening: str, closing: str) ->
     if isinstance(content, str):
         return f'{opening}{content}{closing}'
     return [{'type': 'text', 'text': opening}, *content, {'type': 'text', 'text': closing}]
+
+
+async def generate_title(history: list[BaseMessage], user_id: int) -> str:
+    """总结对话并生成标题."""
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ('system', '你是一个总结专家, 请根据给出的对话历史, 为对话生成一个简短的题目。'),
+            MessagesPlaceholder(variable_name='history'),
+            ('user', '为上述对话生成一个简短的题目。'),
+        ]
+    )
+    llm = get_long_context_model()
+    chain = prompt | llm
+    result = await chain.ainvoke({'history': history})
+
+    metadate = cast('LLMMetadata', llm.metadata)
+    store_token_usage(
+        'generate_title',
+        user_id,
+        get_config()['configurable'].get('thread_id', None),
+        token_usage=result.usage_metadata,
+        **metadate,
+    )
+
+    if isinstance(result.content, list):
+        return f'{result.content}'
+    return result.content.strip()

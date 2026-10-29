@@ -1,5 +1,8 @@
 """Application services for managing the tool catalog."""
 
+from typing import TYPE_CHECKING, cast
+
+from pydantic import BaseModel
 from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,6 +13,9 @@ import bioflow_ai.crud.tools.tool_doc as doc_crud
 import bioflow_ai.crud.tools.tool_group as group_crud
 import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.llm.context import BaseContext
+from bioflow_ai.llm.models import get_long_context_model
+from bioflow_ai.llm.utils.structured_output import json_output
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
 from bioflow_ai.schemas.tool_config import ToolType
@@ -28,6 +34,9 @@ from bioflow_ai.services.tools.image_references import assign_image_refs, lock_a
 from bioflow_ai.services.tools.index import index_tools, refresh_tool_index, remove_tool_index
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 
+if TYPE_CHECKING:
+    from bioflow_ai.llm.llm_client import LLMMetadata
+
 _IMAGE_NOT_FOUND = 'Tool image not found'
 _HELP_DOCUMENT_NOT_FOUND = 'Tool help document not found'
 _HELP_DOCUMENT_IMAGE_NOT_FOUND = 'Tool image associated with the help document not found'
@@ -35,6 +44,70 @@ _TOOL_NOT_FOUND = 'Tool not found'
 _CREATED_TOOL_RELOAD_FAILED = 'Created tool could not be reloaded'
 _UPDATED_TOOL_RELOAD_FAILED = 'Updated tool could not be reloaded'
 _AI_CHECKED_TAG_NOT_CONFIGURED = 'AI Checked tag is not configured'
+
+CHECK_SYSTEM = """You are a bioinformatics expert. You will be given the help documentation of a bioinformatics tool, along with a user's proposed parameter modification for a specific command. Your task is to determine whether the modification is valid and return the result.
+If the user provides fabricated parameters or uses parameters incorrectly, the modification should also be rejected, with the correct usage pointed out.
+
+## Input
+
+The user's modification proposal contains the following three parts:
+
+1. **Origin Command**: The original bioinformatics tool command before modification. Parts enclosed in square brackets `[]` are modifiable parameters; parts enclosed in parentheses `()` are non-modifiable parameters.
+   - **Modifiable parameters**: Parameters that do not affect the command's core functionality in the default encapsulation. Users may freely modify or replace these.
+   - **Non-modifiable parameters**: Parameters strictly tied to the command's functionality (especially its inputs and outputs) in the default encapsulation. Modifying these may alter the output or the overall behavior of the command.
+   - If no parameters are specially marked in the Origin Command, it means no such parameters are defined in the original encapsulation.
+   - Placeholder tokens such as `{{genome_dir}}`, `{{read1}}`, `{{output_dir}}`, etc. represent fixed file arguments and should be ignored entirely during validation.
+2. **New Args**: The updated modifiable parameters provided by the user, which will fully replace the content currently inside the square brackets `[]`.
+3. **Modify Reason**: The reason behind the user's proposed modification.
+
+## Validation Logic
+
+Read the tool documentation and analyze the user's new modification parameters to decide whether to approve the modification:
+- If the modification includes parameters that do not actually exist (or incorrect parameter names), reject the modification. In the `feedback` field, state the correct parameter based on the user's original modification request, and attach an excerpt from the relevant parameter documentation.
+- If the modification includes incorrect usage of parameters, reject the modification. In the `feedback` field, explain the correct usage of the relevant parameter and attach an excerpt from the documentation.
+- If the parameters are correct but potentially conflict with **Non-modifiable parameters**, reject the modification and explain the situation in the `feedback` field.
+- If the new modification parameters and their usage are both correct and do not conflict with **Non-modifiable parameters**, approve the modification. The `feedback` field may be left blank.
+
+## Output
+Your output must be a plain JSON string containing exactly the following two fields, with no additional characters:
+
+- `approve`: Boolean. Indicates whether the modification is approved.
+- `feedback`: String. When the modification is not approved, provide the specific reason, such as the correct parameter to use or the need to create a new encapsulation. When approved, this field can be left as an empty string.
+"""
+
+
+class ArgsCheckResult(BaseModel):
+    approve: bool
+    feedback: str
+
+
+async def check_update_args(
+    doc: str,
+    complete_command: str,
+    update_arg: str,
+    reason: str,
+    user_id: int,
+) -> ArgsCheckResult:
+    """检查工具参数更新是否合法."""
+    llm = get_long_context_model()
+    metadata = cast('LLMMetadata', llm.metadata)
+    chain = json_output(
+        llm,
+        CHECK_SYSTEM,
+        ArgsCheckResult,
+        metadata=metadata,
+        name='check_update_args',
+    )
+
+    input_msg = (
+        f'<ToolDoc>\n{doc}\n<ToolDoc>\n\n'
+        f'Origin Command: `{complete_command}`\nNew Args: `{update_arg}`\nModify Reason: {reason}'
+    )
+
+    return await chain.ainvoke(
+        input_msg,
+        context=BaseContext(user_id=user_id),
+    )
 
 
 class ToolCatalogError(Exception):
