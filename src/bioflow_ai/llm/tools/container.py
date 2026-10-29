@@ -14,14 +14,12 @@ from bioflow_ai.infrastructure.containers import ContainerMount, run_command_asy
 from bioflow_ai.infrastructure.containers.mount_paths import (
     PROJECT_DATA_ROOTS,
     build_project_data_mount_plan,
-    build_uv_mounts,
 )
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import CodingContext, TestRunContext
-from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.tool_config import ImageConfig
+from bioflow_ai.services.code.workspace import CODE_IMAGES, build_workspace_mounts
 from bioflow_ai.services.tools import catalog as tool_catalog
-from bioflow_ai.tasks.code import PYTHON_CODE_IMAGE
 
 MAX_CHAR = 3000
 DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')
@@ -209,17 +207,15 @@ async def coding_run_command(
     """Run shell commands in container.
 
     The authoring workspace is mounted read-write at /workspace. Commands can
-    read or modify files and run checks. Python uses its Python 3.13 uv image;
-    Bash and R use biokit-utils.
+    read or modify files and run checks. Each CODE language uses the same image
+    for authoring checks and workflow execution.
 
     Args:
         command: Shell command to run; narrow large outputs.
         workdir: Working directory inside the container.
     """
-    mounts = [ContainerMount(target='/workspace', source=str(runtime.context.workspace_path), read_only=False)]
-    image = PYTHON_CODE_IMAGE if runtime.context.node_type is CodeNodeType.PYTHON else DEFAULT_LINUX_IMAGE
-    if runtime.context.node_type is CodeNodeType.PYTHON:
-        mounts.extend(build_uv_mounts())
+    mounts = build_workspace_mounts(runtime.context.workspace_path, runtime.context.node_type)
+    image = CODE_IMAGES[runtime.context.node_type]
     code, output = await run_command_async(image, mounts, command, workdir)
 
     msgs = []

@@ -640,7 +640,7 @@ def _add_existing_code(
         'code': code_content,
         'description': code_description,
     }
-    if node_type in {CodeNodeType.PYTHON, CodeNodeType.R}:
+    if node_type is CodeNodeType.PYTHON:
         node_data['dependencies'] = dependencies
 
     new_node = BuildNode(
@@ -765,7 +765,7 @@ async def _add_new_code(
 
     code_label = '' if node_type is CodeNodeType.BASH else f'{language_name} '
     data: dict[str, Any] = {'code': generated.proposal.source, 'description': request}
-    if node_type is not CodeNodeType.BASH:
+    if node_type is CodeNodeType.PYTHON:
         data['dependencies'] = generated.proposal.dependencies
     new_node = BuildNode(
         id=node_id,

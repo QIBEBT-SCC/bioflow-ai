@@ -3,13 +3,11 @@
 import difflib
 import hashlib
 import json
-import shlex
 import tomllib
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import nullcontext
 from pathlib import Path
-from shutil import copyfile
 from tempfile import TemporaryDirectory
 from typing import Any, Protocol, cast
 
@@ -18,9 +16,6 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.paths import PRESETS_DIR
-from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async
-from bioflow_ai.infrastructure.containers.mount_paths import build_uv_mounts
 from bioflow_ai.llm.context import CodingContext
 from bioflow_ai.llm.observability.execution_logging import AgentRunLogger
 from bioflow_ai.llm.utils.formatters import format_code_inputs
@@ -29,7 +24,8 @@ from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.code_agent import CodeAgentProposal
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
-from bioflow_ai.tasks.code import PYTHON_CODE_IMAGE, normalize_python_dependencies, normalize_r_dependencies
+from bioflow_ai.services.code.workspace import SCRIPT_FILENAMES, initialize_code_workspace_async
+from bioflow_ai.tasks.code import normalize_python_dependencies
 
 ProgressCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -132,64 +128,11 @@ def baseline_hash(node_type: CodeNodeType, source: str, dependencies: list[str])
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def initialize_bash_workspace(workspace: Path, *, source: str = '') -> None:
-    """Initialize the Bash script, instructions, and output directory."""
-    (workspace / 'output').mkdir(mode=0o777)
-    agents = workspace / 'AGENTS.md'
-    copyfile(PRESETS_DIR / 'code' / 'bash' / 'AGENTS.md', agents)
-    agents.chmod(0o666)
-    script = workspace / 'script.sh'
-    script.write_text(source, encoding='utf-8')
-    script.chmod(0o666)
-
-
-async def initialize_python_workspace(workspace: Path, dependencies: list[str], *, source: str = '') -> None:
-    """Initialize a uv project and restore an existing Python definition when supplied."""
-    agents = workspace / 'AGENTS.md'
-    copyfile(PRESETS_DIR / 'code' / 'python' / 'AGENTS.md', agents)
-    agents.chmod(0o666)
-    add_command = ['uv', 'add', '--default-index', str(get_settings().code.PYTHON_INDEX_URL), '--']
-    add_dev_command = ['uv', 'add', '--default-index', str(get_settings().code.PYTHON_INDEX_URL), '--dev', '--']
-    commands = [
-        'uv init --app --no-package --vcs none --python "3.13"',
-        'mkdir -p output',
-        shlex.join([*add_command, 'click', 'loguru']),
-        shlex.join([*add_dev_command, 'ruff', 'ty', 'pytest']),
-    ]
-    if dependencies:
-        commands.append(shlex.join([*add_command, *dependencies]))
-    status, output = await run_command_async(
-        PYTHON_CODE_IMAGE,
-        [ContainerMount(source=str(workspace), target='/workspace', read_only=False), *build_uv_mounts()],
-        ' && '.join(commands),
-        workdir='/workspace',
-    )
-    if status != 0:
-        message = f'Python workspace initialization failed (exit {status}):\n{output}'
-        raise RuntimeError(message)
-    if source:
-        (workspace / 'main.py').write_text(source, encoding='utf-8')
-
-
-def initialize_r_workspace(workspace: Path, dependencies: list[str], *, source: str = '') -> None:
-    """Initialize the R script, dependencies, instructions, and output directory."""
-    (workspace / 'output').mkdir(mode=0o777)
-    agents = workspace / 'AGENTS.md'
-    copyfile(PRESETS_DIR / 'code' / 'r' / 'AGENTS.md', agents)
-    agents.chmod(0o666)
-    script = workspace / 'script.R'
-    script.write_text(source, encoding='utf-8')
-    script.chmod(0o666)
-    dependency_path = workspace / 'dependencies.txt'
-    dependency_path.write_text('\n'.join(dependencies) + ('\n' if dependencies else ''), encoding='utf-8')
-    dependency_path.chmod(0o666)
-
-
 def read_candidate(
     workspace: Path, node_type: CodeNodeType, *, allow_empty: bool = False
 ) -> tuple[str, list[str], list[str]]:
     """Read the script and dependencies used to build the CODE proposal."""
-    filename = {CodeNodeType.BASH: 'script.sh', CodeNodeType.PYTHON: 'main.py', CodeNodeType.R: 'script.R'}[node_type]
+    filename = SCRIPT_FILENAMES[node_type]
     source = (workspace / filename).read_text(encoding='utf-8')
     if not source.strip() and not allow_empty:
         message = 'Agent produced an empty script'
@@ -198,11 +141,6 @@ def read_candidate(
     if node_type is CodeNodeType.PYTHON:
         with (workspace / 'pyproject.toml').open('rb') as project_file:
             dependencies = normalize_python_dependencies(tomllib.load(project_file)['project']['dependencies'])
-    elif node_type is CodeNodeType.R:
-        dependency_path = workspace / 'dependencies.txt'
-        if dependency_path.exists():
-            dependencies = dependency_path.read_text(encoding='utf-8').splitlines()
-        dependencies = normalize_r_dependencies(dependencies)
     return source, dependencies, []
 
 
@@ -214,7 +152,7 @@ def proposal_diff(
     after_dependencies: list[str],
 ) -> str:
     """Render one unified diff for the whole turn."""
-    filename = {CodeNodeType.BASH: 'script.sh', CodeNodeType.PYTHON: 'main.py', CodeNodeType.R: 'script.R'}[node_type]
+    filename = SCRIPT_FILENAMES[node_type]
     chunks = list(
         difflib.unified_diff(
             before_source.splitlines(keepends=True),
@@ -223,15 +161,10 @@ def proposal_diff(
             tofile=f'b/{filename}',
         )
     )
-    if node_type is not CodeNodeType.BASH:
-        if node_type is CodeNodeType.PYTHON:
-            dependency_filename = 'pyproject.toml'
-            before_lines = tomli_w.dumps({'project': {'dependencies': before_dependencies}}).splitlines(keepends=True)
-            after_lines = tomli_w.dumps({'project': {'dependencies': after_dependencies}}).splitlines(keepends=True)
-        else:
-            dependency_filename = 'dependencies.txt'
-            before_lines = [f'{item}\n' for item in before_dependencies]
-            after_lines = [f'{item}\n' for item in after_dependencies]
+    if node_type is CodeNodeType.PYTHON:
+        dependency_filename = 'pyproject.toml'
+        before_lines = tomli_w.dumps({'project': {'dependencies': before_dependencies}}).splitlines(keepends=True)
+        after_lines = tomli_w.dumps({'project': {'dependencies': after_dependencies}}).splitlines(keepends=True)
         chunks.extend(
             difflib.unified_diff(
                 before_lines,
@@ -272,19 +205,21 @@ async def run_coding_turn(
         baseline_dependencies = list(dependencies or [])
         with TemporaryDirectory(prefix='bioflow-code-') as directory:
             workspace = Path(directory)
-            match node_type:
-                case CodeNodeType.BASH:
-                    initialize_bash_workspace(workspace, source=source)
-                case CodeNodeType.PYTHON:
-                    await initialize_python_workspace(workspace, baseline_dependencies, source=source)
-                case CodeNodeType.R:
-                    initialize_r_workspace(workspace, baseline_dependencies, source=source)
+            await initialize_code_workspace_async(workspace, node_type, baseline_dependencies, source=source)
             initial_source, initial_dependencies, _ = read_candidate(workspace, node_type, allow_empty=True)
             context = CodingContext(user_id=user_id, language=language, workspace_path=workspace, node_type=node_type)
+            repository_instructions = ''
+            if node_type is CodeNodeType.R:
+                repository_instructions = (
+                    f'CRAN repository for this turn: {get_settings().code.CRAN_REPOSITORY}\n'
+                    'If script.R needs additional CRAN packages, check availability and install missing packages '
+                    'inside script.R. Use this repository explicitly as the repos argument to install.packages().\n\n'
+                )
             prompt = (
                 f'Current target CODE node type: {node_type.value}\n'
                 f'Authoring mode: {"edit existing source" if source.strip() else "create new script"}\n'
                 'The workspace was initialized from the source and dependencies supplied for this turn.\n\n'
+                f'{repository_instructions}'
                 f'Task request:\n{request}'
             )
             if input_contract is not None:

@@ -8,7 +8,7 @@ from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.code import CodeDefine
-from bioflow_ai.schemas.code import BASH_DEPENDENCIES_ERROR, CodeCreate, CodeNodeType, CodeUpdate
+from bioflow_ai.schemas.code import CODE_DEPENDENCIES_ERROR, CodeCreate, CodeNodeType, CodeUpdate
 from bioflow_ai.services._transaction import committing
 
 AUXILIARY_NODE_COLLECTION = 'ProcessorCollection'
@@ -84,12 +84,8 @@ async def update_code(session: Session, code_uid: str, data: CodeUpdate) -> Code
     code = code_crud.get(session, code_uid)
     if code is None:
         return None
-    if (
-        code.node_type == CodeNodeType.BASH.value
-        and 'dependencies' in data.model_fields_set
-        and data.dependencies
-    ):
-        raise CodeCatalogValidationError(BASH_DEPENDENCIES_ERROR)
+    if code.node_type != CodeNodeType.PYTHON.value and 'dependencies' in data.model_fields_set and data.dependencies:
+        raise CodeCatalogValidationError(CODE_DEPENDENCIES_ERROR)
 
     vector_projection_changed = ('name' in data.model_fields_set and data.name != code.name) or (
         'description' in data.model_fields_set and data.description != code.description

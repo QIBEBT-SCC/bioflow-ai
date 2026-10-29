@@ -76,7 +76,7 @@ _INDEXED_NODES: dict[str, tuple[str, dict[str, Any]]] = {
     'decompress': ('decompress', {}),
     'code_bash': ('bash', {'code': ''}),
     'code_python': ('python', {'code': '', 'dependencies': []}),
-    'code_R': ('r', {'code': '', 'dependencies': []}),
+    'code_R': ('r', {'code': ''}),
 }
 
 

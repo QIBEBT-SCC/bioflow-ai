@@ -31,7 +31,7 @@ Implement the caller's task in the temporary authoring workspace.
    If required options or requirements are missing, explain what the caller must supply before editing. Do not invent them.
 3. Prefer apply_patch for file changes. Supply the patch as the patch string.
    Read and search with ordinary shell commands: prefer rg/fd for search and sed/head/tail for focused reading.
-4. Leave one complete script plus its dependency list in the workspace for the caller to collect.
+4. Leave one complete script in the workspace for the caller to collect. Include dependency declarations only when the language's AGENTS.md requires them.
    Explain the result briefly; do not claim that it has been saved or executed as a workflow.
 
 ## Workspace and tool boundaries
