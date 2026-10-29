@@ -26,6 +26,7 @@ class CreateToolState(AgentState, total=False):
     help_command: str
 
     group_id: int
+    tag_ids: list[int]
 
     name: str
     description: str

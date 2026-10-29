@@ -28,10 +28,15 @@ from bioflow_ai.llm.agents.tool_agent.report_generator_v2 import test_run_agent
 from bioflow_ai.llm.agents.tool_agent.searcher import search_image_agent
 from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
 from bioflow_ai.llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
-from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMiddleware
+from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
+    CheckStateExistMiddleware,
+    EndLoopMiddleware,
+    TokenStatisticMiddleware,
+)
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
-from bioflow_ai.llm.tools.database import select_group, view_groups
+from bioflow_ai.llm.tools.database import select_classification
 from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
 from bioflow_ai.schemas.tool_config import ToolType
@@ -59,12 +64,53 @@ If you encounter any unresolvable issues at any point, you can call the `ask_hum
 
 SELECT_GROUP_SYSTEM = """You are a bioinformatics analysis engineer using a node-based bioinformatics analysis platform.
 This platform encapsulates analysis tools, databases, and analysis data into individual nodes, and what we need to do now is to encapsulate a new node.
-Now your task is to **assign an appropriate group** to this tool based on the information available about it.
+Assign the node's primary Function group and Function/Domain tags based on its verified command, inputs and main outputs.
+
+<Function>
+- group_id=1, tag_id=4, Data Processing
+- group_id=2, tag_id=5, Reference Setup
+- group_id=3, tag_id=6, Quality Control
+- group_id=4, tag_id=7, Alignment
+- group_id=5, tag_id=8, Assembly
+- group_id=6, tag_id=9, Variant Analysis
+- group_id=7, tag_id=10, Annotation
+- group_id=8, tag_id=11, Quantification
+- group_id=9, tag_id=12, Feature Detection
+- group_id=10, tag_id=13, Statistical Analysis
+- group_id=11, tag_id=14, Clustering
+- group_id=12, tag_id=15, Taxonomic Profiling
+- group_id=13, tag_id=16, Phylogenetics
+- group_id=14, tag_id=17, Structure Analysis
+- group_id=15, tag_id=18, Visualization
+- group_id=16, tag_id=19, Reporting
+- group_id=17, tag_id=20, Utilities
+</Function>
+
+<Domain>
+- tag_id=21, General
+- tag_id=22, Genomics
+- tag_id=23, Transcriptomics
+- tag_id=24, Epigenomics
+- tag_id=25, Genome Architecture
+- tag_id=26, Metagenomics
+- tag_id=27, Population Genetics
+- tag_id=28, Evolution
+- tag_id=29, Proteomics
+- tag_id=30, Metabolomics
+- tag_id=31, Structural Biology
+- tag_id=32, Immunology
+- tag_id=33, Single Cell
+- tag_id=34, Cell Imaging
+- tag_id=35, Pharmacology
+</Domain>
 
 <ThinkingProcess>
-To complete this task, you can follow these steps:
-1. Call the `view_groups` tool to see the existing groups.
-2. If there is a suitable group, directly call the `select_group` tool to select the corresponding group.
+1. Select exactly one primary Function group based on the node's command, inputs and outputs.
+2. Select at least one Domain tag. Multiple Domain tags and additional Function tags are allowed.
+   If you select General, do not combine it with other Domain tags.
+3. Call `select_classification(group_id=..., tag_ids=[...])` using the IDs above.
+   The primary Function tag is added automatically. Review status is assigned separately when saving.
+4. If validation reports an error, correct the selection. Finish only after select_classification succeeds.
 </ThinkingProcess>
 """
 
@@ -78,8 +124,9 @@ class TempIDClass(BaseModel):
     uid: uuid.UUID
 
 
-class SelectGroupState(AgentState):
+class SelectClassificationState(AgentState):
     group_id: NotRequired[int]
+    tag_ids: NotRequired[list[int]]
 
 
 PostReportRoute = Literal['__end__'] | list[Literal['choose_group', 'generate_tool_config', 'process_help_doc']]
@@ -93,10 +140,15 @@ class CreateToolAgent:
         metadata = cast('LLMMetadata', self.think_llm.metadata)
         self.select_group_agent = create_agent(
             model=self.think_llm,
-            tools=[view_groups, select_group],
+            tools=[select_classification],
             system_prompt=SELECT_GROUP_SYSTEM,
-            middleware=[ChatAttachmentMiddleware(), TokenStatisticMiddleware('select_group', **metadata)],
-            state_schema=SelectGroupState,
+            middleware=[
+                ChatAttachmentMiddleware(),
+                CheckStateExistMiddleware('tag_ids', 'select_classification'),
+                EndLoopMiddleware(),
+                TokenStatisticMiddleware('select_group', **metadata),
+            ],
+            state_schema=SelectClassificationState,
             context_schema=BaseContext,
         )
 
@@ -240,9 +292,9 @@ class CreateToolAgent:
         }
 
     async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
-        """最后一步, 为工具选择分组."""
+        """为工具选择主功能及 Function/Domain 标签."""
         writer = get_stream_writer()
-        writer({'info': 'Assigning groups to tools...'})
+        writer({'info': 'Assigning function and domain tags...'})
 
         response = await self.select_group_agent.ainvoke(
             {'messages': state['messages']},
@@ -250,7 +302,10 @@ class CreateToolAgent:
         )
 
         # 不更新消息
-        return {'group_id': response['group_id']}
+        return {
+            'group_id': response['group_id'],
+            'tag_ids': response['tag_ids'],
+        }
 
     @staticmethod
     async def generate_tool_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
@@ -340,14 +395,16 @@ class CreateToolAgent:
                 err_msg = 'Empty Group ID'
                 raise ValueError(err_msg)
 
-            tag = tag_crud.get_by_name(session, 'AI Unchecked')
+            tag_ids = [*state['tag_ids'], 3]
+            if group.tag_id is not None:
+                tag_ids.append(group.tag_id)
 
             tool_data = ToolDefine(
                 tool_type=ToolType.DOCKER,
                 image_uid=state['image_uid'],
                 help_doc_uid=state['doc_uid'],
                 group_id=group.id,
-                tags=[group.tag, tag],
+                tags=list(tag_crud.get_all_by_id(session, tag_ids)),
                 **tool_config,
             )
             if not runtime.context.auto_save:
@@ -358,6 +415,7 @@ class CreateToolAgent:
                         'description': tool_data.description,
                         'tool_type': tool_data.tool_type,
                         'group_id': tool_data.group_id,
+                        'tags': [{'id': tag.id, 'name': tag.name} for tag in tool_data.tags],
                         'help_doc_uid': tool_data.help_doc_uid,
                         'command_template': tool_data.command_template,
                         'dynamic_params': tool_data.dynamic_params,

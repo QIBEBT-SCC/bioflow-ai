@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from langchain_core.messages import ToolMessage
@@ -10,10 +9,8 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.resource.bio_db as db_crud
 import bioflow_ai.crud.tools.image as image_crud
 import bioflow_ai.crud.tools.tool as tool_crud
-import bioflow_ai.crud.tools.tool_group as group_crud
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.resource import BioDb
-from bioflow_ai.models.tools import ToolGroup
 from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.tools import catalog as tool_catalog
 
@@ -117,6 +114,27 @@ def select_image(
 
 
 @tool(parse_docstring=True)
+def select_classification(group_id: int, tag_ids: list[int], runtime: ToolRuntime[Any]) -> Command:
+    """Select a primary Function group and Function/Domain tags using IDs from the prompt.
+
+    Args:
+        group_id: Primary Function group ID listed in the prompt.
+        tag_ids: Domain tag IDs and any additional Function tag IDs listed in the prompt.
+            Include at least one Domain. The primary Function tag is included automatically.
+            Exclude Default, AI Checked and AI Unchecked.
+    """
+    return Command(
+        update={
+            'group_id': group_id,
+            'tag_ids': tag_ids,
+            'updated': True,
+            'should_end': True,
+            'messages': [ToolMessage(content='Tool classification selected.', tool_call_id=runtime.tool_call_id)],
+        }
+    )
+
+
+@tool(parse_docstring=True)
 def read_tool_doc(tool_id: int, runtime: ToolRuntime[Any]) -> str:
     """Read existing tool's help document.
 
@@ -152,59 +170,6 @@ def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
             'messages': [
                 ToolMessage(
                     content='The corresponding tool has been found, you can summarize the information and end the task.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
-
-
-@tool
-def view_groups() -> str:
-    """View all existing groups."""
-    with Session(engine) as session:
-        groups = group_crud.get_all(session)
-
-    if groups:
-
-        def _build_tree_string(
-            _groups_list: Sequence[ToolGroup],
-            _parent_id: int | None = None,
-            _indent: int = 0,
-        ) -> list[str]:
-            result = []
-            # 找到当前层级的所有分组
-            current_level_groups = [g for g in _groups_list if g.parent_id == _parent_id]
-
-            for group in current_level_groups:
-                prefix = '    ' * _indent + '- '
-                result.append(f'{prefix}{group.id}: {group.name}')
-
-                # 递归添加子分组
-                child_result = _build_tree_string(_groups_list, group.id, _indent + 1)
-                result.extend(child_result)
-
-            return result
-
-        tree_lines = _build_tree_string(groups)
-        return '\n'.join(tree_lines)
-
-    return 'No groups found'
-
-
-@tool(parse_docstring=True)
-def select_group(group_id: int, runtime: ToolRuntime[Any]) -> Command:
-    """Select the corresponding group for the tool.
-
-    Args:
-        group_id: selected group id
-    """
-    return Command(
-        update={
-            'group_id': group_id,
-            'messages': [
-                ToolMessage(
-                    content='The corresponding help document has been found, you can summarize the information and end the task.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
