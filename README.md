@@ -10,8 +10,6 @@
 
 BioFlow AI is a graph-driven intelligent bioinformatics analysis platform. It organizes analysis tools, data, and compute tasks into visual node-based workflows, while AI agents help manage samples, build workflows, diagnose execution problems, and repair analysis pipelines.
 
-The platform combines a FastAPI backend, Celery task queues, AI agents, containerized analysis tools, and a [Web frontend](https://github.com/QIBEBT-SCC/bioflow-ai-web). It is designed for bioinformatics workflows such as RNA-seq, WGS, and single-cell analysis.
-
 ## System Requirements
 
 - Linux (recommended)
@@ -45,7 +43,7 @@ uv sync --extra podman
 uv run bioflow-ai auto-init
 ```
 
-The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://github.com/QIBEBT-SCC/bioflow-ai-doc/blob/master/content/docs/configuration/initialization.mdx) for every prompt, accepted value, and default.
+The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization) for every prompt, accepted value, and default.
 
 After initialization, start the API (which also hosts the workflow dispatcher), the shared execution worker, and the agent worker in separate terminals:
 
@@ -55,19 +53,4 @@ uv run bioflow-ai execution-worker --concurrency 4
 uv run bioflow-ai agent-worker
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. If a default port is already in use, the initializer selects an available port and displays it in the terminal.
-
-## Backend development
-
-Python code lives in the installable `src/bioflow_ai` package. API, models, schemas,
-and CRUD retain their layers; business services are grouped by domain. Process
-entry points live in `runtime`, terminal interaction in `cli`, shared connections
-and container support in `infrastructure`, and agents and workflow generation in `llm`.
-The project uses `uv_build` as its build backend.
-
-```bash
-uv run python -m pytest
-uv run python -m ruff check src tests
-uv run python -m pyrefly check
-uv build
-```
+Open `http://localhost:3000` in your browser. If a default port is already in use, the initializer selects an available port and displays it in the terminal.
