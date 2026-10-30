@@ -395,6 +395,7 @@ async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]
                             f'{search_nodes_formatter(tool_nodes, merged_mapper)}{truncated_hint}'
                         ),
                         tool_call_id=runtime.tool_call_id,
+                        artifact={'result_count': total},
                     )
                 ],
             }
@@ -411,6 +412,7 @@ async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]
                         'If you confirm that the desired tool cannot be found, use action="create" to create a new tool node.'
                     ),
                     tool_call_id=runtime.tool_call_id,
+                    artifact={'result_count': 0},
                 )
             ]
         }

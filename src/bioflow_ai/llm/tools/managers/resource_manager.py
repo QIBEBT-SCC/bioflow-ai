@@ -263,7 +263,17 @@ def _search_db(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
             'explaining that a database is needed here and how to download it.'
         )
 
-    return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=content,
+                    tool_call_id=runtime.tool_call_id,
+                    artifact={'result_count': len(exist_dbs)},
+                )
+            ]
+        }
+    )
 
 
 async def _create_db(name: str, description: str, query: str, runtime: ToolRuntime[ProjectContext]) -> Command:

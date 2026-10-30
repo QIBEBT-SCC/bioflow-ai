@@ -159,6 +159,18 @@ SUBJECT_FIELDS = (
 )
 
 
+SEARCH_RESULT_COUNT_KEY = 'result_count'
+
+
+def _search_keywords(params: Mapping[str, Any]) -> list[str]:
+    """Return the keywords of a manager search: tool-node command patterns or a free-text query."""
+    patterns = params.get('patterns')
+    if isinstance(patterns, list):
+        return [pattern.strip() for pattern in patterns if isinstance(pattern, str) and pattern.strip()]
+    query = params.get('query')
+    return [query.strip()] if isinstance(query, str) and query.strip() else []
+
+
 def _subject(params: Mapping[str, Any]) -> str | None:
     for field in SUBJECT_FIELDS:
         value = params.get(field)
@@ -181,14 +193,17 @@ def workflow_builder_progress(request: ToolCallRequest, status: ProgressStatus) 
     params_value = args.get('params', {})
     params = params_value if isinstance(params_value, Mapping) else {}
     subject = _subject(params)
+    operation = WORKFLOW_OPERATIONS.get(action, 'update')
+    keywords = _search_keywords(params) if operation == 'search' else []
     return {
         'workflow_manager_action': {
             'tool_call_id': request.tool_call['id'],
             'status': status,
             'manager': manager,
             'action': action,
-            'operation': WORKFLOW_OPERATIONS.get(action, 'update'),
+            'operation': operation,
             **({'subject': subject} if subject else {}),
+            **({'keywords': keywords} if keywords else {}),
         }
     }
 
@@ -296,10 +311,32 @@ def _result_status(result: ToolMessage | Command[Any]) -> ProgressStatus:
     return 'error' if failed else 'completed'
 
 
-def _emit_progress(request: ToolCallRequest, translate: ProgressTranslator, status: ProgressStatus) -> None:
+def _result_details(result: ToolMessage | Command[Any]) -> dict[str, Any]:
+    """Collect display details a tool attached to its result message as ``artifact``."""
+    if isinstance(result, ToolMessage):
+        messages: list[Any] = [result]
+    else:
+        update = result.update
+        messages = list(update.get('messages', [])) if isinstance(update, Mapping) else []
+    for message in messages:
+        artifact = message.artifact if isinstance(message, ToolMessage) else None
+        if isinstance(artifact, Mapping) and isinstance(artifact.get(SEARCH_RESULT_COUNT_KEY), int):
+            return {SEARCH_RESULT_COUNT_KEY: artifact[SEARCH_RESULT_COUNT_KEY]}
+    return {}
+
+
+def _emit_progress(
+    request: ToolCallRequest,
+    translate: ProgressTranslator,
+    status: ProgressStatus,
+    result: ToolMessage | Command[Any] | None = None,
+) -> None:
     payload = translate(request, status)
     if payload is None:
         return
+    details = _result_details(result) if result is not None else {}
+    if details:
+        payload = {key: {**value, **details} if isinstance(value, dict) else value for key, value in payload.items()}
     try:
         request.runtime.stream_writer(_with_task_namespace(payload, request.runtime.config))
     except Exception:
@@ -323,7 +360,7 @@ def call_with_progress(
     except Exception:
         _emit_progress(request, translate, 'error')
         raise
-    _emit_progress(request, translate, _result_status(result))
+    _emit_progress(request, translate, _result_status(result), result)
     return result
 
 
@@ -341,7 +378,7 @@ async def acall_with_progress(
     except Exception:
         _emit_progress(request, translate, 'error')
         raise
-    _emit_progress(request, translate, _result_status(result))
+    _emit_progress(request, translate, _result_status(result), result)
     return result
 
 

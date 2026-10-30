@@ -123,7 +123,17 @@ async def _search(values: SearchSubgraph, runtime: ToolRuntime[ProjectContext]) 
             include_owned=user.role >= UserRole.MEMBER,
         )
         rows = [workflow_crud.to_simple(item) for item in items]
-    return _message(runtime, json.dumps(rows, default=str, ensure_ascii=False))
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=json.dumps(rows, default=str, ensure_ascii=False),
+                    tool_call_id=runtime.tool_call_id,
+                    artifact={'result_count': len(rows)},
+                )
+            ]
+        }
+    )
 
 
 def _view(values: ViewSubgraph, runtime: ToolRuntime[ProjectContext]) -> Command:
