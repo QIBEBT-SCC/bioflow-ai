@@ -13,6 +13,7 @@ from bioflow_ai.llm.middleware import (
     StatusBarMiddleware,
     TodoMiddleware,
     TokenStatisticMiddleware,
+    ToolCreationProgressMiddleware,
 )
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.states import TestRunState
@@ -227,6 +228,7 @@ test_run_agent = create_agent(
             disabled_tools={'add_todos', 'update_todo', 'ask_human', 'return_to_parent'}
         ),
         ParentHandoffMiddleware(),
+        ToolCreationProgressMiddleware(),
         StatusBarMiddleware(),
         CheckStateExistMiddleware('test_run_report', 'write_tool_report'),
         TodoMiddleware(),

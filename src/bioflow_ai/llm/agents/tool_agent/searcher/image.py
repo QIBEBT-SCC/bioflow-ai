@@ -9,6 +9,7 @@ from bioflow_ai.llm.middleware import (
     DisableParallelToolCallsMiddleware,
     ParentHandoffMiddleware,
     TokenStatisticMiddleware,
+    ToolCreationProgressMiddleware,
 )
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import search_local_image, select_image
@@ -66,6 +67,7 @@ search_image_agent = create_agent(
     middleware=[
         DisableParallelToolCallsMiddleware(),
         ParentHandoffMiddleware(),
+        ToolCreationProgressMiddleware(),
         ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('search_image', **metadata),
     ],

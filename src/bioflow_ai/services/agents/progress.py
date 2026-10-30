@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 
 from bioflow_ai.models.agent import AgentRun
@@ -22,6 +23,46 @@ WORKFLOW_PHASE_KEY = 'workflow_phase'
 WORKFLOW_MANAGER_ACTION_KEY = 'workflow_manager_action'
 TOOL_ACTIVITY_KEYS = (WORKFLOW_MANAGER_ACTION_KEY, 'agent_tool', 'tool_generator_step')
 MODEL_USAGE_KEY = 'model_usage'
+TASK_NAMESPACE_KEY = 'task_ns'
+NAMESPACE_SEPARATOR = '|'
+
+
+class ProgressScopes:
+    """Attribute stream values to the displayed step whose task invoked the emitting sub-agent.
+
+    Step activities carry the checkpoint namespace of their task. A graph invoked inside that task streams with the
+    same namespace split on ``|``, so its values nest under the step. Values outside every step belong to the main
+    agent, whatever the depth of the graph that runs it.
+    """
+
+    def __init__(self) -> None:
+        self._steps: dict[str, tuple[str, int]] = {}
+
+    def scope(self, namespace: Sequence[str]) -> dict[str, Any]:
+        """Return the nesting depth and parent step id of a value streamed from ``namespace``."""
+        for end in range(len(namespace), 0, -1):
+            step = self._steps.get(NAMESPACE_SEPARATOR.join(namespace[:end]))
+            if step is not None:
+                parent_id, depth = step
+                return {'depth': depth + 1, 'parent_id': parent_id}
+        return {'depth': 0, 'parent_id': None}
+
+    def progress(self, payload: object, namespace: Sequence[str]) -> dict[str, Any]:
+        """Normalize one progress value with its scope, registering the step it opens for sub-agents."""
+        task_namespace = payload.get(TASK_NAMESPACE_KEY) if isinstance(payload, dict) else None
+        if isinstance(payload, dict) and TASK_NAMESPACE_KEY in payload:
+            payload = {key: value for key, value in payload.items() if key != TASK_NAMESPACE_KEY}
+        event = event_payload(payload)
+        scope = self.scope(namespace)
+        step_id = event.get('tool_call_id')
+        if isinstance(task_namespace, str) and isinstance(step_id, str):
+            self._steps[task_namespace] = (step_id, scope['depth'])
+        return {**event, 'scope': scope}
+
+    def usage(self, payload: object, namespace: Sequence[str]) -> dict[str, Any] | None:
+        """Return the model-call usage of a stream value with its scope, if it carries any."""
+        usage = usage_payload(payload)
+        return None if usage is None else {**usage, 'scope': self.scope(namespace)}
 
 
 def usage_payload(payload: object) -> dict[str, Any] | None:

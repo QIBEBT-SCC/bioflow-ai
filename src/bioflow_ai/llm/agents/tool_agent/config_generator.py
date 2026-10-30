@@ -16,6 +16,7 @@ from bioflow_ai.llm.middleware import (
     SaveMessagesMiddleware,
     SkillMiddleware,
     TokenStatisticMiddleware,
+    ToolCreationProgressMiddleware,
 )
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import ToolGeneratorState
@@ -281,6 +282,7 @@ config_generate_agent = create_agent(
     system_prompt=SYSTEM_PROMPT,
     middleware=[
         DisableParallelToolCallsMiddleware(disabled_tools={'validate_tool_config'}),
+        ToolCreationProgressMiddleware(),
         SkillMiddleware('tool_generator'),
         CheckStateExistMiddleware('validated', 'validate_tool_config'),
         MaxRetriesMiddleware(),

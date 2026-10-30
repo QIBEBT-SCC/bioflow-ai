@@ -8,13 +8,28 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
-from langgraph.config import get_stream_writer
+from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_config, get_stream_writer
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from loguru import logger
 
 ProgressStatus = Literal['running', 'completed', 'error']
 ProgressTranslator = Callable[[ToolCallRequest, ProgressStatus], dict[str, Any] | None]
+
+TASK_NAMESPACE_KEY = 'task_ns'
+
+
+def _task_namespace(config: RunnableConfig) -> str | None:
+    """Return the checkpoint namespace of the running task, which prefixes the namespace of graphs it invokes."""
+    namespace = config.get('configurable', {}).get('checkpoint_ns')
+    return namespace if isinstance(namespace, str) and namespace else None
+
+
+def _with_task_namespace(payload: dict[str, Any], config: RunnableConfig) -> dict[str, Any]:
+    """Attach the task namespace so consumers can nest the activities of sub-agents under this step."""
+    namespace = _task_namespace(config)
+    return {**payload, TASK_NAMESPACE_KEY: namespace} if namespace else payload
 
 
 def _args(request: ToolCallRequest) -> Mapping[str, Any]:
@@ -196,6 +211,51 @@ def _agent_tool_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | 
     return None
 
 
+TOOL_CREATION_SUBJECT_FIELDS = {
+    'search_local_image': 'query',
+    'search_biodb': 'query',
+    'search_tools_by_function': 'query',
+    'select_image': 'image_ref',
+}
+TOOL_CREATION_PLAIN_TOOLS = {
+    'ask_human',
+    'return_to_parent',
+    'write_tool_report',
+    'select_tool',
+    'select_classification',
+    'set_file_mounts',
+    'set_command_detail',
+    'set_tool_info',
+}
+TOOL_CREATION_ACTIVITY_NAMES = {'run_command': 'container_command'}
+
+
+def _tool_creation_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the activity details for one tool-creation sub-agent tool, or ``None`` when it is not displayed."""
+    if name in TOOL_CREATION_PLAIN_TOOLS:
+        return {}
+    if field := TOOL_CREATION_SUBJECT_FIELDS.get(name):
+        subject = _text_arg(args, field)
+        return {'subject': subject} if subject else {}
+    if name == 'read_tool_doc':
+        tool_id = args.get('tool_id')
+        return {'subject': str(tool_id)} if isinstance(tool_id, int) else {}
+    if name == 'run_command':
+        details = {'subject': _text_arg(args, 'image_ref'), 'command': _text_arg(args, 'command')}
+        return {key: value for key, value in details.items() if value is not None}
+    return None
+
+
+def tool_creation_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
+    """Translate one tool call of a tool-creation sub-agent into an ``agent_tool`` frontend activity."""
+    name = request.tool_call.get('name')
+    details = _tool_creation_details(name, _args(request)) if isinstance(name, str) else None
+    if details is None:
+        return None
+    activity = TOOL_CREATION_ACTIVITY_NAMES.get(name, name)
+    return {'agent_tool': {'tool_call_id': request.tool_call['id'], 'status': status, 'tool': activity, **details}}
+
+
 def agent_tool_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
     """Translate one generic agent tool call into an ``agent_tool`` frontend activity."""
     name = request.tool_call.get('name')
@@ -241,7 +301,7 @@ def _emit_progress(request: ToolCallRequest, translate: ProgressTranslator, stat
     if payload is None:
         return
     try:
-        request.runtime.stream_writer(payload)
+        request.runtime.stream_writer(_with_task_namespace(payload, request.runtime.config))
     except Exception:
         logger.warning('Unable to publish agent progress; agent execution will continue.')
 
@@ -318,6 +378,14 @@ class ProjectPlannerProgressMiddleware(ToolProgressMiddleware):
         return project_planner_progress(request, status)
 
 
+class ToolCreationProgressMiddleware(ToolProgressMiddleware):
+    """Publish frontend activities for the tool calls of the tool-creation sub-agents."""
+
+    @staticmethod
+    def translate(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:  # noqa: D102
+        return tool_creation_progress(request, status)
+
+
 class WorkflowBuilderProgressMiddleware(ToolProgressMiddleware):
     """Publish frontend activities for workflow manager actions and the other workflow agent tools."""
 
@@ -339,7 +407,10 @@ def tool_generator_step[**P, R](
             def emit(status: ProgressStatus) -> None:
                 try:
                     get_stream_writer()(
-                        {'tool_generator_step': {'tool_call_id': call_id, 'status': status, 'step': step}}
+                        _with_task_namespace(
+                            {'tool_generator_step': {'tool_call_id': call_id, 'status': status, 'step': step}},
+                            get_config(),
+                        )
                     )
                 except Exception:
                     logger.warning('Unable to publish tool-generator progress; agent execution will continue.')

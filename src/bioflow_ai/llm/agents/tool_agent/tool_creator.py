@@ -32,6 +32,7 @@ from bioflow_ai.llm.middleware import (
     CheckStateExistMiddleware,
     EndLoopMiddleware,
     TokenStatisticMiddleware,
+    ToolCreationProgressMiddleware,
 )
 from bioflow_ai.llm.middleware.frontend_progress import tool_generator_step
 from bioflow_ai.llm.models import get_agent_model
@@ -143,6 +144,7 @@ class CreateToolAgent:
             tools=[select_classification],
             system_prompt=SELECT_GROUP_SYSTEM,
             middleware=[
+                ToolCreationProgressMiddleware(),
                 ChatAttachmentMiddleware(),
                 CheckStateExistMiddleware('tag_ids', 'select_classification'),
                 EndLoopMiddleware(),

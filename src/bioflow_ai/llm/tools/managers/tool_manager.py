@@ -16,6 +16,7 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.infrastructure.redis.operations import open_catalog_generation_guard
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext
+from bioflow_ai.llm.middleware.frontend_progress import ProgressStatus
 from bioflow_ai.llm.middleware.limit import MaxRetriesError
 from bioflow_ai.llm.states import BuildEdge, BuildNode, CreateToolState
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
@@ -214,16 +215,24 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
 
 async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     writer = get_stream_writer()
+    wait_call_id = f'tool-generation-wait:{runtime.tool_call_id}'
+    waited = False
+
+    def publish_wait(status: ProgressStatus) -> None:
+        writer({'agent_tool': {'tool_call_id': wait_call_id, 'status': status, 'tool': 'wait_tool_generation'}})
+
+    def on_wait() -> None:
+        nonlocal waited
+        waited = True
+        publish_wait('running')
 
     thread_id = workflow_thread_id(runtime.config)
     async with (
-        open_catalog_generation_guard(
-            'tool',
-            thread_id,
-            on_wait=lambda: writer({'info': 'Waiting for another tool node generation task to finish...'}),
-        ) as guard,
+        open_catalog_generation_guard('tool', thread_id, on_wait=on_wait) as guard,
         guard.creation() as permit,
     ):
+        if waited:
+            publish_wait('completed')
         if not permit.allowed:
             return _stale_tool_search_command(permit.reason, runtime)
 

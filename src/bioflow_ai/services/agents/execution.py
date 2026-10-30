@@ -82,7 +82,7 @@ class AgentGraph(Protocol):
         ...
 
 
-ProgressCallback = Callable[[object], Awaitable[None]]
+ProgressCallback = Callable[[object, tuple[str, ...]], Awaitable[None]]
 ChunkCallback = Callable[[Any], None]
 
 
@@ -131,7 +131,8 @@ async def consume_agent_graph(
     """Consume a graph once, preserving raw callbacks and reading its final state.
 
     Durable workers own lifecycle records after committing their transitions. CLI
-    invocations can record their graph lifecycle here instead.
+    invocations can record their graph lifecycle here instead. Progress callbacks receive
+    each custom value with the namespace of the graph that streamed it.
     """
     observation = execution_log.observe(resumed=resumed) if record_lifecycle else nullcontext()
     with observation:
@@ -147,7 +148,7 @@ async def consume_agent_graph(
             if on_chunk is not None:
                 on_chunk(chunk)
             if chunk['type'] == 'custom' and on_progress is not None:
-                await on_progress(chunk['data'])
+                await on_progress(chunk['data'], tuple(chunk['ns']))
 
         state = await graph.aget_state(config)
         if record_lifecycle:
