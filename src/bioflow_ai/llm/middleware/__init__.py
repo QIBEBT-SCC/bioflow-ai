@@ -8,6 +8,7 @@ from bioflow_ai.llm.middleware.end_loop import EndLoopMiddleware
 from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware, RequireToolCallMiddleware
 from bioflow_ai.llm.middleware.frontend_progress import (
     ProjectPlannerProgressMiddleware,
+    ToolProgressMiddleware,
     WorkflowBuilderProgressMiddleware,
 )
 from bioflow_ai.llm.middleware.language import UserLanguageMiddleware
@@ -41,6 +42,7 @@ __all__ = [
     'TodoMiddleware',
     'TokenLimitMiddleware',
     'TokenStatisticMiddleware',
+    'ToolProgressMiddleware',
     'UserLanguageMiddleware',
     'WorkflowBuilderProgressMiddleware',
     'WorkflowFixScopeMiddleware',

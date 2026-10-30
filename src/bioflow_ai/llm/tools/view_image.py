@@ -42,7 +42,6 @@ def view_image(
         if not target.is_file():
             message = 'The selected image path is not a regular file.'
             raise ImagePreparationError(message)
-        runtime.stream_writer({'info': f'Reading image: {source}/{path}, page {page}'})
         with target.open('rb') as stream:
             image = upload_image(stream.read(MAX_SOURCE_BYTES + 1), target.name, page)
         return [

@@ -20,6 +20,7 @@ PROJECT_PLANNER_PROGRESS_KEYS = (
 
 WORKFLOW_PHASE_KEY = 'workflow_phase'
 WORKFLOW_MANAGER_ACTION_KEY = 'workflow_manager_action'
+TOOL_ACTIVITY_KEYS = (WORKFLOW_MANAGER_ACTION_KEY, 'agent_tool', 'tool_generator_step')
 
 
 def event_payload(payload: object) -> dict[str, Any]:
@@ -43,9 +44,11 @@ def event_payload(payload: object) -> dict[str, Any]:
             **({'tool_call_id': f'workflow-phase:{phase}'} if isinstance(phase, str) else {}),
         }
 
-    workflow_action = converted.get(WORKFLOW_MANAGER_ACTION_KEY)
-    if isinstance(workflow_action, dict):
-        return {'kind': WORKFLOW_MANAGER_ACTION_KEY, **workflow_action}
+    tool_activity_key = next((key for key in TOOL_ACTIVITY_KEYS if key in converted), None)
+    if tool_activity_key is not None:
+        tool_activity = converted[tool_activity_key]
+        if isinstance(tool_activity, dict):
+            return {'kind': tool_activity_key, **tool_activity}
 
     info = converted.get('info')
     if isinstance(info, str):

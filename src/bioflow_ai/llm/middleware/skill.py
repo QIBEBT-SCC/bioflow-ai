@@ -4,10 +4,12 @@ from typing import Any, cast
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain.agents.middleware.types import ModelCallResult
-from langchain_core.messages import SystemMessage
+from langchain.agents.middleware.types import ModelCallResult, ToolCallRequest
+from langchain_core.messages import SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
+from langgraph.types import Command
 
+from bioflow_ai.llm.middleware.frontend_progress import acall_with_progress, call_with_progress, skill_progress
 from bioflow_ai.services.skills.definitions import (
     SKILLS_DIR,
     SkillDefinition,
@@ -111,3 +113,19 @@ class SkillMiddleware(AgentMiddleware[AgentState[Any], Any]):
         )
         new_system_message = SystemMessage(content=new_content)
         return await handler(request.override(system_message=new_system_message))
+
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
+    ) -> ToolMessage | Command[Any]:
+        """Publish frontend activity for synchronous skill tool calls."""
+        return call_with_progress(request, handler, skill_progress)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        """Publish frontend activity for asynchronous skill tool calls."""
+        return await acall_with_progress(request, handler, skill_progress)

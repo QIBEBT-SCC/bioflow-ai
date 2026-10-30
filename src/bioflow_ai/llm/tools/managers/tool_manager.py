@@ -214,7 +214,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
 
 async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectContext]) -> Command:
     writer = get_stream_writer()
-    writer({'info': f'Creating new tool: {request}'})
 
     thread_id = workflow_thread_id(runtime.config)
     async with (

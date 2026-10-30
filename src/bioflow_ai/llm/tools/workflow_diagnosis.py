@@ -371,7 +371,6 @@ def workflow_reader(
     """
     if action == 'node' and not node_id:
         return format_json({'error': 'node_id is required for action=node.'})
-    runtime.stream_writer({'info': f'Reading workflow execution: {action}'})
     return format_json(
         _workflow_payload(
             runtime.context, action, node_id, subgraph_path, child_run_uid, offset, limit, failed_only=failed_only
@@ -588,7 +587,6 @@ def run_evidence_command(
     except EvidenceSourceError as error:
         return _error(error.code, str(error))
 
-    runtime.stream_writer({'info': f'Inspecting read-only evidence: {source}'})
     mount = ContainerMount(source=str(evidence.path), target=EVIDENCE_MOUNT_PATH, read_only=True)
     try:
         exit_code, raw_output = run_command(

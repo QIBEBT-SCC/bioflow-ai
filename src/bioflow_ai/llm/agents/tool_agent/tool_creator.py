@@ -6,7 +6,6 @@ from langchain.agents import AgentState, create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.config import get_stream_writer
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -34,6 +33,7 @@ from bioflow_ai.llm.middleware import (
     EndLoopMiddleware,
     TokenStatisticMiddleware,
 )
+from bioflow_ai.llm.middleware.frontend_progress import tool_generator_step
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
 from bioflow_ai.llm.tools.database import select_classification
@@ -157,6 +157,7 @@ class CreateToolAgent:
         return zh if language == 'zh' else en
 
     @staticmethod
+    @tool_generator_step('select_image')
     async def select_image_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """首先搜索得到此工具的对应镜像."""
         if state.get('image_uid'):
@@ -169,9 +170,6 @@ class CreateToolAgent:
                 return {'image': tool_image.image}
         else:
             # TODO: 重写镜像搜索
-            writer = get_stream_writer()
-            writer({'info': 'Searching for docker image...'})
-
             search_input = {'messages': state['messages']}
             response = await search_image_agent.ainvoke(
                 search_input,
@@ -195,13 +193,11 @@ class CreateToolAgent:
             }
 
     @staticmethod
+    @tool_generator_step('search_exist_tool')
     async def search_exist_tool_node(
         state: CreateToolState, runtime: Runtime[CreateToolContext]
     ) -> Command[Literal['get_report', '__end__']]:
         """检查是否已经有此功能的节点."""
-        writer = get_stream_writer()
-        writer({'info': 'Searching if an available node already exists locally...'})
-
         with Session(engine) as session:
             tools = tool_crud.get_all_by_image(session, str(state['image_uid']))
             if not tools:
@@ -261,11 +257,9 @@ class CreateToolAgent:
         return Command[Literal['get_report', '__end__']](goto='get_report')
 
     @staticmethod
+    @tool_generator_step('get_report')
     async def get_report_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """获取工具的输出结果."""
-        writer = get_stream_writer()
-        writer({'info': 'Getting more information through test run...'})
-
         testrun_input = {'messages': state['messages']}
         response = await test_run_agent.ainvoke(
             testrun_input,
@@ -291,11 +285,9 @@ class CreateToolAgent:
             'help_command': structured_report.help_command,
         }
 
+    @tool_generator_step('choose_group')
     async def choose_group_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """为工具选择主功能及 Function/Domain 标签."""
-        writer = get_stream_writer()
-        writer({'info': 'Assigning function and domain tags...'})
-
         response = await self.select_group_agent.ainvoke(
             {'messages': state['messages']},
             context=BaseContext(user_id=runtime.context.user_id),
@@ -308,11 +300,9 @@ class CreateToolAgent:
         }
 
     @staticmethod
+    @tool_generator_step('generate_tool_config')
     async def generate_tool_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """生成工具配置."""
-        writer = get_stream_writer()
-        writer({'info': 'Generating tool config...'})
-
         result = await config_generate_agent.ainvoke(
             {
                 'messages': state['messages'],
@@ -340,11 +330,9 @@ class CreateToolAgent:
             )
         }
 
+    @tool_generator_step('process_help_doc')
     async def process_help_doc_node(self, state: CreateToolState) -> dict[str, Any]:
         """处理帮助文档表, 并在状态中更新 doc_uid."""
-        writer = get_stream_writer()
-        writer({'info': 'Preparing tool help document...'})
-
         if state.get('doc_uid'):
             return {'doc_uid': state['doc_uid']}
 
@@ -371,11 +359,9 @@ class CreateToolAgent:
             session.commit()
             return {'doc_uid': tool_doc.uid}
 
+    @tool_generator_step('save_tool')
     async def save_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """保存工具节点, 或在非自动保存模式下返回结构化结果."""
-        writer = get_stream_writer()
-        writer({'info': 'Saving tool config...'})
-
         tool_config = {
             key: state[key]
             for key in (

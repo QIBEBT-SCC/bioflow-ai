@@ -11,6 +11,7 @@ from bioflow_ai.llm.middleware import (
     DisableParallelToolCallsMiddleware,
     SkillMiddleware,
     TokenStatisticMiddleware,
+    ToolProgressMiddleware,
     UserLanguageMiddleware,
 )
 from bioflow_ai.llm.models import get_high_performance_model
@@ -53,6 +54,7 @@ def build_workflow_assistant(
         [workflow_reader, run_evidence_command, view_image, write_diagnosis],
         system_prompt=SYSTEM_PROMPT,
         middleware=[
+            ToolProgressMiddleware(),
             SkillMiddleware('workflow_assistant'),
             DisableParallelToolCallsMiddleware(disabled_tools={'write_diagnosis'}),
             TokenStatisticMiddleware('workflow_assistant', **metadata),

@@ -1,13 +1,20 @@
-from collections.abc import Awaitable, Callable, Mapping
+import functools
+import uuid
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
+from langgraph.config import get_stream_writer
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from loguru import logger
+
+ProgressStatus = Literal['running', 'completed', 'error']
+ProgressTranslator = Callable[[ToolCallRequest, ProgressStatus], dict[str, Any] | None]
 
 
 def _args(request: ToolCallRequest) -> Mapping[str, Any]:
@@ -75,7 +82,7 @@ def _planner_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | Non
 PLANNER_ACTIVITY_NAMES = {'apply_patch': 'write_file'}
 
 
-def project_planner_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | None:
+def project_planner_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
     """Translate one project-planner tool call into a ``planner_*`` frontend activity."""
     name = request.tool_call.get('name')
     details = _planner_details(name, _args(request)) if isinstance(name, str) else None
@@ -145,7 +152,7 @@ def _subject(params: Mapping[str, Any]) -> str | None:
     return None
 
 
-def workflow_builder_progress(request: ToolCallRequest, status: str) -> dict[str, Any] | None:
+def workflow_builder_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
     """Translate one workflow-builder manager call into a frontend activity."""
     tool_name = request.tool_call.get('name')
     manager = WORKFLOW_MANAGERS.get(tool_name)
@@ -171,73 +178,183 @@ def workflow_builder_progress(request: ToolCallRequest, status: str) -> dict[str
     }
 
 
-class ProjectPlannerProgressMiddleware(AgentMiddleware[AgentState[Any], Any]):
+def _agent_tool_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Return the activity details for one generic agent tool, or ``None`` when it is not displayed."""
+    if name in {'ask_human', 'summarize_work', 'write_diagnosis', 'finalize_workflow_fix'}:
+        return {}
+    if name in {'workflow_reader', 'fix_subgraph'}:
+        details = {'action': _text_arg(args, 'action'), 'subject': _text_arg(args, 'node_id')}
+        return {key: value for key, value in details.items() if value is not None}
+    if name == 'run_command':
+        details = {'subject': _text_arg(args, 'source'), 'command': _text_arg(args, 'command')}
+        return {key: value for key, value in details.items() if value is not None}
+    if name == 'view_image':
+        source = _text_arg(args, 'source')
+        path = _text_arg(args, 'path')
+        subject = f'{source}/{path}' if source and path and path != '.' else source
+        return {'subject': subject} if subject else {}
+    return None
+
+
+def agent_tool_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
+    """Translate one generic agent tool call into an ``agent_tool`` frontend activity."""
+    name = request.tool_call.get('name')
+    details = _agent_tool_details(name, _args(request)) if isinstance(name, str) else None
+    if details is None:
+        return None
+    return {'agent_tool': {'tool_call_id': request.tool_call['id'], 'status': status, 'tool': name, **details}}
+
+
+SKILL_TOOLS = {'load_skill': 'skill_name', 'read_skill_resource': 'resource_path'}
+
+
+def skill_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
+    """Translate one skill tool call into an ``agent_tool`` frontend activity."""
+    name = request.tool_call.get('name')
+    field = SKILL_TOOLS.get(name) if isinstance(name, str) else None
+    if field is None:
+        return None
+    subject = _text_arg(_args(request), field)
+    return {
+        'agent_tool': {
+            'tool_call_id': request.tool_call['id'],
+            'status': status,
+            'tool': name,
+            **({'subject': subject} if subject else {}),
+        }
+    }
+
+
+def _result_status(result: ToolMessage | Command[Any]) -> ProgressStatus:
+    """Report ``error`` when the tool result carries an error ``ToolMessage``."""
+    if isinstance(result, ToolMessage):
+        messages: list[Any] = [result]
+    else:
+        update = result.update
+        messages = list(update.get('messages', [])) if isinstance(update, Mapping) else []
+    failed = any(isinstance(message, ToolMessage) and message.status == 'error' for message in messages)
+    return 'error' if failed else 'completed'
+
+
+def _emit_progress(request: ToolCallRequest, translate: ProgressTranslator, status: ProgressStatus) -> None:
+    payload = translate(request, status)
+    if payload is None:
+        return
+    try:
+        request.runtime.stream_writer(payload)
+    except Exception:
+        logger.warning('Unable to publish agent progress; agent execution will continue.')
+
+
+def call_with_progress(
+    request: ToolCallRequest,
+    handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
+    translate: ProgressTranslator,
+) -> ToolMessage | Command[Any]:
+    """Run a synchronous tool call between its running and finished activities.
+
+    Interrupts propagate without a finished activity, so the resumed call completes the same step.
+    """
+    _emit_progress(request, translate, 'running')
+    try:
+        result = handler(request)
+    except GraphBubbleUp:
+        raise
+    except Exception:
+        _emit_progress(request, translate, 'error')
+        raise
+    _emit_progress(request, translate, _result_status(result))
+    return result
+
+
+async def acall_with_progress(
+    request: ToolCallRequest,
+    handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    translate: ProgressTranslator,
+) -> ToolMessage | Command[Any]:
+    """Run an asynchronous tool call between its running and finished activities."""
+    _emit_progress(request, translate, 'running')
+    try:
+        result = await handler(request)
+    except GraphBubbleUp:
+        raise
+    except Exception:
+        _emit_progress(request, translate, 'error')
+        raise
+    _emit_progress(request, translate, _result_status(result))
+    return result
+
+
+class ToolProgressMiddleware(AgentMiddleware[AgentState[Any], Any]):
+    """Publish running and finished frontend activities for the tool calls ``translate`` displays."""
+
+    @staticmethod
+    def translate(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
+        """Return the activity payload for one tool call, or ``None`` when it is not displayed."""
+        return agent_tool_progress(request, status)
+
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
+    ) -> ToolMessage | Command[Any]:
+        """Publish activity around a synchronous tool call."""
+        return call_with_progress(request, handler, self.translate)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        """Publish activity around an asynchronous tool call."""
+        return await acall_with_progress(request, handler, self.translate)
+
+
+class ProjectPlannerProgressMiddleware(ToolProgressMiddleware):
     """Publish one frontend activity for each project-planner tool call."""
 
     @staticmethod
-    def _emit(request: ToolCallRequest, status: str) -> None:
-        payload = project_planner_progress(request, status)
-        if payload is None:
-            return
-        try:
-            request.runtime.stream_writer(payload)
-        except Exception:
-            logger.warning('Unable to publish project-planner progress; agent execution will continue.')
-
-    def wrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
-    ) -> ToolMessage | Command[Any]:
-        """Publish activity before a synchronous tool call."""
-        self._emit(request, 'running')
-        result = handler(request)
-        self._emit(request, 'completed')
-        return result
-
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
-    ) -> ToolMessage | Command[Any]:
-        """Publish activity before an asynchronous tool call."""
-        self._emit(request, 'running')
-        result = await handler(request)
-        self._emit(request, 'completed')
-        return result
+    def translate(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:  # noqa: D102
+        return project_planner_progress(request, status)
 
 
-class WorkflowBuilderProgressMiddleware(AgentMiddleware[AgentState[Any], Any]):
-    """Publish frontend activities for workflow-builder manager actions."""
+class WorkflowBuilderProgressMiddleware(ToolProgressMiddleware):
+    """Publish frontend activities for workflow manager actions and the other workflow agent tools."""
 
     @staticmethod
-    def _emit(request: ToolCallRequest, status: str) -> None:
-        payload = workflow_builder_progress(request, status)
-        if payload is None:
-            return
-        try:
-            request.runtime.stream_writer(payload)
-        except Exception:
-            logger.warning('Unable to publish Workflow Builder progress; agent execution will continue.')
+    def translate(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:  # noqa: D102
+        return workflow_builder_progress(request, status) or agent_tool_progress(request, status)
 
-    def wrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
-    ) -> ToolMessage | Command[Any]:
-        """Publish activity before and after a synchronous manager call."""
-        self._emit(request, 'running')
-        result = handler(request)
-        self._emit(request, 'completed')
-        return result
 
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
-    ) -> ToolMessage | Command[Any]:
-        """Publish activity before and after an asynchronous manager call."""
-        self._emit(request, 'running')
-        result = await handler(request)
-        self._emit(request, 'completed')
-        return result
+def tool_generator_step[**P, R](
+    step: str,
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+    """Publish a ``tool_generator_step`` activity around one asynchronous tool-generator graph node."""
+
+    def decorate(node: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
+        @functools.wraps(node)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            call_id = f'tool-generator:{step}:{uuid.uuid4().hex}'
+
+            def emit(status: ProgressStatus) -> None:
+                try:
+                    get_stream_writer()(
+                        {'tool_generator_step': {'tool_call_id': call_id, 'status': status, 'step': step}}
+                    )
+                except Exception:
+                    logger.warning('Unable to publish tool-generator progress; agent execution will continue.')
+
+            emit('running')
+            try:
+                result = await node(*args, **kwargs)
+            except GraphBubbleUp:
+                raise
+            except Exception:
+                emit('error')
+                raise
+            emit('completed')
+            return result
+
+        return wrapper
+
+    return decorate
