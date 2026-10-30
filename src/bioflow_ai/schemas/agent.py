@@ -49,6 +49,7 @@ class AgentEventType(StrEnum):
     QUEUED = 'run.queued'
     STARTED = 'run.started'
     PROGRESS = 'run.progress'
+    USAGE = 'run.usage'
     INTERRUPTED = 'run.interrupted'
     RESOURCE_CHANGED = 'resource.changed'
     CANCEL_REQUESTED = 'run.cancel_requested'

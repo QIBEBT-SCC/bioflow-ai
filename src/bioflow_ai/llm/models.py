@@ -167,6 +167,8 @@ def get_model(role: ModelRole) -> BaseChatModel:
         model.metadata = {
             'setting_key': role.value,
             'model_id': model_id,
+            'model_name': model_config.name,
+            'context_window': model_config.context_window,
             'input_price': model_config.input_price,
             'output_price': model_config.output_price,
             'cache_read_price': model_config.cache_read_price,

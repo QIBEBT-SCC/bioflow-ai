@@ -16,6 +16,8 @@ from pydantic import BaseModel
 class LLMMetadata(TypedDict):
     setting_key: str
     model_id: int
+    model_name: str
+    context_window: int | None
     input_price: Decimal
     output_price: Decimal
     cache_read_price: Decimal

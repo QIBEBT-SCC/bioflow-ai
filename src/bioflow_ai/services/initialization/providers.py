@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.setting.llm_provider as provider_crud
 import bioflow_ai.crud.setting.llm_setting as setting_crud
-from bioflow_ai.llm.pricing import find_model_price
+from bioflow_ai.llm.pricing import find_model_defaults
 from bioflow_ai.models.setting import LLMModel, LLMProvider, ModelRole, ProviderType
 from bioflow_ai.services import llm_setting as setting_service
 
@@ -56,14 +56,14 @@ OFFICIAL_PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
         name='DeepSeek',
         provider_type=ProviderType.OPENAI,
         base_url='https://api.deepseek.com',
-        models=('deepseek-v4-flash', 'deepseek-v4-pro'),
+        models=('deepseek-flash', 'deepseek-v4-pro'),
     ),
     ProviderPreset(
         key='openai',
         name='OpenAI',
         provider_type=ProviderType.OPENAI,
         base_url=None,
-        models=('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'),
+        models=('gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'),
     ),
 )
 PRESET_BY_KEY = {preset.key: preset for preset in OFFICIAL_PROVIDER_PRESETS}
@@ -156,7 +156,8 @@ def apply_provider_configurations(
 
         for model_configuration in configuration.models:
             model = existing_models.get(model_configuration.name)
-            price = find_model_price(model_configuration.name)
+            defaults = find_model_defaults(model_configuration.name)
+            price = defaults.price if defaults is not None else None
             if model is None:
                 model = LLMModel(
                     provider=provider,
@@ -165,6 +166,7 @@ def apply_provider_configurations(
                     input_price=price.input if price is not None else ZERO_PRICE,
                     output_price=price.output if price is not None else ZERO_PRICE,
                     cache_read_price=price.cache_read if price is not None else ZERO_PRICE,
+                    context_window=defaults.context_window if defaults is not None else None,
                     is_active=True,
                 )
                 session.add(model)
@@ -175,6 +177,8 @@ def apply_provider_configurations(
                     model.input_price = price.input
                     model.output_price = price.output
                     model.cache_read_price = price.cache_read
+                if model.context_window is None and defaults is not None:
+                    model.context_window = defaults.context_window
             if price is None:
                 models_without_prices.append(f'{provider.name}/{model.name}')
             configured_models.append(model)

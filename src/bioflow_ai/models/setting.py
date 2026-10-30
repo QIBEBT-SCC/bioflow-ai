@@ -107,6 +107,7 @@ class LLMModel(Base):
     input_price: Mapped[Decimal]
     output_price: Mapped[Decimal]
     cache_read_price: Mapped[Decimal]
+    context_window: Mapped[int | None] = mapped_column(default=None)
 
     reasoning_effort: Mapped[str | None] = mapped_column(default=None)
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -141,6 +142,8 @@ class LLMStatistic(Base):
     input_tokens: Mapped[int]
     output_tokens: Mapped[int]
     cache_read: Mapped[int | None] = mapped_column(default=0)
+    cache_creation: Mapped[int] = mapped_column(default=0)
+    reasoning_tokens: Mapped[int] = mapped_column(default=0)
     price: Mapped[Decimal]
 
     time: Mapped[datetime | None] = mapped_column(default=utc_now)

@@ -97,7 +97,11 @@ async def generate_title(history: list[BaseMessage], user_id: int) -> str:
         user_id,
         get_config()['configurable'].get('thread_id', None),
         token_usage=result.usage_metadata,
-        **metadate,
+        setting_key=metadate['setting_key'],
+        model_id=metadate['model_id'],
+        input_price=metadate['input_price'],
+        output_price=metadate['output_price'],
+        cache_read_price=metadate['cache_read_price'],
     )
 
     if isinstance(result.content, list):

@@ -9,6 +9,25 @@ from bioflow_ai.models.setting import LLMStatistic
 from bioflow_ai.services import llm_setting as setting_service
 
 
+def token_cost(
+    token_usage: UsageMetadata,
+    *,
+    input_price: Decimal,
+    output_price: Decimal,
+    cache_read_price: Decimal,
+) -> Decimal:
+    """Price one model call, billing cached input at the cache-read rate.
+
+    Prices are micro-units per token, so the result is in the same unit as the configured currency.
+    """
+    input_tokens = token_usage.get('input_tokens', 0)
+    output_tokens = token_usage.get('output_tokens', 0)
+    cache_read = (token_usage.get('input_token_details') or {}).get('cache_read', 0)
+    return (
+        (input_tokens - cache_read) * input_price + cache_read * cache_read_price + output_tokens * output_price
+    ) / Decimal(1000000)
+
+
 def store_token_usage(
     agent_name: str,
     user_id: int,
@@ -40,10 +59,13 @@ def store_token_usage(
     if token_usage:
         input_tokens = token_usage.get('input_tokens', 0)
         output_tokens = token_usage.get('output_tokens', 0)
-        cache_read = token_usage['input_token_details'].get('cache_read', 0)
-        price = (
-            (input_tokens - cache_read) * input_price + cache_read * cache_read_price + output_tokens * output_price
-        ) / Decimal(1000000)
+        cache_read = (token_usage.get('input_token_details') or {}).get('cache_read', 0)
+        price = token_cost(
+            token_usage,
+            input_price=input_price,
+            output_price=output_price,
+            cache_read_price=cache_read_price,
+        )
 
         statistic_data = LLMStatistic(
             agent_name=agent_name,
@@ -54,6 +76,8 @@ def store_token_usage(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cache_read=cache_read,
+            cache_creation=(token_usage.get('input_token_details') or {}).get('cache_creation', 0),
+            reasoning_tokens=(token_usage.get('output_token_details') or {}).get('reasoning', 0),
             price=price,
         )
         with Session(engine) as session:

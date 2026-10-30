@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
-from bioflow_ai.llm.pricing import find_model_price
+from bioflow_ai.llm.pricing import find_model_defaults
 from bioflow_ai.models.setting import ModelRole, ProviderType, ReasoningEffort
 
 
@@ -34,30 +34,34 @@ class LLMModelCreate(BaseModel):
     input_price: float | None = None
     output_price: float | None = None
     cache_read_price: float | None = None
+    context_window: int | None = Field(default=None, gt=0)
     reasoning_effort: ReasoningEffort | None = None
     is_active: bool = True
 
     @model_validator(mode='after')
-    def populate_default_prices(self) -> 'LLMModelCreate':
-        """Fill omitted prices from the model catalog while preserving user overrides."""
-        default_price = find_model_price(self.name)
+    def populate_model_defaults(self) -> 'LLMModelCreate':
+        """Fill omitted prices and context length while preserving user overrides."""
+        defaults = find_model_defaults(self.name)
         missing_fields = [
             field_name
             for field_name in ('input_price', 'output_price', 'cache_read_price')
             if getattr(self, field_name) is None
         ]
-        if default_price is None and missing_fields:
+        if defaults is None and missing_fields:
             fields = ', '.join(missing_fields)
             message = f'No default price found for model {self.name!r}; provide: {fields}'
             raise ValueError(message)
 
-        if default_price is not None:
+        if defaults is not None:
+            default_price = defaults.price
             if self.input_price is None:
                 self.input_price = float(default_price.input)
             if self.output_price is None:
                 self.output_price = float(default_price.output)
             if self.cache_read_price is None:
                 self.cache_read_price = float(default_price.cache_read)
+            if self.context_window is None:
+                self.context_window = defaults.context_window
         return self
 
 
@@ -67,6 +71,7 @@ class LLMModelUpdate(BaseModel):
     input_price: float | None = None
     output_price: float | None = None
     cache_read_price: float | None = None
+    context_window: int | None = Field(default=None, gt=0)
     reasoning_effort: ReasoningEffort | None = None
     is_active: bool | None = None
 
@@ -80,6 +85,7 @@ class LLMModelPublic(BaseModel):
     input_price: float
     output_price: float
     cache_read_price: float
+    context_window: int | None
     reasoning_effort: ReasoningEffort | None
     is_active: bool
 
@@ -127,6 +133,8 @@ class LLMStatisticSummary(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     total_cache_read: int
+    total_cache_creation: int
+    total_reasoning_tokens: int
     total_price: Decimal
 
 
@@ -168,6 +176,8 @@ class LLMStatisticDetail(BaseModel):
     input_tokens: int
     output_tokens: int
     cache_read: int
+    cache_creation: int
+    reasoning_tokens: int
     price: Decimal
     time: datetime
 

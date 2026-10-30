@@ -25,7 +25,7 @@ from bioflow_ai.schemas.notification import NotificationEventType
 from bioflow_ai.services.agents import sessions as agent_service
 from bioflow_ai.services.agents.execution import AGENTS, execute_agent_graph
 from bioflow_ai.services.agents.messages import load_langchain_messages, wrap_request
-from bioflow_ai.services.agents.progress import event_payload, result_payload
+from bioflow_ai.services.agents.progress import event_payload, result_payload, usage_payload
 from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input
 from bioflow_ai.services.notification.events import format_duration, notify
 from bioflow_ai.services.workflow import fix as workflow_fix_service
@@ -377,6 +377,9 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                     )
 
             async def on_progress(payload: object) -> None:
+                if (usage := usage_payload(payload)) is not None:
+                    await _append_event(redis, run_uid, AgentEventType.USAGE, usage)
+                    return
                 await _append_event(
                     redis,
                     run_uid,

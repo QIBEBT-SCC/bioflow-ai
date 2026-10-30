@@ -21,6 +21,15 @@ PROJECT_PLANNER_PROGRESS_KEYS = (
 WORKFLOW_PHASE_KEY = 'workflow_phase'
 WORKFLOW_MANAGER_ACTION_KEY = 'workflow_manager_action'
 TOOL_ACTIVITY_KEYS = (WORKFLOW_MANAGER_ACTION_KEY, 'agent_tool', 'tool_generator_step')
+MODEL_USAGE_KEY = 'model_usage'
+
+
+def usage_payload(payload: object) -> dict[str, Any] | None:
+    """Return the model-call usage carried by a custom stream value, if any."""
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get(MODEL_USAGE_KEY)
+    return to_json_object(usage) if isinstance(usage, dict) else None
 
 
 def event_payload(payload: object) -> dict[str, Any]:

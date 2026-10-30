@@ -44,6 +44,8 @@ def get_summary(
         func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
         func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
         func.sum(LLMStatistic.cache_read).label('total_cache_read'),
+        func.sum(LLMStatistic.cache_creation).label('total_cache_creation'),
+        func.sum(LLMStatistic.reasoning_tokens).label('total_reasoning_tokens'),
         func.sum(LLMStatistic.price).label('total_price'),
     )
     total_statement = apply_date_filter(total_statement)
@@ -56,6 +58,8 @@ def get_summary(
         func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
         func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
         func.sum(LLMStatistic.cache_read).label('total_cache_read'),
+        func.sum(LLMStatistic.cache_creation).label('total_cache_creation'),
+        func.sum(LLMStatistic.reasoning_tokens).label('total_reasoning_tokens'),
         func.sum(LLMStatistic.price).label('total_price'),
     ).group_by(LLMStatistic.agent_name)
     by_agent_statement = apply_date_filter(by_agent_statement)
@@ -70,6 +74,8 @@ def get_summary(
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
+            func.sum(LLMStatistic.cache_creation).label('total_cache_creation'),
+            func.sum(LLMStatistic.reasoning_tokens).label('total_reasoning_tokens'),
             func.sum(LLMStatistic.price).label('total_price'),
         )
         .join(LLMModel, LLMStatistic.model_id == LLMModel.id, isouter=True)
@@ -86,6 +92,8 @@ def get_summary(
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
+            func.sum(LLMStatistic.cache_creation).label('total_cache_creation'),
+            func.sum(LLMStatistic.reasoning_tokens).label('total_reasoning_tokens'),
             func.sum(LLMStatistic.price).label('total_price'),
         )
         .where(LLMStatistic.setting_key.is_not(None))
@@ -102,6 +110,8 @@ def get_summary(
             func.sum(LLMStatistic.input_tokens).label('total_input_tokens'),
             func.sum(LLMStatistic.output_tokens).label('total_output_tokens'),
             func.sum(LLMStatistic.cache_read).label('total_cache_read'),
+            func.sum(LLMStatistic.cache_creation).label('total_cache_creation'),
+            func.sum(LLMStatistic.reasoning_tokens).label('total_reasoning_tokens'),
             func.sum(LLMStatistic.price).label('total_price'),
         )
         .join(User, LLMStatistic.user_id == User.id, isouter=True)
@@ -115,6 +125,8 @@ def get_summary(
             'total_input_tokens': int(total_result.total_input_tokens or 0),
             'total_output_tokens': int(total_result.total_output_tokens or 0),
             'total_cache_read': int(total_result.total_cache_read or 0),
+            'total_cache_creation': int(total_result.total_cache_creation or 0),
+            'total_reasoning_tokens': int(total_result.total_reasoning_tokens or 0),
             'total_price': Decimal(str(total_result.total_price or 0)),
         },
         'by_agent': [
@@ -124,6 +136,8 @@ def get_summary(
                 'total_input_tokens': int(row.total_input_tokens or 0),
                 'total_output_tokens': int(row.total_output_tokens or 0),
                 'total_cache_read': int(row.total_cache_read or 0),
+                'total_cache_creation': int(row.total_cache_creation or 0),
+                'total_reasoning_tokens': int(row.total_reasoning_tokens or 0),
                 'total_price': Decimal(str(row.total_price or 0)),
             }
             for row in by_agent_results
@@ -136,6 +150,8 @@ def get_summary(
                 'total_input_tokens': int(row.total_input_tokens or 0),
                 'total_output_tokens': int(row.total_output_tokens or 0),
                 'total_cache_read': int(row.total_cache_read or 0),
+                'total_cache_creation': int(row.total_cache_creation or 0),
+                'total_reasoning_tokens': int(row.total_reasoning_tokens or 0),
                 'total_price': Decimal(str(row.total_price or 0)),
             }
             for row in by_model_results
@@ -147,6 +163,8 @@ def get_summary(
                 'total_input_tokens': int(row.total_input_tokens or 0),
                 'total_output_tokens': int(row.total_output_tokens or 0),
                 'total_cache_read': int(row.total_cache_read or 0),
+                'total_cache_creation': int(row.total_cache_creation or 0),
+                'total_reasoning_tokens': int(row.total_reasoning_tokens or 0),
                 'total_price': Decimal(str(row.total_price or 0)),
             }
             for row in by_type_results
@@ -158,6 +176,8 @@ def get_summary(
                 'total_input_tokens': int(row.total_input_tokens or 0),
                 'total_output_tokens': int(row.total_output_tokens or 0),
                 'total_cache_read': int(row.total_cache_read or 0),
+                'total_cache_creation': int(row.total_cache_creation or 0),
+                'total_reasoning_tokens': int(row.total_reasoning_tokens or 0),
                 'total_price': Decimal(str(row.total_price or 0)),
             }
             for row in by_user_results
@@ -194,6 +214,8 @@ def get_details(
         LLMStatistic.input_tokens,
         LLMStatistic.output_tokens,
         LLMStatistic.cache_read,
+        LLMStatistic.cache_creation,
+        LLMStatistic.reasoning_tokens,
         LLMStatistic.price,
         LLMStatistic.time,
     ).join(LLMModel, LLMStatistic.model_id == LLMModel.id, isouter=True)
@@ -229,6 +251,8 @@ def get_details(
                 'input_tokens': row.input_tokens,
                 'output_tokens': row.output_tokens,
                 'cache_read': row.cache_read,
+                'cache_creation': row.cache_creation,
+                'reasoning_tokens': row.reasoning_tokens,
                 'price': row.price,
                 'time': row.time,
             }
