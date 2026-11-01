@@ -35,6 +35,10 @@ class CodingAgent(Protocol):
         """Yield native model and tool events, ending with the root graph result."""
         ...
 
+    async def ainvoke(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Run the agent to its final state."""
+        ...
+
 
 class CodingTurnResult(BaseModel):
     """Only a complete turn can update conversation history and offer a candidate."""
@@ -231,46 +235,51 @@ async def run_coding_turn(
                 agent = cast('CodingAgent', build_simple_coding_agent())
             final: dict[str, Any] | None = None
             streamed_text = False
-            agent_run_id = uuid.uuid4()
-            async for event in agent.astream_events(
-                {'messages': messages},
-                config={
-                    'run_id': agent_run_id,
-                    'configurable': {'thread_id': session_id or turn_id},
-                    'recursion_limit': 100,
-                },
-                context=context,
-                version='v2',
-            ):
-                run_log.native_event(event)
-                kind = event['event']
-                data = event.get('data', {})
-                if kind == 'on_chain_end' and event['run_id'] == str(agent_run_id):
-                    final = data['output']
-                elif kind == 'on_chat_model_stream':
-                    text = message_text(data.get('chunk'))
-                    if text and on_progress is not None:
-                        streamed_text = True
-                        await on_progress('message.delta', {'text': text})
-                elif kind in {'on_tool_start', 'on_tool_end', 'on_tool_error'} and on_progress is not None:
-                    arguments = data.get('input') or {}
-                    detail = ''
-                    if isinstance(arguments, dict):
-                        detail = str(arguments.get('command') or arguments.get('skill_name') or '')
-                    await on_progress(
-                        'tool.updated',
-                        {
-                            'call_id': str(event['run_id']),
-                            'name': event['name'],
-                            'status': {
-                                'on_tool_start': 'running',
-                                'on_tool_end': 'completed',
-                                'on_tool_error': 'failed',
-                            }[kind],
-                            'detail': detail[:16_000],
-                            'output': message_text(data.get('output', data.get('error', '')))[:16_000],
-                        },
-                    )
+            if on_progress is None:
+                # Run as a subgraph of the calling agent, whose stream carries our progress and usage; native
+                # events would drop them.
+                final = await agent.ainvoke({'messages': messages}, config={'recursion_limit': 100}, context=context)
+            else:
+                agent_run_id = uuid.uuid4()
+                async for event in agent.astream_events(
+                    {'messages': messages},
+                    config={
+                        'run_id': agent_run_id,
+                        'configurable': {'thread_id': session_id or turn_id},
+                        'recursion_limit': 100,
+                    },
+                    context=context,
+                    version='v2',
+                ):
+                    run_log.native_event(event)
+                    kind = event['event']
+                    data = event.get('data', {})
+                    if kind == 'on_chain_end' and event['run_id'] == str(agent_run_id):
+                        final = data['output']
+                    elif kind == 'on_chat_model_stream':
+                        text = message_text(data.get('chunk'))
+                        if text and on_progress is not None:
+                            streamed_text = True
+                            await on_progress('message.delta', {'text': text})
+                    elif kind in {'on_tool_start', 'on_tool_end', 'on_tool_error'} and on_progress is not None:
+                        arguments = data.get('input') or {}
+                        detail = ''
+                        if isinstance(arguments, dict):
+                            detail = str(arguments.get('command') or arguments.get('skill_name') or '')
+                        await on_progress(
+                            'tool.updated',
+                            {
+                                'call_id': str(event['run_id']),
+                                'name': event['name'],
+                                'status': {
+                                    'on_tool_start': 'running',
+                                    'on_tool_end': 'completed',
+                                    'on_tool_error': 'failed',
+                                }[kind],
+                                'detail': detail[:16_000],
+                                'output': message_text(data.get('output', data.get('error', '')))[:16_000],
+                            },
+                        )
             if final is None or final.get('__interrupt__'):
                 msg = 'The coding agent did not return a complete conversation.'
                 raise ValueError(msg)

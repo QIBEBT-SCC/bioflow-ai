@@ -8,6 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from bioflow_ai.llm.context import CodingContext
 from bioflow_ai.llm.middleware import (
+    CodingProgressMiddleware,
     SkillMiddleware,
     TokenStatisticMiddleware,
     UserLanguageMiddleware,
@@ -61,6 +62,7 @@ def build_simple_coding_agent(
         [coding_run_command, coding_apply_patch],
         system_prompt=CODING_SYSTEM,
         middleware=[
+            CodingProgressMiddleware(),
             SkillMiddleware('coding_agent'),
             UserLanguageMiddleware(
                 'Write explanations and questions in {}. Preserve code identifiers and CLI options.'

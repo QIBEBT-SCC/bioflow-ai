@@ -280,6 +280,20 @@ def agent_tool_progress(request: ToolCallRequest, status: ProgressStatus) -> dic
     return {'agent_tool': {'tool_call_id': request.tool_call['id'], 'status': status, 'tool': name, **details}}
 
 
+def coding_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:
+    """Translate one coding sub-agent tool call into an ``agent_tool`` frontend activity."""
+    name = request.tool_call.get('name')
+    args = _args(request)
+    if name == 'run_command':
+        details = {'tool': 'container_command', 'command': _text_arg(args, 'command')}
+    elif name == 'apply_patch':
+        details = {'tool': 'apply_patch', 'path': _patch_files(_text_arg(args, 'patch'))}
+    else:
+        return None
+    details = {key: value for key, value in details.items() if value is not None}
+    return {'agent_tool': {'tool_call_id': request.tool_call['id'], 'status': status, **details}}
+
+
 SKILL_TOOLS = {'load_skill': 'skill_name', 'read_skill_resource': 'resource_path'}
 
 
@@ -421,6 +435,14 @@ class ToolCreationProgressMiddleware(ToolProgressMiddleware):
     @staticmethod
     def translate(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:  # noqa: D102
         return tool_creation_progress(request, status)
+
+
+class CodingProgressMiddleware(ToolProgressMiddleware):
+    """Publish frontend activities for the tool calls of the coding sub-agent."""
+
+    @staticmethod
+    def translate(request: ToolCallRequest, status: ProgressStatus) -> dict[str, Any] | None:  # noqa: D102
+        return coding_progress(request, status)
 
 
 class WorkflowBuilderProgressMiddleware(ToolProgressMiddleware):
