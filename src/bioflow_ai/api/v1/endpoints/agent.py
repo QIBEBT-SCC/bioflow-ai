@@ -27,6 +27,7 @@ from bioflow_ai.schemas.agent import (
     AgentMessagePublic,
     AgentName,
     AgentRunCreate,
+    AgentRunInput,
     AgentRunPublic,
     AgentRunResume,
     AgentRunRetry,
@@ -323,6 +324,22 @@ def get_agent_events(
     return [AgentEventPublic.model_validate(event) for event in agent_service.list_events(session, run, after_id)]
 
 
+@run_router.post('/{run_uid}/inputs', status_code=status.HTTP_202_ACCEPTED)
+def submit_agent_input(
+    run_uid: uuid.UUID,
+    data: AgentRunInput,
+    session: SessionDep,
+    current_user: UserDep,
+) -> AgentMessagePublic:
+    """Queue a text correction without scheduling another execution of the run."""
+    try:
+        run = agent_service.get_owned_run(session, run_uid, current_user.id)
+        message = agent_service.queue_input(session, run, data)
+    except agent_service.AgentServiceError as error:
+        _raise_service_error(error)
+    return AgentMessagePublic.model_validate(message)
+
+
 @run_router.post('/{run_uid}/resume', status_code=status.HTTP_202_ACCEPTED)
 def resume_agent_run(
     run_uid: uuid.UUID,
@@ -464,7 +481,7 @@ async def stream_agent_events(
     if header_id and header_id.isdigit():
         after_id = max(after_id, int(header_id))
 
-    async def generate() -> AsyncGenerator[str, None]:
+    async def generate() -> AsyncGenerator[str]:
         from bioflow_ai.tasks.agent_run import AGENT_EVENT_CHANNEL_PREFIX
 
         cursor = after_id

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ import bioflow_ai.crud.project_workflow as project_workflow_crud
 from bioflow_ai.crud import project as project_crud
 from bioflow_ai.crud import user as user_crud
 from bioflow_ai.crud import workflow_run as run_crud
+from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
 from bioflow_ai.models.project import Project
 from bioflow_ai.models.workflow import NodeRun, WorkflowRun
@@ -22,6 +24,7 @@ from bioflow_ai.schemas.agent import (
     MAX_IMAGES,
     AgentEventType,
     AgentName,
+    AgentRunInput,
     AgentRunStatus,
     AgentSessionCreate,
     AgentSessionUpdate,
@@ -42,6 +45,12 @@ from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id,
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.jsonable import to_json_object
 from bioflow_ai.utils.system import random_uid, utc_now
+
+WORKFLOW_INPUT_RUN_KEY = 'workflow_input_run_uid'
+MESSAGE_ID_CONFLICT = 'The message ID has already been used for a different request.'
+WORKFLOW_INPUT_ONLY = 'Only workflow-builder runs accept additional input.'
+INPUT_STATUS_ERROR = 'Additional input requires a queued or running workflow build.'
+INPUT_CLOSED_ERROR = 'This workflow build is finishing and no longer accepts input.'
 
 STALE_HEARTBEAT_AFTER = timedelta(seconds=60)
 ACTIVE_DELETE_ERROR = 'An active run must be cancelled before deleting the session.'
@@ -106,6 +115,14 @@ class AgentRunTransitionError(AgentServiceError):
 
 class AgentScopeError(AgentServiceError):
     pass
+
+
+class QueuedAgentInput(BaseModel):
+    """A queued message and its monotonic position in the input journal."""
+
+    event_id: int
+    message_uid: uuid.UUID
+    text: str
 
 
 def _is_active_run_integrity_error(error: IntegrityError) -> bool:
@@ -430,6 +447,115 @@ def add_resume_message(session: Session, run: AgentRun, text: str) -> AgentMessa
         run.agent_session.update_time = utc_now()
     session.refresh(message)
     return message
+
+
+def queue_input(session: Session, run: AgentRun, data: AgentRunInput) -> AgentMessage:
+    """Serialize input acceptance with the build's final inbox check."""
+    agent_crud.refresh_run_for_update(session, run)
+    events = agent_crud.list_input_events(session, run.uid)
+    existing = session.get(AgentMessage, data.message_uid)
+    if existing is not None:
+        is_input = any(event.payload.get('message_uid') == str(data.message_uid) for event in events)
+        if existing.run_uid == run.uid and is_input and existing.parts == [{'type': 'text', 'text': data.text}]:
+            session.commit()
+            return existing
+        raise AgentRunConflictError(MESSAGE_ID_CONFLICT)
+    if run.agent_name != AgentName.WORKFLOW_BUILDER.value:
+        raise AgentRunTransitionError(WORKFLOW_INPUT_ONLY)
+    if run.status not in {AgentRunStatus.QUEUED.value, AgentRunStatus.RUNNING.value} or run.cancel_requested:
+        raise AgentRunTransitionError(INPUT_STATUS_ERROR)
+    if any(event.event_type == AgentEventType.INPUT_CLOSED.value for event in events):
+        raise AgentRunTransitionError(INPUT_CLOSED_ERROR)
+    now = utc_now()
+    message = AgentMessage(
+        uid=data.message_uid,
+        session_uid=run.session_uid,
+        run_uid=run.uid,
+        role='user',
+        parts=[{'type': 'text', 'text': data.text}],
+        create_time=now,
+    )
+    try:
+        with committing(session):
+            agent_crud.insert_message(session, message)
+            agent_crud.insert_event(
+                session,
+                AgentEvent(
+                    run_uid=run.uid,
+                    event_type=AgentEventType.INPUT_QUEUED.value,
+                    payload={'message_uid': str(message.uid)},
+                    create_time=now,
+                ),
+            )
+            run.update_time = now
+            run.agent_session.update_time = now
+    except IntegrityError as error:
+        raise AgentRunConflictError(MESSAGE_ID_CONFLICT) from error
+    session.refresh(message)
+    return message
+
+
+def _pending_inputs(session: Session, run_uid: uuid.UUID, cursor: int) -> list[QueuedAgentInput]:
+    result = []
+    for event in agent_crud.list_input_events(session, run_uid, cursor, [AgentEventType.INPUT_QUEUED]):
+        message = session.get(AgentMessage, uuid.UUID(event.payload['message_uid']))
+        if message is not None:
+            result.append(
+                QueuedAgentInput(
+                    event_id=event.id,
+                    message_uid=message.uid,
+                    text=''.join(part.get('text', '') for part in message.parts if part.get('type') == 'text'),
+                )
+            )
+    return result
+
+
+def pending_inputs(run_uid: uuid.UUID, cursor: int) -> list[QueuedAgentInput]:
+    """Replay from the graph's checkpoint cursor, including unacknowledged deliveries."""
+    with Session(engine) as session:
+        return _pending_inputs(session, run_uid, cursor)
+
+
+def acknowledge_inputs(run_uid: uuid.UUID, cursor: int) -> None:
+    """Publish delivery only after a model response confirms the input reached the model."""
+    with Session(engine) as session, committing(session):
+        events = agent_crud.list_input_events(
+            session, run_uid, event_types=[AgentEventType.INPUT_QUEUED, AgentEventType.INPUT_APPLIED]
+        )
+        applied = {event.payload['message_uid'] for event in events if event.event_type == AgentEventType.INPUT_APPLIED}
+        for event in events:
+            if (
+                event.event_type == AgentEventType.INPUT_QUEUED
+                and event.id <= cursor
+                and event.payload['message_uid'] not in applied
+            ):
+                agent_crud.insert_event(
+                    session,
+                    AgentEvent(
+                        run_uid=run_uid,
+                        event_type=AgentEventType.INPUT_APPLIED.value,
+                        payload={'message_uid': event.payload['message_uid'], 'input_event_id': event.id},
+                    ),
+                )
+
+
+def close_inputs(run_uid: uuid.UUID, cursor: int) -> list[QueuedAgentInput]:
+    """Close an empty inbox atomically, or return the inputs that arrived since the cursor."""
+    with Session(engine) as session, committing(session):
+        run = agent_crud.get_run(session, run_uid)
+        if run is None:
+            return []
+        agent_crud.refresh_run_for_update(session, run)
+        if run.cancel_requested or run.status != AgentRunStatus.RUNNING.value:
+            return []
+        if inputs := _pending_inputs(session, run_uid, cursor):
+            return inputs
+        if not agent_crud.list_input_events(session, run_uid, event_types=[AgentEventType.INPUT_CLOSED]):
+            agent_crud.insert_event(
+                session,
+                AgentEvent(run_uid=run_uid, event_type=AgentEventType.INPUT_CLOSED.value, payload={}),
+            )
+        return []
 
 
 def import_generated_workflows(session: Session, run: AgentRun, values: dict[str, Any]) -> None:

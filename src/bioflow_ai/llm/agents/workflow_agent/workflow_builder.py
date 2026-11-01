@@ -21,6 +21,7 @@ from bioflow_ai.llm.middleware import (
     WorkflowBuilderProgressMiddleware,
 )
 from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
+from bioflow_ai.llm.middleware.user_input import PendingUserInputMiddleware
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.states import BuildState
 from bioflow_ai.llm.tools.human import ask_human
@@ -241,6 +242,7 @@ def build_workflow_builder(
             ],
             system_prompt=BUILD_FLOW_SYSTEM,
             middleware=[
+                PendingUserInputMiddleware(close_inbox=True),
                 TodoMiddleware(),
                 WorkflowBuilderProgressMiddleware(),
                 SkillMiddleware('workflow_builder'),
@@ -272,6 +274,7 @@ def build_workflow_builder(
         ],
         system_prompt=BUILD_FLOW_SYSTEM,
         middleware=[
+            PendingUserInputMiddleware(close_inbox=True),
             TodoMiddleware(),
             WorkflowBuilderProgressMiddleware(),
             SkillMiddleware('workflow_builder'),

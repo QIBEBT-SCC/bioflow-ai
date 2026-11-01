@@ -26,6 +26,7 @@ from bioflow_ai.services.agents import sessions as agent_service
 from bioflow_ai.services.agents.execution import AGENTS, execute_agent_graph
 from bioflow_ai.services.agents.messages import load_langchain_messages, wrap_request
 from bioflow_ai.services.agents.progress import ProgressScopes, result_payload
+from bioflow_ai.services.agents.sessions import WORKFLOW_INPUT_RUN_KEY
 from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input
 from bioflow_ai.services.notification.events import format_duration, notify
 from bioflow_ai.services.workflow import fix as workflow_fix_service
@@ -226,7 +227,10 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             spec = AGENTS[agent_name.value]
             graph = spec.factory(checkpoint)
             config = RunnableConfig(
-                configurable={'thread_id': checkpoint_thread_id},
+                configurable={
+                    'thread_id': checkpoint_thread_id,
+                    **({WORKFLOW_INPUT_RUN_KEY: str(run_uid)} if agent_name == AgentName.WORKFLOW_BUILDER else {}),
+                },
                 recursion_limit=2**31 - 1,
             )
 

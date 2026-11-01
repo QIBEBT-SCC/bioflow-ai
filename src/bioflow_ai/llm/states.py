@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated, Any, Literal, NotRequired, Optional
 
 from langchain.agents import AgentState
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
 
 from bioflow_ai.infrastructure.containers import ContainerMount
@@ -110,7 +110,15 @@ class WorkflowDraft(BaseModel):
     next_node_index: int = Field(default=1, ge=1)
 
 
-class BuildState(AgentState, total=False):
+class UserInputState(AgentState, total=False):
+    """Checkpointed corrections that survive ordinary message-history cleanup."""
+
+    user_input_cursor: int
+    user_input_acked: int
+    user_input_messages: list[HumanMessage]
+
+
+class BuildState(UserInputState, total=False):
     paper_id: str
 
     previous_summary: str

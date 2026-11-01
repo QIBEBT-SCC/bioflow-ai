@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from bioflow_ai.models.agent import AgentEvent, AgentMessage, AgentRun, AgentRunTarget, AgentSession
-from bioflow_ai.schemas.agent import ACTIVE_AGENT_RUN_STATUSES
+from bioflow_ai.schemas.agent import ACTIVE_AGENT_RUN_STATUSES, AgentEventType
 
 
 def get_session(session: Session, session_uid: uuid.UUID) -> AgentSession | None:
@@ -129,6 +129,39 @@ def list_events(session: Session, run_uid: uuid.UUID, after_id: int = 0) -> Sequ
         select(AgentEvent).where(AgentEvent.run_uid == run_uid, AgentEvent.id > after_id).order_by(AgentEvent.id.asc())
     )
     return session.scalars(statement).all()
+
+
+INPUT_EVENT_TYPES = (AgentEventType.INPUT_QUEUED, AgentEventType.INPUT_APPLIED, AgentEventType.INPUT_CLOSED)
+
+
+def list_input_events(
+    session: Session,
+    run_uid: uuid.UUID,
+    after_id: int = 0,
+    event_types: Sequence[AgentEventType] = INPUT_EVENT_TYPES,
+) -> Sequence[AgentEvent]:
+    """Read the durable input journal independently of progress events."""
+    return session.scalars(
+        select(AgentEvent)
+        .where(
+            AgentEvent.run_uid == run_uid,
+            AgentEvent.id > after_id,
+            AgentEvent.event_type.in_([event_type.value for event_type in event_types]),
+        )
+        .order_by(AgentEvent.id)
+    ).all()
+
+
+def list_session_input_events(session: Session, session_uid: uuid.UUID) -> Sequence[AgentEvent]:
+    """Identify corrections that should be included in later conversation history."""
+    return session.scalars(
+        select(AgentEvent)
+        .join(AgentRun, AgentRun.uid == AgentEvent.run_uid)
+        .where(
+            AgentRun.session_uid == session_uid,
+            AgentEvent.event_type.in_([AgentEventType.INPUT_QUEUED.value, AgentEventType.INPUT_APPLIED.value]),
+        )
+    ).all()
 
 
 def insert_run_records(

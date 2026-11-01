@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 MAX_IMAGES = 4
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -56,6 +56,9 @@ class AgentEventType(StrEnum):
     CANCELLED = 'run.cancelled'
     COMPLETED = 'run.completed'
     FAILED = 'run.failed'
+    INPUT_QUEUED = 'run.input_queued'
+    INPUT_APPLIED = 'run.input_applied'
+    INPUT_CLOSED = 'run.input_closed'
 
 
 class TextMessagePart(BaseModel):
@@ -202,6 +205,13 @@ class AgentRunCreate(AgentLanguagePreference):
             message = 'workflow-fixer requires a non-empty request'
             raise ValueError(message)
         return self
+
+
+class AgentRunInput(BaseModel):
+    """One idempotent text correction for an active workflow build."""
+
+    message_uid: uuid.UUID
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100_000)]
 
 
 class AgentRunResume(AgentLanguagePreference):

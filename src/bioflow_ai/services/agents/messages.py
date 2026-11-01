@@ -11,21 +11,46 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.models.agent import AgentRun
-from bioflow_ai.schemas.agent import ImageMessagePart, WorkflowNodeMessagePart
+from bioflow_ai.schemas.agent import AgentEventType, ImageMessagePart, WorkflowNodeMessagePart
 from bioflow_ai.services.agents.chat_attachment import image_reference_content
 from bioflow_ai.utils.observability.token_usage import store_token_usage
 
 if TYPE_CHECKING:
+    import uuid
+
     from bioflow_ai.llm.llm_client import LLMMetadata
 
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
+
+
+def excluded_input_messages(session: Session, run: AgentRun) -> set[str]:
+    """Keep current queued inputs out of initial history and omit earlier undelivered inputs.
+
+    A retry carries the undelivered inputs of every run it retries forward instead of dropping them.
+    """
+    retried: set[uuid.UUID] = set()
+    retry_of_uid = run.retry_of_uid
+    while retry_of_uid is not None and retry_of_uid not in retried:
+        retried.add(retry_of_uid)
+        retry_of_uid = getattr(session.get(AgentRun, retry_of_uid), 'retry_of_uid', None)
+    events = agent_crud.list_session_input_events(session, run.session_uid)
+    applied = {event.payload['message_uid'] for event in events if event.event_type == AgentEventType.INPUT_APPLIED}
+    return {
+        event.payload['message_uid']
+        for event in events
+        if event.event_type == AgentEventType.INPUT_QUEUED
+        and (event.run_uid == run.uid or (event.run_uid not in retried and event.payload['message_uid'] not in applied))
+    }
 
 
 def load_langchain_messages(session: Session, run: AgentRun) -> tuple[list[BaseMessage], HumanMessage]:
     """Restore durable user images along with the existing text conversation."""
     history: list[BaseMessage] = []
     current: HumanMessage | None = None
+    excluded = excluded_input_messages(session, run)
     for message in agent_crud.list_messages(session, run.session_uid):
+        if str(message.uid) in excluded:
+            continue
         content = parts_content(message.parts)
         if not content:
             continue
