@@ -4,7 +4,7 @@ import math
 import re
 import shlex
 import uuid
-from collections import defaultdict, deque
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,12 +13,11 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, load_only
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
-from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowAssistantContext
@@ -26,6 +25,7 @@ from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
+from bioflow_ai.services.workflow.node_details import describe_node
 from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id, enter_subgraphs
 from bioflow_ai.utils.formatters import format_json
 
@@ -58,71 +58,19 @@ def _parents_and_children(workflow: WorkflowDefinition) -> tuple[dict[str, set[s
     return parents, children
 
 
-def _topology_levels(workflow: WorkflowDefinition) -> dict[str, int]:
-    """Calculate presentation-only diagnostic levels without mirroring runtime scheduling."""
-    node_ids = [node.id for node in workflow.nodes]
-    indegree = dict.fromkeys(node_ids, 0)
-    children: dict[str, list[str]] = defaultdict(list)
-    levels = dict.fromkeys(node_ids, 0)
-    for edge in workflow.edges:
-        if edge.source not in indegree or edge.target not in indegree:
-            continue
-        children[edge.source].append(edge.target)
-        indegree[edge.target] += 1
-    queue = deque(node_id for node_id in node_ids if indegree[node_id] == 0)
-    while queue:
-        node_id = queue.popleft()
-        for child in children[node_id]:
-            levels[child] = max(levels[child], levels[node_id] + 1)
-            indegree[child] -= 1
-            if indegree[child] == 0:
-                queue.append(child)
-    return levels
-
-
-def execution_labels(
-    workflow: WorkflowDefinition,
-    statuses: dict[str, NodeRunStatus],
-    positions: dict[str, int],
-) -> dict[str, dict[str, Any]]:
-    """Describe each node from durable runtime state, not Celery backend state."""
-    levels = _topology_levels(workflow)
-    result: dict[str, dict[str, Any]] = {}
-    for node in workflow.nodes:
-        node_id = node.id
-        status = statuses.get(node_id)
-        if status is None:
-            reason = 'presentation_only'
-        elif status == NodeRunStatus.FAILED:
-            reason = 'direct_failed'
-        elif status == NodeRunStatus.SUCCEEDED:
-            reason = 'completed'
-        elif status == NodeRunStatus.RUNNING:
-            reason = 'running'
-        elif status == NodeRunStatus.BLOCKED:
-            reason = 'blocked_by_dependency'
-        elif status == NodeRunStatus.QUEUED:
-            reason = 'queued'
-        elif status == NodeRunStatus.READY:
-            reason = 'ready'
-        else:
-            reason = 'waiting_for_dependencies'
-        result[node_id] = {
-            'dispatch_order': positions.get(node_id),
-            'topology_level': levels.get(node_id),
-            'execution_reason': reason,
-        }
-    return result
-
-
-def _compact_node_data(data: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-    for key, value in data.items():
-        if key in {'code', 'content', 'script'} and isinstance(value, str):
-            compact[key] = {'characters': len(value), 'preview': value[:500]}
-        else:
-            compact[key] = value
-    return compact
+def _upstream_scope(node_ids: list[str], parents: dict[str, set[str]], depth: int) -> list[str]:
+    """List targets first, then their ancestors by shortest upstream distance."""
+    ordered = list(dict.fromkeys(node_ids))
+    seen = set(ordered)
+    frontier = ordered
+    for _ in range(depth):
+        upstream = sorted({parent for node_id in frontier for parent in parents.get(node_id, ())} - seen)
+        if not upstream:
+            break
+        ordered.extend(upstream)
+        seen.update(upstream)
+        frontier = upstream
+    return ordered
 
 
 def _descendant_run(session: Session, root: WorkflowRun, uid: uuid.UUID) -> WorkflowRun | None:
@@ -170,10 +118,19 @@ def _workflow_payload(
     offset: int = 0,
     limit: int = 20,
     *,
-    failed_only: bool = False,
+    failed_only: bool = True,
+    upstream_depth: int = 0,
 ) -> dict[str, Any]:
     if offset < 0 or not 1 <= limit <= MAX_CHILD_PAGE:
         return {'error': 'offset must be nonnegative and limit must be between 1 and 100.'}
+    if upstream_depth < 0:
+        return {'error': 'upstream_depth must be nonnegative.'}
+    if upstream_depth and action != 'overview':
+        return {'error': 'upstream_depth is only supported for action=overview.'}
+    if upstream_depth and not include_node_id and not failed_only:
+        return {'error': 'upstream_depth requires node_id or failed_only=true.'}
+    if action in {'node', 'children'} and not include_node_id:
+        return {'error': f'node_id is required for action={action}.'}
     try:
         with Session(engine) as session:
             run = _selected_run(session, context, child_run_uid)
@@ -182,12 +139,19 @@ def _workflow_payload(
                 graph, _ = enter_subgraphs(run.workflow, list(path))
             except SubgraphError as error:
                 return {'error': str(error)}
-            node_runs = list(session.scalars(select(NodeRun).where(NodeRun.run_uid == run.uid)))
-            by_id = {node.definition_node_id: node for node in node_runs}
+            graph_nodes = {node.id: node for node in graph.nodes}
+            if include_node_id is not None and include_node_id not in graph_nodes:
+                return {'error': f'Node not found: {include_node_id}'}
+            target_runtime_id = definition_id((*path, include_node_id)) if include_node_id is not None else None
             if action == 'children':
-                if not include_node_id:
-                    return {'error': 'node_id is required for action=children.'}
-                control = by_id.get(definition_id((*path, include_node_id)))
+                control = session.scalar(
+                    select(NodeRun)
+                    .where(
+                        NodeRun.run_uid == run.uid,
+                        NodeRun.definition_node_id == target_runtime_id,
+                    )
+                    .options(load_only(NodeRun.node_type))
+                )
                 if control is None or control.node_type != 'foreach':
                     return {'error': 'No ForEach control task exists for this node.'}
                 filters = [WorkflowRun.parent_node_uid == control.uid]
@@ -195,7 +159,20 @@ def _workflow_payload(
                     filters.append(WorkflowRun.status == RunStatus.FAILED)
                 children = list(
                     session.scalars(
-                        select(WorkflowRun).where(*filters).order_by(WorkflowRun.item_index).offset(offset).limit(limit)
+                        select(WorkflowRun)
+                        .where(*filters)
+                        .options(
+                            load_only(
+                                WorkflowRun.item_index,
+                                WorkflowRun.item_name,
+                                WorkflowRun.generation,
+                                WorkflowRun.status,
+                                WorkflowRun.base_dir,
+                            )
+                        )
+                        .order_by(WorkflowRun.item_index)
+                        .offset(offset)
+                        .limit(limit + 1)
                     )
                 )
                 return {
@@ -203,38 +180,37 @@ def _workflow_payload(
                     'parent_generation': run.generation,
                     'subgraph_path': list(path),
                     'node_id': include_node_id,
-                    'total': session.scalar(select(func.count()).select_from(WorkflowRun).where(*filters)) or 0,
-                    'offset': offset,
+                    **({'next_offset': offset + limit} if len(children) > limit else {}),
                     'children': [
                         {
                             'run_uid': str(item.uid),
-                            'item_index': item.item_index,
-                            'item_name': item.item_name,
+                            **({'item_index': item.item_index} if item.item_index is not None else {}),
+                            **({'item_name': item.item_name} if item.item_name is not None else {}),
                             'generation': item.generation,
                             'status': item.status.value,
                             'base_dir': item.base_dir,
                         }
-                        for item in children
+                        for item in children[:limit]
                     ],
                 }
-            statuses = {node.definition_node_id: node.status for node in node_runs}
-            positions = {node.definition_node_id: node.position_index for node in node_runs}
-            parents, descendants = _parents_and_children(graph)
-            local_statuses = {
-                node.id: statuses[definition_id((*path, node.id))]
-                for node in graph.nodes
-                if definition_id((*path, node.id)) in statuses
-            }
-            local_positions = {
-                node.id: positions[definition_id((*path, node.id))]
-                for node in graph.nodes
-                if definition_id((*path, node.id)) in positions
-            }
-            schedule = execution_labels(graph, local_statuses, local_positions)
-            nodes = []
+            node_runs = list(
+                session.scalars(
+                    select(NodeRun)
+                    .where(NodeRun.run_uid == run.uid)
+                    .options(
+                        load_only(
+                            NodeRun.definition_node_id,
+                            NodeRun.node_type,
+                            NodeRun.name,
+                            NodeRun.status,
+                        )
+                    )
+                )
+            )
+            by_id = {node.definition_node_id: node for node in node_runs}
+            parents, _ = _parents_and_children(graph)
+            node_statuses = {}
             for node in graph.nodes:
-                if include_node_id and node.id != include_node_id:
-                    continue
                 runtime_id = definition_id((*path, node.id))
                 task = by_id.get(runtime_id)
                 if task is None and node.type == 'subgraph':
@@ -255,91 +231,70 @@ def _workflow_payload(
                     )
                 else:
                     task_status = task.status.value if task else 'presentation_only'
+                node_statuses[node.id] = task_status
+
+            failed_node_ids = [node_id for node_id, status in node_statuses.items() if status == 'failed']
+            targets = (
+                [include_node_id]
+                if include_node_id is not None
+                else failed_node_ids
+                if failed_only
+                else list(graph_nodes)
+            )
+            scoped_ids = [
+                node_id for node_id in _upstream_scope(targets, parents, upstream_depth) if node_id in graph_nodes
+            ]
+            shown_ids = scoped_ids[offset : offset + limit] if action == 'overview' else scoped_ids
+            if action == 'node':
+                detail = session.scalar(
+                    select(NodeRun)
+                    .where(
+                        NodeRun.run_uid == run.uid,
+                        NodeRun.definition_node_id == target_runtime_id,
+                    )
+                    .execution_options(populate_existing=True)
+                )
+                if detail is not None:
+                    by_id[detail.definition_node_id] = detail
+
+            nodes = []
+            for node_id in shown_ids:
+                node = graph_nodes[node_id]
+                runtime_id = definition_id((*path, node.id))
+                task = by_id.get(runtime_id)
                 payload: dict[str, Any] = {
                     'node_id': node.id,
-                    'template_node_id': node.id if not node.id.startswith('@foreach/input/') else None,
-                    'runtime_node_id': runtime_id,
-                    'subgraph_path': list(path),
+                    'name': node.data.get('name') or (task.name if task else node.id),
                     'type': node.type,
-                    'status': task_status,
-                    'upstream_node_ids': sorted(parents.get(node.id, ())),
-                    'downstream_node_ids': sorted(descendants.get(node.id, ())),
-                    'schedule': schedule.get(node.id),
+                    'status': node_statuses[node.id],
                 }
-                if node.type == 'subgraph' and payload['schedule'] is not None:
-                    payload['schedule']['execution_reason'] = task_status
                 if node.type == 'subgraph':
                     payload['child_path'] = [*path, node.id]
-                    payload['source_uid'] = node.data.get('source_uid')
-                    child_interface = WorkflowDefinition.model_validate(node.data['workflow']).interface
-                    payload['input_ports'] = [port.id for port in child_interface.inputs] if child_interface else []
-                    payload['output_ports'] = [port.id for port in child_interface.outputs] if child_interface else []
                     payload['batch'] = task is not None and task.node_type == 'foreach'
-                if include_node_id:
-                    payload['data'] = (
-                        {key: value for key, value in node.data.items() if key != 'workflow'}
-                        if node.type == 'subgraph'
-                        else node.data
-                    )
-                    payload['task'] = (
-                        {
-                            'node_run_uid': str(task.uid),
-                            'status': task.status.value,
-                            'base_dir': task.base_dir,
-                            'commands': task.commands,
-                            'error_message': task.error_message,
-                            'tool_output': task.tool_output.model_dump(mode='json') if task.tool_output else None,
-                        }
-                        if task
-                        else None
-                    )
-                    if node.type == 'tool':
-                        tool_uid = task.tool_uid if task is not None else node.data.get('tool_uid')
-                        tool_info = tool_crud.get_summary(session, tool_uid) if tool_uid else None
-                        payload['tool'] = {
-                            'uid': str(tool_uid) if tool_uid else None,
-                            'name': getattr(tool_info, 'name', None),
-                            'description': getattr(tool_info, 'description', None),
-                        }
+                if action == 'node':
+                    payload.update(describe_node(session, graph, node, path, by_id))
                 nodes.append(payload)
-            node_total = len(nodes)
-            failed_node_ids = [node['node_id'] for node in nodes if node['status'] == 'failed']
-            if action == 'overview':
-                listed_nodes = [node for node in nodes if node['status'] == 'failed'] if failed_only else nodes
-                listed_total = len(listed_nodes)
-                nodes = listed_nodes[offset : offset + limit]
-                shown_ids = {node['node_id'] for node in nodes}
-                visible_edges = [
-                    edge.model_dump(mode='json')
-                    for edge in graph.edges
-                    if edge.source in shown_ids or edge.target in shown_ids
-                ]
-            else:
-                listed_total = node_total
-                visible_edges = None
-            return {
+            result = {
                 'run': {
-                    'uid': str(run.uid),
-                    'generation': run.generation,
-                    'name': run.name,
                     'workflow_uid': str(run.workflow_uid) if run.workflow_uid else None,
                     'status': run.status.value,
                     'base_dir': run.base_dir,
-                    'item_index': run.item_index,
-                    'item_name': run.item_name,
+                    **({'item_index': run.item_index} if run.item_index is not None else {}),
+                    **({'item_name': run.item_name} if run.item_name is not None else {}),
                 },
                 'subgraph_path': list(path),
                 'nodes': nodes,
-                'node_total': node_total,
-                'listed_total': listed_total,
-                'failed_node_ids': failed_node_ids[:MAX_CHILD_PAGE],
-                'failed_node_count': len(failed_node_ids),
-                'offset': offset if action == 'overview' else None,
-                'next_offset': offset + limit if action == 'overview' and offset + limit < listed_total else None,
-                'edges': visible_edges,
-                'edge_total': len(graph.edges),
-                **({'error': f'Node not found: {include_node_id}'} if include_node_id and not nodes else {}),
             }
+            if action == 'overview':
+                shown_set = set(shown_ids)
+                result['edges'] = [
+                    edge.model_dump(include={'source', 'sourceHandle', 'target', 'targetHandle'})
+                    for edge in graph.edges
+                    if edge.source in shown_set and edge.target in shown_set
+                ]
+                if offset + limit < len(scoped_ids):
+                    result['next_offset'] = offset + limit
+            return result
     except EvidenceSourceError as error:
         return {'error': {'code': error.code, 'message': str(error)}}
 
@@ -354,26 +309,52 @@ def workflow_reader(
     offset: int = 0,
     limit: int = 20,
     *,
-    failed_only: bool = False,
+    failed_only: bool = True,
+    upstream_depth: int = 0,
 ) -> str:
-    """Read the run's immutable workflow snapshot and exact task execution mapping.
+    """Read compact failure summaries, a bounded upstream graph, or one node's full evidence.
+
+    Start diagnosis with ``overview`` to list only failed nodes. For
+    a named node, use ``node`` directly. Expand relevant context with
+    ``overview(node_id=..., upstream_depth=1)``; increase the depth only when needed.
+    Successful ancestors are included in the scope. Overview never returns full node
+    configuration or scripts; use ``node`` for port descriptions, connected sources,
+    the assembled command template, recorded output results and CODE source.
 
     Args:
-        action: ``overview`` returns all nodes, edges, task states and scheduler order;
-            ``node`` returns complete data and evidence for one local node ID;
-            ``children`` lists the ForEach child runs belonging to a node.
-        node_id: Node ID local to ``subgraph_path``; required for ``node`` and ``children``.
+        action: ``overview`` returns paginated compact node summaries and edges within
+            the returned page; ``node`` returns configuration, commands and input/output
+            handles with their sources or recorded results, without internal task metadata;
+            ``children`` lists ForEach child runs (failed by default).
+        node_id: Local node ID, required for ``node`` and ``children``. For ``overview``,
+            focus on this node and its ancestors instead of filtering by failure status.
         subgraph_path: Nested subgraph node IDs to enter in the selected run.
         child_run_uid: ForEach child run UID returned by ``children``.
-        offset: First node or child item to list.
-        limit: Maximum nodes or child items to list (1 to 100).
-        failed_only: Only list failed nodes or ForEach child runs.
+        offset: First scoped node or child item to list. Follow ``next_offset`` when
+            present; its absence means all matching results have been returned.
+        limit: Maximum scoped nodes or child items to list (1 to 100, default 20).
+        failed_only: Default true. Without ``node_id``, overview starts from failed
+            nodes; children lists failed runs. Set false explicitly to list all nodes
+            or child runs. Ignored by ``node`` and by an overview with ``node_id``.
+        upstream_depth: Overview only. Number of upstream edge hops (default 0).
+            One hop includes all direct parents, two includes their parents as well.
+            Start from ``node_id`` or all failed nodes; targets come first, then ancestors
+            ordered by shortest distance. All scopes support pagination, including
+            scopes inside ordinary subgraphs or ForEach child runs.
     """
     if action == 'node' and not node_id:
         return format_json({'error': 'node_id is required for action=node.'})
     return format_json(
         _workflow_payload(
-            runtime.context, action, node_id, subgraph_path, child_run_uid, offset, limit, failed_only=failed_only
+            runtime.context,
+            action,
+            node_id,
+            subgraph_path,
+            child_run_uid,
+            offset,
+            limit,
+            failed_only=failed_only,
+            upstream_depth=upstream_depth,
         ),
         max_chars=None,
     )

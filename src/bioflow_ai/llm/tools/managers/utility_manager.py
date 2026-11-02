@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command, Overwrite
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.code as code_crud
@@ -49,20 +49,18 @@ class ReadCodeSchema(BaseModel):
 
 
 class UpdateCodeSchema(BaseModel):
-    """Patch source on an existing panel CODE node during workflow repair."""
+    """Delegate changes to an existing panel CODE node to the coding agent."""
 
-    node_id: str = Field(description='Current panel ID returned by read_code')
-    patch: str = Field(
-        description=(
-            'Raw context hunks for this node only, without Markdown fences or file-operation headers. '
-            'Start each hunk with `@@` or `@@ <anchor line>`. Prefix unchanged lines with a space, removals with `-`, '
-            'and additions with `+`. Optional `*** End of File` ends the final hunk. Do not use unified-diff line numbers. '
-            'Example:\n@@\n-print(1)\n+print(2)'
-        ),
-    )
-    reason: str = Field(
+    model_config = ConfigDict(extra='forbid')
+
+    node_id: str = Field(description='Current panel ID of the existing Bash, Python, or R CODE node')
+    request: str = Field(
         min_length=1,
-        description='Concrete reason for this code patch',
+        description=(
+            'Describe the required change, its reason, relevant diagnosis or log evidence, and expected behavior. '
+            'Do not submit source code or a patch. The coding agent receives the existing source, dependencies and '
+            'bound input contract, preserves CLI options, and edits the script and Python dependencies as needed.'
+        ),
     )
 
 
@@ -367,35 +365,52 @@ def _read_panel_code(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Comm
 
 
 async def _update_panel_code(params: UpdateCodeSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
-    """Patch one workflow-local CODE node without changing graph identity."""
+    """Delegate a panel CODE update and apply only a complete, valid candidate."""
     try:
-        updated_nodes = await update_code_node(
+        updated = await update_code_node(
             runtime.state.get('exist_nodes', []),
             params.node_id,
-            params.patch,
+            params.request,
+            edges=runtime.state.get('exist_edges', []),
+            user_id=runtime.context.user_id,
+            language=runtime.context.language,
         )
-    except CodeEditingError as error:
+    except Exception as error:
+        logger.exception('CODE node {} update failed', params.node_id)
         return Command(
             update={
                 'messages': [ToolMessage(content=f'Error: {error}', tool_call_id=runtime.tool_call_id)],
             }
         )
 
+    if not updated.changed:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content=f'No code changes applied to panel node {params.node_id}. {updated.summary}',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ],
+            }
+        )
+
     result = validate_workflow(
-        workflow_document(runtime.state, nodes=updated_nodes, project_id=runtime.context.project_id)
+        workflow_document(runtime.state, nodes=updated.nodes, project_id=runtime.context.project_id)
     )
     if not result.valid:
         return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})
 
     return Command(
         update={
-            'exist_nodes': Overwrite(updated_nodes),
+            'exist_nodes': Overwrite(updated.nodes),
             'messages': [
                 ToolMessage(
                     content=(
-                        f'Patched source code for panel node {params.node_id}. '
-                        f'Reason: {params.reason.strip()} '
-                        'Node ID, handles, dependencies, and all edges were preserved.'
+                        f'Updated panel CODE node {params.node_id} with the coding agent. '
+                        f'{updated.summary}\n'
+                        'The completed coding turn was applied. '
+                        'Node ID, handles and all edges were preserved.'
                     ),
                     tool_call_id=runtime.tool_call_id,
                 )

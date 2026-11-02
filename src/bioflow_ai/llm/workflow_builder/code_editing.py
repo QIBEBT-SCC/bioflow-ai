@@ -1,20 +1,28 @@
-"""Read and patch workflow-local CODE node source."""
+"""Read workflow-local CODE source and delegate updates to the shared coding agent."""
 
 import ast
 from collections.abc import Sequence
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any
 
-from anyio import Path as AsyncPath
-from apply_patch_py import apply_patch
+from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.schemas.code import CodeNodeType
-from bioflow_ai.schemas.workflow_build import BuildNode
+from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
+from bioflow_ai.services.code.coding import build_code_inputs, message_text, run_coding_turn
 
 
 class CodeEditingError(ValueError):
     """A requested panel CODE-node read or update is invalid."""
+
+
+class CodeNodeUpdate(BaseModel):
+    """A complete coding turn that may replace the panel's node list."""
+
+    model_config = ConfigDict(frozen=True)
+
+    nodes: list[BuildNode]
+    changed: bool
+    summary: str
 
 
 def read_code_node(nodes: Sequence[BuildNode], node_id: str) -> dict[str, Any]:
@@ -45,59 +53,64 @@ def read_code_node(nodes: Sequence[BuildNode], node_id: str) -> dict[str, Any]:
 async def update_code_node(
     nodes: Sequence[BuildNode],
     node_id: str,
-    patch: str,
-) -> list[BuildNode]:
-    """Apply context hunks to panel CODE source while preserving other node data."""
-    node = next((candidate for candidate in nodes if candidate.id == node_id), None)
-    if node is None:
-        message = f'Node "{node_id}" does not exist on the current panel.'
+    request: str,
+    *,
+    edges: Sequence[BuildEdge],
+    user_id: int,
+    language: str | None = None,
+) -> CodeNodeUpdate:
+    """Edit existing source and Python dependencies without changing graph identity."""
+    baseline = read_code_node(nodes, node_id)
+    node_type = CodeNodeType(baseline['type'])
+    if not request.strip():
+        message = 'A code update request is required.'
         raise CodeEditingError(message)
-    if node.type not in {CodeNodeType.BASH.value, CodeNodeType.PYTHON.value, CodeNodeType.R.value}:
-        message = f'Node "{node_id}" is not a Bash, Python, or R CODE node.'
-        raise CodeEditingError(message)
-
-    current_code = node.data.get('code')
-    if not isinstance(current_code, str) or not current_code.strip():
-        message = f'CODE node "{node_id}" has no editable source code.'
-        raise CodeEditingError(message)
-
     try:
-        with TemporaryDirectory(prefix='bioflow-code-patch-') as directory:
-            script = AsyncPath(directory) / 'script.py'
-            await script.write_text(current_code, encoding='utf-8')
-            await apply_patch(
-                f'*** Begin Patch\n*** Update File: script.py\n{patch}\n*** End Patch',
-                workdir=Path(directory),
-            )
-            patched_code = await script.read_text(encoding='utf-8')
-    except (OSError, RuntimeError, ValueError) as error:
+        inputs = build_code_inputs([edge for edge in edges if edge.target_node == node_id], list(nodes), list(edges))
+    except (KeyError, ValueError) as error:
         raise CodeEditingError(str(error)) from error
-    if not patched_code.strip():
-        message = 'Patched code must not be empty.'
+
+    generated = await run_coding_turn(
+        request,
+        node_type=node_type,
+        user_id=user_id,
+        source=baseline['code'],
+        dependencies=baseline['dependencies'] if node_type is CodeNodeType.PYTHON else [],
+        language=language,
+        input_contract=inputs,
+    )
+    summary = next((message_text(message) for message in reversed(generated.messages) if message.type == 'ai'), '')
+    if generated.proposal is None:
+        return CodeNodeUpdate(
+            nodes=list(nodes),
+            changed=False,
+            summary=summary or 'The coding agent returned no code changes.',
+        )
+
+    source = generated.proposal.source
+    if not source.strip():
+        message = 'Updated code must not be empty.'
         raise CodeEditingError(message)
-    if '\x00' in patched_code:
-        message = 'Patched code must not contain NUL bytes.'
+    if '\x00' in source:
+        message = 'Updated code must not contain NUL bytes.'
         raise CodeEditingError(message)
-    if node.type == CodeNodeType.PYTHON.value:
+    if node_type is CodeNodeType.PYTHON:
         try:
-            ast.parse(patched_code)
+            ast.parse(source)
         except SyntaxError as error:
             location = f'line {error.lineno}' if error.lineno is not None else 'an unknown line'
-            message = f'Patched Python code has invalid syntax at {location}: {error.msg}.'
+            message = f'Updated Python code has invalid syntax at {location}: {error.msg}.'
             raise CodeEditingError(message) from error
-    if patched_code == current_code:
-        message = 'Patch does not change the code.'
-        raise CodeEditingError(message)
 
     updated_nodes = []
+    changed = False
     for candidate in nodes:
         if candidate.id != node_id:
             updated_nodes.append(candidate.model_copy(deep=True))
             continue
-        updated_nodes.append(
-            candidate.model_copy(
-                update={'data': {**candidate.data, 'code': patched_code}},
-                deep=True,
-            )
-        )
-    return updated_nodes
+        data = {**candidate.data, 'code': source}
+        if node_type is CodeNodeType.PYTHON:
+            data['dependencies'] = generated.proposal.dependencies
+        changed = data != candidate.data
+        updated_nodes.append(candidate.model_copy(update={'data': data}, deep=True))
+    return CodeNodeUpdate(nodes=updated_nodes, changed=changed, summary=summary or 'Updated the CODE node.')
