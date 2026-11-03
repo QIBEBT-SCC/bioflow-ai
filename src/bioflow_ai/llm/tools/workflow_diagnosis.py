@@ -256,7 +256,8 @@ def workflow_reader(
     ``overview(node_id=..., upstream_depth=1)``; increase the depth only when needed.
     Successful ancestors are included in the scope. Overview never returns full node
     configuration or scripts; use ``node`` for port descriptions, connected sources,
-    the assembled command template, recorded output results and CODE source.
+    the assembled command template, recorded output results and CODE source. A Tool
+    node may also list ``memories``: IDs and short descriptions of shared usage lessons.
 
     Args:
         action: ``overview`` returns paginated compact node summaries and edges within

@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, event
+from sqlalchemy import DateTime, ForeignKey, String, Text, event
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
@@ -9,7 +10,7 @@ from bioflow_ai.models.base import Base
 from bioflow_ai.models.decorator.special_field import IntEnumType, PydanticJson
 from bioflow_ai.schemas import tool_config
 from bioflow_ai.services.tools.input_format import build_command_template
-from bioflow_ai.utils.system import random_uid
+from bioflow_ai.utils.system import random_uid, utc_now
 
 
 class ToolGroup(Base):
@@ -106,6 +107,19 @@ class ToolDefine(Base):
 
     help_doc: Mapped['ToolHelpDoc | None'] = relationship(back_populates='tools')
     image: Mapped['ToolImage | None'] = relationship(back_populates='tools')
+
+
+class ToolMemory(Base):
+    """A human-approved usage lesson shared by all users of one tool definition."""
+
+    __tablename__ = 'tool_memories'
+
+    uid: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=random_uid)
+    tool_uid: Mapped[uuid.UUID] = mapped_column(ForeignKey('tools.uid', ondelete='CASCADE'), index=True)
+    description: Mapped[str] = mapped_column(String(120))
+    content: Mapped[str] = mapped_column(Text, deferred=True)
+    created_by: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 @event.listens_for(ToolDefine, 'before_insert')

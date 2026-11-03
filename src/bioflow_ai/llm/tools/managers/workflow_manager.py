@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
+from bioflow_ai.llm.tools.node_memory import node_memory_hint
 from bioflow_ai.llm.workflow_builder.drafts import (
     WorkflowScope,
     build_workflow_draft,
@@ -582,6 +583,8 @@ def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:
                 )
             else:
                 content = node_formatter(n)
+                if n.type == 'tool':
+                    content += node_memory_hint(str(n.data['tool_uid']))
             return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
 
     return Command(

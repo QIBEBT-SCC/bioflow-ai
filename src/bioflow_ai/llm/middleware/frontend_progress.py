@@ -123,6 +123,7 @@ WORKFLOW_OPERATIONS = {
     'view_marks': 'inspect',
     'view_workflow': 'inspect',
     'view_node': 'inspect',
+    'read_node_memory': 'inspect',
     'list_workflow_drafts': 'list',
     'add': 'add',
     'add_processor': 'add',
@@ -160,6 +161,7 @@ SUBJECT_FIELDS = (
 
 
 SEARCH_RESULT_COUNT_KEY = 'result_count'
+MEMORY_DESCRIPTION_KEY = 'memory_description'
 
 
 def _search_keywords(params: Mapping[str, Any]) -> list[str]:
@@ -210,7 +212,14 @@ def workflow_builder_progress(request: ToolCallRequest, status: ProgressStatus) 
 
 def _agent_tool_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | None:
     """Return the activity details for one generic agent tool, or ``None`` when it is not displayed."""
-    if name in {'ask_human', 'summarize_work', 'write_diagnosis', 'finalize_workflow_fix'}:
+    if name in {
+        'ask_human',
+        'summarize_work',
+        'write_diagnosis',
+        'read_node_memory',
+        'write_node_memory',
+        'finalize_workflow_fix',
+    }:
         return {}
     if name in {'workflow_reader', 'fix_subgraph'}:
         details = {'action': _text_arg(args, 'action'), 'subject': _text_arg(args, 'node_id')}
@@ -336,6 +345,8 @@ def _result_details(result: ToolMessage | Command[Any]) -> dict[str, Any]:
         artifact = message.artifact if isinstance(message, ToolMessage) else None
         if isinstance(artifact, Mapping) and isinstance(artifact.get(SEARCH_RESULT_COUNT_KEY), int):
             return {SEARCH_RESULT_COUNT_KEY: artifact[SEARCH_RESULT_COUNT_KEY]}
+        if isinstance(artifact, Mapping) and isinstance(artifact.get(MEMORY_DESCRIPTION_KEY), str):
+            return {MEMORY_DESCRIPTION_KEY: artifact[MEMORY_DESCRIPTION_KEY]}
     return {}
 
 

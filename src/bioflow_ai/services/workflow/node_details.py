@@ -10,6 +10,7 @@ from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.models.workflow import NodeRun
 from bioflow_ai.schemas.react_flow import Node, WorkflowDefinition
 from bioflow_ai.schemas.tools import Handle, ToolNodePublic
+from bioflow_ai.services.tools.memory import list_tool_memories
 from bioflow_ai.services.workflow.subgraphs import definition_id
 from bioflow_ai.services.workflow.validation.registry import NODE_SPECS
 
@@ -126,6 +127,10 @@ def describe_node(
                 description=projection.description,
                 command_template=projection.complete_command,
             )
+            if memories := list_tool_memories(session, tool.uid):
+                details['memories'] = [
+                    {'memory_id': str(memory.uid), 'description': memory.description} for memory in memories
+                ]
         else:
             details['definition_error'] = 'Tool definition is unavailable.'
     else:

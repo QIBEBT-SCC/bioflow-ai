@@ -64,7 +64,7 @@ def _warn(error: RedisError) -> None:
 
 
 @contextmanager
-def tool_cache_client() -> Generator[SyncRedis, None, None]:
+def tool_cache_client() -> Generator[SyncRedis]:
     """Open a bounded synchronous client for synchronous builder operations."""
     from bioflow_ai.core.config import get_settings
 
@@ -80,7 +80,7 @@ def tool_cache_client() -> Generator[SyncRedis, None, None]:
 def _load(session: Session, uids: list[str], *, fresh: bool = False) -> dict[str, WorkflowToolDefinition]:
     if not uids:
         return {}
-    tools = tool_crud.get_all_by_uid(session, uids, refresh=True) if fresh else tool_crud.get_all_by_uid(session, uids)
+    tools = tool_crud.get_all_by_uid(session, uids, refresh=fresh)
     return {str(tool.uid): WorkflowToolDefinition.model_validate(tool) for tool in tools}
 
 

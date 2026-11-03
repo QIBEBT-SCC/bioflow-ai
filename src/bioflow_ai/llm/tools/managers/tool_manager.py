@@ -19,6 +19,7 @@ from bioflow_ai.llm.context import CreateToolContext, ProjectContext
 from bioflow_ai.llm.middleware.frontend_progress import ProgressStatus
 from bioflow_ai.llm.middleware.limit import MaxRetriesError
 from bioflow_ai.llm.states import BuildEdge, BuildNode, CreateToolState
+from bioflow_ai.llm.tools.node_memory import node_memory_hint, node_memory_message
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
 from bioflow_ai.schemas.tools import ToolNodePublic
@@ -73,6 +74,12 @@ class AddToolSchema(BaseModel):
     )
 
 
+class ReadNodeMemorySchema(BaseModel):
+    """Read the full content of a memory advertised by a tool node."""
+
+    memory_id: uuid.UUID = Field(description='Stable memory ID returned when adding or viewing a tool node')
+
+
 class UpdateArgsSchema(BaseModel):
     """Update the editable parameters of the specified tool node that has been added to the panel."""
 
@@ -103,6 +110,7 @@ class CreateToolSchema(BaseModel):
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
     'search': SearchToolSchema,
     'add': AddToolSchema,
+    'read_node_memory': ReadNodeMemorySchema,
     'update_args': UpdateArgsSchema,
     'create': CreateToolSchema,
 }
@@ -163,6 +171,23 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                 validate_param.input_edges,
                 runtime,
             )
+
+        case 'read_node_memory':
+            try:
+                validate_param = ReadNodeMemorySchema.model_validate(params)
+            except ValidationError as e:
+                return Command(
+                    update={
+                        'messages': [
+                            ToolMessage(
+                                content=format_validation_error('read_node_memory', e, ReadNodeMemorySchema),
+                                tool_call_id=runtime.tool_call_id,
+                                status='error',
+                            )
+                        ]
+                    }
+                )
+            return Command(update={'messages': [node_memory_message(validate_param.memory_id, runtime.tool_call_id)]})
 
         case 'update_args':
             try:
@@ -490,7 +515,7 @@ def _add_tool_node(
             'next_node_index': next_node_index,
             'messages': [
                 ToolMessage(
-                    content=f'add new tool node:\n{node_formatter(new_node)}',
+                    content=f'add new tool node:\n{node_formatter(new_node)}' + node_memory_hint(tool_uid),
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
