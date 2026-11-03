@@ -19,6 +19,7 @@ from bioflow_ai.api.v1.endpoints import (
     setting,
     skill,
     tool,
+    tool_memory,
     user,
     workflow,
 )
@@ -112,6 +113,7 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
         dependencies=[*protected, Depends(authorize_workflow_request)],
     )
     app.include_router(tool.router, prefix='/api/v1/tools', tags=['tool'], dependencies=protected)
+    app.include_router(tool_memory.router, prefix='/api/v1/tool-memories', tags=['tool-memory'], dependencies=protected)
     app.include_router(tool.tag_router, prefix='/api/v1/tool-tags', tags=['tool'], dependencies=protected)
     app.include_router(tool.group_router, prefix='/api/v1/tool-groups', tags=['tool'], dependencies=protected)
     app.include_router(tool.image_router, prefix='/api/v1/images', tags=['tool'], dependencies=protected)

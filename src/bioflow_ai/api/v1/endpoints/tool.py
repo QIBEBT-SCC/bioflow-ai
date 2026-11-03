@@ -1,6 +1,8 @@
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import select
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_CONTENT
 
 import bioflow_ai.crud.tools.image as image_crud
@@ -11,7 +13,9 @@ import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.core.auth import AdminDep, MemberDep
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import RedisDep
+from bioflow_ai.models.tools import ToolDefine
 from bioflow_ai.schemas.common import Paginated
+from bioflow_ai.schemas.node_memory import ToolMemorySummary
 from bioflow_ai.schemas.tools import (
     DockerToolCreate,
     DockerToolUpdate,
@@ -33,6 +37,7 @@ from bioflow_ai.schemas.tools import (
 )
 from bioflow_ai.services.tools import cache as tool_cache
 from bioflow_ai.services.tools import catalog as tool_catalog
+from bioflow_ai.services.tools import memory as memory_service
 from bioflow_ai.services.tools.image_references import DuplicateImageUrlError
 
 router = APIRouter()
@@ -251,6 +256,14 @@ async def get_tool_detail(session: SessionDep, tool_uid: str) -> ToolPublic:
     if tool is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
     return ToolPublic.model_validate(tool)
+
+
+@router.get('/{tool_uid}/memories')
+def get_tool_memories(tool_uid: UUID, session: SessionDep) -> list[ToolMemorySummary]:
+    """Get memory summaries for an existing tool."""
+    if session.scalar(select(ToolDefine.uid).where(ToolDefine.uid == tool_uid)) is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Tool not found')
+    return memory_service.list_tool_memories(session, tool_uid)
 
 
 @router.get('/{tool_uid}/usage')

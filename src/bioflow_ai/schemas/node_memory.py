@@ -1,25 +1,65 @@
 import uuid
+from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
-class NodeMemoryDraft(BaseModel):
-    """One proposed memory targeting a tool node on the active workflow panel."""
-
-    model_config = ConfigDict(str_strip_whitespace=True)
-
-    node_id: str = Field(min_length=1, description='Tool node ID on the current panel, not a search result ID')
-    description: str = Field(
+MemoryDescription = Annotated[
+    str,
+    Field(
         min_length=1,
         max_length=120,
         pattern=r'^[^\r\n]+$',
         description='One or two short sentences describing when this memory applies; at most 120 characters',
-    )
-    content: str = Field(
+    ),
+]
+MemoryContent = Annotated[
+    str,
+    Field(
         min_length=1,
         max_length=8000,
         description='Reusable Markdown lesson with its applicability, evidence, fix, and actual validation limits',
-    )
+    ),
+]
+
+
+class ToolMemoryFields(BaseModel):
+    """Editable content of a shared tool memory."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    description: MemoryDescription
+    content: MemoryContent
+
+
+class NodeMemoryDraft(ToolMemoryFields):
+    """One proposed memory targeting a tool node on the active workflow panel."""
+
+    node_id: str = Field(min_length=1, description='Tool node ID on the current panel, not a search result ID')
+
+
+class ToolMemoryCreate(ToolMemoryFields):
+    """Create a memory for an existing tool."""
+
+    tool_uid: uuid.UUID
+
+
+class ToolMemoryUpdate(BaseModel):
+    """Edit a memory's description or body without changing its tool."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+
+    description: MemoryDescription | None = None
+    content: MemoryContent | None = None
+
+    @field_validator('description', 'content')
+    @classmethod
+    def reject_null(cls, value: str | None) -> str:
+        """Allow omitted fields, but reject explicit null values."""
+        if value is None:
+            msg = 'Omit the field to leave it unchanged.'
+            raise ValueError(msg)
+        return value
 
 
 class ToolMemorySummary(BaseModel):
@@ -31,8 +71,16 @@ class ToolMemorySummary(BaseModel):
     description: str
 
 
-class ToolMemoryPublic(ToolMemorySummary):
-    """Full memory content returned only when the agent explicitly reads it."""
+class ToolMemoryListItem(ToolMemorySummary):
+    """A memory summary that identifies its associated tool and creator."""
 
     tool_uid: uuid.UUID
+    tool_name: str
+    creator_username: str | None
+    created_at: datetime
+
+
+class ToolMemoryPublic(ToolMemoryListItem):
+    """Full memory content returned by a detail read or a write."""
+
     content: str
