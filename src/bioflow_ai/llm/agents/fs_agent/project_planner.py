@@ -19,8 +19,9 @@ from bioflow_ai.llm.middleware import (
 )
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import ProjectPlannerState
+from bioflow_ai.llm.tools.container import planner_run_command
 from bioflow_ai.llm.tools.human import ask_human_with_choices, confirm_plan
-from bioflow_ai.llm.tools.project_workspace import project_apply_patch, project_run_command, set_base_dir
+from bioflow_ai.llm.tools.project_workspace import project_apply_patch, set_base_dir
 from bioflow_ai.llm.tools.sample import (
     add_project_file,
     add_sample_file,
@@ -273,7 +274,7 @@ def _build_project_planner(
 ) -> CompiledStateGraph[Any, ProjectContext, Any, Any]:
     tools = [
         set_base_dir,
-        project_run_command,
+        planner_run_command,
         project_apply_patch,
         list_project_samples,
         add_samples,

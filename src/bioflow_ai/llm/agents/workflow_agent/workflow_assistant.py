@@ -16,8 +16,9 @@ from bioflow_ai.llm.middleware import (
 )
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import WorkflowAssistantState
+from bioflow_ai.llm.tools.container import run_evidence_command
 from bioflow_ai.llm.tools.view_image import view_image
-from bioflow_ai.llm.tools.workflow_diagnosis import run_evidence_command, workflow_reader, write_diagnosis
+from bioflow_ai.llm.tools.workflow_diagnosis import workflow_reader, write_diagnosis
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver

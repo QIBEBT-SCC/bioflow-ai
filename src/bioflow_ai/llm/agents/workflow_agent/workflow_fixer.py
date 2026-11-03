@@ -20,13 +20,14 @@ from bioflow_ai.llm.middleware import (
 )
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.states import WorkflowFixState
+from bioflow_ai.llm.tools.container import run_evidence_command
 from bioflow_ai.llm.tools.managers import (
     resource_node_manager,
     tool_node_manager,
     utility_node_manager,
     workflow_manager,
 )
-from bioflow_ai.llm.tools.workflow_diagnosis import run_evidence_command, workflow_reader
+from bioflow_ai.llm.tools.workflow_diagnosis import workflow_reader
 from bioflow_ai.llm.tools.workflow_fix import finalize_workflow_fix
 from bioflow_ai.llm.tools.workflow_fix_subgraph import fix_subgraph
 

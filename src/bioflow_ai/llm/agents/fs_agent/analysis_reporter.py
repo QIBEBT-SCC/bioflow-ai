@@ -1,10 +1,7 @@
-from typing import TYPE_CHECKING, NotRequired, Optional, cast
+from typing import TYPE_CHECKING, NotRequired, cast
 
 from langchain.agents import AgentState, create_agent
-from langchain_core.tools import tool
-from langgraph.prebuilt import ToolRuntime
 
-from bioflow_ai.infrastructure.containers import run_command_in_container
 from bioflow_ai.llm.context import FolderContext
 from bioflow_ai.llm.middleware import (
     DisableParallelToolCallsMiddleware,
@@ -14,6 +11,7 @@ from bioflow_ai.llm.middleware import (
 )
 from bioflow_ai.llm.middleware.final_check import CheckTaskReportMiddleware
 from bioflow_ai.llm.models import get_coding_model
+from bioflow_ai.llm.tools.container import report_run_command
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
@@ -21,9 +19,6 @@ if TYPE_CHECKING:
 
 AGENT_LLM = get_coding_model()
 metadata = cast('LLMMetadata', AGENT_LLM.metadata)
-
-MAX_CHAR = 3000
-
 
 SUMMARY_PROMPT = """# Role and Task
 You are a professional bioinformatics upstream analysis reporting agent. You operate within a lightweight Alpine Linux container, pre-installed with tools such as bash, gawk, grep, jq, miller, find, tree, file, coreutils, and pigz.
@@ -160,36 +155,9 @@ class SummaryState(AgentState):
     container_id: NotRequired[str]
 
 
-def _truncate_output(command: str, output: str) -> str:
-    if any(k in command for k in ('find', 'grep', 'help', 'summary.md')) or len(output) <= MAX_CHAR:
-        return output
-    return f'{output[:1500]}\n...\n{output[-500:]}'
-
-
-@tool
-async def run_command(command: str, runtime: ToolRuntime, workdir: Optional[str] = None) -> str:
-    """Execute shell commands within the container."""
-    runtime.stream_writer(f'run: {command[:100]}')
-    container_id = runtime.state.get('container_id', '')
-
-    code, out = run_command_in_container(container_id, command, workdir)
-
-    run_status = 'successfully' if code == 0 else 'failed'
-    if out.strip():
-        return_msg = (
-            _truncate_output(command, out)
-            if code == 0
-            else f'Command ran {run_status}.\n\n{_truncate_output(command, out)}'
-        )
-    else:
-        return_msg = f'Command ran {run_status}. No other output.'
-
-    return return_msg
-
-
 summary_analysis_agent = create_agent(
     get_coding_model(),
-    [run_command],
+    [report_run_command],
     system_prompt=SUMMARY_PROMPT,
     middleware=[
         TodoMiddleware(),

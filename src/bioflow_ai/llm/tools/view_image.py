@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from bioflow_ai.infrastructure.object_storage.files import ObjectStorageError
 from bioflow_ai.llm.context import WorkflowAssistantContext
-from bioflow_ai.llm.tools.workflow_diagnosis import EvidenceSourceError, resolve_evidence_source
+from bioflow_ai.llm.tools.container import resolve_evidence_source
 from bioflow_ai.services.agents.chat_attachment import (
     MAX_SOURCE_BYTES,
     ImagePreparationError,
@@ -48,7 +48,7 @@ def view_image(
             {'type': 'text', 'text': f'Filesystem image snapshot: source={source}, path={path}.'},
             *image_reference_content(image),
         ]
-    except (EvidenceSourceError, ImagePreparationError, OSError, ValueError) as error:
+    except (ImagePreparationError, OSError, ValueError) as error:
         return [{'type': 'text', 'text': f'Unable to view image: {error}'}]
     except (ObjectStorageError, SQLAlchemyError):
         return [{'type': 'text', 'text': 'Unable to view image: image storage is unavailable. Try reading it again.'}]
