@@ -333,10 +333,23 @@ CREATE TABLE IF NOT EXISTS tools
     immutable_static_params  VARCHAR,
     modifiable_static_params VARCHAR,
     file_mounts              jsonb,
+    complete_command         VARCHAR NOT NULL,
     PRIMARY KEY (uid),
     FOREIGN KEY (image_uid) REFERENCES images,
     FOREIGN KEY (group_id) REFERENCES tool_groups,
     FOREIGN KEY (help_doc_uid) REFERENCES tool_docs
+);
+
+CREATE TABLE IF NOT EXISTS tool_memories
+(
+    uid         uuid                     NOT NULL,
+    tool_uid    uuid                     NOT NULL,
+    description VARCHAR(120)             NOT NULL,
+    content     TEXT                     NOT NULL,
+    created_by  INTEGER                  NOT NULL,
+    created_at  TIMESTAMP WITH TIME ZONE NOT NULL,
+    PRIMARY KEY (uid),
+    FOREIGN KEY (tool_uid) REFERENCES tools (uid) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS tool_tag_link

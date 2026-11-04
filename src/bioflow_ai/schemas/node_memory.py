@@ -44,6 +44,17 @@ class ToolMemoryCreate(ToolMemoryFields):
     tool_uid: uuid.UUID
 
 
+class ToolMemoryImport(BaseModel):
+    """Persisted memory fields restored from the preset dataset."""
+
+    uid: uuid.UUID
+    tool_uid: uuid.UUID
+    description: str = Field(max_length=120)
+    content: str
+    created_by: int
+    created_at: datetime
+
+
 class ToolMemoryUpdate(BaseModel):
     """Edit a memory's description or body without changing its tool."""
 

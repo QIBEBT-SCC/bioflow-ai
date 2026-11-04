@@ -148,21 +148,22 @@ def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
 @click.option('--upload', is_flag=True, default=False, help='Upload the exported data to Hugging Face.')
 @click.option(
     '--db',
-    type=click.Choice(['images', 'docs', 'tools']),
+    type=click.Choice(['images', 'docs', 'tools', 'tool_memories']),
     multiple=True,
-    default=['images', 'docs', 'tools'],
+    default=['images', 'docs', 'tools', 'tool_memories'],
     show_default=True,
     help='Select one or more datasets to export.',
 )
 @handle_service_errors
 def export(*, upload: bool, db: tuple[str, ...]) -> None:
     """Export database data."""
-    from bioflow_ai.services.export.database import export_docs, export_images, export_tools
+    from bioflow_ai.services.export.database import export_docs, export_images, export_tool_memories, export_tools
 
     db_map = {
         'images': export_images,
         'docs': export_docs,
         'tools': export_tools,
+        'tool_memories': export_tool_memories,
     }
     for name in db:
         logger.info(f'Exporting {name}...')

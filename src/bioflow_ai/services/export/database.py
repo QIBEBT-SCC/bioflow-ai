@@ -7,6 +7,7 @@ from bioflow_ai.services.export import PREBUILD_BUCKET_ID
 IMAGES_OUTPUT = Path('presets/images.parquet')
 DOCS_OUTPUT = Path('presets/tool_docs.parquet')
 TOOLS_OUTPUT = Path('presets/tools.parquet')
+TOOL_MEMORIES_OUTPUT = Path('presets/tool_memories.parquet')
 
 
 class DatabaseExportResult(BaseModel):
@@ -109,4 +110,14 @@ def export_tools(*, upload: bool = False) -> DatabaseExportResult:
         TOOLS_OUTPUT,
         upload=upload,
         derived_columns=('complete_command',),
+    )
+
+
+def export_tool_memories(*, upload: bool = False) -> DatabaseExportResult:
+    """Export shared tool memories with their tool and creator identifiers."""
+    return _export_dataset(
+        'tool_memories',
+        'SELECT uid, tool_uid, description, content, created_by, created_at FROM tool_memories',
+        TOOL_MEMORIES_OUTPUT,
+        upload=upload,
     )

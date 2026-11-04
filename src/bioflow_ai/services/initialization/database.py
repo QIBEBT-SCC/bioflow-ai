@@ -11,6 +11,7 @@ MAX_PASSWORD_BYTES = 128
 
 PREBUILD_REPO = 'Aye10032/bioflow-ai-prebuild'
 BATCH_SIZE = 50
+TOOL_MEMORIES_PRESET = 'tool_memories.parquet'
 
 
 class AdminInitResult(BaseModel):
@@ -53,6 +54,7 @@ class PresetDatabaseInitResult(BaseModel):
     images: PresetImportResult
     docs: PresetImportResult
     tools: PresetImportResult
+    tool_memories: PresetImportResult
 
 
 async def init_preset_database_records(
@@ -62,11 +64,14 @@ async def init_preset_database_records(
     progress: ProgressIterator | None = None,
 ) -> PresetDatabaseInitResult:
     """Initialize preset database records in dependency order."""
+    # Resolve the dependent preset before any tool catalog truncation can cascade to memories.
+    memory_preset = await _ensure_preset_file(TOOL_MEMORIES_PRESET)
     return PresetDatabaseInitResult(
         admin=admin,
         images=await init_images(drop_old=drop_old, progress=progress),
         docs=await init_docs(drop_old=drop_old),
         tools=await init_tools(drop_old=drop_old, progress=progress),
+        tool_memories=await init_tool_memories(drop_old=drop_old, preset_file=memory_preset),
     )
 
 
@@ -272,6 +277,58 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
         downloaded=preset_file.downloaded,
         inserted_count=len(tools),
         deleted_count=delete_count,
+        validation_error_count=validation_error_count,
+        warning_count=warning_count,
+    )
+
+
+async def init_tool_memories(
+    *, drop_old: bool = True, preset_file: PresetFileResult | None = None
+) -> PresetImportResult:
+    """Restore shared memories after their referenced tools have been imported."""
+    import polars as pl
+    from pydantic import ValidationError
+    from sqlalchemy import delete, func, select
+    from sqlalchemy.dialects.postgresql import insert
+
+    from bioflow_ai.infrastructure.database import engine
+    from bioflow_ai.models.tools import ToolDefine, ToolMemory
+    from bioflow_ai.schemas.node_memory import ToolMemoryImport
+
+    if preset_file is None:
+        preset_file = await _ensure_preset_file(TOOL_MEMORIES_PRESET)
+    records = []
+    validation_error_count = 0
+    for row in pl.read_parquet(preset_file.path).iter_rows(named=True):
+        try:
+            records.append(ToolMemoryImport.model_validate(row))
+        except ValidationError:
+            validation_error_count += 1
+
+    deleted_count = None
+    inserted_count = 0
+    warning_count = 0
+    with Session(engine) as session, session.begin():
+        if drop_old:
+            deleted_count = session.scalar(select(func.count()).select_from(ToolMemory)) or 0
+            session.execute(delete(ToolMemory))
+
+        for offset in range(0, len(records), BATCH_SIZE):
+            batch = records[offset : offset + BATCH_SIZE]
+            tool_uids = {record.tool_uid for record in batch}
+            existing_tools = set(session.scalars(select(ToolDefine.uid).where(ToolDefine.uid.in_(tool_uids))))
+            values = [record.model_dump() for record in batch if record.tool_uid in existing_tools]
+            warning_count += len(batch) - len(values)
+            if values:
+                stmt = insert(ToolMemory).on_conflict_do_nothing(index_elements=[ToolMemory.uid])
+                inserted_count += len(session.scalars(stmt.returning(ToolMemory.uid), values).all())
+
+    return PresetImportResult(
+        name='tool_memories',
+        preset_file=preset_file.path,
+        downloaded=preset_file.downloaded,
+        inserted_count=inserted_count,
+        deleted_count=deleted_count,
         validation_error_count=validation_error_count,
         warning_count=warning_count,
     )

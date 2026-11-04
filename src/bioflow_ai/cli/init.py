@@ -16,6 +16,7 @@ from bioflow_ai.services.initialization.database import (
     AdminInitResult,
     PresetImportResult,
     init_docs,
+    init_tool_memories,
 )
 from bioflow_ai.services.initialization.indexes import rebuild_image_index, rebuild_tool_index
 
@@ -60,6 +61,7 @@ def system_init_cmd() -> None:
         _log_import_result(result.images)
         _log_import_result(result.docs)
         _log_import_result(result.tools)
+        _log_import_result(result.tool_memories)
         logger.info('Rebuild auxiliary node index...')
         await rebuild_auxiliary_node_index()
         logger.info('System initialization completed.')
@@ -78,12 +80,12 @@ def create_admin_cmd() -> None:
 @click.option(
     '--databases',
     '-d',
-    type=click.Choice(['all', 'image', 'doc', 'tool']),
+    type=click.Choice(['all', 'image', 'doc', 'tool', 'tool-memory']),
     default='all',
     show_default=True,
     help='Target database(s) to initialize',
 )
-def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'doc', 'tool']) -> None:
+def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'doc', 'tool', 'tool-memory']) -> None:
     """Initialize database records from preset files."""
 
     async def _run() -> None:
@@ -93,11 +95,12 @@ def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'doc', 'to
             _log_import_result(result.images)
             _log_import_result(result.docs)
             _log_import_result(result.tools)
+            _log_import_result(result.tool_memories)
             return
 
         logger.warning(
             'Partial preset initialization does not rebuild dependent tables. '
-            'Use `--databases all` for the safe image -> doc -> tool order.'
+            'Use `--databases all` for the safe image -> doc -> tool -> tool-memory order.'
         )
 
         if databases in ('all', 'image'):
@@ -108,6 +111,9 @@ def init_db_cmd(*, drop_old: bool, databases: Literal['all', 'image', 'doc', 'to
 
         if databases in ('all', 'tool'):
             _log_import_result(await init_tools(drop_old=drop_old))
+
+        if databases == 'tool-memory':
+            _log_import_result(await init_tool_memories(drop_old=drop_old))
 
     asyncio.run(_run())
 

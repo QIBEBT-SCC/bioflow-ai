@@ -167,7 +167,7 @@ def render_preset_database_summary(result: Any) -> None:
     admin_status = 'Created' if result.admin.created else 'Already exists; skipped'
     table.add_row('Administrator account', admin_status)
 
-    for item in (result.images, result.docs, result.tools):
+    for item in (result.images, result.docs, result.tools, result.tool_memories):
         parts = [f'Imported {item.inserted_count}']
         if item.deleted_count is not None:
             parts.append(f'Removed {item.deleted_count} old records')
