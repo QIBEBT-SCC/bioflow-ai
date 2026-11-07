@@ -3,12 +3,7 @@ import asyncio
 import click
 
 from bioflow_ai.cli.render import create_progress_renderer
-from bioflow_ai.services.evaluation.workflow import (
-    EvaluationUsageError,
-    WorkflowResumeRequiredError,
-    WorkflowResumeUnavailableError,
-    wf_eval,
-)
+from bioflow_ai.services.evaluation.workflow import wf_eval
 from bioflow_ai.utils.observability.execution_logging import agent_logging_to_console
 
 
@@ -73,9 +68,9 @@ def wf_cmd(
                 on_event=create_progress_renderer(),
             )
         )
-    except EvaluationUsageError as exc:
+    except ValueError as exc:
         raise click.UsageError(str(exc)) from exc
-    except (WorkflowResumeRequiredError, WorkflowResumeUnavailableError) as exc:
+    except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 
 

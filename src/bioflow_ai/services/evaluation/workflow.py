@@ -20,6 +20,7 @@ from bioflow_ai.utils.observability.tracing import configure_langsmith_tracing
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
 MISSING_PROJECT_TAG = 'missing'
+WAITING_PROJECT_TAG = 'waiting'
 
 
 class WorkflowGenerationResult(BaseModel):
@@ -28,50 +29,43 @@ class WorkflowGenerationResult(BaseModel):
     new_db_ids: list[int]
 
 
-class WorkflowStateUnavailableError(RuntimeError):
-    """Raised when the workflow builder checkpoint cannot be read after execution."""
-
-
-class WorkflowResumeUnavailableError(RuntimeError):
-    """Raised when no interrupted workflow builder checkpoint can be resumed."""
-
-
-class WorkflowResumeRequiredError(RuntimeError):
-    """Raised when a paused workflow checkpoint requires an explicit resume value."""
-
-
-class EvaluationUsageError(ValueError):
-    """Raised when evaluation options cannot be combined."""
-
-
-def _update_interrupted_project(session: Session, project_id: int, question: str) -> None:
-    """Mark an evaluate project as missing and replace its description with the interrupt question."""
+def _update_evaluate_project(
+    project_id: int,
+    tag_name: str,
+    description: str,
+    *,
+    replace_tags: bool,
+) -> None:
+    """Update an evaluate project's description and tag after workflow generation."""
     from sqlalchemy import select
 
+    from bioflow_ai.infrastructure.database import engine
     from bioflow_ai.models.project import Project, ProjectTag
     from bioflow_ai.utils.system import utc_now
 
-    project = session.get(Project, project_id)
-    if project is None:
-        message = f'Evaluate project {project_id} no longer exists.'
-        raise RuntimeError(message)
+    with Session(engine) as session:
+        project = session.get(Project, project_id)
+        if project is None:
+            message = f'Evaluate project {project_id} no longer exists.'
+            raise RuntimeError(message)
 
-    missing_tag = session.scalar(select(ProjectTag).where(ProjectTag.name == MISSING_PROJECT_TAG))
-    if missing_tag is None:
-        message = f'Project tag {MISSING_PROJECT_TAG!r} is not configured.'
-        raise RuntimeError(message)
+        project_tag = session.scalar(select(ProjectTag).where(ProjectTag.name == tag_name))
+        if project_tag is None:
+            message = f'Project tag {tag_name!r} is not configured.'
+            raise RuntimeError(message)
 
-    project.description = question
-    if all(tag.id != missing_tag.id for tag in project.tags):
-        project.tags.append(missing_tag)
-    project.update_time = utc_now()
-    session.commit()
+        project.description = description
+        if replace_tags:
+            project.tags = [project_tag]
+        elif all(tag.id != project_tag.id for tag in project.tags):
+            project.tags.append(project_tag)
+        project.update_time = utc_now()
+        session.commit()
+    logger.info(f'Marked evaluate project {project_id} with tag {tag_name!r}.')
 
 
 def _mark_project_interrupted(project_id: int, interrupt_value: Any) -> str:
     """Persist workflow interrupt metadata on its evaluate project."""
-    from bioflow_ai.infrastructure.database import engine
-
     if not isinstance(interrupt_value, dict):
         message = f'Workflow interrupt payload must be an object, got {type(interrupt_value).__name__}.'
         raise TypeError(message)
@@ -81,9 +75,7 @@ def _mark_project_interrupted(project_id: int, interrupt_value: Any) -> str:
         message = 'Workflow interrupt payload does not contain a non-empty question.'
         raise ValueError(message)
 
-    with Session(engine) as session:
-        _update_interrupted_project(session, project_id, question)
-    logger.info(f'Marked evaluate project {project_id} with tag {MISSING_PROJECT_TAG!r}.')
+    _update_evaluate_project(project_id, MISSING_PROJECT_TAG, question, replace_tags=False)
     return question
 
 
@@ -116,7 +108,7 @@ def _prepare_workflow_stream_input(
             'The workflow builder checkpoint has no pending work to resume. '
             'Run without --resume to start normally, or use --clean-checkpoint to rebuild it.'
         )
-        raise WorkflowResumeUnavailableError(message)
+        raise RuntimeError(message)
 
     if state.interrupts:
         message = (
@@ -124,21 +116,13 @@ def _prepare_workflow_stream_input(
             'new input safely. Use --resume MESSAGE to respond to it, or --clean-checkpoint to discard the '
             'checkpoint and rebuild the workflow.'
         )
-        raise WorkflowResumeRequiredError(message)
+        raise RuntimeError(message)
 
     if state.next:
         logger.info(f'Automatically resuming incomplete workflow builder checkpoint at: {", ".join(state.next)}.')
         return None
 
     return agent_input
-
-
-def _resolve_thread_id(task_file: str, thread_id: str | None) -> str:
-    if thread_id:
-        return thread_id
-
-    path = FilePath(task_file)
-    return path.parent.name if path.name == 'task.md' else path.name
 
 
 def _check_db(db_path: str = DB_PATH) -> sqlite3.Connection:
@@ -168,12 +152,6 @@ def _serialize_ids(values: list[Any]) -> str:
     return ';'.join(str(value) for value in values)
 
 
-def _parse_int_ids(raw_ids: str | None) -> list[int]:
-    if not raw_ids:
-        return []
-    return _normalize_int_values([value.strip() for value in raw_ids.split(';') if value.strip()])
-
-
 def _persist_generated_records(
     con: sqlite3.Connection,
     thread_id: str,
@@ -187,35 +165,11 @@ def _persist_generated_records(
     ).fetchone()
     if row:
         historical_tools = list(dict.fromkeys([*_parse_workflow_uids(row['new_tool_uids']), *tool_uids]))
-        historical_dbs = list(dict.fromkeys([*_parse_int_ids(row['new_db_ids']), *db_ids]))
+        historical_dbs = list(dict.fromkeys([*row['new_db_ids'], *db_ids]))
         con.execute(
             """UPDATE evaluate_results SET new_tool_uids = ?, new_db_ids = ? WHERE thread_id = ?""",
             (_serialize_ids(historical_tools), _serialize_ids(historical_dbs), thread_id),
         )
-
-
-def _normalize_uuid_values(values: list[Any]) -> list[str]:
-    result = []
-    for value in values:
-        try:
-            result.append(str(uuid.UUID(str(value))))
-        except ValueError:
-            logger.warning(f'Ignoring invalid uuid in workflow builder state: {value}')
-    return result
-
-
-def _normalize_int_values(values: list[Any]) -> list[int]:
-    result = []
-    for value in values:
-        try:
-            result.append(int(value))
-        except (TypeError, ValueError):
-            logger.warning(f'Ignoring invalid integer id in workflow builder state: {value}')
-    return result
-
-
-def _get_project_path(project_id: int) -> FilePath:
-    return FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
 
 
 def _parse_workflow_uids(raw_uids: str | None) -> list[str]:
@@ -256,8 +210,6 @@ async def _clean_project_workflows(con: sqlite3.Connection, thread_id: str, proj
         ).all()
 
         for workflow_uid in project_workflow_uids:
-            if workflow_uid is None:
-                continue
             proj_wf_service.remove_workflow_from_project(session, project_id, workflow_uid)
 
         existing_generated_workflow_uids = session.scalars(
@@ -313,7 +265,7 @@ async def _clean_project_contents(con: sqlite3.Connection, thread_id: str, proje
         session.execute(delete(ProjectFileMapping).where(ProjectFileMapping.project_id == project_id))
         session.commit()
 
-    project_path = _get_project_path(project_id)
+    project_path = FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
     shutil.rmtree(project_path, ignore_errors=True)
     project_path.mkdir(parents=True, exist_ok=True)
 
@@ -347,7 +299,7 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, st
             project = session.get(Project, project_id)
             project_name = project.name if project is not None else None
         if project_name is not None:
-            project_path = _get_project_path(project_id)
+            project_path = FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
             project_path.mkdir(parents=True, exist_ok=True)
             return project_id, project_name, f'{project_path}'
         logger.warning(f'Evaluate record points to missing project {project_id}; creating a new project.')
@@ -371,7 +323,7 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, st
         {'thread_id': thread_id, 'project_id': task_project_id},
     )
 
-    project_path = _get_project_path(task_project_id)
+    project_path = FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
     project_path.mkdir(parents=True, exist_ok=True)
 
     return task_project_id, task_project_name, f'{project_path}'
@@ -513,9 +465,9 @@ async def _generate_workflow(
     async def persist_state() -> tuple[Any, WorkflowGenerationResult]:
         state = await agent.aget_state(config)
         result = WorkflowGenerationResult(
-            workflow_uids=_normalize_uuid_values(state.values.get('workflow_uids') or []),
-            new_tool_uids=_normalize_uuid_values(state.values.get('new_tools') or []),
-            new_db_ids=_normalize_int_values(state.values.get('new_dbs') or []),
+            workflow_uids=state.values.get('workflow_uids') or [],
+            new_tool_uids=state.values.get('new_tools') or [],
+            new_db_ids=state.values.get('new_dbs') or [],
         )
         _persist_generated_records(con, thread_id, result.new_tool_uids, result.new_db_ids)
         return state, result
@@ -565,7 +517,8 @@ async def _generate_workflow(
             logger.exception(f'Unable to persist generated records from workflow state: {exc}')
 
     if state is None:
-        raise WorkflowStateUnavailableError
+        message = 'Unable to read the workflow builder checkpoint after execution.'
+        raise RuntimeError(message)
     # 有中断
     if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
         for task in state.tasks:
@@ -575,6 +528,7 @@ async def _generate_workflow(
                     emit_progress(on_event, 'interrupt', interrupt)
                     sys.exit(-1)
 
+    _update_evaluate_project(project_id, WAITING_PROJECT_TAG, '', replace_tags=True)
     logger.success(f'Workflows generated: {result.workflow_uids}')
     if result.new_tool_uids:
         logger.success(f'Tools created during this build: {result.new_tool_uids}')
@@ -670,12 +624,12 @@ async def wf_eval(
 
     if resume is not None and (clean_checkpoint or clean_all):
         message = '--resume cannot be combined with checkpoint cleanup options.'
-        raise EvaluationUsageError(message)
+        raise ValueError(message)
 
-    thread_id = _resolve_thread_id(task_file, thread_id)
+    thread_id = FilePath(task_file).parent.name if thread_id is None else thread_id
     con = _check_db()
-    project_id: int | None = None
-    project_name: str | None = None
+    project_id = -1
+    project_name = ''
     try:
         reset_checkpoint = clean_checkpoint or clean_all
 
@@ -708,6 +662,5 @@ async def wf_eval(
             )
         _send_run_task(con, thread_id, project_id, workflow_result, '')
     finally:
-        if project_id is not None and project_name is not None:
-            logger.info(f'Evaluate project: {project_name} (ID: {project_id}).')
+        logger.info(f'Evaluate project: {project_name} (ID: {project_id}).')
         con.close()
