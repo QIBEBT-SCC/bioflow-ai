@@ -293,7 +293,7 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, st
         {'thread_id': thread_id},
     )
     row = cursor.fetchone()
-    if row and row[0] is not None:
+    if row and row[0] != -1:
         project_id = row[0]
         with Session(engine) as session:
             project = session.get(Project, project_id)
