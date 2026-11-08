@@ -292,7 +292,7 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, st
         {'thread_id': thread_id},
     )
     row = cursor.fetchone()
-    if row and row[0] != -1:
+    if row and row[0] not in (None, -1):
         project_id = row[0]
         with Session(engine) as session:
             project = session.get(Project, project_id)
@@ -322,7 +322,7 @@ def _init_project(con: sqlite3.Connection, thread_id: str) -> tuple[int, str, st
         {'thread_id': thread_id, 'project_id': task_project_id},
     )
 
-    project_path = FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{project_id}'
+    project_path = FilePath(get_settings().persistent.storage.STORAGE_PATH) / 'proj' / f'{task_project_id}'
     project_path.mkdir(parents=True, exist_ok=True)
 
     return task_project_id, task_project_name, f'{project_path}'
