@@ -45,7 +45,8 @@ def _text_arg(args: Mapping[str, Any], name: str) -> str | None:
 PATCH_FILE_HEADERS = ('*** Add File: ', '*** Update File: ', '*** Delete File: ')
 
 
-def _patch_files(patch: str | None) -> str | None:
+def patch_files(patch: str | None) -> str | None:
+    """Return the deduplicated file names an ``apply_patch`` patch adds, updates, or deletes."""
     if not patch:
         return None
     names = [
@@ -86,7 +87,7 @@ def _planner_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | Non
         keyword = _text_arg(args, 'keyword')
         return {'keyword': keyword} if keyword else {}
     if name == 'apply_patch':
-        files = _patch_files(_text_arg(args, 'patch'))
+        files = patch_files(_text_arg(args, 'patch'))
         return {'path': files} if files else {}
     if name == 'web_run':
         query = _web_query(args)
@@ -296,7 +297,7 @@ def coding_progress(request: ToolCallRequest, status: ProgressStatus) -> dict[st
     if name == 'run_command':
         details = {'tool': 'container_command', 'command': _text_arg(args, 'command')}
     elif name == 'apply_patch':
-        details = {'tool': 'apply_patch', 'path': _patch_files(_text_arg(args, 'patch'))}
+        details = {'tool': 'apply_patch', 'path': patch_files(_text_arg(args, 'patch'))}
     else:
         return None
     details = {key: value for key, value in details.items() if value is not None}

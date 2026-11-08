@@ -62,6 +62,7 @@ class CodeAgentToolActivity(BaseModel):
     name: str
     status: Literal['running', 'completed', 'failed', 'cancelled']
     detail: str = ''
+    subject: str = ''
     output: str = ''
 
 

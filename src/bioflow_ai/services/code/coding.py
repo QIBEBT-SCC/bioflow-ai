@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.context import CodingContext
+from bioflow_ai.llm.middleware.frontend_progress import SKILL_TOOLS, patch_files
 from bioflow_ai.llm.workflow_builder.foreach_manifest import foreach_manifest_contract
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.schemas.code_agent import CodeAgentProposal
@@ -263,9 +264,13 @@ async def run_coding_turn(
                             await on_progress('message.delta', {'text': text})
                     elif kind in {'on_tool_start', 'on_tool_end', 'on_tool_error'} and on_progress is not None:
                         arguments = data.get('input') or {}
-                        detail = ''
+                        detail = subject = ''
                         if isinstance(arguments, dict):
-                            detail = str(arguments.get('command') or arguments.get('skill_name') or '')
+                            detail = str(arguments.get('command') or '')
+                            if event['name'] == 'apply_patch':
+                                subject = patch_files(str(arguments.get('patch') or '')) or ''
+                            elif event['name'] in SKILL_TOOLS:
+                                subject = str(arguments.get(SKILL_TOOLS[event['name']]) or '')
                         await on_progress(
                             'tool.updated',
                             {
@@ -277,6 +282,7 @@ async def run_coding_turn(
                                     'on_tool_error': 'failed',
                                 }[kind],
                                 'detail': detail[:16_000],
+                                'subject': subject[:1_000],
                                 'output': message_text(data.get('output', data.get('error', '')))[:16_000],
                             },
                         )
