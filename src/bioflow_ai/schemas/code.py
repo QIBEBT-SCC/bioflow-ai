@@ -45,6 +45,21 @@ class CodeMetadataPublic(BaseModel):
     description: str = Field(min_length=1)
 
 
+class CodeFormatRequest(BaseModel):
+    """Source code submitted for formatting."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    node_type: CodeNodeType
+    code: str = Field(min_length=1)
+
+
+class CodeFormatPublic(BaseModel):
+    """Formatted source code."""
+
+    code: str
+
+
 class CodeUpdate(BaseModel):
     """Editable reusable CODE definition properties."""
 

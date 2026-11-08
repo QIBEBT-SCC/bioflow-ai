@@ -9,6 +9,8 @@ from bioflow_ai.core.auth import AdminDep, UserDep
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.schemas.code import (
     CodeCreate,
+    CodeFormatPublic,
+    CodeFormatRequest,
     CodeMetadataPublic,
     CodeMetadataRequest,
     CodeNodeType,
@@ -18,6 +20,7 @@ from bioflow_ai.schemas.code import (
 )
 from bioflow_ai.schemas.common import Paginated
 from bioflow_ai.services.code import catalog as code_catalog
+from bioflow_ai.services.code.formatting import CodeFormatError, format_source
 
 router = APIRouter()
 
@@ -66,6 +69,19 @@ async def generate_metadata(
 ) -> CodeMetadataPublic:
     """Generate a catalog name and description without persisting the code."""
     return await code_catalog.generate_code_metadata(request, current_user.id)
+
+
+@router.post('/format')
+async def format_code(
+    request: CodeFormatRequest,
+    _current_user: AdminDep,
+) -> CodeFormatPublic:
+    """Return the source with imports sorted and formatted, without persisting it."""
+    try:
+        code = await format_source(request.node_type, request.code)
+    except CodeFormatError as error:
+        raise HTTPException(HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+    return CodeFormatPublic(code=code)
 
 
 @router.get('/{code_uid}')
