@@ -5,6 +5,25 @@ description: Read this skill when a search determines that no node in the curren
 
 # Is It Necessary to Create a New Tool Node?
 
+## Search before requesting creation
+
+Before calling `tool_node_manager(action="create")`, search the catalog for the current operation with
+`action="search"`. Its `patterns` are case-insensitive regular expressions over complete commands, and every pattern
+must match. If a restrictive search finds nothing, remove optional flags or other restrictions and search by program
+name or subcommand. Review the candidates for reusable interfaces and editable parameters before creating a node.
+
+Every creation request must include these two required parameters alongside `name` and `request`:
+
+- `attempted_searches`: A non-empty list of the actual search parameters already executed for this operation.
+  Preserve each combination separately, for example:
+  `[{"patterns": ["samtools", "view"]}, {"patterns": ["samtools"]}]`.
+  Do not list planned searches or unrelated searches from another operation.
+- `reason`: Explain whether no suitable node was found, or which existing candidates cannot be reused and why.
+  Describe the incompatible input/output handles or fixed parameters, and why changing editable parameters or
+  composing existing nodes cannot satisfy the requirement.
+
+Search first, then retry with the actual search records and a concrete justification.
+
 ## Examples
 
 Assume that the tool library already contains the following two tools:
@@ -122,7 +141,7 @@ BAM
 bam2header       │
  │               │
  ▼               │
-glue: extract    │
+code: extract    │
 non-MT regions   │
  │               │
  ▼               ▼

@@ -94,7 +94,7 @@ class UpdateArgsSchema(BaseModel):
 
 
 class CreateToolSchema(BaseModel):
-    """Create a new tool node."""
+    """Create a new tool node only after searching for reusable existing nodes."""
 
     name: str = Field(description='The naming of a new node must be distinguishable from existing nodes.')
     request: str = Field(
@@ -105,6 +105,32 @@ class CreateToolSchema(BaseModel):
             'Do not guess specific parameters or subcommands to avoid misleading.'
         )
     )
+    attempted_searches: list[SearchToolSchema] = Field(
+        min_length=1,
+        description=(
+            'The actual search parameters already tried with tool_node_manager(action="search") for this operation. '
+            'Record each keyword combination as one object, e.g. '
+            '`[{"patterns": ["samtools", "view"]}, {"patterns": ["samtools"]}]`.'
+        ),
+    )
+    reason: str = Field(
+        min_length=1,
+        description=(
+            'Explain why a new node is necessary after reviewing the search results. '
+            'Why reusing nodes, updating editable parameters, or composing existing nodes '
+            'cannot meet the current requirement.'
+        ),
+    )
+
+    @field_validator('reason')
+    @classmethod
+    def require_non_blank_reason(cls, reason: str) -> str:
+        """Require a meaningful justification for creating a tool instead of reusing one."""
+        reason = reason.strip()
+        if not reason:
+            msg = 'Search before creating new tools!'
+            raise ValueError(msg)
+        return reason
 
 
 VALID_OPERATES: dict[str, type[BaseModel] | None] = {
@@ -434,7 +460,9 @@ async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]
                         'No tool node command matches all patterns. '
                         'Remove some patterns or search for the program name alone (e.g., ["STAR"]), '
                         'then add restrictions gradually. '
-                        'If you confirm that the desired tool cannot be found, use action="create" to create a new tool node.'
+                        'Only after reviewing broader searches and confirming that no existing node can meet the '
+                        'requirement, use action="create" with `attempted_searches` listing the actual search '
+                        'parameters and `reason` explaining why no result can be reused.'
                     ),
                     tool_call_id=runtime.tool_call_id,
                     artifact={'result_count': 0},
