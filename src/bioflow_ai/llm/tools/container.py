@@ -32,7 +32,7 @@ from bioflow_ai.services.code.workspace import CODE_IMAGES, build_workspace_moun
 from bioflow_ai.utils.llm.truncation import truncate_output
 
 DEFAULT_LINUX_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-utils:1.2.0')
-INSPECTION_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.0.0')
+INSPECTION_IMAGE = ImageConfig.from_str('docker.io/aye1032/biokit-seq:1.1.0')
 EVIDENCE_MOUNT_PATH = '/app/data/input'
 EVIDENCE_WORKDIR = '/app/data'
 PROJECT_DATA_DIR = '/app/data'
