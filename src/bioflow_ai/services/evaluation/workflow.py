@@ -2,31 +2,29 @@ import shutil
 import sqlite3
 import sys
 import uuid
+from collections.abc import Mapping
 from pathlib import Path as FilePath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from anyio import Path
 from langchain_core.messages import HumanMessage
 from loguru import logger
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.services.agents.execution import consume_agent_graph
 from bioflow_ai.services.progress import ProgressCallback, emit_progress
+from bioflow_ai.utils.identifiers import as_uuid
 from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 from bioflow_ai.utils.observability.tracing import configure_langsmith_tracing
+
+if TYPE_CHECKING:
+    from bioflow_ai.llm.states import BuildState
 
 DB_PATH = 'presets/build/evaluate.sqlite3'
 MISSING_PROJECT_TAG = 'missing'
 WAITING_PROJECT_TAG = 'waiting'
-
-
-class WorkflowGenerationResult(BaseModel):
-    workflow_uids: list[str]
-    new_tool_uids: list[str]
-    new_db_ids: list[int]
 
 
 def _update_evaluate_project(
@@ -155,8 +153,7 @@ def _serialize_ids(values: list[Any]) -> str:
 def _persist_generated_records(
     con: sqlite3.Connection,
     thread_id: str,
-    tool_uids: list[str],
-    db_ids: list[int],
+    state: Mapping[str, Any],
 ) -> None:
     """Merge generated tool/database IDs into the existing evaluate result columns."""
     row = con.execute(
@@ -164,8 +161,10 @@ def _persist_generated_records(
         {'thread_id': thread_id},
     ).fetchone()
     if row:
-        historical_tools = list(dict.fromkeys([*_parse_workflow_uids(row['new_tool_uids']), *tool_uids]))
-        historical_dbs = list(dict.fromkeys([*row['new_db_ids'], *db_ids]))
+        tool_uids = state.get('new_tools') or []
+        historical_tools = list(dict.fromkeys([*_parse_workflow_uids(row['new_tool_uids']), *map(str, tool_uids)]))
+        historical_dbs = [int(value) for value in (row['new_db_ids'] or '').split(';') if value.strip()]
+        historical_dbs = list(dict.fromkeys([*historical_dbs, *(state.get('new_dbs') or [])]))
         con.execute(
             """UPDATE evaluate_results SET new_tool_uids = ?, new_db_ids = ? WHERE thread_id = ?""",
             (_serialize_ids(historical_tools), _serialize_ids(historical_dbs), thread_id),
@@ -455,22 +454,12 @@ async def _generate_workflow(
     reset_checkpoint: bool = False,
     resume: str | None = None,
     on_event: ProgressCallback | None = None,
-) -> WorkflowGenerationResult:
+) -> 'BuildState':
     from langchain_core.runnables import RunnableConfig
 
     from bioflow_ai.llm.agents.workflow_agent.workflow_builder import build_workflow_builder
     from bioflow_ai.llm.context import ProjectContext
     from bioflow_ai.utils.llm.session import delete_checkpoint
-
-    async def persist_state() -> tuple[Any, WorkflowGenerationResult]:
-        state = await agent.aget_state(config)
-        result = WorkflowGenerationResult(
-            workflow_uids=state.values.get('workflow_uids') or [],
-            new_tool_uids=state.values.get('new_tools') or [],
-            new_db_ids=state.values.get('new_dbs') or [],
-        )
-        _persist_generated_records(con, thread_id, result.new_tool_uids, result.new_db_ids)
-        return state, result
 
     agent = build_workflow_builder(checkpointer=checkpoint)
     config = RunnableConfig(configurable={'thread_id': thread_id}, recursion_limit=sys.maxsize)
@@ -479,7 +468,8 @@ async def _generate_workflow(
     if reset_checkpoint:
         # The checkpoint may be disposable, but tools/databases created by that run are not.
         try:
-            await persist_state()
+            old_state = await agent.aget_state(config)
+            _persist_generated_records(con, thread_id, old_state.values)
         except Exception as exc:
             logger.warning(f'Unable to persist generated records from the old checkpoint: {exc}')
         await delete_checkpoint(checkpoint, thread_id)
@@ -491,10 +481,8 @@ async def _generate_workflow(
         resume=resume,
     )
 
-    state = None
-    result = WorkflowGenerationResult(workflow_uids=[], new_tool_uids=[], new_db_ids=[])
     try:
-        await consume_agent_graph(
+        state = await consume_agent_graph(
             agent,
             stream_input,
             config,
@@ -508,17 +496,16 @@ async def _generate_workflow(
             on_chunk=lambda chunk: emit_progress(on_event, 'chunk', chunk),
             resumed=stream_input is None or resume is not None,
         )
-    finally:
-        # This also runs for agent errors, asyncio cancellation, Ctrl-C and LangGraph interrupts.
-        # Checkpoints are written during streaming, so the latest state contains IDs created so far.
+    except BaseException:
+        # Preserve IDs created before an agent error, cancellation or Ctrl-C without masking that failure.
         try:
-            state, result = await persist_state()
+            failed_state = await agent.aget_state(config)
+            _persist_generated_records(con, thread_id, failed_state.values)
         except Exception as exc:
-            logger.exception(f'Unable to persist generated records from workflow state: {exc}')
+            logger.exception(f'Unable to persist generated records after workflow execution failed: {exc}')
+        raise
 
-    if state is None:
-        message = 'Unable to read the workflow builder checkpoint after execution.'
-        raise RuntimeError(message)
+    _persist_generated_records(con, thread_id, state.values)
     # 有中断
     if state.tasks and any(hasattr(t, 'interrupts') and t.interrupts for t in state.tasks):
         for task in state.tasks:
@@ -529,17 +516,19 @@ async def _generate_workflow(
                     sys.exit(-1)
 
     _update_evaluate_project(project_id, WAITING_PROJECT_TAG, '', replace_tags=True)
-    logger.success(f'Workflows generated: {result.workflow_uids}')
-    if result.new_tool_uids:
-        logger.success(f'Tools created during this build: {result.new_tool_uids}')
-    if result.new_db_ids:
-        logger.success(f'Databases created during this build: {result.new_db_ids}')
+    logger.success(f'Workflows generated: {state.values.get("workflow_uids") or []}')
+    if tool_uids := state.values.get('new_tools'):
+        logger.success(f'Tools created during this build: {tool_uids}')
+    if db_ids := state.values.get('new_dbs'):
+        logger.success(f'Databases created during this build: {db_ids}')
 
-    return result
+    return state.values
 
 
-def _log_created_records(result: WorkflowGenerationResult) -> None:
-    if not result.new_tool_uids and not result.new_db_ids:
+def _log_created_records(state: 'BuildState') -> None:
+    tool_uids = state.get('new_tools') or []
+    db_ids = state.get('new_dbs') or []
+    if not tool_uids and not db_ids:
         logger.info('No tools or databases were created during this build.')
         return
 
@@ -548,16 +537,16 @@ def _log_created_records(result: WorkflowGenerationResult) -> None:
     from bioflow_ai.infrastructure.database import engine
 
     with Session(engine) as session:
-        if result.new_tool_uids:
+        if tool_uids:
             tool_labels = []
-            for tool_uid in result.new_tool_uids:
+            for tool_uid in tool_uids:
                 tool = tool_crud.get(session, tool_uid)
-                tool_labels.append(f'{tool.name}({tool_uid})' if tool else tool_uid)
+                tool_labels.append(f'{tool.name}({tool_uid})' if tool else str(tool_uid))
             logger.success(f'Created tools recorded: {", ".join(tool_labels)}')
 
-        if result.new_db_ids:
+        if db_ids:
             db_labels = []
-            for db_id in result.new_db_ids:
+            for db_id in db_ids:
                 db = db_crud.get(session, db_id)
                 if db is None:
                     db_labels.append(str(db_id))
@@ -570,7 +559,7 @@ def _send_run_task(
     con: sqlite3.Connection,
     thread_id: str,
     project_id: int,
-    result: WorkflowGenerationResult,
+    state: 'BuildState',
     output_dir: str,
 ) -> None:
     import bioflow_ai.crud.project_workflow as proj_wf_crud
@@ -586,16 +575,15 @@ def _send_run_task(
         """,
         {
             'thread_id': thread_id,
-            'workflow_uid': _serialize_ids(result.workflow_uids),
+            'workflow_uid': _serialize_ids(state.get('workflow_uids') or []),
             'output_path': output_dir,
         },
     )
-    _persist_generated_records(con, thread_id, result.new_tool_uids, result.new_db_ids)
-    _log_created_records(result)
+    _log_created_records(state)
 
     with Session(engine) as session:
-        for uid in result.workflow_uids:
-            workflow_uid = uuid.UUID(uid)
+        for uid in state.get('workflow_uids') or []:
+            workflow_uid = as_uuid(uid)
             if proj_wf_crud.exists(session, project_id, workflow_uid):
                 logger.info(f'Workflow {workflow_uid} is already imported into project {project_id}; skipping.')
                 continue
@@ -649,7 +637,7 @@ async def wf_eval(
                 HumanMessage(content=standard_plan),
                 HumanMessage(content='Please build actural workflow(s) based on the above information.'),
             ]
-            workflow_result = await _generate_workflow(
+            workflow_state = await _generate_workflow(
                 con,
                 agent_input,
                 thread_id,
@@ -660,7 +648,7 @@ async def wf_eval(
                 resume=resume,
                 on_event=on_event,
             )
-        _send_run_task(con, thread_id, project_id, workflow_result, '')
+        _send_run_task(con, thread_id, project_id, workflow_state, '')
     finally:
         logger.info(f'Evaluate project: {project_name} (ID: {project_id}).')
         con.close()
