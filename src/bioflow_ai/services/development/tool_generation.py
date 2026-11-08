@@ -179,7 +179,7 @@ async def init_tools(
 
     configure_langsmith_tracing('build-tool-node', enabled=langsmith_tracing)
 
-    skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes']
+    skip_tools = ['MACS2', 'RSEM', 'lima', 'awk', 'PhyML', 'Snakemake', 'MrBayes', 'Gblocks']
 
     con = duckdb.connect(DB_PATH)
 
