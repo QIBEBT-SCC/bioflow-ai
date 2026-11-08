@@ -1,4 +1,4 @@
-"""Shared text, JSON, schema, and workflow presentation helpers."""
+"""Shared schema and workflow presentation helpers."""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Any, Literal, Union, get_args, get_origin
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
-from bioflow_ai.utils.jsonable import dumps_jsonable
-
 if TYPE_CHECKING:
     from langgraph.types import Command
 
@@ -20,36 +18,6 @@ if TYPE_CHECKING:
     from bioflow_ai.models.resource import SampleFiles
     from bioflow_ai.schemas.tools import Handle, ToolNodePublic
     from bioflow_ai.utils.uid_mapper import BidirectionalMapper
-
-DEFAULT_FORMAT_MAX_CHARS = 50_000
-
-
-def truncate_text(content: Any, limit: int, *, notice: str = '...') -> str:
-    """Convert content to text and truncate it to a bounded preview."""
-    text = content if isinstance(content, str) else str(content)
-    if len(text) <= limit:
-        return text
-    return f'{text[:limit]}{notice}'
-
-
-def format_text(content: Any, *, max_chars: int = DEFAULT_FORMAT_MAX_CHARS) -> str:
-    """Format text with an explicit notice when content is omitted."""
-    text = content if isinstance(content, str) else str(content)
-    omitted = max(0, len(text) - max_chars)
-    return truncate_text(text, max_chars, notice=f'\n... [truncated {omitted} characters]')
-
-
-def format_json(
-    value: Any,
-    *,
-    max_chars: int | None = DEFAULT_FORMAT_MAX_CHARS,
-    indent: int | None = 2,
-) -> str:
-    """Format a safe JSON value, optionally bounding the result."""
-    formatted = dumps_jsonable(value, indent=indent)
-    if max_chars is None:
-        return formatted
-    return format_text(formatted, max_chars=max_chars)
 
 
 def _extract_nested_model(annotation: Any) -> type[BaseModel] | None:
@@ -204,7 +172,7 @@ def manager_help_command(
     params: dict[str, Any],
     valid_operates: dict[str, type[BaseModel] | None],
     help_msg: str,
-    tool_call_id: str,
+    tool_call_id: str | None,
 ) -> Command:
     """Automatically generate help information from Pydantic data classes."""
     from langchain_core.messages import ToolMessage

@@ -53,7 +53,7 @@ class AddSubgraph(BaseModel):
     input_edges: list[BuildEdge] = Field(default_factory=list)
 
 
-SCHEMAS: dict[str, type[BaseModel]] = {
+SCHEMAS: dict[str, type[BaseModel] | None] = {
     'search': SearchSubgraph,
     'view': ViewSubgraph,
     'create': CreateSubgraph,

@@ -1,5 +1,6 @@
 """Read-only workflow execution evidence and optional diagnosis report output."""
 
+import json
 import uuid
 from collections import defaultdict
 from pathlib import Path
@@ -20,7 +21,6 @@ from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.node_details import describe_node
 from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id, enter_subgraphs
-from bioflow_ai.utils.formatters import format_json
 
 MAX_CHILD_PAGE = 100
 
@@ -281,8 +281,8 @@ def workflow_reader(
             scopes inside ordinary subgraphs or ForEach child runs.
     """
     if action == 'node' and not node_id:
-        return format_json({'error': 'node_id is required for action=node.'})
-    return format_json(
+        return '`node_id` is required for action=node.'
+    return json.dumps(
         _workflow_payload(
             runtime.context,
             action,
@@ -294,7 +294,7 @@ def workflow_reader(
             failed_only=failed_only,
             upstream_depth=upstream_depth,
         ),
-        max_chars=None,
+        ensure_ascii=False,
     )
 
 
