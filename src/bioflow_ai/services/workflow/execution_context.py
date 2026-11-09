@@ -14,6 +14,7 @@ from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.schemas.passthrough import ToolWorkspace
 from bioflow_ai.schemas.tools import ToolTaskInfo
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, NodeRunUpdate
 from bioflow_ai.services.workflow.output_validation import output_path_exists
@@ -145,8 +146,12 @@ def _resolve_sample_path(reference: str, session: Session, sample_uid: str | Non
     return Path(matching_file.file_path).absolute(), tag
 
 
-def tool_input_provenance(source_uid: str, *, writable: bool = False) -> dict:
-    """Follow path adapters to the nearest producing Tool and its workspace."""
+def tool_input_provenance(source_uid: str, *, writable: bool = False) -> tuple[ToolWorkspace | None, str]:
+    """Follow path adapters to the nearest producing Tool.
+
+    Returns:
+        That Tool's workspace and node uid, or ``(None, '')`` when it has no workspace.
+    """
     from bioflow_ai.models.workflow import NodeRun
     from bioflow_ai.services.workflow.validation.passthrough import PATH_INPUTS, validate_passthrough_origin
 
@@ -169,11 +174,15 @@ def tool_input_provenance(source_uid: str, *, writable: bool = False) -> dict:
             message = 'Pass-through source is unavailable'
             raise ValueError(message)
         workspace = node.tool_output.workspace if node.tool_output else None
-        return {'workspace': workspace, 'source_uid': str(node.uid) if workspace else ''}
+        return (workspace, str(node.uid)) if workspace else (None, '')
 
 
-def current_run_provenance() -> dict[str, str]:
-    """Supply trusted identity for newly published workspace artifacts."""
+def current_run_provenance() -> tuple[str, str]:
+    """Supply trusted identity for newly published workspace artifacts.
+
+    Returns:
+        The current workflow run uid and its absolute managed directory.
+    """
     from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 
     with Session(engine) as session:
@@ -185,7 +194,4 @@ def current_run_provenance() -> dict[str, str]:
         if run is None:
             message = 'Workflow run is unavailable'
             raise ValueError(message)
-        return {
-            'run_uid': str(run.uid),
-            'managed_root': str(Path(run.base_dir).absolute()),
-        }
+        return str(run.uid), str(Path(run.base_dir).absolute())

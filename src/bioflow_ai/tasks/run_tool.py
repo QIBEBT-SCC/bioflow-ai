@@ -36,14 +36,13 @@ def _resolve_task_inputs(
             continue
         task_input = inputs[file.name]
         value, source_sample_name = get_node_output(task_input.source_uid, task_input.source_k)
+        workspace, source_uid = (
+            tool_input_provenance(task_input.source_uid, writable=file.is_passthrough)
+            if tool_type == ToolType.DOCKER_PASSTHROUGH
+            else (None, '')
+        )
         resolved_inputs[file.name] = ResolvedToolInput(
-            value=value,
-            sample_name=source_sample_name,
-            **(
-                tool_input_provenance(task_input.source_uid, writable=file.is_passthrough)
-                if tool_type == ToolType.DOCKER_PASSTHROUGH
-                else {}
-            ),
+            value=value, sample_name=source_sample_name, workspace=workspace, source_uid=source_uid
         )
     return resolved_inputs
 
@@ -81,13 +80,11 @@ def execute_tool(
         modifiable_static_params=tool_config.modifiable_static_params,
         file_mounts=tool_config.file_mounts,
     )
+    run_uid, managed_root = (
+        current_run_provenance() if tool_config.tool_type == ToolType.DOCKER_PASSTHROUGH else ('', '')
+    )
     execution = prepare_docker_tool_execution(
-        config,
-        resolved_inputs,
-        output_dir,
-        sample_name,
-        params,
-        **(current_run_provenance() if tool_config.tool_type == ToolType.DOCKER_PASSTHROUGH else {}),
+        config, resolved_inputs, output_dir, sample_name, params, run_uid=run_uid, managed_root=managed_root
     )
 
     data = NodeRunUpdate(

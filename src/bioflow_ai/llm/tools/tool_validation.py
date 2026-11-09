@@ -184,7 +184,7 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
         test_run_root = resolve_test_run_path('/data/output', runtime.context.test_run_id)
         validation_root = test_run_root / 'validation' / uuid.uuid4().hex
         output_dir = validation_root / 'output'
-        provenance = {}
+        run_uid = managed_root = ''
         if config.tool_type == ToolType.DOCKER_PASSTHROUGH:
             output_dir.mkdir(parents=True, exist_ok=True)
             sources = {file.name: Path(inputs[file.name].value) for file in file_mounts if file.is_passthrough}
@@ -208,14 +208,15 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
                     workspace=workspace,
                     source_uid='validation-input',
                 )
-            provenance = {'run_uid': 'validation', 'managed_root': str(validation_root)}
+            run_uid, managed_root = 'validation', str(validation_root)
         execution = prepare_docker_tool_execution(
             config=config,
             inputs=inputs,
             output_dir=str(output_dir),
             sample_name='validation',
             params=config.modifiable_static_params or '',
-            **provenance,
+            run_uid=run_uid,
+            managed_root=managed_root,
         )
         runtime.stream_writer({'validate_node': execution})
         execution_result = execute_docker_tool_with_result(execution)
