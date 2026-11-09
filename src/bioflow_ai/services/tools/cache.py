@@ -16,7 +16,9 @@ from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 
 TOOL_CACHE_TTL_SECONDS = 60 * 60 * 24
 TOOL_DEFINITION_TTL_SECONDS = 300
-_EPOCH_KEY = 'workflow-tool-definition:v1:epoch'
+# v3: cached tool projections now carry tool_type and pass-through handles. All tool cache namespaces share
+# this version so old entries without those fields are never read; bump them together on shape changes.
+_EPOCH_KEY = 'workflow-tool-definition:v3:epoch'
 _PUBLISH = """
 if (redis.call('GET', KEYS[1]) or '0') ~= ARGV[1] or
    (redis.call('GET', KEYS[2]) or '0') ~= ARGV[2] then return 0 end
@@ -35,19 +37,19 @@ def _uid(value: UUIDLike) -> str:
 
 
 def _definition_key(tool_uid: UUIDLike, epoch: str = '0') -> str:
-    return f'workflow-tool-definition:v1:{epoch}:{_uid(tool_uid)}'
+    return f'workflow-tool-definition:v3:{epoch}:{_uid(tool_uid)}'
 
 
 def _generation_key(tool_uid: UUIDLike) -> str:
-    return f'workflow-tool-definition:v1:generation:{_uid(tool_uid)}'
+    return f'workflow-tool-definition:v3:generation:{_uid(tool_uid)}'
 
 
 def _tool_args_key(tool_uid: UUIDLike) -> str:
-    return f'tool-args:{_uid(tool_uid)}'
+    return f'tool-args:v3:{_uid(tool_uid)}'
 
 
 def _tool_task_info_key(tool_uid: UUIDLike, epoch: str | None = None) -> str:
-    prefix = f'tool-task-info:v2:{epoch}' if epoch is not None else 'tool-task-info'
+    prefix = f'tool-task-info:v3:{epoch}' if epoch is not None else 'tool-task-info:v3'
     return f'{prefix}:{_uid(tool_uid)}'
 
 

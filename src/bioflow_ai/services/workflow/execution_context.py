@@ -50,6 +50,7 @@ def get_tool_data(tool_uid: str) -> ToolTaskInfo:
         return ToolTaskInfo(
             uid=tool.uid,
             name=tool.name,
+            tool_type=tool.tool_type,
             file_mounts=tool.file_mounts,
             command_template=tool.command_template,
             dynamic_params=tool.dynamic_params,
@@ -142,3 +143,49 @@ def _resolve_sample_path(reference: str, session: Session, sample_uid: str | Non
         message = f'Sample file with tag {tag!r} not found'
         raise KeyError(message)
     return Path(matching_file.file_path).absolute(), tag
+
+
+def tool_input_provenance(source_uid: str, *, writable: bool = False) -> dict:
+    """Follow path adapters to the nearest producing Tool and its workspace."""
+    from bioflow_ai.models.workflow import NodeRun
+    from bioflow_ai.services.workflow.validation.passthrough import PATH_INPUTS, validate_passthrough_origin
+
+    with Session(engine) as session:
+        current = session.get(NodeRun, current_node_uid())
+        node = session.get(NodeRun, uuid.UUID(source_uid))
+        seen = set()
+        while node is not None:
+            base_input = PATH_INPUTS.get(node.node_type)
+            validate_passthrough_origin(node, current, seen, writable=writable and base_input is None)
+            seen.add(node.uid)
+            if base_input is None:
+                break
+            upstream = (node.prepared_data or {}).get('kwargs', {}).get('inputs', {}).get(base_input)
+            if not upstream:
+                message = 'Path adapter has no original source'
+                raise ValueError(message)
+            node = session.get(NodeRun, uuid.UUID(upstream['source_uid']))
+        if node is None:
+            message = 'Pass-through source is unavailable'
+            raise ValueError(message)
+        workspace = node.tool_output.workspace if node.tool_output else None
+        return {'workspace': workspace, 'source_uid': str(node.uid) if workspace else ''}
+
+
+def current_run_provenance() -> dict[str, str]:
+    """Supply trusted identity for newly published workspace artifacts."""
+    from bioflow_ai.models.workflow import NodeRun, WorkflowRun
+
+    with Session(engine) as session:
+        node = session.get(NodeRun, current_node_uid())
+        if node is None:
+            message = 'Node run is unavailable'
+            raise ValueError(message)
+        run = session.get(WorkflowRun, node.run_uid)
+        if run is None:
+            message = 'Workflow run is unavailable'
+            raise ValueError(message)
+        return {
+            'run_uid': str(run.uid),
+            'managed_root': str(Path(run.base_dir).absolute()),
+        }

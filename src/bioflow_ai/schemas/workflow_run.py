@@ -318,6 +318,7 @@ class NodeRunUpdate(BaseModel):
     """Executor-owned metadata that may be persisted while a node is running."""
 
     commands: str | None = None
+    base_dir: str | None = None
     system: str | None = None
     hostname: str | None = None
 

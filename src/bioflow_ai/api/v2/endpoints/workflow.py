@@ -90,6 +90,8 @@ from bioflow_ai.services.file_preview.vcf import (
 from bioflow_ai.services.file_preview.worker import MAX_BED_BYTES, PreviewError, file_kind
 from bioflow_ai.services.workflow import runs
 from bioflow_ai.services.workflow.compiler import WorkflowCompileError
+from bioflow_ai.services.workflow.runs import file_still_written
+from bioflow_ai.services.workflow.runtime import node_log_path
 from bioflow_ai.utils.file.paths import to_safe_path_segment
 
 if TYPE_CHECKING:
@@ -326,7 +328,7 @@ async def _stream_run_updates(
     session: Session,
     user: CurrentUser,
     request: Request,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     while not await request.is_disconnected():
         session.expire_all()
         run = _owned_run(session, uid, user)
@@ -434,7 +436,7 @@ async def _preview_file(
     matching = [
         node for node in nodes if node.base_dir and full_path.is_relative_to(await AsyncPath(node.base_dir).resolve())
     ]
-    if matching and any(node.status != NodeRunStatus.SUCCEEDED for node in matching):
+    if file_still_written(matching):
         raise HTTPException(HTTP_409_CONFLICT, 'This file belongs to a node that has not completed successfully.')
     if not matching and not run.settled:
         raise HTTPException(HTTP_409_CONFLICT, 'This file may still be written. Wait for the run to finish.')
@@ -769,16 +771,10 @@ async def get_node_monitor(
     return records
 
 
-def _node_log_path(node: NodeRun) -> Path | None:
-    if node.tool_output is not None and node.tool_output.log:
-        return Path(node.tool_output.log)
-    return Path(node.base_dir) / '11_run.log' if node.base_dir else None
-
-
 @node_router.get('/{uid}/log')
 def get_node_log(uid: uuid.UUID, session: SessionDep, current_user: MemberDep) -> dict[str, str | int]:
     """Read the durable node log if one exists."""
-    path = _node_log_path(_owned_node(session, uid, current_user))
+    path = node_log_path(_owned_node(session, uid, current_user))
     if path is None or not path.exists():
         return {'content': '', 'offset': 0}
     with path.open('r', encoding='utf-8') as log_file:
@@ -793,11 +789,11 @@ async def _stream_node_log(
     user: CurrentUser,
     request: Request,
     offset: int,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     while not await request.is_disconnected():
         session.expire_all()
         node = _owned_node(session, uid, user)
-        path = _node_log_path(node)
+        path = node_log_path(node)
         content = ''
         if path is not None and path.exists():
             with path.open('r', encoding='utf-8') as log_file:

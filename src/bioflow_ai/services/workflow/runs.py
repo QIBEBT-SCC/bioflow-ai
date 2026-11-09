@@ -4,6 +4,7 @@ import io
 import shutil
 import uuid
 import zipfile
+from collections import Counter
 from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -195,6 +196,19 @@ def create_project_runs(
         if old_path.exists():
             shutil.rmtree(old_path)
     return WorkflowRunResult(run_uids=[run.uid for run in workflow_runs], count=len(workflow_runs))
+
+
+def file_still_written(nodes: Sequence[NodeRun]) -> bool:
+    """Whether a file under these nodes' directories may still change or belongs to an unfinished node.
+
+    Successive pass-through Tools share one workspace. There only a running node blocks previews, so a failed
+    node's retained scene and its predecessors' results stay inspectable.
+    """
+    writers = Counter(node.base_dir for node in nodes)
+    return any(
+        node.status == NodeRunStatus.RUNNING if writers[node.base_dir] > 1 else node.status != NodeRunStatus.SUCCEEDED
+        for node in nodes
+    )
 
 
 def _to_node_record(node: NodeRun, run: WorkflowRun, owner_username: str) -> NodeRunRecord:

@@ -8,7 +8,7 @@ class ToolType(IntEnum):
     """Supported tool execution backends."""
 
     DOCKER = 0
-    COMMAND_LINE = 1
+    DOCKER_PASSTHROUGH = 1
 
 
 class ParamDefine(BaseModel):
@@ -34,6 +34,11 @@ class FileMount(BaseModel):
         default=True,
         description='For OUTPUT mounts, require the path to exist after execution. Ignored for INPUT mounts.',
     )
+
+    @property
+    def is_passthrough(self) -> bool:
+        """Whether this handle preserves a writable mount across nodes."""
+        return self.file_path.startswith('passthrough:')
 
 
 class ImageConfig(BaseModel):

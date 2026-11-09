@@ -5,9 +5,10 @@ description: Generate a BioFlow Docker tool configuration from a real execution 
 
 # Tool Configuration
 
-Use this skill for every tool-configuration task. First classify the tool by how its primary output is produced, then
-read exactly one matching output-pattern reference before configuring the tool. If, and only if, a non-file text
-parameter must receive a value dynamically produced by an upstream node during workflow execution, also read
+Use this skill for every tool-configuration task. First check whether the command must preserve a shared workspace
+or fixed paths across nodes, then classify how its primary output is produced. Read exactly one matching pattern
+reference before configuring the tool. If, and only if, a non-file text parameter must receive a value dynamically
+produced by an upstream node during workflow execution, also read
 `references/runtime-value-input.md`.
 
 ## Choose the Output Pattern
@@ -16,6 +17,7 @@ Apply the first matching primary output pattern in this order:
 
 | Pattern | Use when | Reference |
 |---|---|---|
+| Pass-through workspace | The command requires the same writable workspace or fixed container paths across Tool nodes | `references/passthrough.md` |
 | In-place modification | The command changes an input file directly instead of producing an independent result path | `references/in-place-modification.md` |
 | Output prefix | An output argument is a path prefix and the tool creates multiple sibling artifacts whose names begin with that prefix | `references/prefix-output.md` |
 | Standard-output redirection | The primary result exists only because stdout is redirected to an output file | `references/stdout-output.md` |
@@ -24,6 +26,9 @@ Apply the first matching primary output pattern in this order:
 
 Stderr or ordinary log redirection does not make a tool a standard-output tool. Use the standard-output pattern only
 when stdout itself carries a primary result.
+
+The pass-through pattern uses `tool_type=1` (`DOCKER_PASSTHROUGH`). Ordinary independent Tool workspaces use
+`tool_type=0` (`DOCKER`). Select the node mode explicitly; continuing file INPUTs are then marked `passthrough:`.
 
 ## Runtime Text Input Exception
 
@@ -39,7 +44,8 @@ need to edit a value between runs does not make it runtime-produced. When this e
 ## Workflow
 
 1. Inspect the test-run command, input mapping, and observed output files together.
-2. Select one primary output pattern from the table.
+2. Select the first matching pattern from the table; shared workspace/path identity takes precedence over the
+   ordinary output shape.
 3. Call `read_skill_resource` with this skill name and the corresponding output-pattern reference path.
 4. If a proposed non-file input can only come from an upstream runtime computation, also read
    `references/runtime-value-input.md`; otherwise keep literal arguments in the appropriate static-parameter field.

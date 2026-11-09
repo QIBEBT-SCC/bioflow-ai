@@ -15,6 +15,8 @@ from bioflow_ai.crud import node_dependency as dependency_crud
 from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.models.workflow import NodeRun
+from bioflow_ai.schemas.passthrough import inherited_log_path
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import ACTIVE_NODE_STATUSES, NodeRunStatus, RunStatus
 from bioflow_ai.utils.system import utc_now
@@ -24,16 +26,29 @@ class WorkflowRuntimeInvariantError(RuntimeError):
     """Durable workflow state violates an execution invariant."""
 
 
+def node_log_path(node: NodeRun) -> Path | None:
+    """Locate a node's durable log, including a pass-through Tool writing into an inherited workspace."""
+    if node.tool_output is not None and node.tool_output.log:
+        return Path(node.tool_output.log)
+    if not node.base_dir:
+        return None
+    # The executor replaces base_dir with the inherited workspace; the frozen plan keeps the node's own directory.
+    node_dir = (node.prepared_data or {}).get('kwargs', {}).get('output_dir')
+    if node.node_type == 'tool' and node_dir and Path(node_dir).resolve() != Path(node.base_dir).resolve():
+        return inherited_log_path(node.base_dir, node_dir)
+    return Path(node.base_dir) / '11_run.log'
+
+
 def persist_failure_log(node_run_uid: uuid.UUID, error: BaseException) -> None:
-    """Write an execution error beside node outputs when a directory exists."""
+    """Write an execution error into the node log when a directory exists."""
     with Session(engine) as session:
         node = node_run_crud.get(session, node_run_uid)
-        if node is None or not node.base_dir:
-            return
-        output_dir = Path(node.base_dir)
+        log_path = node_log_path(node) if node is not None else None
+    if log_path is None:
+        return
     try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-        with (output_dir / '11_run.log').open('a', encoding='utf-8') as log_file:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open('a', encoding='utf-8') as log_file:
             log_file.write(f'\n[workflow failure]\n{type(error).__name__}: {error}\n')
     except OSError:
         logger.exception(f'Failed to persist node error log for {node_run_uid}')

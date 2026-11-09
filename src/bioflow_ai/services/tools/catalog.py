@@ -17,7 +17,7 @@ from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.models import get_long_context_model
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.tools import ToolDefine, ToolGroup, ToolHelpDoc, ToolImage, ToolTag
-from bioflow_ai.schemas.tool_config import ToolType
+from bioflow_ai.schemas.tool_config import FileMount, ToolType
 from bioflow_ai.schemas.tools import (
     DockerToolCreate,
     DockerToolUpdate,
@@ -31,6 +31,7 @@ from bioflow_ai.services.tools import cache as tool_cache
 from bioflow_ai.services.tools.execution import ImageCommandResult, execute_image_command
 from bioflow_ai.services.tools.image_references import assign_image_refs, lock_and_get_all
 from bioflow_ai.services.tools.index import index_tools, refresh_tool_index, remove_tool_index
+from bioflow_ai.services.workflow.validation.passthrough import validate_file_mounts
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.llm.structured_output import json_output
 
@@ -242,8 +243,16 @@ def refresh_help_document(session: Session, doc_uid: UUIDLike) -> ToolHelpDoc:
     return doc
 
 
+def _check_file_mounts(file_mounts: list[FileMount], tool_type: ToolType) -> None:
+    try:
+        validate_file_mounts(file_mounts, tool_type)
+    except ValueError as error:
+        raise ToolCatalogConfigurationError(str(error)) from error
+
+
 async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefine:
     """Create a Docker tool, reusing or generating its help document, then index it."""
+    _check_file_mounts(tool_data.file_mounts, tool_data.tool_type)
     image = image_crud.get(session, tool_data.image_uid)
     if image is None:
         raise ToolCatalogNotFoundError(_IMAGE_NOT_FOUND)
@@ -269,7 +278,7 @@ async def create_tool(session: Session, tool_data: DockerToolCreate) -> ToolDefi
             name=tool_data.name,
             image_uid=tool_data.image_uid,
             description=tool_data.description,
-            tool_type=ToolType.DOCKER,
+            tool_type=tool_data.tool_type,
             group_id=tool_data.group_id,
             command_template=tool_data.command_template,
             dynamic_params=tool_data.dynamic_params,
@@ -302,6 +311,10 @@ async def update_tool(
         return None
 
     description_changed = 'description' in tool_update.model_fields_set and tool_update.description != tool.description
+    _check_file_mounts(
+        tool_update.file_mounts if tool_update.file_mounts is not None else tool.file_mounts,
+        tool_update.tool_type if tool_update.tool_type is not None else tool.tool_type,
+    )
     update_data = {
         field_name: getattr(tool_update, field_name)
         for field_name in tool_update.model_fields_set

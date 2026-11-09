@@ -210,7 +210,7 @@ async def add_new_tool(tool_prop: DockerToolCreate, session: SessionDep, _curren
         return await tool_catalog.create_tool(session, tool_prop)  # ty: ignore[invalid-return-type]
     except tool_catalog.ToolCatalogNotFoundError as error:
         raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
-    except tool_catalog.ToolCommandExecutionError as error:
+    except (tool_catalog.ToolCommandExecutionError, tool_catalog.ToolCatalogConfigurationError) as error:
         raise HTTPException(HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
 
 
@@ -300,7 +300,10 @@ async def update_tool(
     _current_user: AdminDep,
 ) -> SimpleToolPublic:
     """更新工具配置."""
-    tool = await tool_catalog.update_tool(session, redis, tool_uid, tool_update)
+    try:
+        tool = await tool_catalog.update_tool(session, redis, tool_uid, tool_update)
+    except tool_catalog.ToolCatalogConfigurationError as error:
+        raise HTTPException(HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     if tool is None:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='Tool not found')
     return tool  # ty: ignore[invalid-return-type]

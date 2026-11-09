@@ -5,7 +5,7 @@ from loguru import logger
 
 from bioflow_ai.infrastructure.redis.client import sync_monitor_redis_client
 from bioflow_ai.schemas.react_flow import TaskInput
-from bioflow_ai.schemas.tool_config import FileMount, ImageConfig
+from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ToolType
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.schemas.workflow_run import NodeRunUpdate
 from bioflow_ai.services.tools.execution import (
@@ -14,12 +14,20 @@ from bioflow_ai.services.tools.execution import (
     execute_docker_tool,
     prepare_docker_tool_execution,
 )
-from bioflow_ai.services.workflow.execution_context import current_node_uid, get_node_output, get_tool_data, update_node
+from bioflow_ai.services.workflow.execution_context import (
+    current_node_uid,
+    current_run_provenance,
+    get_node_output,
+    get_tool_data,
+    tool_input_provenance,
+    update_node,
+)
 
 
 def _resolve_task_inputs(
     file_mounts: list[FileMount],
     inputs: dict[str, TaskInput],
+    tool_type: ToolType = ToolType.DOCKER,
 ) -> dict[str, ResolvedToolInput]:
     """Resolve workflow task references before entering the persistence-free executor."""
     resolved_inputs: dict[str, ResolvedToolInput] = {}
@@ -28,7 +36,15 @@ def _resolve_task_inputs(
             continue
         task_input = inputs[file.name]
         value, source_sample_name = get_node_output(task_input.source_uid, task_input.source_k)
-        resolved_inputs[file.name] = ResolvedToolInput(value=value, sample_name=source_sample_name)
+        resolved_inputs[file.name] = ResolvedToolInput(
+            value=value,
+            sample_name=source_sample_name,
+            **(
+                tool_input_provenance(task_input.source_uid, writable=file.is_passthrough)
+                if tool_type == ToolType.DOCKER_PASSTHROUGH
+                else {}
+            ),
+        )
     return resolved_inputs
 
 
@@ -55,9 +71,10 @@ def execute_tool(
     node_uid = current_node_uid()
     tool_config = get_tool_data(tool_uid)
     logger.debug(f'node {node_uid} start: {tool_config.name}')
-    resolved_inputs = _resolve_task_inputs(tool_config.file_mounts, inputs)
+    resolved_inputs = _resolve_task_inputs(tool_config.file_mounts, inputs, tool_config.tool_type)
     config = DockerToolExecutionConfig(
         image=ImageConfig.model_validate(tool_config.image.image),
+        tool_type=tool_config.tool_type,
         command_template=tool_config.command_template,
         dynamic_params=tool_config.dynamic_params,
         immutable_static_params=tool_config.immutable_static_params,
@@ -70,12 +87,14 @@ def execute_tool(
         output_dir,
         sample_name,
         params,
+        **(current_run_provenance() if tool_config.tool_type == ToolType.DOCKER_PASSTHROUGH else {}),
     )
 
     data = NodeRunUpdate(
+        base_dir=execution.output_dir,
         commands=f'docker run --rm '
         f'{" ".join([f"-v {bind.source}:{bind.target}:rw" for bind in execution.volume_binds])} '
-        f'{execution.image.get_image()} /bin/bash -c "{execution.command}"'
+        f'{execution.image.get_image()} /bin/bash -c "{execution.command}"',
     )
     update_node(data)
 

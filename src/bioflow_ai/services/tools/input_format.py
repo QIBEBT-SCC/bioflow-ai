@@ -97,12 +97,7 @@ def build_command_template(
     )
     final_template = formatter.format(
         command_template,
-        **{
-            file.name: (
-                file.file_path.removeprefix('value:') if file.file_path.startswith('value:') else file.file_path
-            )
-            for file in file_mounts
-        },
+        **{file.name: file.file_path.removeprefix('value:').removeprefix('passthrough:') for file in file_mounts},
     )
     return ' '.join(final_template.split())
 

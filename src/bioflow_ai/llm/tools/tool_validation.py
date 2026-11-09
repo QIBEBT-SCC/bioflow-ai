@@ -1,7 +1,7 @@
 """Execution validation tool for generated Docker tool configurations."""
 
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -12,7 +12,8 @@ from loguru import logger
 from bioflow_ai.infrastructure.containers import ContainerMount
 from bioflow_ai.llm.context import ToolGeneratorContext
 from bioflow_ai.llm.tools.test_run_report import TestRunReport, resolve_test_run_input_path, resolve_test_run_path
-from bioflow_ai.schemas.tool_config import FileMount, ImageConfig
+from bioflow_ai.schemas.passthrough import ToolWorkspace
+from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ToolType
 from bioflow_ai.services.tools.execution import (
     DockerToolExecution,
     DockerToolExecutionConfig,
@@ -21,11 +22,13 @@ from bioflow_ai.services.tools.execution import (
     execute_docker_tool_with_result,
     prepare_docker_tool_execution,
 )
+from bioflow_ai.services.tools.passthrough import copy_path, copy_validation_paths
 
 REQUIRED_CONFIG_FIELDS = (
     'image',
     'test_run_report',
     'name',
+    'tool_type',
     'description',
     'file_mounts',
     'command_template',
@@ -171,6 +174,7 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
         )
         config = DockerToolExecutionConfig(
             image=ImageConfig.model_validate(runtime.state['image']),
+            tool_type=runtime.state['tool_type'],
             command_template=runtime.state['command_template'],
             dynamic_params=runtime.state['dynamic_params'],
             immutable_static_params=runtime.state['immutable_static_params'],
@@ -178,13 +182,40 @@ def validate_tool_config(runtime: ToolRuntime[ToolGeneratorContext]) -> Command:
             file_mounts=file_mounts,
         )
         test_run_root = resolve_test_run_path('/data/output', runtime.context.test_run_id)
-        output_dir = test_run_root / 'validation' / uuid.uuid4().hex
+        validation_root = test_run_root / 'validation' / uuid.uuid4().hex
+        output_dir = validation_root / 'output'
+        provenance = {}
+        if config.tool_type == ToolType.DOCKER_PASSTHROUGH:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            sources = {file.name: Path(inputs[file.name].value) for file in file_mounts if file.is_passthrough}
+            # A downstream workspace input keeps its original /data/output layout in the isolated copy.
+            in_workspace = {
+                file.name for file in file_mounts if file.name in sources and file.mount_path == '/data/output'
+            }
+            copies = copy_validation_paths(
+                {name: path for name, path in sources.items() if name not in in_workspace}, validation_root
+            )
+            report_inputs = {file.name: file.path for file in report.input_files}
+            for name in in_workspace:
+                relative = PurePosixPath(report_inputs[name]).relative_to('/data/output')
+                copies[name] = copy_path(sources[name], output_dir / str(relative))
+            workspace = ToolWorkspace(
+                path=str(output_dir), run_uid='validation', mounts={'/data/output': str(output_dir)}
+            )
+            for name, destination in copies.items():
+                inputs[name] = ResolvedToolInput(
+                    value=str(destination),
+                    workspace=workspace,
+                    source_uid='validation-input',
+                )
+            provenance = {'run_uid': 'validation', 'managed_root': str(validation_root)}
         execution = prepare_docker_tool_execution(
             config=config,
             inputs=inputs,
             output_dir=str(output_dir),
             sample_name='validation',
             params=config.modifiable_static_params or '',
+            **provenance,
         )
         runtime.stream_writer({'validate_node': execution})
         execution_result = execute_docker_tool_with_result(execution)

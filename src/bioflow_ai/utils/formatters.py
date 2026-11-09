@@ -243,8 +243,8 @@ def node_formatter(node: BuildNode) -> str:
     else:
         data_obj['data'] = node.data
 
-    data_obj['input_handles'] = [{'name': h.name, 'description': h.description} for h in node.input_handles]
-    data_obj['output_handles'] = [{'name': h.name, 'description': h.description} for h in node.output_handles]
+    data_obj['input_handles'] = [h.model_dump(exclude_defaults=True) for h in node.input_handles]
+    data_obj['output_handles'] = [h.model_dump(exclude_defaults=True) for h in node.output_handles]
 
     return json.dumps(data_obj)
 
@@ -258,9 +258,10 @@ def search_nodes_formatter(nodes: list[ToolNodePublic], mappers: BidirectionalMa
                 {
                     'id': mappers.get_index_by_uid(str(t.uid)),
                     'name': t.name,
+                    'tool_type': int(t.tool_type),
                     'description': t.description,
-                    'input_handles': [{'name': h.name, 'description': h.description} for h in t.input_handles],
-                    'output_handles': [{'name': h.name, 'description': h.description} for h in t.output_handles],
+                    'input_handles': [h.model_dump(exclude_defaults=True) for h in t.input_handles],
+                    'output_handles': [h.model_dump(exclude_defaults=True) for h in t.output_handles],
                     'data': {
                         'command': t.complete_command,
                         'args_editable': t.modifiable_static_params,

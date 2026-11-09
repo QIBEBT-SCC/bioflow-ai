@@ -21,7 +21,7 @@ from bioflow_ai.llm.middleware import (
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import ToolGeneratorState
 from bioflow_ai.llm.tools.tool_validation import validate_tool_config
-from bioflow_ai.schemas.tool_config import FileMount, ParamDefine
+from bioflow_ai.schemas.tool_config import FileMount, ParamDefine, ToolType
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
@@ -59,6 +59,20 @@ after expanding the parameters and replacing file variables with paths inside th
 ```bash
 fastp -i /data/raw/sample_R1.fastq.gz -o /data/output/sample.clean.fastq.gz --json /data/output/sample.fastp.json -w 32 2> /data/output/11_run.log
 ```
+
+## Pass-through Tool mode
+
+Use `tool_type=1` (`DOCKER_PASSTHROUGH`) for a Tool that continues a configured workspace in place; otherwise use
+`tool_type=0` (`DOCKER`). Set this explicitly with `set_tool_info`. A first pass-through Tool creates its usual
+workspace. A downstream pass-through Tool with a pass-through input reuses its predecessor's actual workspace,
+mounted at `/data/output`; ordinary outputs continue to use `{output_dir}`. There is no separate shared mount root.
+Mark continuing INPUTs with `file_path="passthrough:{name}"`; each automatically adds a same-name output.
+New files/directories are ordinary OUTPUTs. Each configured dependency is wired separately and keeps its initial
+mount mapping. Only resource-node data must be copied first; Tool outputs connect directly. A node accepts at most one distinct pass-through predecessor; multiple
+handles from that predecessor and ordinary predecessors are allowed. A pass-through chain is strictly linear: a
+predecessor continues into at most one pass-through Tool.
+Pass-through is unavailable for mountlist collections, ForEach, marks, and independent runs. Keep the usual
+`log` output; in an inherited workspace the runtime gives each node its own log file. Read the pass-through skill reference for the Strelka example.
 
 ## Node and Database Structure
 
@@ -245,6 +259,7 @@ def set_tool_info(
     name: str,
     description: str,
     runtime: ToolRuntime[BaseContext],
+    tool_type: ToolType = ToolType.DOCKER,
 ) -> Command:
     """Set the tool info for the tool."""
     if 'command_template' not in runtime.state:
@@ -262,6 +277,7 @@ def set_tool_info(
     return Command(
         update={
             'name': name,
+            'tool_type': tool_type,
             'description': description,
             'messages': [ToolMessage(content='Tool configuration completed.', tool_call_id=runtime.tool_call_id)],
         }

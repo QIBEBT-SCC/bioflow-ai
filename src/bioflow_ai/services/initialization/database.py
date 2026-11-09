@@ -210,7 +210,6 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
     """Initialize the tool database and tool vector index."""
     import orjson
     import polars as pl
-    from pydantic import ValidationError
 
     import bioflow_ai.crud.tools.tool as tool_crud
     import bioflow_ai.crud.tools.tool_tag as tag_crud
@@ -219,6 +218,7 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
     from bioflow_ai.schemas.tools import ToolDefinitionImport
     from bioflow_ai.services.tools.cache import invalidate_all_tool_definitions_sync
     from bioflow_ai.services.tools.index import index_tools
+    from bioflow_ai.services.workflow.validation.passthrough import validate_file_mounts
 
     preset_file = await _ensure_preset_file('tools.parquet')
     tools_df = pl.read_parquet(preset_file.path)
@@ -239,6 +239,7 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
 
         try:
             tool_data = ToolDefinitionImport.model_validate(row)
+            validate_file_mounts(tool_data.file_mounts, tool_data.tool_type)
             tool_kwargs = tool_data.model_dump(exclude={'uid'})
             tool_kwargs['dynamic_params'] = tool_data.dynamic_params
             tool_kwargs['file_mounts'] = tool_data.file_mounts
@@ -246,7 +247,7 @@ async def init_tools(*, drop_old: bool = True, progress: ProgressIterator | None
                 tool_kwargs['uid'] = tool_data.uid
             tools.append(ToolDefine(**tool_kwargs))
             tag_ids_per_tool.append(tag_ids)
-        except ValidationError:
+        except ValueError:
             validation_error_count += 1
 
     delete_count = None

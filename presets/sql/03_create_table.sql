@@ -325,7 +325,7 @@ CREATE TABLE IF NOT EXISTS tools
     name                     VARCHAR NOT NULL,
     image_uid                uuid,
     description              VARCHAR NOT NULL,
-    tool_type                INTEGER NOT NULL,
+    tool_type                INTEGER NOT NULL, -- 0: DOCKER; 1: DOCKER_PASSTHROUGH
     group_id                 INTEGER,
     help_doc_uid             uuid,
     command_template         VARCHAR NOT NULL,

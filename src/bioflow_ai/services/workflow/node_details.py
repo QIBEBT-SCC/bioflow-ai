@@ -104,6 +104,8 @@ def describe_node(
     task = by_id.get(definition_id((*path, node.id)))
     kwargs = (task.prepared_data or {}).get('kwargs', {}) if task is not None else {}
     details: dict[str, Any] = {}
+    if task and task.tool_output and task.tool_output.workspace:
+        details['workspace'] = task.tool_output.workspace.model_dump()
     spec = NODE_SPECS.get(node.type)
     inputs, outputs = list(spec.input_handles) if spec else [], list(spec.output_handles) if spec else []
     if node.type == 'tool':
@@ -113,6 +115,7 @@ def describe_node(
             projection = ToolNodePublic(
                 uid=tool.uid,
                 name=tool.name,
+                tool_type=tool.tool_type,
                 description=tool.description,
                 tags=[],
                 command_template=tool.command_template,
@@ -125,6 +128,7 @@ def describe_node(
             details.update(
                 name=node.data.get('name') or projection.name,
                 description=projection.description,
+                tool_type=projection.tool_type,
                 command_template=projection.complete_command,
             )
             if memories := list_tool_memories(session, tool.uid):
@@ -152,15 +156,10 @@ def describe_node(
         [_handle_name(edge.sourceHandle, node.id, 'out') for edge in graph.edges if edge.source == node.id],
     )
     details['input_handles'] = [
-        {'name': handle.name, 'description': handle.description, 'sources': sources.get(handle.name, [])}
-        for handle in inputs
+        {**handle.model_dump(exclude_defaults=True), 'sources': sources.get(handle.name, [])} for handle in inputs
     ]
     details['output_handles'] = [
-        {
-            'name': handle.name,
-            'description': handle.description,
-            'result': _recorded_result(node, handle.name, path, by_id),
-        }
+        {**handle.model_dump(exclude_defaults=True), 'result': _recorded_result(node, handle.name, path, by_id)}
         for handle in outputs
     ]
     return details

@@ -3,6 +3,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from bioflow_ai.schemas.passthrough import ToolWorkspace
+
 
 class WorkflowType(IntEnum):
     SUBMODULE = 0
@@ -17,6 +19,7 @@ class ExecutionScope(IntEnum):
 class ToolOutput(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    workspace: ToolWorkspace | None = None
     result: dict[str, Path | str] = Field(default_factory=dict)
     log: Path | None = None
     reports: dict[str, Path | str] = Field(default_factory=dict)

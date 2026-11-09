@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict, computed_field
 
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_background
 from bioflow_ai.infrastructure.containers.mount_paths import resolve_mount_path
-from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine
+from bioflow_ai.schemas.passthrough import ToolWorkspace, find_binding, inherited_log_path
+from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.tools.input_format import PartialFormatter, build_command_template
 from bioflow_ai.services.workflow.execution_context import get_prefix
@@ -18,6 +19,13 @@ from bioflow_ai.services.workflow.output_validation import (
     all_output_paths_exist,
     missing_output_paths,
     output_path_exists,
+)
+from bioflow_ai.services.workflow.validation.passthrough import (
+    check_mount_conflicts,
+    validate_file_mounts,
+    validate_managed_paths,
+    validate_workspace_inputs,
+    validate_workspace_outputs,
 )
 
 MOUNTLIST_PREFIX = 'mountlist:'
@@ -29,6 +37,8 @@ class ResolvedToolInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     value: str
+    workspace: ToolWorkspace | None = None
+    source_uid: str = ''
     sample_name: str | None = None
 
 
@@ -38,6 +48,7 @@ class DockerToolExecutionConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     image: ImageConfig
+    tool_type: ToolType = ToolType.DOCKER
     command_template: str
     dynamic_params: list[ParamDefine]
     immutable_static_params: str | None
@@ -55,6 +66,9 @@ class DockerToolExecution(BaseModel):
     volume_binds: list[ContainerMount]
     expected_output: ToolOutput
     required_output_names: frozenset[str] | None = None
+    tool_type: ToolType = ToolType.DOCKER
+    output_dir: str
+    managed_root: str = ''
 
 
 class DockerToolExecutionResult(BaseModel):
@@ -207,9 +221,17 @@ def build_tool_mounts(
     inputs: dict[str, ResolvedToolInput],
     *,
     input_paths: dict[str, Path | None] | None = None,
+    run_uid: str = '',
+    tool_type: ToolType = ToolType.DOCKER,
+    workspace: ToolWorkspace | None = None,
 ) -> tuple[dict[str, str], dict[str, Path], set[str], ToolOutput]:
     """Build container mounts and expected outputs from resolved tool inputs."""
+    passthrough = tool_type == ToolType.DOCKER_PASSTHROUGH
     param_inputs: dict[str, str] = {}
+    original_mounts = dict(workspace.mounts) if workspace else {}
+    if passthrough:
+        original_mounts['/data/output'] = host_output_dir
+    fixed_mounts = {target: Path(source) for target, source in original_mounts.items() if source == host_output_dir}
     mount_paths: dict[str, Path] = {}
     read_only_mounts: set[str] = set()
     expected_output = ToolOutput()
@@ -225,6 +247,23 @@ def build_tool_mounts(
 
     for file in input_files:
         resolved_input = inputs[file.name]
+        if file.is_passthrough:
+            # Paths were checked against the managed run directory by validate_workspace_inputs.
+            host = Path(resolved_input.value).resolve()
+            if binding := find_binding(original_mounts, host):
+                target, source_path, container_path = binding
+                source = Path(source_path)
+            else:
+                source = host if host.is_dir() else host.parent
+                target = file.mount_path
+                container_path = target if host.is_dir() else f'{target}/{host.name}'
+            check_mount_conflicts(original_mounts, {target: source})
+            fixed_mounts[target] = source
+            original_mounts[target] = str(source)
+            expected_output.result[file.name] = host
+            param_inputs[file.name] = container_path
+            source_sample_names.append(resolved_input.sample_name)
+            continue
         if file.file_path.startswith('value:'):
             param_inputs[file.name] = resolved_input.value
             continue
@@ -281,7 +320,11 @@ def build_tool_mounts(
     for file in output_files:
         try:
             host_file_path = Path(
-                output_formatter.format(file.file_path, output_dir=host_output_dir, sample_name=output_sample_name)
+                output_formatter.format(
+                    file.file_path,
+                    output_dir=host_output_dir,
+                    sample_name=output_sample_name,
+                )
             )
         except KeyError as error:
             err_msg = f'Unknown variable {error} in output path template: {file.file_path}'
@@ -289,7 +332,13 @@ def build_tool_mounts(
 
         host_mount_path = Path(host_output_dir)
         actual = resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
-        container_file_path = f'{actual}/{host_file_path.name}'
+        if passthrough:
+            if not host_file_path.absolute().is_relative_to(host_mount_path):
+                err_msg = f'Pass-through output {file.name!r} must stay under {{output_dir}}: {file.file_path}'
+                raise ValueError(err_msg)
+            container_file_path = str(Path(actual) / host_file_path.absolute().relative_to(host_mount_path))
+        else:
+            container_file_path = f'{actual}/{host_file_path.name}'
         if actual not in mount_paths:
             mount_paths[actual] = host_mount_path.absolute()
 
@@ -302,6 +351,13 @@ def build_tool_mounts(
 
         param_inputs[file.name] = container_file_path
 
+    check_mount_conflicts(mount_paths, fixed_mounts)
+    mount_paths.update(fixed_mounts)
+    if passthrough:
+        original_mounts.update(
+            {target: str(source) for target, source in mount_paths.items() if str(source) == host_output_dir}
+        )
+        expected_output.workspace = ToolWorkspace(path=host_output_dir, run_uid=run_uid, mounts=original_mounts)
     return param_inputs, mount_paths, read_only_mounts, expected_output
 
 
@@ -311,25 +367,52 @@ def prepare_docker_tool_execution(
     output_dir: str,
     sample_name: str,
     params: str = '',
+    *,
+    run_uid: str = '',
+    managed_root: str = '',
 ) -> DockerToolExecution:
     """Prepare a Docker invocation without accessing Celery or persistent state."""
-    host_output_dir = Path(output_dir).absolute()
+    validate_file_mounts(config.file_mounts, config.tool_type)
+    workspace = validate_workspace_inputs(config.file_mounts, inputs, config.tool_type, run_uid, managed_root)
+    if workspace:
+        host_output_dir = Path(workspace.path)
+    elif config.tool_type == ToolType.DOCKER_PASSTHROUGH:
+        validate_managed_paths([], managed_root, optional=[output_dir])
+        host_output_dir = Path(output_dir).resolve()
+    else:
+        host_output_dir = Path(output_dir).absolute()
     host_output_dir.mkdir(parents=True, exist_ok=True)
-    input_paths = _build_input_paths(config.file_mounts, inputs)
+    file_mounts = config.file_mounts
+    # Successive Tools in one workspace would share the usual 11_run.log; give each node its own log file.
+    # Only a log the command writes through {log} can be moved; a tool-native log keeps its own path.
+    if (
+        workspace
+        and Path(output_dir).resolve() != Path(workspace.path).resolve()
+        and '{log}' in config.command_template
+    ):
+        log_name = inherited_log_path(workspace.path, output_dir).name
+        file_mounts = [
+            file.model_copy(update={'file_path': f'{{output_dir}}/{log_name}'}) if file.is_log else file
+            for file in file_mounts
+        ]
+    input_paths = _build_input_paths(file_mounts, inputs)
 
     param_inputs, mount_paths, read_only_mounts, expected_output = build_tool_mounts(
-        config.file_mounts,
-        output_dir,
+        file_mounts,
+        str(host_output_dir),
         sample_name,
         inputs,
         input_paths=input_paths,
+        run_uid=run_uid,
+        tool_type=config.tool_type,
+        workspace=workspace,
     )
     final_template = build_command_template(
         command_template=config.command_template,
         dynamic_params=config.dynamic_params,
         immutable_static_params=config.immutable_static_params,
         modifiable_static_params=params,
-        file_mounts=config.file_mounts,
+        file_mounts=file_mounts,
     )
     command = PartialFormatter(input_paths=input_paths).format(
         final_template,
@@ -350,10 +433,13 @@ def prepare_docker_tool_execution(
         command=command,
         volume_binds=volume_binds,
         expected_output=expected_output,
+        tool_type=config.tool_type,
+        output_dir=str(host_output_dir),
+        managed_root=managed_root,
         required_output_names=frozenset(
             'log' if file.is_log else file.name
-            for file in config.file_mounts
-            if file.file_type == 'OUTPUT' and file.is_required
+            for file in file_mounts
+            if (file.file_type == 'OUTPUT' and file.is_required) or file.is_passthrough
         ),
     )
 
@@ -367,8 +453,10 @@ def execute_docker_tool(
     has_required_outputs = bool(
         execution.expected_output.all_files() if required_output_names is None else required_output_names
     )
-    if has_required_outputs and all_output_paths_exist(
-        execution.expected_output, required_output_names=required_output_names
+    if (
+        execution.tool_type == ToolType.DOCKER
+        and has_required_outputs
+        and all_output_paths_exist(execution.expected_output, required_output_names=required_output_names)
     ):
         return execution.expected_output
 
@@ -390,6 +478,7 @@ def execute_docker_tool(
         logger.error(err_msg)
         raise RuntimeError(err_msg)
 
+    validate_workspace_outputs(execution.expected_output, execution.managed_root)
     return execution.expected_output
 
 
@@ -405,6 +494,8 @@ def execute_docker_tool_with_result(execution: DockerToolExecution) -> DockerToo
     missing_outputs = missing_output_paths(
         execution.expected_output, required_output_names=execution.required_output_names
     )
+    if exit_code == 0:
+        validate_workspace_outputs(execution.expected_output, execution.managed_root)
     return DockerToolExecutionResult(
         output=execution.expected_output,
         exit_code=exit_code,

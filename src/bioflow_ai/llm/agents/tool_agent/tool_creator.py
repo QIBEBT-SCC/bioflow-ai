@@ -40,7 +40,6 @@ from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
 from bioflow_ai.llm.tools.database import select_classification
 from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
-from bioflow_ai.schemas.tool_config import ToolType
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.index import index_tools
 from bioflow_ai.utils.formatters import handle_formatter, search_nodes_formatter
@@ -323,6 +322,7 @@ class CreateToolAgent:
             key: result[key]
             for key in (
                 'name',
+                'tool_type',
                 'description',
                 'command_template',
                 'dynamic_params',
@@ -368,6 +368,7 @@ class CreateToolAgent:
             key: state[key]
             for key in (
                 'name',
+                'tool_type',
                 'description',
                 'command_template',
                 'dynamic_params',
@@ -388,7 +389,6 @@ class CreateToolAgent:
                 tag_ids.append(group.tag_id)
 
             tool_data = ToolDefine(
-                tool_type=ToolType.DOCKER,
                 image_uid=state['image_uid'],
                 help_doc_uid=state['doc_uid'],
                 group_id=group.id,

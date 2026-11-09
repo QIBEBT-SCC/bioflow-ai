@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from bioflow_ai.schemas.react_flow import Edge, InterfaceInput, NodeBase, WorkflowDefinition, WorkflowInterface
+from bioflow_ai.schemas.tool_config import ToolType
 from bioflow_ai.schemas.tools import Handle, WorkflowToolDefinition
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 from bioflow_ai.schemas.workflow_config import WorkflowType
@@ -25,6 +26,7 @@ from bioflow_ai.services.workflow.validation._rules import (
 )
 from bioflow_ai.services.workflow.validation._topology import order_nodes
 from bioflow_ai.services.workflow.validation.adapters import copy_graph
+from bioflow_ai.services.workflow.validation.passthrough import passthrough_diagnostics, tool_mount_diagnostics
 from bioflow_ai.services.workflow.validation.registry import CODE_NODE_TYPES, NODE_SPECS, PRESENTATION_NODE_TYPES
 from bioflow_ai.services.workflow.validation.types import (
     Diagnostic,
@@ -225,10 +227,27 @@ def run_rules(
                             parents=parents,
                         )
                     else:
+                        for diagnostic in tool_mount_diagnostics(catalog[uid].file_mounts, catalog[uid].tool_type):
+                            report(
+                                diagnostic.code,
+                                diagnostic.message,
+                                location + '/data/tool_uid',
+                                node_id=node.id,
+                                handle=diagnostic.handle,
+                                parents=parents,
+                            )
                         if uid not in tool_nodes:
                             tool_nodes[uid] = catalog[uid].to_node()
                         tool = tool_nodes[uid]
                         inputs, outputs = tool.input_handles, tool.output_handles
+                        if foreach and catalog[uid].tool_type == ToolType.DOCKER_PASSTHROUGH:
+                            report(
+                                'passthrough.foreach',
+                                'Pass-through is unavailable inside ForEach',
+                                location,
+                                node_id=node.id,
+                                parents=parents,
+                            )
             if node.type in {'subgraph', 'foreach'}:
                 if data.get('execution_scope', context.execution_scope) != context.execution_scope:
                     report(
@@ -570,6 +589,13 @@ def run_rules(
             source_map: dict[str, SourceLocation] = {}
             transformed = lower_batch_subgraphs(WorkflowDefinition.model_validate(normalized))
             flattened = _flatten_workflow(transformed, source_map=source_map)
+            for diagnostic in passthrough_diagnostics(flattened, dict(catalog or {})):
+                origin = source_map.get('node:' + str(diagnostic.node_id))
+                if origin:
+                    diagnostic.path = origin.path
+                    diagnostic.node_id = origin.node_id
+                    diagnostic.subgraph_path = origin.subgraph_path
+                result.diagnostics.append(diagnostic)
             bindings = set()
             for edge in flattened.edges:
                 key = (edge.source, edge.sourceHandle, edge.target, edge.targetHandle)

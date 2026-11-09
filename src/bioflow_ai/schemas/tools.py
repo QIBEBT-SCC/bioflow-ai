@@ -144,6 +144,7 @@ class DockerToolCreate(BaseModel):
     """Properties accepted when creating a Docker tool."""
 
     name: str
+    tool_type: ToolType = ToolType.DOCKER
     image_uid: uuid.UUID
     description: str
     help_command: str
@@ -179,6 +180,7 @@ class DockerToolUpdate(BaseModel):
     """Editable Docker tool properties."""
 
     name: str | None = None
+    tool_type: ToolType | None = None
     image_uid: uuid.UUID | None = None
     description: str | None = None
     help_doc_uid: uuid.UUID | None = None
@@ -287,6 +289,7 @@ class Handle(BaseModel):
 
     name: str
     description: str
+    shared_writable: bool = False
 
 
 class ToolNodePublic(BaseModel):
@@ -295,6 +298,7 @@ class ToolNodePublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
+    tool_type: ToolType = ToolType.DOCKER
     name: str
     description: str
     tags: list[ToolTagPublic]
@@ -314,18 +318,28 @@ class ToolNodePublic(BaseModel):
     def build_handles(self) -> Self:
         """Build visual handles and the complete command after validation."""
         self.input_handles = [
-            Handle(name=file.name, description=file.description)
+            Handle(name=file.name, description=file.description, shared_writable=file.is_passthrough)
             for file in self.file_mounts
             if file.file_type == 'INPUT'
         ]
 
         self.output_handles = [
-            Handle(name=file.name, description=file.description)
+            Handle(
+                name=file.name,
+                description=file.description,
+                shared_writable=self.tool_type == ToolType.DOCKER_PASSTHROUGH,
+            )
             for file in self.file_mounts
-            if file.file_type == 'OUTPUT' and not (file.is_log or file.is_report)
+            if (file.file_type == 'OUTPUT' or file.is_passthrough) and not (file.is_log or file.is_report)
         ]
         if not any(handle.name == 'workdir' for handle in self.output_handles):
-            self.output_handles.append(Handle(name='workdir', description='The working directory of the tool run.'))
+            self.output_handles.append(
+                Handle(
+                    name='workdir',
+                    description='The working directory of the tool run.',
+                    shared_writable=self.tool_type == ToolType.DOCKER_PASSTHROUGH,
+                )
+            )
 
         self.complete_command = build_command_template(
             command_template=self.command_template,
@@ -343,6 +357,7 @@ class ToolTaskInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
+    tool_type: ToolType = ToolType.DOCKER
     name: str
 
     command_template: str
@@ -360,6 +375,7 @@ class WorkflowToolDefinition(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     uid: uuid.UUID
+    tool_type: ToolType = ToolType.DOCKER
     name: str
     description: str
     tags: list[ToolTagPublic]
@@ -370,5 +386,5 @@ class WorkflowToolDefinition(BaseModel):
     modifiable_static_params: str | None
 
     def to_node(self) -> ToolNodePublic:
-        """Build the existing public projection without changing its wire shape."""
+        """Project the Tool, its execution mode, and automatic file handles."""
         return ToolNodePublic.model_validate(self.model_dump())
