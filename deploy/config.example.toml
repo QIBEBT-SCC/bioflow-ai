@@ -36,7 +36,6 @@ api_cache = "redis://localhost:6379/2"
 catalog_generation_key_prefix = "bioflow:catalog-generation"
 catalog_generation_lock_timeout_seconds = 900
 catalog_generation_lock_renew_interval_seconds = 300
-catalog_generation_search_epoch_ttl_seconds = 86400
 
 [persistent.storage]
 storage_path = "./storage"

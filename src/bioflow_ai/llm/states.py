@@ -14,6 +14,11 @@ from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 
+def union_uids(existing: list[str] | None, new: list[str] | None) -> list[str]:
+    """Merge UID lists in first-seen order without duplicates."""
+    return list(dict.fromkeys([*(existing or []), *(new or [])]))
+
+
 # =====================create tool agent state==========================
 class CreateToolState(AgentState, total=False):
     id_mapper: BidirectionalMapper
@@ -126,6 +131,8 @@ class BuildState(UserInputState, total=False):
     previous_summary: str
 
     id_mapper: BidirectionalMapper
+    # Every tool UID matched by this workflow's searches, shown or not; used to spot concurrent creations.
+    seen_tool_uids: Annotated[list[str], union_uids]
     exist_nodes: Annotated[list[BuildNode], operator.add]
     exist_edges: Annotated[list[BuildEdge], operator.add]
     next_node_index: int

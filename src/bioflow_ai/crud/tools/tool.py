@@ -1,4 +1,5 @@
-from collections.abc import Sequence
+import uuid
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from sqlalchemy import and_, case, func, or_, select, text
@@ -168,36 +169,50 @@ def get_page_by_name_fuzzy(session: Session, name: str, limit: int, offset: int)
     return get_by_name_fuzzy(session, name, limit, offset), session.scalar(count_stmt) or 0
 
 
-def search_by_command(session: Session, patterns: Sequence[str], limit: int) -> tuple[Sequence[ToolDefine], int]:
-    """Return tools whose rendered command matches every pattern, together with the total match count.
+def search_by_command(
+    session: Session,
+    patterns: Sequence[str],
+    limit: int,
+) -> tuple[Sequence[ToolDefine], list[uuid.UUID]]:
+    """Return a name-ordered page of tools whose command matches every pattern, plus every matching UID.
 
     Patterns are case-insensitive PostgreSQL regular expressions, similar to chaining ``rg -i``.
     If any pattern is not a valid regular expression, all patterns are matched as literal substrings.
     """
+
+    def page(predicate: ColumnElement[bool]) -> tuple[Sequence[ToolDefine], list[uuid.UUID]]:
+        stmt = (
+            select(ToolDefine)
+            .where(predicate)
+            .order_by(ToolDefine.name)
+            .options(selectinload(ToolDefine.tags), selectinload(ToolDefine.image))
+            .limit(limit)
+        )
+        return session.scalars(stmt).all(), _matching_uids(session, predicate)
+
+    return _with_command_predicate(session, patterns, page)
+
+
+def match_uids_by_command(session: Session, patterns: Sequence[str]) -> list[uuid.UUID]:
+    """Return the name-ordered UIDs of every tool whose command matches all patterns."""
+    return _with_command_predicate(session, patterns, lambda predicate: _matching_uids(session, predicate))
+
+
+def _matching_uids(session: Session, predicate: ColumnElement[bool]) -> list[uuid.UUID]:
+    return list(session.scalars(select(ToolDefine.uid).where(predicate).order_by(ToolDefine.name)).all())
+
+
+def _with_command_predicate[T](
+    session: Session,
+    patterns: Sequence[str],
+    query: Callable[[ColumnElement[bool]], T],
+) -> T:
+    """Run a query with regex command patterns, falling back to literal substrings for invalid regexes."""
     try:
         with session.begin_nested():
-            predicate = and_(*(ToolDefine.complete_command.regexp_match(pattern, flags='i') for pattern in patterns))
-            return _search_by_predicate(session, predicate, limit)
+            return query(and_(*(ToolDefine.complete_command.regexp_match(pattern, flags='i') for pattern in patterns)))
     except DataError:
-        predicate = and_(*(ToolDefine.complete_command.icontains(pattern, autoescape=True) for pattern in patterns))
-        return _search_by_predicate(session, predicate, limit)
-
-
-def _search_by_predicate(
-    session: Session,
-    predicate: ColumnElement[bool],
-    limit: int,
-) -> tuple[Sequence[ToolDefine], int]:
-    """Return a name-ordered page of tools matching a predicate and the total match count."""
-    total = session.scalar(select(func.count()).select_from(ToolDefine).where(predicate)) or 0
-    stmt = (
-        select(ToolDefine)
-        .where(predicate)
-        .order_by(ToolDefine.name)
-        .options(selectinload(ToolDefine.tags), selectinload(ToolDefine.image))
-        .limit(limit)
-    )
-    return session.scalars(stmt).all(), total
+        return query(and_(*(ToolDefine.complete_command.icontains(pattern, autoescape=True) for pattern in patterns)))
 
 
 def get(session: Session, tool_uid: UUIDLike) -> ToolDefine | None:

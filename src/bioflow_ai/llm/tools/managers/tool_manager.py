@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.tools.tool as tool_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.infrastructure.redis.operations import open_catalog_generation_guard
+from bioflow_ai.infrastructure.redis.operations import catalog_generation_lock
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.context import CreateToolContext, ProjectContext
 from bioflow_ai.llm.middleware.frontend_progress import ProgressStatus
@@ -33,8 +33,7 @@ from bioflow_ai.utils.formatters import (
     node_formatter,
     search_nodes_formatter,
 )
-from bioflow_ai.utils.llm.session import workflow_thread_id
-from bioflow_ai.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers
+from bioflow_ai.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers, restore_mapper
 
 SEARCH_RESULT_LIMIT = 15
 
@@ -249,7 +248,7 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
                         ]
                     }
                 )
-            return await _create_tool(validate_param.name, validate_param.request, runtime)
+            return await _create_tool(validate_param, runtime)
 
         case _:
             return Command(
@@ -264,7 +263,8 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
             )
 
 
-async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+async def _create_tool(params: CreateToolSchema, runtime: ToolRuntime[ProjectContext]) -> Command:
+    name, request = params.name, params.request
     writer = get_stream_writer()
     wait_call_id = f'tool-generation-wait:{runtime.tool_call_id}'
     waited = False
@@ -277,15 +277,14 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
         waited = True
         publish_wait('running')
 
-    thread_id = workflow_thread_id(runtime.config)
-    async with (
-        open_catalog_generation_guard('tool', thread_id, on_wait=on_wait) as guard,
-        guard.creation() as permit,
-    ):
+    # Creators run one at a time. Whatever the previous holder saved is committed before the lock is released,
+    # so re-running this call's searches under the lock is enough to catch a tool created concurrently.
+    async with catalog_generation_lock('tool', on_wait=on_wait):
         if waited:
             publish_wait('completed')
-        if not permit.allowed:
-            return _stale_tool_search_command(permit.reason, runtime)
+        unseen = _recheck_attempted_searches(params, runtime)
+        if unseen is not None:
+            return unseen
 
         sub_agent = CreateToolAgent().build()
         agent_input: CreateToolState = {
@@ -327,6 +326,7 @@ async def _create_tool(name: str, request: str, runtime: ToolRuntime[ProjectCont
     return Command(
         update={
             'new_tools': [tool_uid],
+            'seen_tool_uids': [str(tool_uid)],
             'id_mapper': merged_mapper,
             'messages': [
                 ToolMessage(
@@ -382,42 +382,59 @@ def _tool_creation_handoff_command(
     )
 
 
-def _stale_tool_search_command(reason: str | None, runtime: ToolRuntime[ProjectContext]) -> Command:
-    detail = (
-        'No catalog search has been recorded for this workflow.'
-        if reason == 'missing_search'
-        else ('The tool catalog changed after the previous search.')
-    )
+def _recheck_attempted_searches(params: CreateToolSchema, runtime: ToolRuntime[ProjectContext]) -> Command | None:
+    """Re-run the attempted searches and report matching tools this workflow has not seen yet.
+
+    Returns ``None`` when every match is already known, so creation can proceed. Otherwise all matches are
+    recorded as seen, which lets an unchanged follow-up ``create`` call go through if none of them fit.
+    """
+    exist_mapper = runtime.state.get('id_mapper')
+    known = {*(runtime.state.get('seen_tool_uids') or []), *restore_mapper(exist_mapper).uid_to_idx}
+    with Session(engine) as session:
+        matched = [
+            str(uid)
+            for uid in dict.fromkeys(
+                uid
+                for search in params.attempted_searches
+                for uid in tool_crud.match_uids_by_command(session, search.patterns)
+            )
+        ]
+        unseen = [uid for uid in matched if uid not in known]
+        if not unseen:
+            return None
+        shown = [tool for uid in unseen[:SEARCH_RESULT_LIMIT] if (tool := tool_crud.get(session, uid)) is not None]
+        tool_nodes = [ToolNodePublic.model_validate(tool) for tool in shown]
+        merged_mapper = merge_mappers(exist_mapper, BidirectionalMapper(datas=cast('list[HasUid]', shown)))
+
+    hidden = len(unseen) - len(tool_nodes)
+    more = f'\n\n{hidden} more unseen matches are not shown.' if hidden > 0 else ''
     return Command(
         update={
+            'id_mapper': merged_mapper,
+            'seen_tool_uids': matched,
             'messages': [
                 ToolMessage(
                     content=(
-                        f'{detail} Call `tool_node_manager` with `action="search"` again before creating a tool node.'
+                        f'Tool node `{params.name}` was not created yet. Before creating it, `attempted_searches` were '
+                        'run again and found matching tool nodes that were not in your earlier search results '
+                        '(another task may have just added them):\n'
+                        f'{search_nodes_formatter(tool_nodes, merged_mapper)}{more}\n\n'
+                        'If one of them meets the requirement, add it with action="add". Otherwise call '
+                        'action="create" again with the same parameters.'
                     ),
                     tool_call_id=runtime.tool_call_id,
+                    artifact={'result_count': len(unseen)},
                 )
-            ]
+            ],
         }
     )
 
 
 async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]) -> Command:
-    writer = get_stream_writer()
-    thread_id = workflow_thread_id(runtime.config)
-    async with (
-        open_catalog_generation_guard(
-            'tool',
-            thread_id,
-            on_wait=lambda: writer(
-                {'info': 'Waiting for another tool node generation task to finish before searching...'}
-            ),
-        ) as guard,
-        guard.search(),
-    ):
-        with Session(engine) as session:
-            exist_tools, total = tool_crud.search_by_command(session, patterns, SEARCH_RESULT_LIMIT)
-            new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
+    with Session(engine) as session:
+        exist_tools, matched_uids = tool_crud.search_by_command(session, patterns, SEARCH_RESULT_LIMIT)
+        new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
+    total = len(matched_uids)
 
     if exist_tools:
         exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
@@ -439,6 +456,7 @@ async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]
         return Command(
             update={
                 'id_mapper': merged_mapper,
+                'seen_tool_uids': [str(uid) for uid in matched_uids],
                 'messages': [
                     ToolMessage(
                         content=(
