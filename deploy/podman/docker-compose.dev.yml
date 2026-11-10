@@ -1,6 +1,6 @@
 x-milvus-image: &milvus-image docker.io/milvusdb/milvus:v3.0.2
 x-rustfs-image: &rustfs-image docker.io/rustfs/rustfs:1.0.1
-x-webui-image: &webui-image ghcr.io/qibebt-scc/bioflow-ai-web:0.4.0
+x-webui-image: &webui-image ghcr.io/qibebt-scc/bioflow-ai-web:1.0.0-beta
 
 services:
   # Remove the matching owner marker after restoring files owned by a different user.
