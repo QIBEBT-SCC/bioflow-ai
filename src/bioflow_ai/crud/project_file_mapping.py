@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from bioflow_ai.models.project import ProjectFileMapping
+from bioflow_ai.models.workflow import Workflow
 
 
 def insert(session: Session, mapping: ProjectFileMapping) -> ProjectFileMapping:
@@ -49,6 +50,34 @@ def delete_dynamic_for_workflow(
     session.execute(
         sa_delete(ProjectFileMapping).where(
             ProjectFileMapping.project_id == project_id,
+            ProjectFileMapping.is_dynamic.is_(True),
+            ProjectFileMapping.producer_workflow_uid == workflow_uid,
+        )
+    )
+
+
+def get_dynamic_owned_elsewhere(
+    session: Session,
+    project_id: int,
+    keyword: str,
+    workflow_uid: uuid.UUID | None,
+) -> ProjectFileMapping | None:
+    """Return the dynamic mapping for a keyword when another existing workflow produced it."""
+    statement = select(ProjectFileMapping).where(
+        ProjectFileMapping.project_id == project_id,
+        ProjectFileMapping.keyword == keyword,
+        ProjectFileMapping.is_dynamic.is_(True),
+        ProjectFileMapping.producer_workflow_uid.in_(select(Workflow.uid)),
+    )
+    if workflow_uid is not None:
+        statement = statement.where(ProjectFileMapping.producer_workflow_uid != workflow_uid)
+    return session.scalar(statement)
+
+
+def delete_dynamic_by_producer(session: Session, workflow_uid: uuid.UUID) -> None:
+    """Stage deletion of every dynamic project mapping registered by a workflow."""
+    session.execute(
+        sa_delete(ProjectFileMapping).where(
             ProjectFileMapping.is_dynamic.is_(True),
             ProjectFileMapping.producer_workflow_uid == workflow_uid,
         )

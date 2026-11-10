@@ -1,6 +1,6 @@
 ---
 name: adapt-sample-mark-collections
-description: Collect files made by many sample-level workflow runs and use them in one project-level workflow. Use when `sample_mark_collection` provides `mount_collection` and `collection_manifest`, especially when the next tool needs a folder, a manifest file, or both. Examples include QIIME 2 imports, MultiQC, and cohort tools.
+description: Collect files made by many sample-level workflow runs and use them in one project-level workflow. Use when `sample_mark_collection` provides `mount_collection` and `collection_manifest`, especially when the next tool needs a folder, several file arguments, a manifest file, or both. Examples include QIIME 2 imports, MultiQC, and cohort tools.
 ---
 
 # Use Files from Many Sample Runs
@@ -13,8 +13,10 @@ workflows.
 
 ## Understand the Two Outputs
 
-Add `sample_mark_collection` to a `project_level` workflow. Set `mark_names` to the sample marks you need. Normally set
-`require_all_samples=true` so the workflow stops when any sample is missing a required file.
+Add `sample_mark_collection` to a `project_level` workflow. Set `mark_names` to the sample marks you need. The node
+collects only the samples that currently have those marks. A sample without a mark, for example one whose sample run
+has not finished, is left out instead of stopping the workflow. The node fails only when no sample has any of the
+requested marks.
 
 The node returns two different things:
 
@@ -58,6 +60,41 @@ sample_mark_collection.mount_collection -> tool.input_folder
 
 This is the usual pattern for MultiQC and other tools that scan a folder.
 
+### The tool takes several file arguments
+
+Some tools do not scan a folder. They need each file written on the command line, for example
+`bedtools multiinter -i a.bed b.bed`, `featureCounts ... a.bam b.bam`, or `samtools merge out.bam a.bam b.bam`.
+Use the same direct connection. Do not create one tool input per sample file, and do not ask for inputs that point to
+"a file inside the collection folder".
+
+Inside the folder, each collected file is placed at `<sample>/<mark>/<filename>`. A collected directory is placed at
+`<sample>/<mark>`. The tool command can therefore select all files with a shell wildcard under its single folder input:
+
+```text
+sample_mark_collection.mount_collection -> tool.peaks_dir
+
+bedtools multiinter -i {peaks_dir}/*/*/*.broadPeak
+featureCounts -a {annotation} -o counts.txt {bam_dir}/*/*/*.bam
+```
+
+Tool commands run through `/bin/sh -c`, so the wildcard expands at run time. This is still one tool call and is
+allowed in a Tool node. Narrow the wildcard to one mark when the folder holds several marks, for example
+`{bam_dir}/*/sorted_bam/*.bam`. The shell sorts the matched paths by sample name, which also fixes the order of the
+files on the command line.
+
+When asking the tool creator to build such a tool, say all of the following:
+
+```text
+The tool has one folder input, <input name>. At run time it holds files laid out as
+<input name>/<sample>/<mark>/<filename>. Pass the files to the tool with the wildcard
+{<input name>}/*/<mark or *>/*.<extension>. Do not create one input per file. For the test run, create a folder
+under /data/output/00_raw with at least two samples in this same layout and fill it with small test files of the
+required format. Do not try to mount the real collection folder.
+```
+
+Use the CODE manifest pattern below only when the tool needs extra information per file, such as a sample name
+or a condition column, in a separate file.
+
 ### The tool needs both a manifest and a folder
 
 Split the two outputs like this:
@@ -93,8 +130,8 @@ Tell the code generator all of the following in plain language:
 Read the BioFlow collection JSON from <input option>. Read its entries using the exact fields sample_name, mark_name,
 mount_name, source_path, and kind. Write <output filename> in <required format>. For every file path in the output,
 write <tool folder path>/<mount_name>. Do not open or copy source_path. Get sample names from the JSON instead of
-hard-coding them. Report an error for duplicate sample/mark pairs, missing required marks, wrong file kinds, unsafe
-mount_name values, or entries listed as missing.
+hard-coding them. Report an error for duplicate sample/mark pairs, wrong file kinds, or unsafe mount_name values.
+If every sample must have every mark, check that in the code and report which sample/mark pairs are absent.
 ```
 
 After the code is generated, read it before adding the next node. Regenerate it if it:

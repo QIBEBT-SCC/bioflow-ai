@@ -56,7 +56,7 @@ async def validate_graph(
             project.public or project.owner_id == current_user.id or current_user.role == UserRole.ADMIN
         ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, 'Project not found')
-        conflicts = mark_storage_conflicts(session, request.project_id, request.graph)
+        conflicts = mark_storage_conflicts(session, request.project_id, request.graph, request.workflow_uid)
     definitions = await get_tool_definitions(session, redis, collect_tool_uids(request.graph))
     return validate_workflow(
         WorkflowDocument(

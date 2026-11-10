@@ -89,4 +89,9 @@ over outputs registered by separate sample runs, use the `sample_mark_collection
 - The `mount_dir_list` output is not a normal folder path. It is intended for downstream tool inputs handled by the Docker tool execution system.
 - Do not connect `mount_dir_list` to processors such as `select_file_in_folder`; use it only as a tool directory input.
 - If only one known file is needed, use the normal file output handle directly instead of this processor.
-- If the tool requires a fixed list of individual files rather than directory scanning, create explicit tool inputs or use a bash node instead.
+- If the tool needs a fixed, known number of files from different upstream nodes, create explicit tool inputs and
+  connect each file.
+- If the tool needs several files but the number depends on the workflow or the samples, keep one folder input and
+  select the files with a shell wildcard in the command, such as `bedtools multiinter -i {input_dir}/*/*.bed`. Each
+  collected directory sits directly under the input folder. For files collected from sample runs, follow the
+  `adapt-sample-mark-collections` skill.

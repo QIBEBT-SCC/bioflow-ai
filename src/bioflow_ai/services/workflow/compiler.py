@@ -36,6 +36,7 @@ def compile_run(session: Session, run: WorkflowRun, *, sample_name: str | None) 
         fresh=True,
         project_id=run.project_id,
         execution_scope='sample_level' if run.sample_uid is not None else 'project_level',
+        workflow_uid=run.workflow_uid,
     )
     result = validate_workflow(document)
     if not result.valid:

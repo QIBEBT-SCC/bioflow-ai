@@ -52,8 +52,17 @@ def collect_tool_uids(graph: Any) -> list[str]:
     return list(uids)
 
 
-def mark_storage_conflicts(session: Session, project_id: int, graph: Any) -> dict[str, str]:
-    """Reject marks that collide with static resources; dynamic marks can be replaced."""
+def mark_storage_conflicts(
+    session: Session,
+    project_id: int,
+    graph: Any,
+    workflow_uid: uuid.UUID | None = None,
+) -> dict[str, str]:
+    """Report marks already used by static resources or by another workflow's dynamic outputs.
+
+    ``workflow_uid`` identifies the saved workflow being checked; ``None`` means a new workflow, so every
+    dynamic mark of an existing workflow conflicts. Marks left by deleted workflows can be replaced.
+    """
     conflicts = {}
     checked = set()
     for node in graph_nodes(graph):
@@ -71,13 +80,25 @@ def mark_storage_conflicts(session: Session, project_id: int, graph: Any) -> dic
                 conflicts[key] = (
                     f'Cannot add mark `{name}` because `proj:{name}` already exists as an initial project resource.'
                 )
-        else:
-            matches = sample_crud.get_files_by_tag_in_project(session, project_id, name, is_dynamic=False)
-            if matches:
-                names = ', '.join(sample_name for _, sample_name in matches)
+            elif owned := mapping_crud.get_dynamic_owned_elsewhere(session, project_id, name, workflow_uid):
                 conflicts[key] = (
-                    f'Cannot add mark `{name}` because `sample:{name}` already exists on project sample(s): {names}.'
+                    f'Cannot add mark `{name}` because `proj:{name}` is already produced by workflow '
+                    f'{owned.producer_workflow_uid}. Choose another mark name, or delete that workflow first.'
                 )
+            continue
+        matches = sample_crud.get_files_by_tag_in_project(session, project_id, name, is_dynamic=False)
+        if matches:
+            names = ', '.join(sample_name for _, sample_name in matches)
+            conflicts[key] = (
+                f'Cannot add mark `{name}` because `sample:{name}` already exists on project sample(s): {names}.'
+            )
+        elif owned_files := sample_crud.get_dynamic_files_owned_elsewhere(session, project_id, name, workflow_uid):
+            producer = owned_files[0][0].producer_workflow_uid
+            names = ', '.join(sample_name for _, sample_name in owned_files)
+            conflicts[key] = (
+                f'Cannot add mark `{name}` because workflow {producer} already registers `sample:{name}` on '
+                f'project sample(s): {names}. Choose another mark name, or delete that workflow first.'
+            )
     return conflicts
 
 
@@ -90,6 +111,7 @@ def resolve_workflow(
     project_id: int | None = None,
     catalog: dict[str, WorkflowToolDefinition] | None = None,
     fresh: bool = False,
+    workflow_uid: uuid.UUID | None = None,
 ) -> WorkflowDocument:
     """Build a resolved document; data freshness does not select validation rules."""
     from bioflow_ai.services.tools.cache import get_tool_definitions_sync
@@ -98,7 +120,7 @@ def resolve_workflow(
     uids = collect_tool_uids(graph)
     missing = uids if fresh else [uid for uid in uids if uid not in definitions]
     definitions.update(get_tool_definitions_sync(session, missing, fresh=fresh))
-    conflicts = mark_storage_conflicts(session, project_id, graph) if project_id is not None else {}
+    conflicts = mark_storage_conflicts(session, project_id, graph, workflow_uid) if project_id is not None else {}
     return WorkflowDocument(
         graph=graph,
         catalog=definitions,

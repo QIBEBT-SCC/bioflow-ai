@@ -1,5 +1,6 @@
 """Workflow documents and the single validation result contract."""
 
+import uuid
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -71,3 +72,4 @@ class WorkflowValidationRequest(BaseModel):
     graph: dict[str, Any]
     execution_scope: ExecutionScopeName = 'sample_level'
     project_id: int | None = None
+    workflow_uid: uuid.UUID | None = None

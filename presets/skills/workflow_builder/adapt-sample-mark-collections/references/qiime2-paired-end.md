@@ -26,7 +26,6 @@ Add `sample_mark_collection` with:
 
 ```text
 mark_names = ["primer_trimmed_r1", "primer_trimmed_r2"]
-require_all_samples = true
 ```
 
 ## Step 3: Connect the Nodes

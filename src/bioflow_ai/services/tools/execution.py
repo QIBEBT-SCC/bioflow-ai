@@ -134,17 +134,14 @@ def _load_mountlist_manifest(manifest_ref: str) -> dict[str, Any]:
     return manifest
 
 
-def _normalize_collection_mount_name(raw_name: str, fallback: str) -> str:
+def _normalize_collection_mount_name(raw_name: str) -> str:
     """Validate a relative POSIX mount target, including nested sample/mark paths."""
     candidate = raw_name.strip().strip('/')
     parts = candidate.split('/')
-    if not candidate or any(part in {'', '.', '..'} for part in parts):
+    if not candidate or any(part in {'', '.', '..'} or '\\' in part for part in parts):
         msg = f'Invalid collection mount name: {raw_name!r}'
         raise ValueError(msg)
-    if any('\\' in part for part in parts):
-        msg = f'Invalid collection mount name: {raw_name!r}'
-        raise ValueError(msg)
-    return candidate or fallback
+    return candidate
 
 
 def _add_mountlist_mounts(
@@ -164,20 +161,13 @@ def _add_mountlist_mounts(
     if container_root not in mount_paths:
         mount_paths[container_root] = host_root
 
-    seen_mount_names: set[str] = set()
-    for index, entry in enumerate(manifest['entries'], start=1):
+    for entry in manifest['entries']:
         source_path = Path(entry['source_path']).absolute()
         if not source_path.exists():
             raise FileNotFoundError(source_path)
 
-        mount_name = _normalize_collection_mount_name(
-            str(entry.get('mount_name') or f'entry_{index:03d}'),
-            f'entry_{index:03d}',
-        )
-        if mount_name in seen_mount_names:
-            mount_name = f'{index:03d}_{mount_name}'
-        seen_mount_names.add(mount_name)
-
+        # Producers guarantee unique, non-empty names; a repeat surfaces below as a target conflict.
+        mount_name = _normalize_collection_mount_name(str(entry['mount_name']))
         container_path = f'{container_root}/{mount_name}'
         if container_path in mount_paths and mount_paths[container_path] != source_path:
             err_msg = f'Mount-list target conflict: {container_path}'

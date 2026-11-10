@@ -74,13 +74,13 @@ Use `sample_mark_collection` only in a `project_level` aggregation workflow.
 
 Arguments:
 
-- `mark_names`: one or more dynamic sample tags to collect
-- `require_all_samples`: when true, fail unless every project sample currently has every requested dynamic tag
+- `mark_names`: one or more dynamic sample tags to collect. Only samples that currently have a requested tag are
+  collected; samples without it are skipped
 
 Outputs:
 
 - `mount_collection`: a virtual, read-only mounted root organized as `<sample>/<mark>/...`
-- `collection_manifest`: a frozen JSON manifest containing sample, producer workflow/run, tag, path, and missing entries
+- `collection_manifest`: a frozen JSON manifest containing sample, producer workflow/run, tag, and path for each collected entry
 
 Connect `mount_collection` directly to directory-scanning tools such as MultiQC. Files are mounted without copying.
 When a downstream tool needs both a generated manifest and a separate folder containing the collected files, also
@@ -90,6 +90,9 @@ load the `adapt-sample-mark-collections` skill and follow its two-output connect
 
 - Initial mappings have `is_dynamic=false`; mark-created mappings have `is_dynamic=true`.
 - A dynamic mark cannot replace an initial mapping with the same project keyword or sample tag.
+- A mark name belongs to the workflow that first registers it. Another workflow cannot register the same name in the
+  same project; validation reports this before the run starts. Choose a new name, or delete the owning workflow,
+  which also removes its dynamic marks.
 - A mark becomes available as soon as its node succeeds; the complete run does not need to finish.
 - Before rerunning a workflow, dynamic mappings produced by that workflow in the same project/sample scope are removed.
 - Initial mappings are never removed by workflow reruns.

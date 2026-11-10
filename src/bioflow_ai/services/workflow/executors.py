@@ -218,7 +218,6 @@ def prepare_node(
                 'project_id': context.run.project_id,
                 'sample_uid': str(context.run.sample_uid) if context.run.sample_uid else None,
                 'mark_names': data.get('mark_names', []),
-                'require_all_samples': data.get('require_all_samples', True),
                 'output_dir': output_dir,
             },
             name='sample_mark_collection',

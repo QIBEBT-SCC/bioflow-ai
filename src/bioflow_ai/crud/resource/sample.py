@@ -7,6 +7,7 @@ from sqlalchemy.sql import Select
 
 from bioflow_ai.models.project import Project
 from bioflow_ai.models.resource import Sample, SampleFiles
+from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.resource import SampleGroupSummary, SampleListItem, SampleUpdate
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 
@@ -231,6 +232,41 @@ def delete_dynamic_files_for_workflow(
             SampleFiles.producer_workflow_uid == workflow_uid,
         )
     )
+
+
+def delete_dynamic_files_by_producer(session: Session, workflow_uid: uuid.UUID) -> None:
+    """Stage deletion of every dynamic sample file registered by a workflow."""
+    session.execute(
+        sa_delete(SampleFiles).where(
+            SampleFiles.is_dynamic.is_(True),
+            SampleFiles.producer_workflow_uid == workflow_uid,
+        )
+    )
+
+
+def get_dynamic_files_owned_elsewhere(
+    session: Session,
+    project_id: int,
+    tag: str,
+    workflow_uid: uuid.UUID | None,
+    *,
+    limit: int = 3,
+) -> list[tuple[SampleFiles, str]]:
+    """Return a few dynamic files using a tag whose producer is another existing workflow."""
+    statement = (
+        select(SampleFiles, Sample.sample_name)
+        .join(Sample, Sample.uid == SampleFiles.sample_uid)
+        .where(
+            Sample.project_id == project_id,
+            SampleFiles.tag == tag,
+            SampleFiles.is_dynamic.is_(True),
+            SampleFiles.producer_workflow_uid.in_(select(Workflow.uid)),
+        )
+        .order_by(Sample.sample_name)
+    )
+    if workflow_uid is not None:
+        statement = statement.where(SampleFiles.producer_workflow_uid != workflow_uid)
+    return [(sample_file, sample_name) for sample_file, sample_name in session.execute(statement.limit(limit))]
 
 
 def get_dynamic_files_by_tags(

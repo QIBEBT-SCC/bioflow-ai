@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.workflow as workflow_crud
 from bioflow_ai.core.config import get_settings
+from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
+from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.workflow import Workflow
@@ -149,6 +151,9 @@ async def delete_workflow(session: Session, uid: UUIDLike) -> None:
         workflow = workflow_crud.get(session, uid)
         if workflow is None:
             raise WorkflowCatalogNotFoundError(_WORKFLOW_NOT_FOUND)
+        # Dynamic marks are owned by their producer workflow; drop them so the names can be reused.
+        sample_crud.delete_dynamic_files_by_producer(session, workflow.uid)
+        project_file_mapping_crud.delete_dynamic_by_producer(session, workflow.uid)
         workflow_crud.delete(session, uid)
 
         vectorstore = MilvusVectorStore(

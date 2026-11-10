@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.models.project import Project
 from bioflow_ai.models.resource import Sample, SampleFiles
+from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.resource import SampleBatchImportResult, SampleUpdate
 from bioflow_ai.services._transaction import committing
 from bioflow_ai.utils.file.hash import calculate_file_md5
@@ -140,7 +141,12 @@ def upsert_dynamic_file(
     if sample_file is not None and not sample_file.is_dynamic:
         msg = f'Dynamic mark "{tag}" conflicts with initial sample resource "sample:{tag}".'
         raise DynamicSampleFileConflictError(msg)
-    if sample_file is not None and sample_file.producer_workflow_uid != workflow_uid:
+    if (
+        sample_file is not None
+        and sample_file.producer_workflow_uid != workflow_uid
+        and sample_file.producer_workflow_uid is not None
+        and session.get(Workflow, sample_file.producer_workflow_uid) is not None
+    ):
         msg = f'Dynamic sample mark "{tag}" is already owned by workflow {sample_file.producer_workflow_uid}.'
         raise DynamicSampleFileConflictError(msg)
 

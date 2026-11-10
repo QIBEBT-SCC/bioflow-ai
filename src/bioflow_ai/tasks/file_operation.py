@@ -1,29 +1,25 @@
 import json
-import re
 import shutil
 import uuid
 from glob import has_magic
 from pathlib import Path
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.resource import Sample
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.schemas.react_flow import TaskInput
 from bioflow_ai.schemas.workflow_config import ToolOutput
+from bioflow_ai.schemas.workflow_nodes import MARK_NAME_MAX_LENGTH, MARK_NAME_PATTERN
 from bioflow_ai.services.projects import file_mapping as project_file_mapping_service
 from bioflow_ai.services.resource import sample as sample_service
 from bioflow_ai.services.workflow.execution_context import get_node_output, get_prefix
 from bioflow_ai.services.workflow.output_validation import output_path_exists
 from bioflow_ai.utils.file.paths import to_safe_path_segment
 
-PROJECT_FILE_KEYWORD_MAX_LENGTH = 50
 TEXT_FILE_CONTENT_MAX_BYTES = 5 * 1024 * 1024
-MARK_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
 
 
 def create_text_file(
@@ -211,8 +207,8 @@ def _normalize_mark_name(mark_name: str) -> str:
     if not normalized:
         msg = 'mark_name must not be empty.'
         raise ValueError(msg)
-    if len(normalized) > PROJECT_FILE_KEYWORD_MAX_LENGTH:
-        msg = f'mark_name must be no longer than {PROJECT_FILE_KEYWORD_MAX_LENGTH} characters.'
+    if len(normalized) > MARK_NAME_MAX_LENGTH:
+        msg = f'mark_name must be no longer than {MARK_NAME_MAX_LENGTH} characters.'
         raise ValueError(msg)
     if MARK_NAME_PATTERN.fullmatch(normalized) is None:
         msg = 'mark_name must start with a lowercase letter and contain only lowercase letters, digits, or _.'
@@ -315,10 +311,12 @@ def collect_sample_marks(
     project_id: int | None,
     sample_uid: str | None,
     mark_names: list[str],
-    require_all_samples: bool,
     output_dir: str,
 ) -> ToolOutput:
-    """Freeze current dynamic sample marks into a manifest and virtual mount collection."""
+    """Freeze the samples that currently have the requested marks into a manifest and virtual mount collection.
+
+    Samples without a requested mark, or whose marked output no longer exists, are skipped.
+    """
     if project_id is None:
         msg = 'Sample mark collections require a project-level workflow run.'
         raise ValueError(msg)
@@ -338,31 +336,14 @@ def collect_sample_marks(
 
     with Session(engine) as session:
         sample_files = sample_crud.get_dynamic_files_by_tags(session, project_id, normalized_names)
-        samples = list(
-            session.scalars(select(Sample).where(Sample.project_id == project_id).order_by(Sample.sample_name))
-        )
-
-    found = {(str(sample_file.sample_uid), sample_file.tag) for sample_file, _ in sample_files}
-    missing = [
-        {'sample_uid': str(sample.uid), 'sample_name': sample.sample_name, 'mark_name': mark_name}
-        for sample in samples
-        for mark_name in normalized_names
-        if (str(sample.uid), mark_name) not in found
-    ]
-    if require_all_samples and missing:
-        summary = ', '.join(f'{item["sample_name"]}:{item["mark_name"]}' for item in missing)
-        msg = f'Missing dynamic sample marks: {summary}'
-        raise FileNotFoundError(msg)
-    if not sample_files:
-        msg = f'No dynamic sample marks found for: {", ".join(normalized_names)}'
-        raise FileNotFoundError(msg)
 
     entries = []
     seen_targets: set[str] = set()
     for sample_file, sample_name in sample_files:
         source_path = Path(sample_file.file_path).absolute()
         if not output_path_exists(source_path):
-            raise FileNotFoundError(source_path)
+            logger.warning(f'Skip sample mark {sample_name}:{sample_file.tag}; output is missing: {source_path}')
+            continue
 
         sample_segment = to_safe_path_segment(sample_name, fallback=str(sample_file.sample_uid))
         mark_segment = to_safe_path_segment(sample_file.tag, fallback='mark')
@@ -392,16 +373,18 @@ def collect_sample_marks(
             }
         )
 
+    if not entries:
+        msg = f'No sample has an existing output for marks: {", ".join(normalized_names)}'
+        raise FileNotFoundError(msg)
+
     manifest_path = output_folder / 'collection_manifest.json'
     manifest = {
         'version': 1,
         'type': 'artifact_collection',
         'project_id': project_id,
         'mark_names': normalized_names,
-        'require_all_samples': require_all_samples,
         'root_dir': str(mount_root),
         'entries': entries,
-        'missing': missing,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
 

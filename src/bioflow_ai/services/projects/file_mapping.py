@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from bioflow_ai.crud import project_file_mapping as mapping_crud
 from bioflow_ai.models.project import ProjectFileMapping
+from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.services._transaction import committing
 
 
@@ -86,7 +87,12 @@ def upsert_dynamic_mapping(
     if mapping is not None and not mapping.is_dynamic:
         msg = f'Dynamic mark "{keyword}" conflicts with initial project resource "proj:{keyword}".'
         raise DynamicProjectMappingConflictError(msg)
-    if mapping is not None and mapping.producer_workflow_uid != workflow_uid:
+    if (
+        mapping is not None
+        and mapping.producer_workflow_uid != workflow_uid
+        and mapping.producer_workflow_uid is not None
+        and session.get(Workflow, mapping.producer_workflow_uid) is not None
+    ):
         msg = f'Dynamic project mark "{keyword}" is already owned by workflow {mapping.producer_workflow_uid}.'
         raise DynamicProjectMappingConflictError(msg)
 

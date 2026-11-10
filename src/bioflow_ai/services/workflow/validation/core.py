@@ -35,6 +35,12 @@ from bioflow_ai.services.workflow.validation.types import (
     ValidationResult,
 )
 
+# Outputs whose runtime value is a `mountlist:` manifest that only Tool execution can expand.
+MOUNTLIST_OUTPUTS = {
+    'resource_sample_mark_collection': 'mount_collection',
+    'collect_mount_dirs': 'mount_dir_list',
+}
+
 
 def pointer(value: Any) -> str:
     """Escape one JSON pointer component."""
@@ -428,6 +434,15 @@ def run_rules(
                 report(
                     'collection.target',
                     'Collection must connect to a subgraph input',
+                    location,
+                    edge_id=edge.id,
+                    parents=parents,
+                )
+            if MOUNTLIST_OUTPUTS.get(source.type) == binding.source_handle and target.type not in {'tool', 'subgraph'}:
+                report(
+                    'mountlist.target',
+                    f'`{binding.source_handle}` is a virtual folder that only Tool nodes can mount. Connect it '
+                    'directly to a Tool folder input instead of a CODE, processor, or resource node.',
                     location,
                     edge_id=edge.id,
                     parents=parents,

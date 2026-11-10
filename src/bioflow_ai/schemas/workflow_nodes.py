@@ -8,6 +8,7 @@ from bioflow_ai.schemas.archive import CompressionFormat, resolve_compression_fo
 from bioflow_ai.schemas.tools import Handle
 
 MARK_NAME_MAX_LENGTH = 50
+MARK_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
 
 
 class NodeSchema(TypedDict):
@@ -43,21 +44,21 @@ class FrozenPathSchema(BaseModel):
 
 
 class ArtifactMarkSchema(BaseModel):
-    mark_name: str = Field(min_length=1, max_length=50, pattern=r'^[a-z][a-z0-9_]*$')
+    mark_name: str = Field(min_length=1, max_length=MARK_NAME_MAX_LENGTH, pattern=MARK_NAME_PATTERN.pattern)
     description: str
 
 
 class SampleMarkCollectionSchema(BaseModel):
     mark_names: list[str] = Field(min_length=1)
-    require_all_samples: bool = True
 
     @field_validator('mark_names')
     @classmethod
     def validate_mark_names(cls, mark_names: list[str]) -> list[str]:
         """Normalize duplicate mark names and reject invalid names."""
-        pattern = re.compile(r'^[a-z][a-z0-9_]*$')
         normalized = list(dict.fromkeys(mark_names))
-        invalid = [name for name in normalized if len(name) > MARK_NAME_MAX_LENGTH or pattern.fullmatch(name) is None]
+        invalid = [
+            name for name in normalized if len(name) > MARK_NAME_MAX_LENGTH or MARK_NAME_PATTERN.fullmatch(name) is None
+        ]
         if invalid:
             msg = f'invalid mark names: {invalid}'
             raise ValueError(msg)
@@ -314,7 +315,7 @@ RESOURCES: dict[str, NodeSchema] = {
     },
     'sample_mark_collection': {
         'name': 'Sample Mark Collection',
-        'description': 'Collects files saved by `sample_mark` across all samples in a project. It returns a JSON file that lists the collected files and a read-only folder input for Docker tools. If the next tool needs both a generated manifest and the collected files, use the `adapt-sample-mark-collections` skill.',
+        'description': 'Collects files saved by `sample_mark` from every project sample that currently has the requested marks; samples without them are skipped. It returns a JSON file that lists the collected files and a read-only folder input for Docker tools. If the next tool needs both a generated manifest and the collected files, use the `adapt-sample-mark-collections` skill.',
         'args': SampleMarkCollectionSchema,
         'input_handles': [],
         'output_handles': [
