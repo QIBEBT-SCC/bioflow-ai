@@ -114,7 +114,7 @@ def _search_sync(query: str) -> list[dict]:
             query,
             region='us-en',
             max_results=10,
-            backend='google,bing,duckduckgo,wikipedia,grokipedia',
+            backend='google,duckduckgo,wikipedia,grokipedia',
         )
 
 
