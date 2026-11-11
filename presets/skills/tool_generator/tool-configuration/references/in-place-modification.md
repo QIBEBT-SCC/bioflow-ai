@@ -1,34 +1,29 @@
 # In-Place Modification Pattern
 
-For example, the tool `cooler balance` directly modifies the original file. Commands for this tool look like this:
+Use `tool_type=1` (`DOCKER_PASSTHROUGH`) when the command modifies an input file or directory directly.
+The modified input is writable and automatically becomes a same-name output at its original path. This also
+applies to a single Tool; it does not require a preceding pass-through Tool.
 
-```
+For example, `cooler balance` updates the input `.cool` file:
+
+```bash
 cooler balance --force --nproc 32 H1.cool > /data/output/11_run.log 2>&1
 ```
 
-## File Mounts
+The test-run report keeps `cool_path` in `input_files` and describes the verified modification in `note`.
+If no new result files are created, `output_files` contains only the log. Use the report's actual logical input
+name when configuring the node; the name below is illustrative.
 
-Since the tool directly modifies the source file, both input and output are the same file. However, to ensure file independence, we need to copy the file to a separate output path before making
-modifications.
-Therefore, we must prepare both the original file (input) and the copied file (output) separately.
+## File Mounts
 
 ```json
 [
   {
     "name": "cool_path",
-    "description": "Origin .cool Hi-C contact matrix (Cooler format)",
+    "description": "Hi-C contact matrix updated in place with balancing weights",
     "file_type": "INPUT",
-    "file_path": "{cool_path}",
+    "file_path": "passthrough:{cool_path}",
     "mount_path": "/data/raw",
-    "is_report": false,
-    "is_log": false
-  },
-  {
-    "name": "balanced_cool_path",
-    "description": "Balanced .cool Hi-C contact matrix (Cooler format)",
-    "file_type": "OUTPUT",
-    "file_path": "{output_dir}/{sample_name}.cool",
-    "mount_path": "/data/output",
     "is_report": false,
     "is_log": false
   },
@@ -44,25 +39,42 @@ Therefore, we must prepare both the original file (input) and the copied file (o
 ]
 ```
 
-### Command Settings
+Do not declare another OUTPUT for the updated `.cool` file. The automatic `cool_path` output points to the input
+file after balancing; `log` is an ordinary newly generated OUTPUT.
 
-Since command structures are no longer composed of single commands and have become more complex, it is now permissible to omit dynamic parameters and directly use file variables within command
-templates:
+## Command Settings
+
+Call `set_tool_info` with `tool_type=1`. Keep the tool invocation atomic and define the file argument normally:
 
 ```json
 {
-  "dynamic_params": [],
+  "dynamic_params": [
+    {
+      "description": "Hi-C contact matrix to balance in place",
+      "command": "{cool_path}",
+      "is_position": true,
+      "index": 0
+    }
+  ],
   "immutable_static_params": "--force",
   "modifiable_static_params": "--nproc 32",
-  "command_template": "cp {cool_path} {balanced_cool_path} && cooler balance {static_params} {balanced_cool_path} > {log} 2>&1"
+  "command_template": "cooler balance {optional_params} {position_params} > {log} 2>&1"
 }
 ```
 
 ## Key Points
 
-1. Input files in the mount correspond to: the source file of the input type and the actual operational file located in the output path (which is also the output file)
-2. The command needs to copy the source file to the output file first, and then the tool runs on the output file
-3. In this mode, the variables allowed in the template string are:
-    - The `name` value in `file_mounts` (file variable)
-    - `{output_dir}` and `{sample_name}`, used directly to construct dynamic parameters (output paths, file prefixes, etc.)
-    - `{static_params}`: Static parameters; the system will automatically merge and fill in both modifiable and non-modifiable parameters.
+1. Connect outputs produced within the same workflow run directly. For external resource data (`resource_*`
+   except `resource_text_file`, or a `value_string` path), copy it first with an upstream `copy2folder` node.
+   That node exposes `folder_path`; select the copied file with `select_file_in_folder` before connecting it to
+   `cool_path`. Do not put the copy inside the Tool command.
+2. Outputs reference mutable data. If the workflow also needs the pre-modification version, make an independent
+   copy before the modifying node and keep that version on a separate path.
+3. Mark only inputs that need writable access or must continue with their original path as `passthrough:`.
+   Other inputs remain ordinary read-only INPUTs; newly created results and the log remain ordinary OUTPUTs.
+4. A first pass-through Tool creates its normal workspace; one receiving a pass-through input from another
+   pass-through Tool inherits that workspace. Chains are linear: each Tool accepts at most one distinct pass-through
+   predecessor, and each predecessor continues into at most one pass-through Tool. Several handles from the same
+   predecessor are allowed. Collections, ForEach, marks, and independent runs cannot carry pass-through references.
+5. When the command also needs a configured workspace or fixed dependencies across nodes, use the
+   [pass-through workspace pattern](passthrough.md) for those mount and connection requirements.

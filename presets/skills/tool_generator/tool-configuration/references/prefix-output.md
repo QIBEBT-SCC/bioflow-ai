@@ -6,9 +6,12 @@ artifacts such as `reference.grp`, `reference.idx.fa`, and `reference.seq` inste
 Do not replace the prefix with the output directory. Downstream tools need the complete directory-plus-prefix value,
 not just the directory.
 
+If the output prefix depends on an INPUT filename, read [Input Path Properties](input-path-properties.md) using
+`read_skill_resource` with `references/input-path-properties.md` before choosing the output `file_path`.
+
 ## File Mounts
 
-Taking `rsem-prepare-reference` as an example:
+Taking `rsem-prepare-reference` as an example, with a prefix named after the input FASTA:
 
 ```json
 [
@@ -34,7 +37,7 @@ Taking `rsem-prepare-reference` as an example:
     "name": "reference_prefix",
     "description": "RSEM reference index path prefix",
     "file_type": "OUTPUT",
-    "file_path": "{output_dir}/{sample_name}.rsem",
+    "file_path": "{output_dir}/{genome_fasta.stem}",
     "mount_path": "/data/output",
     "is_report": false,
     "is_log": false
@@ -52,7 +55,8 @@ Taking `rsem-prepare-reference` as an example:
 ```
 
 The `reference_prefix` path is intentionally allowed not to exist as a file or directory. Validation succeeds when
-the same directory contains at least one different artifact whose name starts with `{sample_name}.rsem`.
+the same directory contains at least one different artifact whose name starts with the resolved prefix basename,
+such as `GRCh38.rsem.grp` for the `GRCh38.fa` input.
 
 ## Command Settings
 
@@ -80,21 +84,19 @@ the same directory contains at least one different artifact whose name starts wi
   ],
   "immutable_static_params": "",
   "modifiable_static_params": "",
-  "command_template": "rsem-prepare-reference {static_params} {dynamic_params} {position_params} > {log} 2>&1"
+  "command_template": "rsem-prepare-reference {optional_params} {position_params} > {log} 2>&1"
 }
 ```
 
 ## Key Points
 
 1. Define one OUTPUT handle for the logical prefix and use that handle in the command.
-2. Keep the full prefix under `{output_dir}` so the platform can mount its parent directory and pass the same prefix
-   to downstream tools.
-3. Do not create a fake file or directory at the bare prefix path.
+2. Keep the full prefix under `{output_dir}` so the platform can mount its parent directory and pass the same prefix to downstream tools.
+3. Use a dynamic prefix name instead of hardcoding a fixed value:
+  - Correct example: `{output_dir}/{genome_fasta.stem}`
+  - Incorrect example: `{output_dir}/lambda_rsem`
 4. Do not declare every generated index component unless downstream nodes need those components separately.
-5. Use this pattern only when generated artifact names begin with the declared prefix. Otherwise declare a real output
-   file or directory.
+5. Use this pattern only when generated artifact names begin with the declared prefix. Otherwise declare a real output file or directory.
 6. Declare the execution log as a separate exact output.
-7. Treat the input names in this example as illustrative; every INPUT name must still exactly reuse its logical name
-   from the test-run report.
-8. The test-run report lists concrete files and directories observed on disk. Collapse a related group into one
-   logical prefix only in the generated `file_mounts`.
+7. Treat the input names in this example as illustrative; every INPUT name must still exactly reuse its logical name from the test-run report.
+8. The test-run report lists concrete files and directories observed on disk. Collapse a related group into one logical prefix only in the generated `file_mounts`.

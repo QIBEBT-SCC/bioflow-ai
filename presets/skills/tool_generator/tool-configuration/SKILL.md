@@ -5,11 +5,12 @@ description: Generate a BioFlow Docker tool configuration from a real execution 
 
 # Tool Configuration
 
-Use this skill for every tool-configuration task. First check whether the command must preserve a shared workspace
-or fixed paths across nodes, then classify how its primary output is produced. Read exactly one matching pattern
-reference before configuring the tool. If, and only if, a non-file text parameter must receive a value dynamically
-produced by an upstream node during workflow execution, also read
-`references/runtime-value-input.md`.
+Use this skill for every tool-configuration task. First check whether the command modifies an input in place or
+must preserve a shared workspace or fixed paths across nodes, then classify how its primary output is produced.
+Read exactly one matching primary output-pattern reference before configuring the tool. When output names or
+command arguments depend on an INPUT filename, also read `references/input-path-properties.md`; this includes
+input-derived output prefixes. If, and only if, a non-file text parameter must receive a value dynamically produced
+by an upstream node during workflow execution, also read `references/runtime-value-input.md`.
 
 ## Choose the Output Pattern
 
@@ -18,7 +19,7 @@ Apply the first matching primary output pattern in this order:
 | Pattern | Use when | Reference |
 |---|---|---|
 | Pass-through workspace | The command requires the same writable workspace or fixed container paths across Tool nodes | `references/passthrough.md` |
-| In-place modification | The command changes an input file directly instead of producing an independent result path | `references/in-place-modification.md` |
+| In-place modification | The command updates an input file or directory directly; use writable pass-through instead of copying inside the command | `references/in-place-modification.md` |
 | Output prefix | An output argument is a path prefix and the tool creates multiple sibling artifacts whose names begin with that prefix | `references/prefix-output.md` |
 | Standard-output redirection | The primary result exists only because stdout is redirected to an output file | `references/stdout-output.md` |
 | Input-derived output | The tool automatically determines output filenames from an INPUT path instead of accepting an explicit output filename | `references/input-path-properties.md` |
@@ -27,8 +28,15 @@ Apply the first matching primary output pattern in this order:
 Stderr or ordinary log redirection does not make a tool a standard-output tool. Use the standard-output pattern only
 when stdout itself carries a primary result.
 
-The pass-through pattern uses `tool_type=1` (`DOCKER_PASSTHROUGH`). Ordinary independent Tool workspaces use
-`tool_type=0` (`DOCKER`). Select the node mode explicitly; continuing file INPUTs are then marked `passthrough:`.
+Both pass-through workspace and in-place modification patterns use `tool_type=1` (`DOCKER_PASSTHROUGH`).
+Mark modified or continuing INPUTs with `file_path="passthrough:{name}"`; the runtime exposes their same-name
+outputs automatically. Ordinary independent Tool workspaces use `tool_type=0` (`DOCKER`). Select the node mode
+explicitly.
+
+Each Tool node must execute exactly one actual invocation of the target tool, with optional result/log redirection.
+Do not combine commands using separators, pipelines, subshells, or command substitutions, including in parameter
+fragments. Copying, preprocessing, and postprocessing belong in separate workflow nodes; this also applies to
+pass-through Tools.
 
 ## Runtime Text Input Exception
 
@@ -43,14 +51,16 @@ need to edit a value between runs does not make it runtime-produced. When this e
 
 ## Workflow
 
-1. Inspect the test-run command, input mapping, and observed output files together.
+1. Inspect the test-run command, input mapping, observed output files, and notes about modified inputs together.
 2. Select the first matching pattern from the table; shared workspace/path identity takes precedence over the
    ordinary output shape.
 3. Call `read_skill_resource` with this skill name and the corresponding output-pattern reference path.
-4. If a proposed non-file input can only come from an upstream runtime computation, also read
+4. If output names or command arguments depend on an INPUT filename, also read
+   `references/input-path-properties.md`, even when the primary pattern is Output prefix or another pattern.
+5. If a proposed non-file input can only come from an upstream runtime computation, also read
    `references/runtime-value-input.md`; otherwise keep literal arguments in the appropriate static-parameter field.
-5. Follow the selected references together with the agent's file-mount and command-setting requirements.
-6. Treat names and concrete files in references as illustrative. Input names must still match the current test-run
+6. Follow the selected references together with the agent's file-mount and command-setting requirements.
+7. Treat names and concrete files in references as illustrative. Input names must still match the current test-run
    report, and outputs must reflect the current command's actual behavior.
 
 Do not load unrelated pattern references speculatively. If validation shows that the initial classification was wrong,

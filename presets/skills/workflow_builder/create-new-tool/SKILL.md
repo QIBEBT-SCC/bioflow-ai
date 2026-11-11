@@ -102,7 +102,7 @@ The analytical behavior changes, but the tool interface does not.
 
 Suppose a workflow needs to perform strict filtering while excluding the mitochondrial reference.
 
-An original shell command might look like:
+The original compound shell command below must be split across workflow nodes:
 
 ```bash
 samtools view \
@@ -176,13 +176,15 @@ The creation request should specify:
 
 There is no need to guess unconfirmed command-line parameters, subcommands, exact filenames, or other implementation details. The focus is on ensuring that the generated node has input and output handles that can connect to existing upstream outputs and pass the required results to downstream nodes. The description should be specific enough to express the workflow’s connection requirements, but should not mislead the node-generation process with unverified details.
 
-## 2. Each node should perform one simple operation
+## 2. One Tool Invocation per Node
 
-## 2. One Simple Operation per Node
+Each Tool node must encapsulate exactly one actual invocation of the target tool, with optional result and log
+redirection. Do not combine commands with separators, pipelines, subshells, or command substitutions, or hide extra
+tool calls in parameter fragments. Data copying, preprocessing, postprocessing, and repeated calls to the same tool
+must be separate workflow steps.
 
-Tool nodes should remain atomic: each node should encapsulate a single command from one tool or one clear, independent operation. Do not create complex nodes that handle multiple consecutive steps, or package data transfer, formatting, preprocessing or postprocessing, or joint analysis involving multiple tools into a single node.
-
-If a requirement contains multiple steps, split it into multiple simple nodes and pass the results through the connections between them; if it includes multiple tool operations that do not exist in the database, create separate nodes for them. Even if the plan describes using two or more tools together to complete an analysis, each node should still encapsulate only a single operation from one tool, with the combination carried out in the workflow.
+If a requirement contains multiple steps, split it into separate nodes and pass results through their connections.
+Search for or create each missing Tool invocation separately; use a Bash node for simple glue or text processing.
 
 # Handling Tool Creation Failures
 

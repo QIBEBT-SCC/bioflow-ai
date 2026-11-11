@@ -98,7 +98,8 @@ class CreateToolSchema(BaseModel):
     name: str = Field(description='The naming of a new node must be distinguishable from existing nodes.')
     request: str = Field(
         description=(
-            'Node creation requirements. '
+            'Node creation requirements for exactly one actual invocation of the target tool. '
+            'Split multi-step operations into separate workflow nodes. '
             'Format: "Using XXX (tool name) to XXX (specific task description, including what you want to do '
             'with this tool, what new input handle is required or what new output handle is expected)"'
             'Do not guess specific parameters or subcommands to avoid misleading.'

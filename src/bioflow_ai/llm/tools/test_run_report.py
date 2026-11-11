@@ -106,7 +106,9 @@ class TestRunReport(BaseModel):
 
     working_dir: str = Field(description='Absolute container working directory under /data/output.')
     help_command: str = Field(description='Bare command that prints help for the wrapped command or subcommand.')
-    running_command: str = Field(description='The exact successful command, including log redirection.')
+    running_command: str = Field(
+        description='Exactly one successful invocation of the target tool, with optional result/log redirection. Exclude preparation, postprocessing, and other tool calls.'
+    )
     parameters: list[TestRunParameter] = Field(description='All parameters used in running_command.')
     input_files: list[TestRunFile] = Field(
         description='All existing files or directories consumed by running_command. Use stable logical names.'
@@ -235,16 +237,7 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id
 
 @tool('write_tool_report')
 async def write_test_run_report(report: TestRunReport, runtime: ToolRuntime[TestRunContext]) -> Command:
-    """Submit the final structured report after the tool command has run successfully.
-
-    Every path must be an absolute managed container path. Inputs may be under ``/data/output`` or an available
-    fixed project-data mount, or an external mount of a registered biological database. Database mappings are
-    recorded automatically from successful ``run_command`` calls; omit ``database_mounts`` when submitting.
-    Working and output paths must remain under ``/data/output``. Input files must be the
-    concrete files or directories consumed by ``running_command``. Output files must include every result produced
-    by that command, including the execution log. Do not include bookkeeping files such as
-    ``00_running_command.txt`` or ``task_log.txt``.
-    """
+    """Submit the final structured report after the tool command has run successfully."""
     recorded_mounts = [ContainerMount.model_validate(mount) for mount in runtime.state.get('test_run_mounts', [])]
     database_mounts = [
         mount

@@ -1,8 +1,9 @@
 # Pass-Through Workspace Pattern
 
-Use this pattern when several Tool nodes must keep using the same file or directory, including its original
-container path. Typical cases are a configuration command that records absolute input paths, and a later command
-that executes or updates the configured workspace in place.
+Use this pattern when a command modifies an input file/directory in place, or several Tool nodes must keep using
+the same file or directory, including its original container path. Typical cases are a configuration command that
+records absolute input paths, and a later command that executes or updates the configured workspace in place.
+For a single-file modification example, see [in-place modification](in-place-modification.md).
 
 ## How Pass-Through Works
 
@@ -19,6 +20,10 @@ Mark each file or directory that should continue downstream as an INPUT with `fi
 It automatically exposes a same-name output pointing to the original host path. Do not manually declare a second
 OUTPUT with that name. Initial input mount mappings are retained so absolute paths written into configurations
 remain accessible. Connect each configured dependency separately.
+
+For an in-place operation, call the tool directly on the marked INPUT. Do not prepend `cp` or declare a separate
+OUTPUT for the modified input. The report keeps that path in `input_files` and records the modification in `note`;
+only newly created results and the log belong in `output_files`.
 
 A pass-through Tool may have inputs from ordinary nodes and at most one distinct pass-through predecessor.
 Several file connections from that same predecessor count as one source. A pass-through predecessor continues
