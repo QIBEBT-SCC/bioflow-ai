@@ -60,18 +60,19 @@ samtools sort --write-index -@ 32 -o /data/output/A1.sorted.bam A1.bam > /data/o
   ],
   "immutable_static_params": "--write-index",
   "modifiable_static_params": "-@ 32",
-  "command_template": "samtools sort {static_params} {dynamic_params} {position_params} > {log} 2>&1"
+  "command_template": "samtools sort {optional_params} {position_params} > {log} 2>&1"
 }
 ```
 
 It can be seen that the final `command_template` contains the following variables:
 
-- `{static_params}`: Automatically concatenated from two different static parameters
-- `{dynamic_params}` and `{position_params}`: Split from the original dynamic_params according to is_position
+- `{optional_params}`: Non-positional dynamic parameters and the immutable/modifiable static parameters
+- `{position_params}`: Positional dynamic parameters, sorted by index
 - `{log}`: Log file, directly using the filename from the previous file mounting
 
 ## Key Points
 
 - As long as a parameter involves the output path (`{output_dir}` variable) and sample name (`{sample_name}` variable), it should be placed in `dynamic_params`.
 - Parameters such as the number of threads and species names, which are unrelated to the output path and filename, should be placed in the corresponding static parameters.
-- The `{dynamic_params}` variable in command_template is not equal to the `dynamic_params` in the parameter settings; do not confuse them.
+- `dynamic_params` is a configuration field, not a command-template placeholder; its entries are expanded through
+  `{optional_params}` or `{position_params}` according to `is_position`.

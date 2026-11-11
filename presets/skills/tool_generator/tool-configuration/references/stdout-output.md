@@ -42,21 +42,28 @@ seqtk seq -q 30 S1.fq.gz > /data/output/S1.fa 2> log.txt
 
 ## Command Settings
 
-Due to the involvement of redirected output, defining parameter templates using simple `dynamic_params` is challenging. Therefore, such tools do not require setting `dynamic_params` parameters.
-Instead, they directly use filenames defined in file mounts as variables within the template.
+Define the tool's arguments in `dynamic_params` as usual. Keep stdout and stderr redirection in the command
+template, using the output handles directly; redirection does not require an additional command.
 
 ```json
 {
-  "dynamic_params": [],
+  "dynamic_params": [
+    {
+      "index": 0,
+      "command": "{fq_file}",
+      "description": "FASTQ sequence file",
+      "is_position": true
+    }
+  ],
   "immutable_static_params": "",
   "modifiable_static_params": "-q 30",
-  "command_template": "seqtk seq {static_params} {fq_file} > {fa_file} 2> {log}"
+  "command_template": "seqtk seq {optional_params} {position_params} > {fa_file} 2> {log}"
 }
 ```
 
 ## Key Points
 
-1. This mode no longer requires setting `dynamic_params`.
-2. In this mode, the variables allowed in the `command_template` are:
-    - The `name` value in `file_mounts` (file variable)
-    - `{output_dir}` and `{sample_name}`, used directly to construct parameters related to output paths and sample names.
+1. Use `{position_params}` and `{optional_params}` for the tool's arguments, as in other output patterns.
+2. Reference output handles such as `{fa_file}` and `{log}` directly for redirection.
+3. Keep the node to one target-tool invocation. Any processing of its stdout beyond writing it to a file belongs
+   in a separate workflow node.
