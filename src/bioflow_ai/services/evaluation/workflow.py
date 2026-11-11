@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import workflow_run as run_crud
+from bioflow_ai.llm.agents.workflow_agent.workflow_generation import plan_handoff_messages
 from bioflow_ai.services.agents.execution import consume_agent_graph
 from bioflow_ai.services.progress import ProgressCallback, emit_progress
 from bioflow_ai.utils.identifiers import as_uuid
@@ -343,7 +344,8 @@ async def _build_input(
         logger.error('Task file not found!')
         sys.exit(0)
 
-    task_data = {'thread_id': thread_id, 'task_prompt': await task_path.read_text(encoding='utf-8')}
+    task_text = await task_path.read_text(encoding='utf-8')
+    task_data = {'thread_id': thread_id, 'task_prompt': task_text, 'paper_file': None}
 
     if paper_file:
         paper_path = Path(paper_file)
@@ -357,7 +359,7 @@ async def _build_input(
             content=[
                 {
                     'type': 'text',
-                    'text': await task_path.read_text(encoding='utf-8'),
+                    'text': task_text,
                 },
                 {
                     'type': 'file',
@@ -369,20 +371,8 @@ async def _build_input(
         )
         human_input = await filter_multimedia_message(init_human_message)
     else:
-        human_input = HumanMessage(
-            content=[
-                {
-                    'type': 'text',
-                    'text': await task_path.read_text(encoding='utf-8'),
-                },
-                {
-                    'type': 'text',
-                    'text': 'The above is all the information and requirements I can provide. The rest is entirely up to you. Do not ask me for any additional information; I have nothing more to tell you.',
-                },
-            ]
-        )
+        human_input = HumanMessage(content=task_text)
 
-    task_data.setdefault('paper_file', None)
     con.execute(
         """
         INSERT INTO evaluate_results (thread_id, task_prompt, paper_file)
@@ -632,11 +622,7 @@ async def wf_eval(
                 user_input, project_id, workdir, checkpoint, on_event=on_event
             )
 
-            agent_input = [
-                HumanMessage(content=sample_info),
-                HumanMessage(content=standard_plan),
-                HumanMessage(content='Please build actural workflow(s) based on the above information.'),
-            ]
+            agent_input = [user_input, *plan_handoff_messages(sample_info, standard_plan)]
             workflow_state = await _generate_workflow(
                 con,
                 agent_input,
