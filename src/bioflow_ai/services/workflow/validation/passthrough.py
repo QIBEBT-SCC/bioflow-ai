@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from bioflow_ai.services.tools.execution import ResolvedToolInput
 
 PATH_INPUTS = {'select_file_in_folder': 'folder_path', 'join_path': 'base_path'}
-COLLECTIONS = {'collect_mount_dirs', 'collect_file_collection', 'foreach', 'sample_mark', 'project_mark'}
+COLLECTIONS = {'collect_mount_dirs', 'collect_file_collection', 'foreach'}
 
 
 def _normalized_data_path(target: str) -> bool:
@@ -127,7 +127,7 @@ def passthrough_diagnostics(graph: WorkflowDefinition, catalog: dict[str, Workfl
                                 node.id, 'External resources must be copied before connecting to pass-through inputs'
                             )
         if node.type in COLLECTIONS and sources:
-            report(node.id, 'Pass-through cannot be exported through collections, marks, or ForEach')
+            report(node.id, 'Pass-through cannot be exported through collections or ForEach')
     for source, targets in sorted(consumers.items()):
         if len(targets) > 1:
             for target in sorted(targets):
