@@ -19,7 +19,6 @@ PROJECT_PLANNER_PROGRESS_KEYS = (
     'planner_confirm_plan',
 )
 
-WORKFLOW_PHASE_KEY = 'workflow_phase'
 WORKFLOW_MANAGER_ACTION_KEY = 'workflow_manager_action'
 TOOL_ACTIVITY_KEYS = (WORKFLOW_MANAGER_ACTION_KEY, 'agent_tool', 'tool_generator_step')
 MODEL_USAGE_KEY = 'model_usage'
@@ -85,15 +84,6 @@ def event_payload(payload: object) -> dict[str, Any]:
         if isinstance(planner_progress, dict):
             return {'kind': planner_progress_key, **planner_progress}
 
-    workflow_phase = converted.get(WORKFLOW_PHASE_KEY)
-    if isinstance(workflow_phase, dict):
-        phase = workflow_phase.get('phase')
-        return {
-            'kind': WORKFLOW_PHASE_KEY,
-            **workflow_phase,
-            **({'tool_call_id': f'workflow-phase:{phase}'} if isinstance(phase, str) else {}),
-        }
-
     tool_activity_key = next((key for key in TOOL_ACTIVITY_KEYS if key in converted), None)
     if tool_activity_key is not None:
         tool_activity = converted[tool_activity_key]
@@ -146,13 +136,6 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
         changes.extend({'resource': 'workflow', 'uid': uid} for uid in subgraph_uids)
         changes.extend({'resource': 'tool', 'uid': uid} for uid in tool_uids)
         changes.extend({'resource': 'database', 'id': value} for value in database_ids)
-        if values.get('samples_changed'):
-            changes.extend(
-                [
-                    {'resource': 'sample', 'project_id': run.project_id},
-                    {'resource': 'project_file_mapping', 'project_id': run.project_id},
-                ]
-            )
     elif run.agent_name == AgentName.TOOL_GENERATOR.value:
         if tool_uid := values.get('tool_uid'):
             uid = str(tool_uid)

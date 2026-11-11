@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import workflow_run as run_crud
-from bioflow_ai.llm.agents.workflow_agent.workflow_generation import plan_handoff_messages
 from bioflow_ai.services.agents.execution import consume_agent_graph
+from bioflow_ai.services.agents.workflow_builder import plan_handoff_messages
 from bioflow_ai.services.progress import ProgressCallback, emit_progress
 from bioflow_ai.utils.identifiers import as_uuid
 from bioflow_ai.utils.observability.execution_logging import AgentRunLogger

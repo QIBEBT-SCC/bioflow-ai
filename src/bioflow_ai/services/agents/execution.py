@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict
 from bioflow_ai.llm.agents.fs_agent.project_planner import build_project_planner
 from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
 from bioflow_ai.llm.agents.workflow_agent.workflow_assistant import build_workflow_assistant
+from bioflow_ai.llm.agents.workflow_agent.workflow_builder import build_workflow_builder
 from bioflow_ai.llm.agents.workflow_agent.workflow_fixer import build_workflow_fixer
-from bioflow_ai.llm.agents.workflow_agent.workflow_generation import build_workflow_generation
 from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 
 RouteTask = Literal['workflow-builder', 'workflow-assistant', 'workflow-fixer', 'project-planner', 'tool-generator']
@@ -34,8 +34,8 @@ class AgentSpec(BaseModel):
 
 AGENTS: dict[RouteTask, AgentSpec] = {
     'workflow-builder': AgentSpec(
-        description='Prepare project samples and an approved plan, then build the node workflow on the canvas.',
-        factory=build_workflow_generation,
+        description="Build node workflows on the canvas from the project planner's samples and approved plan.",
+        factory=build_workflow_builder,
     ),
     'workflow-assistant': AgentSpec(
         description='Answer questions about one workflow run and diagnose failures when requested.',

@@ -99,22 +99,6 @@ def has_active_project_run(session: Session, project_id: int) -> bool:
     return session.scalar(statement) is not None
 
 
-def ran_workflow_phase(session: Session, run_uid: uuid.UUID, phase: str) -> bool:
-    """Whether the run started ``phase`` itself instead of skipping it."""
-    statement = (
-        select(AgentEvent.id)
-        .where(
-            AgentEvent.run_uid == run_uid,
-            AgentEvent.event_type == AgentEventType.PROGRESS,
-            AgentEvent.payload['kind'].as_string() == 'workflow_phase',
-            AgentEvent.payload['phase'].as_string() == phase,
-            AgentEvent.payload['status'].as_string() == 'running',
-        )
-        .limit(1)
-    )
-    return session.scalar(statement) is not None
-
-
 def list_project_artifact_runs(session: Session, project_id: int, owner_id: int | None) -> Sequence[AgentRun]:
     statement = (
         select(AgentRun)

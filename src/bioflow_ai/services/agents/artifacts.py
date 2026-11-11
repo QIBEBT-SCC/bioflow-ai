@@ -217,10 +217,7 @@ def list_run_artifacts(session: Session, run: AgentRun, owner_id: int) -> list[A
     if run.agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id):
         raise AgentArtifactNotFoundError
     root = get_project_root(run.project_id)
-    if run.agent_name == 'project-planner' or (
-        # A builder run that reused the accepted plan did not write these project documents.
-        run.agent_name == 'workflow-builder' and agent_crud.ran_workflow_phase(session, run.uid, 'project_planner')
-    ):
+    if run.agent_name == 'project-planner':
         kinds = [AgentArtifactKind.PLAN, AgentArtifactKind.SAMPLES]
     elif run.agent_name == 'workflow-assistant':
         kinds = [AgentArtifactKind.DIAGNOSIS]

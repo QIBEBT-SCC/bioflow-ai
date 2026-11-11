@@ -35,10 +35,12 @@ from bioflow_ai.schemas.agent import (
 )
 from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.services._transaction import committing
+from bioflow_ai.services.agents.artifacts import get_project_root
 from bioflow_ai.services.agents.chat_attachment import (
     ImagePreparationError,
     resolve_image,
 )
+from bioflow_ai.services.agents.workflow_builder import MISSING_PLAN_ERROR, has_project_plan
 from bioflow_ai.services.documents.pdf_index import PDFNotFoundError, PDFPreparationError, resolve_pdf
 from bioflow_ai.services.projects import workflows as project_workflow_service
 from bioflow_ai.services.workflow.subgraphs import SubgraphError, definition_id, enter_subgraphs
@@ -242,6 +244,12 @@ def create_run(
             prepared_node = _resolve_node(session, source_run, node)
     elif source_run_uid is not None:
         raise AgentScopeError(WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR)
+    if (
+        agent_name == AgentName.WORKFLOW_BUILDER
+        and agent_session.project_id is not None
+        and not has_project_plan(get_project_root(agent_session.project_id))
+    ):
+        raise AgentScopeError(MISSING_PLAN_ERROR)
 
     active = agent_crud.get_active_run(session, agent_session.uid)
     if active is not None:

@@ -28,6 +28,7 @@ from bioflow_ai.services.agents.messages import load_langchain_messages, wrap_re
 from bioflow_ai.services.agents.progress import ProgressScopes, result_payload
 from bioflow_ai.services.agents.sessions import WORKFLOW_INPUT_RUN_KEY
 from bioflow_ai.services.agents.workflow_assistant import prepare_workflow_assistant_input
+from bioflow_ai.services.agents.workflow_builder import prepare_workflow_builder_input
 from bioflow_ai.services.notification.events import format_duration, notify
 from bioflow_ai.services.workflow import fix as workflow_fix_service
 from bioflow_ai.services.workflow.diagnosis import load_latest_diagnosis_report
@@ -379,6 +380,9 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                         project_id=project_id,
                         workdir=resolved_project_path,
                     )
+
+            if agent_name == AgentName.WORKFLOW_BUILDER and not resume_payload and project_path is not None:
+                agent_input = prepare_workflow_builder_input(history, current_message, project_path)
 
             scopes = ProgressScopes()
 
