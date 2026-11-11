@@ -406,7 +406,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 execution = await consumer
             except asyncio.CancelledError:
                 await _transition(redis, run_uid, AgentRunStatus.CANCELLED, AgentEventType.CANCELLED)
-                await checkpoint.adelete_thread(checkpoint_thread_id)
                 return
             finally:
                 heartbeat.cancel()
@@ -450,7 +449,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 payload={'message': final_text, 'result': result},
                 result_payload=result,
             )
-            await checkpoint.adelete_thread(checkpoint_thread_id)
     except Exception as error:
         execution_log.status('execution_error', str(error), error=error)
         await _transition(

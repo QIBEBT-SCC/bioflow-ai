@@ -1,5 +1,8 @@
 """Prepare conversation messages and generate their display titles."""
 
+import json
+from collections import deque
+from collections.abc import Sequence
 from html import escape
 from typing import TYPE_CHECKING, Any, cast
 
@@ -10,7 +13,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 from bioflow_ai.llm.models import get_long_context_model
-from bioflow_ai.models.agent import AgentRun
+from bioflow_ai.models.agent import AgentEvent, AgentRun
 from bioflow_ai.schemas.agent import AgentEventType, ImageMessagePart, WorkflowNodeMessagePart
 from bioflow_ai.services.agents.chat_attachment import image_reference_content
 from bioflow_ai.utils.observability.token_usage import store_token_usage
@@ -23,7 +26,10 @@ if TYPE_CHECKING:
 MISSING_INPUT_ERROR = 'Agent run input message is missing.'
 
 
-def excluded_input_messages(session: Session, run: AgentRun) -> set[str]:
+HISTORY_EVENT_TYPES = (AgentEventType.INPUT_QUEUED, AgentEventType.INPUT_APPLIED, AgentEventType.INTERRUPTED)
+
+
+def excluded_input_messages(session: Session, run: AgentRun, events: Sequence[AgentEvent]) -> set[str]:
     """Keep current queued inputs out of initial history and omit earlier undelivered inputs.
 
     A retry carries the undelivered inputs of every run it retries forward instead of dropping them.
@@ -33,7 +39,6 @@ def excluded_input_messages(session: Session, run: AgentRun) -> set[str]:
     while retry_of_uid is not None and retry_of_uid not in retried:
         retried.add(retry_of_uid)
         retry_of_uid = getattr(session.get(AgentRun, retry_of_uid), 'retry_of_uid', None)
-    events = agent_crud.list_session_input_events(session, run.session_uid)
     applied = {event.payload['message_uid'] for event in events if event.event_type == AgentEventType.INPUT_APPLIED}
     return {
         event.payload['message_uid']
@@ -43,13 +48,50 @@ def excluded_input_messages(session: Session, run: AgentRun) -> set[str]:
     }
 
 
+def interrupt_text(value: object) -> str:
+    """Render an interrupt payload as the question the agent asked the user."""
+    if not isinstance(value, dict):
+        return str(value)
+    if 'question' in value:
+        return str(value['question'])
+    if value.get('kind') == 'questions':
+        lines = []
+        for item in value.get('questions') or []:
+            line = str(item.get('question', ''))
+            if choices := item.get('choices'):
+                line += f' (choices: {" / ".join(map(str, choices))})'
+            lines.append(line)
+        return '\n'.join(lines)
+    if value.get('kind') == 'plan_approval':
+        return 'Please review the analysis plan in PLAN.md and approve it or tell me what to change.'
+    if 'max_token' in value:
+        return f'The conversation has reached {value["max_token"]} tokens. Should I continue?'
+    return json.dumps(value, ensure_ascii=False)
+
+
 def load_langchain_messages(session: Session, run: AgentRun) -> tuple[list[BaseMessage], HumanMessage]:
-    """Restore durable user images along with the existing text conversation."""
+    """Rebuild the session conversation for a new run.
+
+    Restores durable user images, puts each ``ask_human`` question before the reply it received, and drops
+    the original request of a failed run once a retry has re-sent it.
+    """
     history: list[BaseMessage] = []
     current: HumanMessage | None = None
-    excluded = excluded_input_messages(session, run)
+    events = agent_crud.list_session_events(session, run.session_uid, HISTORY_EVENT_TYPES)
+    excluded = excluded_input_messages(session, run, events)
+    questions = deque(event for event in events if event.event_type == AgentEventType.INTERRUPTED)
+    retried = {item.retry_of_uid for item in agent_crud.list_runs(session, run.session_uid) if item.retry_of_uid}
+    started: set[uuid.UUID] = set()
     for message in agent_crud.list_messages(session, run.session_uid):
-        if str(message.uid) in excluded:
+        while questions and questions[0].create_time <= message.create_time:
+            question = questions.popleft()
+            history.append(
+                AIMessage(content=interrupt_text(question.payload.get('value')), id=f'interrupt-{question.id}')
+            )
+        first_of_run = message.role == 'user' and message.run_uid not in started
+        if first_of_run:
+            started.add(message.run_uid)
+        if str(message.uid) in excluded or (first_of_run and message.run_uid in retried):
             continue
         content = parts_content(message.parts)
         if not content:

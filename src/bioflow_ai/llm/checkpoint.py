@@ -5,6 +5,7 @@ import typing
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel
@@ -72,3 +73,9 @@ async def open_checkpointer(*, setup: bool = False) -> AsyncIterator[AsyncPostgr
         if setup:
             await saver.setup()
         yield saver
+
+
+def delete_checkpoint_thread(thread_id: str) -> None:
+    """Delete every checkpoint of a finished thread, which no later run or resume reads again."""
+    with PostgresSaver.from_conn_string(get_settings().persistent.database.CHECKPOINT_URL.unicode_string()) as saver:
+        saver.delete_thread(thread_id)

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +23,7 @@ from bioflow_ai.models.workflow import NodeRun, WorkflowRun
 from bioflow_ai.schemas.agent import (
     ACTIVE_AGENT_RUN_STATUSES,
     MAX_IMAGES,
+    TERMINAL_AGENT_RUN_STATUSES,
     AgentEventType,
     AgentName,
     AgentRunInput,
@@ -405,7 +407,19 @@ def transition_run(
         )
         run.agent_session.update_time = now
     session.refresh(run)
+    if status in TERMINAL_AGENT_RUN_STATUSES:
+        _delete_checkpoint(run.checkpoint_thread_id)
     return run
+
+
+def _delete_checkpoint(thread_id: str) -> None:
+    """Drop a finished run's checkpoint; a failure only leaves an unused thread behind."""
+    try:
+        from bioflow_ai.llm.checkpoint import delete_checkpoint_thread
+
+        delete_checkpoint_thread(thread_id)
+    except Exception:
+        logger.warning('Unable to delete checkpoint thread {}.', thread_id)
 
 
 def append_event(

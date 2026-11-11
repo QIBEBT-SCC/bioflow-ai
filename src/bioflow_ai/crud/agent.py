@@ -1,7 +1,7 @@
 # ruff: noqa: D103
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 
 from sqlalchemy import select
@@ -152,15 +152,18 @@ def list_input_events(
     ).all()
 
 
-def list_session_input_events(session: Session, session_uid: uuid.UUID) -> Sequence[AgentEvent]:
-    """Identify corrections that should be included in later conversation history."""
+def list_session_events(
+    session: Session, session_uid: uuid.UUID, event_types: Iterable[AgentEventType]
+) -> Sequence[AgentEvent]:
+    """List the given event types across every run of a session, oldest first."""
     return session.scalars(
         select(AgentEvent)
         .join(AgentRun, AgentRun.uid == AgentEvent.run_uid)
         .where(
             AgentRun.session_uid == session_uid,
-            AgentEvent.event_type.in_([AgentEventType.INPUT_QUEUED.value, AgentEventType.INPUT_APPLIED.value]),
+            AgentEvent.event_type.in_([event_type.value for event_type in event_types]),
         )
+        .order_by(AgentEvent.id.asc())
     ).all()
 
 
