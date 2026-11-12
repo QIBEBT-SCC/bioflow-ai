@@ -410,6 +410,15 @@ def prepare_docker_tool_execution(
         tool_type=config.tool_type,
         workspace=workspace,
     )
+    if config.tool_type == ToolType.DOCKER_PASSTHROUGH:
+        # Outputs may be written beside a pass-through input rather than under /data/output,
+        # so the command uses each output's resolved container path instead of its {output_dir} template.
+        file_mounts = [
+            file.model_copy(update={'file_path': param_inputs[file.name].replace('{', '{{').replace('}', '}}')})
+            if file.file_type == 'OUTPUT'
+            else file
+            for file in file_mounts
+        ]
     final_template = build_command_template(
         command_template=config.command_template,
         dynamic_params=config.dynamic_params,
