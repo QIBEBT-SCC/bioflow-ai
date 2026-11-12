@@ -72,6 +72,9 @@ Call `set_tool_info` with `tool_type=1`. Keep the tool invocation atomic and def
    copy before the modifying node and keep that version on a separate path.
 3. Mark only inputs that need writable access or must continue with their original path as `passthrough:`.
    Other inputs remain ordinary read-only INPUTs; newly created results and the log remain ordinary OUTPUTs.
+   A companion file that must sit beside a pass-through input, such as an index written by `samtools index` or
+   `samtools faidx`, is an OUTPUT with the same `mount_path` as that input (e.g. `/data/raw`) and
+   `file_path="{output_dir}/{bam.name}.bai"`; the runtime writes it into the input's directory.
 4. A first pass-through Tool creates its normal workspace; one receiving a pass-through input from another
    pass-through Tool inherits that workspace. Chains are linear: each Tool accepts at most one distinct pass-through
    predecessor, and each predecessor continues into at most one pass-through Tool. Several handles from the same

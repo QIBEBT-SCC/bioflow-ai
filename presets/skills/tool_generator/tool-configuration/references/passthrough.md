@@ -316,7 +316,10 @@ Use `select_file_in_folder` on the execution node's `run_dir` output with
 1. `tool_type=1` selects workspace inheritance; `tool_type=0` keeps ordinary per-node workspaces. Include the type
    when calling `set_tool_info` and when saving or exporting the definition.
 2. `passthrough:` is only an INPUT marker. Its automatic output keeps the original path. Newly generated files
-   use ordinary OUTPUT declarations under `{output_dir}`.
+   use ordinary OUTPUT declarations under `{output_dir}`. An OUTPUT whose `mount_path` equals a pass-through
+   INPUT's `mount_path` is written into that input's host directory instead of the workspace: declare
+   `{output_dir}/{bam.name}.bai` at the BAM's mount (e.g. `/data/raw`) to create the index beside the BAM.
+   Keep `/data/output` for results that belong in the workspace.
 3. The inherited workspace is both the working directory and the output directory, mounted at `/data/output`.
    The standard `workdir` output exposes that actual inherited directory.
 4. Restore each configured input dependency, including BAM/BAI and FASTA/FAI, at its original mount position.

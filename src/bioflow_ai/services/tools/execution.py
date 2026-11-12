@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from loguru import logger
@@ -321,16 +321,29 @@ def build_tool_mounts(
             raise ValueError(err_msg) from error
 
         host_mount_path = Path(host_output_dir)
-        actual = resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
         if passthrough:
             if not host_file_path.absolute().is_relative_to(host_mount_path):
                 err_msg = f'Pass-through output {file.name!r} must stay under {{output_dir}}: {file.file_path}'
                 raise ValueError(err_msg)
-            container_file_path = str(Path(actual) / host_file_path.absolute().relative_to(host_mount_path))
+            relative = host_file_path.absolute().relative_to(host_mount_path)
+            # An output mounted at a pass-through binding target is written beside that writable input,
+            # e.g. a BAI next to its BAM, instead of colliding with the binding at the same target.
+            if (bound := original_mounts.get(file.mount_path)) and bound != host_output_dir:
+                fixed_mounts[file.mount_path] = Path(bound)
+                host_file_path = Path(bound) / relative
+                container_file_path = str(PurePosixPath(file.mount_path) / relative.as_posix())
+            else:
+                actual = resolve_mount_path(
+                    mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path
+                )
+                container_file_path = str(Path(actual) / relative)
+                if actual not in mount_paths:
+                    mount_paths[actual] = host_mount_path.absolute()
         else:
+            actual = resolve_mount_path(mount_paths, param_inputs, conflicted_paths, file.mount_path, host_mount_path)
             container_file_path = f'{actual}/{host_file_path.name}'
-        if actual not in mount_paths:
-            mount_paths[actual] = host_mount_path.absolute()
+            if actual not in mount_paths:
+                mount_paths[actual] = host_mount_path.absolute()
 
         if file.is_log:
             expected_output.log = host_file_path.absolute()
