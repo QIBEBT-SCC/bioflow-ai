@@ -58,8 +58,8 @@ collecting outputs belonging to separate samples.
 Use `project_mark` only in a `project_level` workflow. Connect exactly one upstream file or directory and provide a
 stable `mark_name`.
 
-When the mark node succeeds, it immediately creates or replaces a dynamic project mapping. A later workflow loads it
-with `proj:<mark_name>`.
+When the mark node succeeds, it immediately creates or replaces a dynamic project mapping. Each needed output file or
+directory can be marked directly with its own `project_mark`, and later workflows load it directly via `proj:<mark_name>`.
 
 ## Sample Marks
 
@@ -98,16 +98,13 @@ load the `adapt-sample-mark-collections` skill and follow its two-output connect
 - Initial mappings are never removed by workflow reruns.
 - `project_mark` is project-level, `sample_mark` is sample-level, and `sample_mark_collection` is project-level.
 
-## Shared writable Tool workspaces
+## Workflow Outputs and Initial Resources
 
-`tool_type=1` (`DOCKER_PASSTHROUGH`) selects workspace inheritance. A first Tool creates its normal workspace;
-a downstream pass-through Tool receiving a `passthrough:` input reuses the upstream Tool's actual workspace
-at `/data/output`. Ordinary OUTPUTs use `{output_dir}`, and `workdir` exposes the inherited directory.
-Inputs marked `passthrough:{name}` automatically expose the same output name and original file path. Only data
-from resource nodes (`resource_*` except `resource_text_file`) or `value_string` paths must first go through
-`copy2folder`; connect Tool and other workflow-produced outputs directly without copying. Connect each dependency
-separately. A node may receive several handles from
-one pass-through predecessor and additional ordinary sources, but cannot join two distinct pass-through sources.
-A pass-through Tool may continue into only one downstream pass-through Tool, so chains are strictly linear;
-ordinary nodes may still read its outputs. Path adapters and ordinary subgraphs preserve source identity.
-Each node in a shared workspace gets its own log file automatically. Collection/ForEach/mark exports are unsupported.
+Connect workflow node outputs and dynamic marks (`proj:...` / `sample:...` with `is_dynamic=true`, including planned
+draft marks) directly to downstream nodes as usual, and export results with `project_mark` or `sample_mark` directly
+when needed by later workflows.
+
+Initial project/sample files (`is_dynamic=false`) and shared system databases/genomes (`resource_db`, genome
+resources) remain read-only; if workflow validation reports that a writable pass-through input cannot consume an
+initial/external resource directly or hits a shared workspace constraint, follow the returned diagnostic to copy that
+input first (e.g. with `copy2folder` and `select_file_in_folder`) or adjust the flagged edge.

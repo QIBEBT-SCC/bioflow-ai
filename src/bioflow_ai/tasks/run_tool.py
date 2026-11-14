@@ -36,13 +36,21 @@ def _resolve_task_inputs(
             continue
         task_input = inputs[file.name]
         value, source_sample_name = get_node_output(task_input.source_uid, task_input.source_k)
-        workspace, source_uid = (
-            tool_input_provenance(task_input.source_uid, writable=file.is_passthrough)
+        workspace, source_uid, dynamic_root = (
+            tool_input_provenance(
+                task_input.source_uid,
+                writable=file.is_passthrough,
+                source_key=task_input.source_k,
+            )
             if tool_type == ToolType.DOCKER_PASSTHROUGH
-            else (None, '')
+            else (None, '', None)
         )
         resolved_inputs[file.name] = ResolvedToolInput(
-            value=value, sample_name=source_sample_name, workspace=workspace, source_uid=source_uid
+            value=value,
+            sample_name=source_sample_name,
+            workspace=workspace,
+            source_uid=source_uid,
+            managed_root=dynamic_root,
         )
     return resolved_inputs
 

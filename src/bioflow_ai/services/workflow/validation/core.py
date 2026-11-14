@@ -604,7 +604,9 @@ def run_rules(
             source_map: dict[str, SourceLocation] = {}
             transformed = lower_batch_subgraphs(WorkflowDefinition.model_validate(normalized))
             flattened = _flatten_workflow(transformed, source_map=source_map)
-            for diagnostic in passthrough_diagnostics(flattened, dict(catalog or {})):
+            for diagnostic in passthrough_diagnostics(
+                flattened, dict(catalog or {}), dynamic_marks=context.dynamic_marks
+            ):
                 origin = source_map.get('node:' + str(diagnostic.node_id))
                 if origin:
                     diagnostic.path = origin.path

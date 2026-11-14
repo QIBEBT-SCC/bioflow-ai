@@ -64,10 +64,10 @@ Call `set_tool_info` with `tool_type=1`. Keep the tool invocation atomic and def
 
 ## Key Points
 
-1. Connect outputs produced within the same workflow run directly. For external resource data (`resource_*`
-   except `resource_text_file`, or a `value_string` path), copy it first with an upstream `copy2folder` node.
-   That node exposes `folder_path`; select the copied file with `select_file_in_folder` before connecting it to
-   `cool_path`. Do not put the copy inside the Tool command.
+1. Connect outputs produced within the same workflow run and dynamic project/sample marks (`is_dynamic=true`) directly.
+   Only initially registered project/sample files (`is_dynamic=false`), `resource_db`/`resource_genome`, unmanaged
+   literal paths, or `value_string` paths need an upstream `copy2folder` node (followed by `select_file_in_folder`)
+   before connecting to `cool_path`. Do not put the copy inside the Tool command.
 2. Outputs reference mutable data. If the workflow also needs the pre-modification version, make an independent
    copy before the modifying node and keep that version on a separate path.
 3. Mark only inputs that need writable access or must continue with their original path as `passthrough:`.
@@ -78,10 +78,11 @@ Call `set_tool_info` with `tool_type=1`. Keep the tool invocation atomic and def
    If the tested command supplies an explicit path for the companion, reference the OUTPUT handle (e.g.
    `{bam_index}`) so the command receives the resolved container path. Record the companion's actual path in
    the test report, even when it is outside the process working directory.
-4. A first pass-through Tool creates its normal workspace; one receiving a pass-through input from another
-   pass-through Tool inherits that workspace. Chains are linear: each Tool accepts at most one distinct pass-through
-   predecessor, and each predecessor continues into at most one pass-through Tool. Several handles from the same
-   predecessor are allowed. Collections, ForEach, marks, and independent runs cannot carry pass-through references.
+4. Non-workspace in-place/sidecar tools mounted outside `/data/output` may feed downstream tools (including multiple
+   predecessors into one downstream `tool_type=1` tool) without workspace conflicts. When tools explicitly inherit a
+   shared `/data/output` workspace across nodes, that workspace chain remains linear (one predecessor and one
+   successor; collections and ForEach cannot export shared `/data/output` workspaces). Exporting pass-through outputs
+   through `project_mark` or `sample_mark` is supported.
 5. When validating a standalone in-place modification node with `execute_node`, bind the `passthrough:` input
    directly to its trial-relative path; validation isolates a copy per attempt so the trial data stays untouched.
 6. When the command also needs a configured workspace or fixed dependencies across nodes, use the

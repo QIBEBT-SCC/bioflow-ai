@@ -1,7 +1,7 @@
 """Database/cache orchestration outside the pure workflow diagnostic kernel."""
 
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -102,6 +102,53 @@ def mark_storage_conflicts(
     return conflicts
 
 
+def extract_draft_marks(graphs: Iterable[Any]) -> set[str]:
+    """Collect dynamic ``proj:`` and ``sample:`` references planned by mark nodes in workflow graphs."""
+    marks: set[str] = set()
+    for graph in graphs:
+        for node in graph_nodes(graph):
+            kind, data = node.get('type'), node.get('data')
+            if kind not in {'project_mark', 'sample_mark'} or not isinstance(data, dict):
+                continue
+            name = str(data.get('mark_name', '')).strip()
+            if not name:
+                continue
+            prefix = 'proj:' if kind == 'project_mark' else 'sample:'
+            marks.add(f'{prefix}{name}')
+    return marks
+
+
+def dynamic_mark_references(
+    session: Session,
+    project_id: int,
+    draft_marks: Iterable[str] = (),
+) -> set[str]:
+    """Return dynamic project/sample references backed by workflow marks rather than initial files."""
+    initial_project: set[str] = set()
+    dynamic: set[str] = set()
+    for mapping in mapping_crud.get_all_by_project(session, project_id):
+        if mapping.is_dynamic:
+            dynamic.add(f'proj:{mapping.keyword}')
+        else:
+            initial_project.add(mapping.keyword)
+
+    initial_sample: set[str] = set()
+    dynamic_sample: set[str] = set()
+    for sample_file, _ in sample_crud.get_files_by_project(session, project_id):
+        if sample_file.is_dynamic:
+            dynamic_sample.add(sample_file.tag)
+        else:
+            initial_sample.add(sample_file.tag)
+    dynamic.update(f'sample:{tag}' for tag in dynamic_sample - initial_sample)
+
+    for ref in draft_marks:
+        is_dynamic_proj = ref.startswith('proj:') and ref.removeprefix('proj:') not in initial_project
+        is_dynamic_sample = ref.startswith('sample:') and ref.removeprefix('sample:') not in initial_sample
+        if is_dynamic_proj or is_dynamic_sample:
+            dynamic.add(ref)
+    return dynamic
+
+
 def resolve_workflow(
     graph: Any,
     session: Session,
@@ -112,6 +159,7 @@ def resolve_workflow(
     catalog: dict[str, WorkflowToolDefinition] | None = None,
     fresh: bool = False,
     workflow_uid: uuid.UUID | None = None,
+    draft_marks: Iterable[str] = (),
 ) -> WorkflowDocument:
     """Build a resolved document; data freshness does not select validation rules."""
     from bioflow_ai.services.tools.cache import get_tool_definitions_sync
@@ -121,10 +169,18 @@ def resolve_workflow(
     missing = uids if fresh else [uid for uid in uids if uid not in definitions]
     definitions.update(get_tool_definitions_sync(session, missing, fresh=fresh))
     conflicts = mark_storage_conflicts(session, project_id, graph, workflow_uid) if project_id is not None else {}
+    dynamic = (
+        dynamic_mark_references(session, project_id, draft_marks)
+        if project_id is not None
+        else {ref for ref in draft_marks if ref.startswith(('proj:', 'sample:'))}
+    )
     return WorkflowDocument(
         graph=graph,
         catalog=definitions,
         context=ValidationContext(
-            execution_scope=execution_scope, subgraph_purpose=subgraph_purpose, mark_conflicts=conflicts
+            execution_scope=execution_scope,
+            subgraph_purpose=subgraph_purpose,
+            mark_conflicts=conflicts,
+            dynamic_marks=dynamic,
         ),
     )

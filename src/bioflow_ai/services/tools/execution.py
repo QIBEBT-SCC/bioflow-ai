@@ -40,6 +40,7 @@ class ResolvedToolInput(BaseModel):
     workspace: ToolWorkspace | None = None
     source_uid: str = ''
     sample_name: str | None = None
+    managed_root: str | None = None
 
 
 class DockerToolExecutionConfig(BaseModel):
@@ -69,6 +70,7 @@ class DockerToolExecution(BaseModel):
     tool_type: ToolType = ToolType.DOCKER
     output_dir: str
     managed_root: str = ''
+    allowed_roots: tuple[str, ...] = ()
 
 
 class DockerToolExecutionResult(BaseModel):
@@ -202,6 +204,28 @@ def _build_input_paths(
         for file in file_mounts
         if file.file_type == 'INPUT'
     }
+
+
+def _passthrough_allowed_roots(
+    file_mounts: list[FileMount],
+    inputs: dict[str, ResolvedToolInput],
+    workspace: ToolWorkspace | None = None,
+) -> tuple[str, ...]:
+    """Collect verified dynamic-mark origin directories referenced by pass-through inputs."""
+    return tuple(
+        dict.fromkeys(
+            [
+                *(workspace.allowed_roots if workspace else ()),
+                *(root for file in file_mounts if file.is_passthrough and (root := inputs[file.name].managed_root)),
+                *(
+                    root
+                    for file in file_mounts
+                    if file.is_passthrough and (ws := inputs[file.name].workspace) is not None
+                    for root in ws.allowed_roots
+                ),
+            ]
+        )
+    )
 
 
 def build_tool_mounts(
@@ -360,7 +384,12 @@ def build_tool_mounts(
         original_mounts.update(
             {target: str(source) for target, source in mount_paths.items() if str(source) == host_output_dir}
         )
-        expected_output.workspace = ToolWorkspace(path=host_output_dir, run_uid=run_uid, mounts=original_mounts)
+        expected_output.workspace = ToolWorkspace(
+            path=host_output_dir,
+            run_uid=run_uid,
+            mounts=original_mounts,
+            allowed_roots=_passthrough_allowed_roots(file_mounts, inputs, workspace),
+        )
     return param_inputs, mount_paths, read_only_mounts, expected_output
 
 
@@ -377,10 +406,11 @@ def prepare_docker_tool_execution(
     """Prepare a Docker invocation without accessing Celery or persistent state."""
     validate_file_mounts(config.file_mounts, config.tool_type)
     workspace = validate_workspace_inputs(config.file_mounts, inputs, config.tool_type, run_uid, managed_root)
+    extra_roots = _passthrough_allowed_roots(config.file_mounts, inputs, workspace)
     if workspace:
         host_output_dir = Path(workspace.path)
     elif config.tool_type == ToolType.DOCKER_PASSTHROUGH:
-        validate_managed_paths([], managed_root, optional=[output_dir])
+        validate_managed_paths([], managed_root, optional=[output_dir], allowed_roots=extra_roots)
         host_output_dir = Path(output_dir).resolve()
     else:
         host_output_dir = Path(output_dir).absolute()
@@ -448,6 +478,7 @@ def prepare_docker_tool_execution(
         tool_type=config.tool_type,
         output_dir=str(host_output_dir),
         managed_root=managed_root,
+        allowed_roots=extra_roots,
         required_output_names=frozenset(
             'log' if file.is_log else file.name
             for file in file_mounts
@@ -490,7 +521,7 @@ def execute_docker_tool(
         logger.error(err_msg)
         raise RuntimeError(err_msg)
 
-    validate_workspace_outputs(execution.expected_output, execution.managed_root)
+    validate_workspace_outputs(execution.expected_output, execution.managed_root, allowed_roots=execution.allowed_roots)
     return execution.expected_output
 
 
@@ -507,7 +538,9 @@ def execute_docker_tool_with_result(execution: DockerToolExecution) -> DockerToo
         execution.expected_output, required_output_names=execution.required_output_names
     )
     if exit_code == 0:
-        validate_workspace_outputs(execution.expected_output, execution.managed_root)
+        validate_workspace_outputs(
+            execution.expected_output, execution.managed_root, allowed_roots=execution.allowed_roots
+        )
     return DockerToolExecutionResult(
         output=execution.expected_output,
         exit_code=exit_code,

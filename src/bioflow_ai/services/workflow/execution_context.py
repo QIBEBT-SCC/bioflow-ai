@@ -146,11 +146,64 @@ def _resolve_sample_path(reference: str, session: Session, sample_uid: str | Non
     return Path(matching_file.file_path).absolute(), tag
 
 
-def tool_input_provenance(source_uid: str, *, writable: bool = False) -> tuple[ToolWorkspace | None, str]:
-    """Follow path adapters to the nearest producing Tool.
+def _dynamic_mark_root(session: Session, file_path: str, producer_run_uid: uuid.UUID | None) -> str:
+    from bioflow_ai.models.workflow import WorkflowRun
+
+    if producer_run_uid is not None and (producer := session.get(WorkflowRun, producer_run_uid)) and producer.base_dir:
+        return str(Path(producer.base_dir).absolute())
+    resolved = Path(file_path).absolute()
+    return str(resolved if resolved.is_dir() else resolved.parent)
+
+
+def _dynamic_resource_origin(
+    session: Session,
+    node: object,
+    current: object,
+    source_key: str,
+) -> tuple[bool, str | None]:
+    node_type = getattr(node, 'node_type', '')
+    if node_type not in {'resource_file', 'resource_sequence'}:
+        return False, None
+    kwargs = (getattr(node, 'prepared_data', None) or {}).get('kwargs', {})
+    if node_type == 'resource_file':
+        ref = str(kwargs.get('file', '')).strip()
+    else:
+        key = source_key or 'r1'
+        default = f'sample:{key}' if key in {'r1', 'r2'} else ''
+        ref = str(kwargs.get(key, default)).strip()
+
+    run = getattr(current, 'run', None)
+    project_id = kwargs.get('project_id') or (run.project_id if run is not None else None)
+    sample_uid = kwargs.get('sample_uid') or (str(run.sample_uid) if run is not None and run.sample_uid else None)
+
+    if ref.startswith('proj:') and project_id is not None:
+        mapping = project_file_mapping_crud.get_by_keyword(session, int(project_id), ref.removeprefix('proj:'))
+        if mapping is not None and mapping.is_dynamic:
+            return True, _dynamic_mark_root(session, mapping.file_path, mapping.producer_run_uid)
+        return False, None
+
+    if ref.startswith('sample:') and sample_uid is not None:
+        tag = ref.removeprefix('sample:')
+        sample = sample_crud.get_with_files(session, str(sample_uid))
+        if sample is not None:
+            matching = next((item for item in sample.sample_files if item.tag == tag), None)
+            if matching is not None and matching.is_dynamic:
+                return True, _dynamic_mark_root(session, matching.file_path, matching.producer_run_uid)
+    return False, None
+
+
+def tool_input_provenance(
+    source_uid: str,
+    *,
+    writable: bool = False,
+    source_key: str = '',
+) -> tuple[ToolWorkspace | None, str, str | None]:
+    """Follow path adapters to the nearest producing Tool or resource node.
 
     Returns:
-        That Tool's workspace and node uid, or ``(None, '')`` when it has no workspace.
+        ``(workspace, source_node_uid, dynamic_root)`` where ``workspace`` and ``source_node_uid``
+        identify an upstream Tool workspace (or ``(None, '')``), and ``dynamic_root`` identifies a
+        trusted prior-run directory when the input resolves a dynamic workflow mark.
     """
     from bioflow_ai.models.workflow import NodeRun
     from bioflow_ai.services.workflow.validation.passthrough import PATH_INPUTS, validate_passthrough_origin
@@ -158,10 +211,21 @@ def tool_input_provenance(source_uid: str, *, writable: bool = False) -> tuple[T
     with Session(engine) as session:
         current = session.get(NodeRun, current_node_uid())
         node = session.get(NodeRun, uuid.UUID(source_uid))
+        current_key = source_key
+        dynamic_root: str | None = None
         seen = set()
         while node is not None:
             base_input = PATH_INPUTS.get(node.node_type)
-            validate_passthrough_origin(node, current, seen, writable=writable and base_input is None)
+            is_dynamic = False
+            if base_input is None:
+                is_dynamic, dynamic_root = _dynamic_resource_origin(session, node, current, current_key)
+            validate_passthrough_origin(
+                node,
+                current,
+                seen,
+                writable=writable and base_input is None,
+                is_dynamic_mark=is_dynamic,
+            )
             seen.add(node.uid)
             if base_input is None:
                 break
@@ -169,12 +233,13 @@ def tool_input_provenance(source_uid: str, *, writable: bool = False) -> tuple[T
             if not upstream:
                 message = 'Path adapter has no original source'
                 raise ValueError(message)
+            current_key = str(upstream.get('source_k', ''))
             node = session.get(NodeRun, uuid.UUID(upstream['source_uid']))
         if node is None:
             message = 'Pass-through source is unavailable'
             raise ValueError(message)
         workspace = node.tool_output.workspace if node.tool_output else None
-        return (workspace, str(node.uid)) if workspace else (None, '')
+        return (workspace, str(node.uid), dynamic_root) if workspace else (None, '', dynamic_root)
 
 
 def current_run_provenance() -> tuple[str, str]:

@@ -14,6 +14,7 @@ class ToolWorkspace(BaseModel):
     path: str
     run_uid: str
     mounts: dict[str, str] = Field(default_factory=dict)
+    allowed_roots: tuple[str, ...] = ()
 
 
 def find_binding(mounts: Mapping[str, str], value: str | Path) -> tuple[str, str, str] | None:

@@ -29,19 +29,18 @@ newly created results and the log belong in `output_files` at their actual test 
 is the process working directory. Package native results according to their locations within the inherited
 workspace or input bindings, even when the runner was tested from a separate step directory.
 
-A pass-through Tool may have inputs from ordinary nodes and at most one distinct pass-through predecessor.
-Several file connections from that same predecessor count as one source. A pass-through predecessor continues
-into at most one pass-through Tool, so the chain stays linear and the workspace is written by one node at a time.
-Ordinary nodes may still read its outputs. Path selectors and ordinary subgraph interfaces preserve the original
-pass-through source identity.
+A pass-through Tool may receive ordinary inputs from any predecessor, multiple sidecar/in-place pass-through inputs
+mounted outside `/data/output`, and at most one shared `/data/output` workspace predecessor. When a Tool exports a
+`/data/output` workspace artifact consumed at `/data/output` by another pass-through Tool, that workspace predecessor
+continues into at most one downstream `/data/output` workspace consumer so the shared directory stays linear.
+Ordinary nodes may still read its outputs. Path selectors and ordinary subgraph interfaces preserve source identity.
 
-All pass-through inputs are writable. Copying is required only for data that comes from a resource node
-(`resource_file`, `resource_db`, `resource_ncbi_genome`, and other `resource_*` nodes except
-`resource_text_file`) or a `value_string` path: route it through `copy2folder` first so the original project
-data is never modified.
-Outputs of Tool nodes and other workflow processing nodes, including path selectors over them, are already
-workflow-produced; connect them directly and do not add copy nodes for them. Each workflow run starts its own
-workspace.
+All pass-through inputs are writable. Copying is required only for initially registered project/sample resources
+(`is_dynamic=false`), `resource_db`, `resource_genome` nodes, unmanaged literal paths, or `value_string` paths: route
+those through `copy2folder` first so original project or system data is never modified. Outputs of Tool or other
+workflow processing nodes (including path selectors over them) and dynamic workflow marks (`proj:...` / `sample:...`
+with `is_dynamic=true`) are already workflow-produced; connect them directly and do not add copy nodes for them. Each
+workflow run starts its own workspace.
 Outputs reference mutable data: later nodes can change files already exposed by earlier nodes.
 
 ## Example: Configure and Run Strelka2
@@ -85,8 +84,9 @@ configuration node sees both files in the same copied directory. Copying the BAM
 `copy2folder` nodes would put them in different directories and fail with a fixed mount conflict at `/data/bam`.
 
 If the BAM and its index are instead produced by upstream Tools in the same workflow (for example an alignment and
-`samtools index` writing the index beside the BAM), connect those outputs directly without `copy2folder`. A primary
-file and its index must still live in one directory to share a mount target.
+`samtools index` writing the index beside the BAM) or come from dynamic workflow marks (`is_dynamic=true`), connect
+those outputs directly without `copy2folder`. A primary file and its index must still live in one directory to share
+a mount target.
 
 ### 1. Configuration Node: File Mounts
 
@@ -329,14 +329,17 @@ Use `select_file_in_folder` on the execution node's `run_dir` output with
    The standard `workdir` output exposes that actual inherited directory.
 4. Restore each configured input dependency, including BAM/BAI and FASTA/FAI, at its original mount position.
    Preserve companion names and adjacency before entering the chain. Conflicting fixed mounts fail.
-5. Accept at most one distinct pass-through predecessor across the node's inputs. Multiple handles from the same
-   predecessor are allowed, as are ordinary data-producing predecessors. Each pass-through predecessor continues into
-   at most one pass-through Tool; the chain cannot branch or rejoin.
+5. Accept at most one distinct `/data/output` shared-workspace predecessor across the node's `passthrough:` inputs.
+   Multiple handles from the same workspace predecessor, ordinary data-producing predecessors, and multiple
+   non-workspace sidecar/in-place predecessors outside `/data/output` are allowed. Each shared `/data/output`
+   workspace predecessor continues into at most one downstream `/data/output` workspace consumer.
 6. Keep the usual `log` output written through `{log}`; in an inherited workspace the runtime renames it per node,
    so successive commands never share a log file. Existing files do not skip a
    pass-through command. A failed command retains its partial changes and blocks dependent nodes.
-7. Copy only resource-node data (`resource_*` except `resource_text_file`, and `value_string` paths) with
-   `copy2folder`; connect Tool and other workflow-produced outputs directly. Pass-through references cannot be exported through mountlist collections, ForEach,
-   marks, or independent workflow runs. Ordinary subgraphs preserve the same source and workspace.
+7. Copy only initially registered project/sample resources (`is_dynamic=false`), `resource_db`, `resource_genome`,
+   unmanaged literal paths, or `value_string` paths with `copy2folder`; connect workflow-produced outputs and dynamic
+   `project_mark` / `sample_mark` resources directly. `project_mark` and `sample_mark` exports are supported; shared
+   `/data/output` workspace references cannot be exported through mountlist collections, ForEach, or independent
+   workflow runs. Ordinary subgraphs preserve source identity and workspace bindings.
 8. Build each node from its actual test-run report. The JSON illustrates the pattern; it does not establish that
    a Strelka analysis has been run or that an existing stored node has been migrated.

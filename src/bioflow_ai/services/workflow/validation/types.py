@@ -35,6 +35,7 @@ class ValidationContext(BaseModel):
     execution_scope: ExecutionScopeName = 'sample_level'
     subgraph_purpose: SubgraphPurpose = 'ordinary'
     mark_conflicts: dict[str, str] = Field(default_factory=dict)
+    dynamic_marks: set[str] = Field(default_factory=set)
 
 
 class WorkflowDocument(BaseModel):

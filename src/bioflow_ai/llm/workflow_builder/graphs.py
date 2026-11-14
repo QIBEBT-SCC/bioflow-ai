@@ -6,10 +6,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.llm.workflow_builder.drafts import snapshot_active_workflow
 from bioflow_ai.schemas.tools import WorkflowToolDefinition
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 from bioflow_ai.services.workflow.validation.adapters import build_graph
-from bioflow_ai.services.workflow.validation.resolution import resolve_workflow
+from bioflow_ai.services.workflow.validation.resolution import extract_draft_marks, resolve_workflow
 from bioflow_ai.services.workflow.validation.types import WorkflowDocument
 
 
@@ -55,6 +56,12 @@ def workflow_document(
                 for choice in choices
             ],
         }
+    draft_marks = extract_draft_marks(
+        [
+            *(build_graph(draft.nodes, draft.edges) for draft in snapshot_active_workflow(state).values()),
+            graph,
+        ]
+    )
     with Session(engine) as session:
         return resolve_workflow(
             graph,
@@ -64,4 +71,5 @@ def workflow_document(
             project_id=project_id,
             catalog=catalog,
             fresh=fresh,
+            draft_marks=draft_marks,
         )
