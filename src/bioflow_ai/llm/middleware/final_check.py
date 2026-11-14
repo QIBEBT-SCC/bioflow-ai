@@ -4,12 +4,13 @@ from typing import Any, NotRequired, cast
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import StateT, hook_config
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from loguru import logger
 
 from bioflow_ai.llm.context import FolderContext
+from bioflow_ai.llm.middleware.limit import MaxRetriesError
 
 
 class CheckState(AgentState):
@@ -91,6 +92,7 @@ class CheckTaskReportMiddleware[ContextT: FolderContext](AgentMiddleware[AgentSt
 
 class StateUpdateSchema(AgentState):
     updated: NotRequired[bool]
+    check_failed_count: NotRequired[int]
 
 
 class CheckStateExistMiddleware(AgentMiddleware[AgentState[Any], Any]):
@@ -98,12 +100,13 @@ class CheckStateExistMiddleware(AgentMiddleware[AgentState[Any], Any]):
 
     state_schema = StateUpdateSchema
 
-    def __init__(self, state_name: str, tool_name: str):
+    def __init__(self, state_name: str, tool_name: str, *, max_retries: int | None = None):
         self.state_name = state_name
         self.tool_name = tool_name
+        self.max_retries = max_retries
 
     def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
-        return {'updated': False}
+        return {'updated': False, 'check_failed_count': 0}
 
     @hook_config(can_jump_to=['model'])
     def after_model(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:  # noqa: D102
@@ -117,8 +120,17 @@ class CheckStateExistMiddleware(AgentMiddleware[AgentState[Any], Any]):
         if state.get(self.state_name) and state['updated']:
             return None
 
+        failed_count = state.get('check_failed_count', 0) + 1
+        if self.max_retries is not None and failed_count >= self.max_retries:
+            message = (
+                f'Unable to complete {self.state_name.replace("_", " ")} after {failed_count} incomplete replies. '
+                f'Last reported blocker: {last_message.text}'
+            )
+            raise MaxRetriesError(message)
+
         return {
             'jump_to': 'model',
+            'check_failed_count': failed_count,
             'messages': [
                 HumanMessage(
                     content=f'Before concluding the task, first invoke the `{self.tool_name}` tool to write or updated {self.state_name.replace("_", " ")}.'

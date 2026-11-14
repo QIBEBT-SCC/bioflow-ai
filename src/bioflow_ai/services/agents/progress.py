@@ -90,6 +90,10 @@ def event_payload(payload: object) -> dict[str, Any]:
         if isinstance(tool_activity, dict):
             return {'kind': tool_activity_key, **tool_activity}
 
+    error = converted.get('error')
+    if isinstance(error, str):
+        return {'kind': 'error', 'status': 'error', 'message': error}
+
     info = converted.get('info')
     if isinstance(info, str):
         return {'kind': 'info', 'message': info}

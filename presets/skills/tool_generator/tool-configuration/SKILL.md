@@ -60,8 +60,7 @@ need to edit a value between runs does not make it runtime-produced. When this e
 5. If a proposed non-file input can only come from an upstream runtime computation, also read
    `references/runtime-value-input.md`; otherwise keep literal arguments in the appropriate static-parameter field.
 6. Follow the selected references together with the agent's file-mount and command-setting requirements.
-7. Treat names and concrete files in references as illustrative. Input names must still match the current test-run
-   report, and outputs must reflect the current command's actual behavior.
+7. Treat names and concrete files in references as illustrative. Give each INPUT a stable, unique logical name and bind it explicitly during validation; outputs must reflect the current command's actual behavior.
 
 Do not load unrelated pattern references speculatively. If validation shows that the initial classification was wrong,
 reclassify the tool and then read the correct reference.

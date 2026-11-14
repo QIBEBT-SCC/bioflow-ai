@@ -20,6 +20,7 @@ from bioflow_ai.llm.middleware.frontend_progress import ProgressStatus
 from bioflow_ai.llm.middleware.limit import MaxRetriesError
 from bioflow_ai.llm.states import BuildEdge, BuildNode, CreateToolState
 from bioflow_ai.llm.tools.node_memory import node_memory_hint, node_memory_message
+from bioflow_ai.llm.tools.tool_catalog import SEARCH_RESULT_LIMIT, SearchToolSchema, search_catalog_nodes
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
 from bioflow_ai.schemas.tools import ToolNodePublic
@@ -34,33 +35,6 @@ from bioflow_ai.utils.formatters import (
     search_nodes_formatter,
 )
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper, HasUid, merge_mappers, restore_mapper
-
-SEARCH_RESULT_LIMIT = 15
-
-
-class SearchToolSchema(BaseModel):
-    """Search tool nodes by their complete command, like chaining `rg -i` over every node's command line."""
-
-    patterns: list[str] = Field(
-        min_length=1,
-        description=(
-            'Case-insensitive regular expressions matched against the complete command of each tool node; '
-            'a node is returned only when every pattern matches. Use one pattern per command fragment so that '
-            'option order does not matter, e.g. `["samtools sort"]`, `["gatk", "HaplotypeCaller"]` or '
-            '`["emapper", "-m cache"]`. Start with the program and subcommand, then add mode-defining options '
-            'to narrow down the results.'
-        ),
-    )
-
-    @field_validator('patterns')
-    @classmethod
-    def drop_blank_patterns(cls, patterns: list[str]) -> list[str]:
-        """Remove blank patterns and require at least one meaningful pattern."""
-        patterns = [pattern.strip() for pattern in patterns if pattern.strip()]
-        if not patterns:
-            msg = 'At least one non-blank pattern is required'
-            raise ValueError(msg)
-        return patterns
 
 
 class AddToolSchema(BaseModel):
@@ -146,10 +120,6 @@ HELP_MESSAGE = (
 )
 
 
-class InvalidToolDefinitionError(RuntimeError):
-    """Raised when a stored tool cannot be converted into a workflow node."""
-
-
 @tool(parse_docstring=True)
 async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRuntime[ProjectContext]) -> Command:
     """Tool manager, execute operations related to tool nodes.
@@ -160,7 +130,6 @@ async def tool_node_manager(action: str, params: dict[str, Any], runtime: ToolRu
     """
     match action:
         case 'help':
-            # ty: ignore[invalid-argument-type]
             return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
         case 'search':
             try:
@@ -305,9 +274,9 @@ async def _create_tool(params: CreateToolSchema, runtime: ToolRuntime[ProjectCon
         )
         try:
             response = await sub_agent.ainvoke(agent_input, context=context)
-        except MaxRetriesError:
+        except MaxRetriesError as error:
             logger.warning('Tool node creation exceeded the validation retry limit: {}', name)
-            return _tool_creation_failed_command(name, request, runtime)
+            return _tool_creation_failed_command(name, request, runtime, detail=str(error))
 
     if response.get('return_to_parent'):
         return _tool_creation_handoff_command(name, response['parent_request'], runtime)
@@ -342,17 +311,22 @@ async def _create_tool(params: CreateToolSchema, runtime: ToolRuntime[ProjectCon
     )
 
 
-def _tool_creation_failed_command(name: str, request: str, runtime: ToolRuntime[ProjectContext]) -> Command:
+def _tool_creation_failed_command(
+    name: str, request: str, runtime: ToolRuntime[ProjectContext], *, detail: str = ''
+) -> Command:
     warning = (
         f'Tool node `{name}` could not be created because its generated configuration did not pass automated '
         f'validation within the allowed attempts. The unmet requirement was: {request}'
     )
+    if detail:
+        warning += f'\nFailure details: {detail}'
     return Command(
         update={
             'messages': [
                 ToolMessage(
                     content=warning,
                     tool_call_id=runtime.tool_call_id,
+                    status='error',
                 )
             ],
         }
@@ -432,21 +406,13 @@ def _recheck_attempted_searches(params: CreateToolSchema, runtime: ToolRuntime[P
 
 
 async def _search_tool(patterns: list[str], runtime: ToolRuntime[ProjectContext]) -> Command:
-    with Session(engine) as session:
-        exist_tools, matched_uids = tool_crud.search_by_command(session, patterns, SEARCH_RESULT_LIMIT)
-        new_mapper = BidirectionalMapper(datas=cast('list[HasUid]', list(exist_tools)))
+    tool_nodes, matched_uids = search_catalog_nodes(patterns)
     total = len(matched_uids)
 
-    if exist_tools:
+    if tool_nodes:
+        new_mapper = BidirectionalMapper(datas=tool_nodes)
         exist_mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
         merged_mapper = merge_mappers(exist_mapper, new_mapper)
-        tool_nodes = []
-        for exist_tool in exist_tools:
-            try:
-                tool_nodes.append(ToolNodePublic.model_validate(exist_tool))
-            except Exception as error:
-                msg = f'Invalid tool definition "{exist_tool.name}" ({exist_tool.uid}): {error}'
-                raise InvalidToolDefinitionError(msg) from error
 
         truncated_hint = (
             f'\n\n{total} tool nodes matched; only the first {len(tool_nodes)} are shown. '

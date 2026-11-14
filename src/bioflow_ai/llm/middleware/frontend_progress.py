@@ -251,6 +251,10 @@ TOOL_CREATION_PLAIN_TOOLS = {
     'set_file_mounts',
     'set_command_detail',
     'set_tool_info',
+    'search_node',
+    'view_node',
+    'inspect_files',
+    'execute_node',
 }
 TOOL_CREATION_ACTIVITY_NAMES = {'run_command': 'container_command'}
 

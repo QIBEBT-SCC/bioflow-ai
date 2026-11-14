@@ -11,6 +11,7 @@ from bioflow_ai.llm.tools.test_run_report import TestRunReport
 from bioflow_ai.schemas.react_flow import WorkflowInterface
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
+from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 
@@ -41,6 +42,7 @@ class CreateToolState(AgentState, total=False):
     dynamic_params: list[ParamDefine]
     immutable_static_params: str
     modifiable_static_params: str
+    validated: bool
 
     tool_uid: str
     json_response: dict[str, Any]
@@ -71,6 +73,9 @@ class TestRunState(AgentState):
 class ToolGeneratorState(AgentState, total=False):
     image: ImageConfig
     test_run_report: TestRunReport
+    id_mapper: BidirectionalMapper
+    validation_runs: dict[str, ToolOutput]
+    execution_count: int
 
     name: str
     tool_type: ToolType

@@ -20,7 +20,7 @@ from bioflow_ai.llm.middleware import (
 )
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import ToolGeneratorState
-from bioflow_ai.llm.tools.tool_validation import validate_tool_config
+from bioflow_ai.llm.tools.tool_validation import execute_node, inspect_validation_files, search_node, view_node
 from bioflow_ai.schemas.tool_config import FileMount, ParamDefine, ToolType
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ SYSTEM_PROMPT = """You are a bioinformatics engineer. You will be shown a real e
 This system does not directly store a `docker run` command containing real host paths. Instead, it separately stores the image, file mount definitions, command template, and parameter definitions. Each time a node runs, the executor reconstructs the command inside the container and the mounts in the following order:
 
 1. Resolve the actual inputs and outputs for the current task according to `file_mounts`:
-    - For ordinary inputs, mount the host directory containing the input file read-only to the corresponding `mount_path`, and resolve the variable with the same name (such as `{r1}`) to the actual file path inside the container. Inputs marked `passthrough:` are writable and retain their established mount mapping.
+    - For inputs, mount the host directory containing the input file read-only to the corresponding `mount_path`, and resolve the variable with the same name (such as `{r1}`) to the actual file path inside the container.
     - For outputs, use `{output_dir}`, `{sample_name}`, or the `.name`, `.stem`, and `.suffix` properties of a path INPUT in `file_path` to construct the expected output path for the current task, and mount the host output directory to the root output mount directory in the container. For example, `{output_dir}/{fasta.stem}.pdb` refers to `S1.pdb` when the `fasta` input is `S1.fasta`.
     - The `name` in `file_mounts` is both the node's input/output handle name and the variable name used in the command.
 2. Select the entries in `dynamic_params` where `is_position=true`, sort them by `index` in ascending order, join their `command` values with spaces, and insert the result into `{position_params}`.
@@ -139,21 +139,23 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
     - If the outputs are complex and contain many temporary files, intermediate files, or nested directories, declare only the files, directories, or path prefixes genuinely needed for subsequent analysis.
 3. **Design the command**: Using only the test run command and its actual outputs as the abstraction basis, split the command into `dynamic_params`, `immutable_static_params`, `modifiable_static_params`, and `command_template`, then call `set_command_detail`.
 4. **Complete tool information**: Generate an accurate node name and a brief description, then call `set_tool_info`.
-5. **Validate the configuration**: After all the configuration above has been set, you must call `validate_tool_config`.
-    - If validation fails, correct the corresponding configuration according to the complete command, mount information, execution errors, or missing outputs returned, and validate again.
-    - The task is complete only after `validate_tool_config` succeeds; never end before successful validation.
+5. **Validate the draft**: After configuring the draft, inspect the read-only trial directory with `inspect_files` (`ls` or `stat`) if needed, then call `execute_node(input_bindings=...)` (without `node_id`) to validate it.
+    - Bind every INPUT by name: use paths relative to the trial root for test-run files, or the absolute container paths from the report for managed project and database inputs.
+    - Follow any pattern-specific binding or validation rules in the loaded `tool-configuration` reference (such as `output_members`, `value:` literals, or prerequisite executions).
+    - Fix any configuration, execution, or output errors reported by `execute_node` and run it again until validation passes. Never fabricate inputs or configurations; if a required prerequisite is genuinely missing, report the blocker accurately.
 
 ## Notes
 
 ### File Mounts
 
-1. Each input file's `name` must exactly match the corresponding logical name in the test run report's `Input Files`; otherwise, input binding cannot be established. All `name` values must be globally unique because they are both node handle names and command template keywords.
+1. Give each input a stable logical name and bind it explicitly during validation. All `name` values must be unique because they are both node handle names and command template keywords.
    - Registered database or model directories are also INPUT handles. The report's recorded database mounts resolve their test paths to host sources for validation. Use a runtime variable such as `-m {model_dir}` and a FileMount with `file_path="{model_dir}"`; do not hardcode the test container path as a static parameter or omit the database input.
 2. `file_path` is a host-side path or value template:
     - INPUT normally must use a variable with the same name as `name`; for example, when `name="r1"`, `file_path` should use `{r1}`.
     - OUTPUT uses `{output_dir}`, `{sample_name}`, and path INPUT properties to construct dynamic paths. `file_path` may represent a single file, a directory, or a multi-file index/path prefix.
     - Use the `.name`, `.stem`, or `.suffix` property of a path INPUT when output naming depends on its actual path. Read `references/input-path-properties.md` for the naming rules, output definition example, and supported input types. The tool must actually generate the declared path; a declaration does not rename files.
-3. `mount_path` is always the **directory root** used for the bind mount inside the container. A test run report may contain extra subdirectories because the tool was executed in steps (such as `/data/output/03_bowtie_aline`). Use the output root directory indicated in the report as the basis, treating it as `/data/output`; the original step-specific subdirectory need not be preserved.
+3. `mount_path` is always the **directory root** used for the bind mount inside the container. The report's `working_dir` records where the successful process started. Use the actual output paths to determine where the tool writes its results.
+    - Map the target step's test output directory to the node's `/data/output`. For example, a result at `/data/output/04_Bowtie2/result.bam` uses `file_path="{output_dir}/result.bam"` and `mount_path="/data/output"`. Drop the test step prefix and preserve any subdirectories the tool itself needs.
 4. Each `mount_path` must be exactly a direct child directory under `/data`, in the format `/data/<directory>`.
     - Correct: `/data/raw`, `/data/bam`, `/data/reference`, `/data/regions`, `/data/output`
     - Incorrect: `/data`, `/data/raw/read.fastq.gz`, `/data/output/result`, `/data/output/11_run.log`
@@ -191,7 +193,7 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
    - The primary usable outputs generated after execution.
    - Any special input requirements, such as inputs that must be generated by a particular tool.
 3. Follow the user-provided test command and actual outputs. Use the help documentation to understand parameter semantics, not to expand the scope of this packaging on your own.
-4. Each node must execute exactly one actual invocation of the target tool, with optional result/log redirection. Do not combine commands or add shell preprocessing/postprocessing in the template or parameter fragments, including for pass-through Tools.
+4. Each node must execute exactly one actual invocation of the target tool, with optional result/log redirection. Do not combine commands or add shell preprocessing/postprocessing in the template or parameter fragments.
 """
 
 
@@ -208,6 +210,7 @@ async def set_file_mounts(
     return Command(
         update={
             'file_mounts': file_mounts,
+            'validated': False,
             'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
         }
     )
@@ -245,6 +248,7 @@ async def set_command_detail(
             'dynamic_params': dynamic_params,
             'immutable_static_params': immutable_static_params,
             'modifiable_static_params': modifiable_static_params,
+            'validated': False,
             'messages': [ToolMessage(content=return_msg, tool_call_id=runtime.tool_call_id)],
         }
     )
@@ -275,6 +279,7 @@ def set_tool_info(
             'name': name,
             'tool_type': tool_type,
             'description': description,
+            'validated': False,
             'messages': [ToolMessage(content='Tool configuration completed.', tool_call_id=runtime.tool_call_id)],
         }
     )
@@ -289,15 +294,20 @@ config_generate_agent = create_agent(
         set_file_mounts,
         set_command_detail,
         set_tool_info,
-        validate_tool_config,
+        search_node,
+        view_node,
+        inspect_validation_files,
+        execute_node,
     ],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
-        DisableParallelToolCallsMiddleware(disabled_tools={'validate_tool_config'}),
+        DisableParallelToolCallsMiddleware(
+            disabled_tools={'execute_node', 'search_node', 'set_file_mounts', 'set_command_detail', 'set_tool_info'}
+        ),
         ToolCreationProgressMiddleware(),
         SkillMiddleware('tool_generator'),
-        CheckStateExistMiddleware('validated', 'validate_tool_config'),
-        MaxRetriesMiddleware(),
+        CheckStateExistMiddleware('validated', 'execute_node', max_retries=3),
+        MaxRetriesMiddleware(max_retries=3),
         EndLoopMiddleware(),
         SaveMessagesMiddleware('tool_generator'),
         ChatAttachmentMiddleware(),

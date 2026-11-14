@@ -91,3 +91,5 @@ When the admission rule is satisfied:
 4. Describe which upstream computation or current-sample metadata lookup produces the value and why it needs an input handle.
 5. Before accepting the configuration, explicitly verify that no proposed `value:` handle is actually a thread
    count, threshold, flag, mode, preset, or other ordinary static setting.
+6. When validating the draft with `execute_node`, bind each `value:` input in `input_bindings` directly to a
+   literal string (e.g. `{"region_value": "chr1 chr2"}`).

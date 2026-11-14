@@ -33,6 +33,7 @@ class TestRunContext(BaseContext):
 
 class ToolGeneratorContext(BaseContext):
     test_run_id: str
+    validation_root: Path
     project_id: int | None = None
 
     save_message: bool = True

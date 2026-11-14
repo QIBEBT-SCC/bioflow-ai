@@ -72,6 +72,9 @@ It can be seen that the final `command_template` contains the following variable
 
 ## Key Points
 
+- Map the target step's test output directory to `/data/output` in the packaged node. For example,
+  `/data/output/04_Bowtie2/result.bam` becomes `file_path="{output_dir}/result.bam"` with `mount_path="/data/output"`.
+  Drop the test step directory and keep subdirectories required by the tool itself.
 - As long as a parameter involves the output path (`{output_dir}` variable) and sample name (`{sample_name}` variable), it should be placed in `dynamic_params`.
 - Parameters such as the number of threads and species names, which are unrelated to the output path and filename, should be placed in the corresponding static parameters.
 - `dynamic_params` is a configuration field, not a command-template placeholder; its entries are expanded through

@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, cast
 
 from langchain.agents import AgentState, create_agent
@@ -38,7 +39,7 @@ from bioflow_ai.llm.middleware.frontend_progress import tool_generator_step
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
 from bioflow_ai.llm.tools.database import select_classification
-from bioflow_ai.llm.tools.test_run_report import TestRunReport
+from bioflow_ai.llm.tools.test_run_report import TestRunReport, resolve_test_run_path
 from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.index import index_tools
@@ -304,20 +305,42 @@ class CreateToolAgent:
     @tool_generator_step('generate_tool_config')
     async def generate_tool_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """生成工具配置."""
-        result = await config_generate_agent.ainvoke(
-            {
-                'messages': state['messages'],
-                'image': state['image'],
-                'test_run_report': state['test_run_report'],
-            },
-            context=ToolGeneratorContext(
-                user_id=runtime.context.user_id,
-                language=runtime.context.language,
-                test_run_id=runtime.context.test_run_id,
-                project_id=runtime.context.project_id,
-                save_message=runtime.context.save_message,
-            ),
-        )
+        storage = resolve_test_run_path('/data/output', runtime.context.test_run_id).parent
+        storage.mkdir(parents=True, exist_ok=True)
+        directory = TemporaryDirectory(prefix='.tool-validation-', dir=storage)
+        try:
+            result = await config_generate_agent.ainvoke(
+                {
+                    'messages': state['messages'],
+                    'image': state['image'],
+                    'test_run_report': state['test_run_report'],
+                },
+                context=ToolGeneratorContext(
+                    user_id=runtime.context.user_id,
+                    language=runtime.context.language,
+                    test_run_id=runtime.context.test_run_id,
+                    validation_root=Path(directory.name),
+                    project_id=runtime.context.project_id,
+                    save_message=runtime.context.save_message,
+                ),
+            )
+        finally:
+            try:
+                directory.cleanup()
+            except OSError:
+                message = CreateToolAgent._user_message(
+                    runtime.context.language,
+                    zh=f'验证临时目录清理失败, 请手动清理: {directory.name}',
+                    en=f'Could not clean up the validation temporary directory. Please remove it manually: {directory.name}',
+                )
+                logger.exception(message)
+                try:
+                    runtime.stream_writer({'error': message})
+                except Exception:
+                    logger.exception('Unable to publish the validation cleanup error')
+        if result.get('validated') is not True:
+            message = 'The current draft must pass execute_node before saving.'
+            raise ValueError(message)
         return {
             key: result[key]
             for key in (
@@ -329,6 +352,7 @@ class CreateToolAgent:
                 'immutable_static_params',
                 'modifiable_static_params',
                 'file_mounts',
+                'validated',
             )
         }
 
@@ -364,6 +388,9 @@ class CreateToolAgent:
     @tool_generator_step('save_tool')
     async def save_tool_node(self, state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """保存工具节点, 或在非自动保存模式下返回结构化结果."""
+        if state.get('validated') is not True:
+            message = 'The current draft must pass execute_node before saving.'
+            raise ValueError(message)
         tool_config = {
             key: state[key]
             for key in (

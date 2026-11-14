@@ -1,5 +1,6 @@
 import operator
-from typing import Annotated, Any, Optional
+from collections.abc import Mapping
+from typing import Annotated, Any, NotRequired, Optional
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import AgentState, StateT, hook_config
@@ -33,7 +34,7 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware[AgentState[Any], Any]):
         )
 
     @staticmethod
-    def _get_tool_action(tool_call: dict[str, Any]) -> str | None:
+    def _get_tool_action(tool_call: Mapping[str, Any]) -> str | None:
         args = tool_call.get('args')
         if not isinstance(args, dict):
             return None
@@ -44,7 +45,7 @@ class DisableParallelToolCallsMiddleware(AgentMiddleware[AgentState[Any], Any]):
 
         return action
 
-    def _get_parallel_restriction(self, tool_call: dict[str, Any]) -> str | None:
+    def _get_parallel_restriction(self, tool_call: Mapping[str, Any]) -> str | None:
         tool_name = tool_call['name']
 
         if self.disabled_tools and tool_name in self.disabled_tools:
@@ -125,6 +126,7 @@ class TokenLimitMiddleware(AgentMiddleware[AgentState[Any], Any]):
 
 class RetryState(AgentState):
     retry_times: Annotated[int, operator.add]
+    last_retry_error: NotRequired[str]
 
 
 class MaxRetriesError(Exception):
@@ -142,5 +144,9 @@ class MaxRetriesMiddleware(AgentMiddleware[AgentState[Any], Any]):
 
     def before_model(self, state: RetryState, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
         if state['retry_times'] >= self.max_retries:
-            raise MaxRetriesError
+            message = f'Validation failed after {state["retry_times"]} attempts. {state.get("last_retry_error", "")}'
+            raise MaxRetriesError(message)
         return None
+
+    async def abefore_model(self, state: RetryState, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
+        return self.before_model(state, runtime)

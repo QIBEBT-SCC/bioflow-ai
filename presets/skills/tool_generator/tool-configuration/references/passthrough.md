@@ -16,6 +16,8 @@ The host workspace is mounted at `/data/output` throughout the chain. Commands u
 directory, and ordinary OUTPUT declarations keep using `{output_dir}`. New files and directories are declared
 as ordinary OUTPUTs; there is no separate pass-through OUTPUT mode or shared mount root.
 
+For configuration validation, use `search_node` and `view_node` to find and inspect an equivalent upstream configure Tool, then run it with `execute_node(node_id=..., input_bindings=...)`. Bind the configured directory and each dependency to that run's outputs using `{"run_id": "...", "output": "..."}` (and `"relative_path"` when selecting a file inside a directory output). Inspect generated directories with `inspect_files(..., root="validation")` if needed, then call `execute_node(input_bindings=...)` without `node_id` to validate the draft using the predecessor's workspace and mount paths. If no suitable configure node exists in the catalog, report the missing prerequisite instead of inventing inputs or skipping validation. The trial directory is read-only, and the validation run isolates each attempt under its own temporary directory. A test path such as `/data/output/03_strelka_config/strelka_run/...` becomes `{output_dir}/strelka_run/...` in the draft. When a first pass-through Tool uses trial files as writable inputs, bind them to trial-relative paths; validation copies those declared paths into the attempt automatically.
+
 Mark each file or directory that should continue downstream as an INPUT with `file_path="passthrough:{name}"`.
 It automatically exposes a same-name output pointing to the original host path. Do not manually declare a second
 OUTPUT with that name. Initial input mount mappings are retained so absolute paths written into configurations
@@ -23,7 +25,9 @@ remain accessible. Connect each configured dependency separately.
 
 For an in-place operation, call the tool directly on the marked INPUT. Do not prepend `cp` or declare a separate
 OUTPUT for the modified input. The report keeps that path in `input_files` and records the modification in `note`;
-only newly created results and the log belong in `output_files`.
+newly created results and the log belong in `output_files` at their actual test paths. The report's `working_dir`
+is the process working directory. Package native results according to their locations within the inherited
+workspace or input bindings, even when the runner was tested from a separate step directory.
 
 A pass-through Tool may have inputs from ordinary nodes and at most one distinct pass-through predecessor.
 Several file connections from that same predecessor count as one source. A pass-through predecessor continues
@@ -54,8 +58,8 @@ external file dependencies.
 
 The example below uses the germline configuration options documented in the repository's Strelka2 2.9.10 help.
 It illustrates a single BAM without optional call regions. The stored call-regions variant also needs its BED and
-tabix index passed through by the same principle. Reuse the exact logical INPUT names from the actual test-run
-report when creating a node; the example names and file names are illustrative.
+tabix index passed through by the same principle. Give each INPUT a stable, unique logical name when creating a node
+and bind it explicitly during validation; the example names and file names are illustrative.
 
 In this example the BAM and the reference genome come from project resource nodes, so they are copied first.
 Assume earlier copying nodes have produced these independent workflow files:
@@ -71,8 +75,8 @@ copied_reference/
 
 Declare four separate file INPUTs: `bam`, `bai`, `reference`, and `fai`. The copying step keeps each primary file
 and its index in the same host directory, with the companion names shown above. File pass-through mounts preserve
-the parent-directory binding, so each pair uses the same mount target. Use the logical INPUT names and companion
-file names actually established by the current test run.
+the parent-directory binding, so each pair uses the same mount target. Use stable, unique logical INPUT names
+and the companion file names established by the current test run.
 
 `copy2folder` copies all connected files into one folder and only exposes `folder_path`. Copy each primary file
 together with its index in one `copy2folder` node, then pick each file with its own `select_file_in_folder`
@@ -283,8 +287,8 @@ python /data/output/strelka_run/runWorkflow.py --mode local --jobs 4 --memGb 8 >
 ```
 
 The log name comes from the node's own directory (`<position>_<tool name>`), here assumed to be
-`3_strelka2-runworkflow`. Test runs and configuration validation of a single node do not inherit another node's
-directory, so there the command still writes `/data/output/11_run.log`.
+`3_strelka2-runworkflow`. A test run does not rename the log, so the tested command still writes `11_run.log`;
+keep that declaration and let the runtime rename it.
 
 The BAM and reference paths are already in the serialized configuration, so this command does not repeat them.
 The four file INPUT handles are still required to restore both files and their indexes at the same paths. The
@@ -319,7 +323,8 @@ Use `select_file_in_folder` on the execution node's `run_dir` output with
    use ordinary OUTPUT declarations under `{output_dir}`. An OUTPUT whose `mount_path` equals a pass-through
    INPUT's `mount_path` is written into that input's host directory instead of the workspace: declare
    `{output_dir}/{bam.name}.bai` at the BAM's mount (e.g. `/data/raw`) to create the index beside the BAM.
-   Keep `/data/output` for results that belong in the workspace.
+   When the tested command takes an explicit output path, use the OUTPUT handle (e.g. `{bam_index}`) to get the
+   resolved container path. Keep `/data/output` for results that belong in the workspace.
 3. The inherited workspace is both the working directory and the output directory, mounted at `/data/output`.
    The standard `workdir` output exposes that actual inherited directory.
 4. Restore each configured input dependency, including BAM/BAI and FASTA/FAI, at its original mount position.

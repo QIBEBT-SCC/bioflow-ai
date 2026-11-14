@@ -11,8 +11,8 @@ cooler balance --force --nproc 32 H1.cool > /data/output/11_run.log 2>&1
 ```
 
 The test-run report keeps `cool_path` in `input_files` and describes the verified modification in `note`.
-If no new result files are created, `output_files` contains only the log. Use the report's actual logical input
-name when configuring the node; the name below is illustrative.
+If no new result files are created, `output_files` contains only the log. Give the INPUT a stable, unique
+logical name and bind it explicitly during validation; the name below is illustrative.
 
 ## File Mounts
 
@@ -75,9 +75,14 @@ Call `set_tool_info` with `tool_type=1`. Keep the tool invocation atomic and def
    A companion file that must sit beside a pass-through input, such as an index written by `samtools index` or
    `samtools faidx`, is an OUTPUT with the same `mount_path` as that input (e.g. `/data/raw`) and
    `file_path="{output_dir}/{bam.name}.bai"`; the runtime writes it into the input's directory.
+   If the tested command supplies an explicit path for the companion, reference the OUTPUT handle (e.g.
+   `{bam_index}`) so the command receives the resolved container path. Record the companion's actual path in
+   the test report, even when it is outside the process working directory.
 4. A first pass-through Tool creates its normal workspace; one receiving a pass-through input from another
    pass-through Tool inherits that workspace. Chains are linear: each Tool accepts at most one distinct pass-through
    predecessor, and each predecessor continues into at most one pass-through Tool. Several handles from the same
    predecessor are allowed. Collections, ForEach, marks, and independent runs cannot carry pass-through references.
-5. When the command also needs a configured workspace or fixed dependencies across nodes, use the
+5. When validating a standalone in-place modification node with `execute_node`, bind the `passthrough:` input
+   directly to its trial-relative path; validation isolates a copy per attempt so the trial data stays untouched.
+6. When the command also needs a configured workspace or fixed dependencies across nodes, use the
    [pass-through workspace pattern](passthrough.md) for those mount and connection requirements.

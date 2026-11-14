@@ -56,7 +56,8 @@ Taking `rsem-prepare-reference` as an example, with a prefix named after the inp
 
 The `reference_prefix` path is intentionally allowed not to exist as a file or directory. Validation succeeds when
 the same directory contains at least one different artifact whose name starts with the resolved prefix basename,
-such as `GRCh38.rsem.grp` for the `GRCh38.fa` input.
+such as `GRCh38.rsem.grp` for the `GRCh38.fa` input. When validating the draft with `execute_node`, pass the exact
+expected member suffixes in `output_members` (e.g. `{"reference_prefix": [".grp", ".idx.fa", ".seq"]}`).
 
 ## Command Settings
 
@@ -98,5 +99,5 @@ such as `GRCh38.rsem.grp` for the `GRCh38.fa` input.
 4. Do not declare every generated index component unless downstream nodes need those components separately.
 5. Use this pattern only when generated artifact names begin with the declared prefix. Otherwise declare a real output file or directory.
 6. Declare the execution log as a separate exact output.
-7. Treat the input names in this example as illustrative; every INPUT name must still exactly reuse its logical name from the test-run report.
+7. Treat the input names in this example as illustrative; give each INPUT a stable, unique logical name and bind it explicitly during validation.
 8. The test-run report lists concrete files and directories observed on disk. Collapse a related group into one logical prefix only in the generated `file_mounts`.

@@ -156,7 +156,7 @@ def _report_text(report: Mapping[str, Any]) -> str:
     output_files = _output_file_lines(report['output_files'])
     sections = [
         '## Test Run Report',
-        f'working dir: {working_dir}',
+        f'Process working directory: `{working_dir}`',
         f'```bash\n{running_command}\n```',
         f'**Command Explain**\n\n{parameters}',
         f'**Output Files**\n\n{output_files}',

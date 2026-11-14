@@ -89,7 +89,7 @@ class TestRunFile(BaseModel):
     """A concrete input or output observed during a successful test run."""
 
     name: str = Field(description='A short, unique logical name, such as r1, reference, result, or log.')
-    path: str = Field(description='Absolute path inside the container, under a managed test-run input root.')
+    path: str = Field(description='Absolute path inside the container, under a managed root for this test run.')
     file_type: Literal['file', 'folder'] = Field(description='Whether the path is a regular file or a directory.')
     description: str = Field(description='A concise English description of the file or directory.')
 
@@ -104,7 +104,9 @@ class TestRunParameter(BaseModel):
 class TestRunReport(BaseModel):
     """Machine-readable facts collected from a successful tool test run."""
 
-    working_dir: str = Field(description='Absolute container working directory under /data/output.')
+    working_dir: str = Field(
+        description='Actual process working directory of the successful invocation, as an absolute container path under /data/output.'
+    )
     help_command: str = Field(description='Bare command that prints help for the wrapped command or subcommand.')
     running_command: str = Field(
         description='Exactly one successful invocation of the target tool, with optional result/log redirection. Exclude preparation, postprocessing, and other tool calls.'
@@ -114,7 +116,7 @@ class TestRunReport(BaseModel):
         description='All existing files or directories consumed by running_command. Use stable logical names.'
     )
     output_files: list[TestRunFile] = Field(
-        description='All files or directories produced by running_command, including its log.'
+        description='Files or directories produced by running_command, including its log. Record their actual paths under /data/output, which may be outside working_dir.'
     )
     database_mounts: list[ContainerMount] = Field(
         default_factory=list,
@@ -135,7 +137,7 @@ class TestRunReport(BaseModel):
         )
         sections = [
             '## Test Run Report',
-            f'working dir: `{self.working_dir}`',
+            f'Process working directory: `{self.working_dir}`',
             f'help command:\n```bash\n{self.help_command}\n```',
             f'running command:\n```bash\n{self.running_command}\n```',
             f'**Command Explain**\n{parameter_lines or "- None"}',
@@ -156,7 +158,7 @@ def _validate_report_file(
     label: str,
     project_id: int | None,
     database_mounts: list[ContainerMount],
-) -> tuple[Path | None, list[str]]:
+) -> list[str]:
     errors: list[str] = []
     try:
         host_path = (
@@ -165,7 +167,7 @@ def _validate_report_file(
             else resolve_test_run_path(file.path, test_run_id)
         )
     except ValueError as error:
-        return None, [f'{label} `{file.name}`: {error}']
+        return [f'{label} `{file.name}`: {error}']
 
     try:
         if not host_path.exists():
@@ -177,7 +179,7 @@ def _validate_report_file(
     except OSError as error:
         errors.append(f'{label} `{file.name}` cannot be accessed: {file.path} (host: {host_path}): {error}')
 
-    return host_path, errors
+    return errors
 
 
 def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id: int | None = None) -> list[str]:
@@ -187,7 +189,6 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id
         host_working_dir = resolve_test_run_path(report.working_dir, test_run_id)
     except ValueError as error:
         errors.append(f'working_dir: {error}')
-        host_working_dir = None
     else:
         try:
             is_working_dir = host_working_dir.is_dir()
@@ -222,15 +223,9 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id
 
     bookkeeping_files = {'00_running_command.txt', 'task_log.txt'}
     for label, file in all_files:
-        host_path, file_errors = _validate_report_file(file, test_run_id, label, project_id, report.database_mounts)
-        errors.extend(file_errors)
+        errors.extend(_validate_report_file(file, test_run_id, label, project_id, report.database_mounts))
         if label == 'Output file' and PurePosixPath(file.path).name in bookkeeping_files:
             errors.append(f'Output file `{file.name}` must not include bookkeeping file {file.path}.')
-        if label == 'Output file' and host_working_dir is not None and host_path is not None:
-            try:
-                host_path.relative_to(host_working_dir)
-            except ValueError:
-                errors.append(f'Output file `{file.name}` must be located under working_dir: {file.path}')
 
     return errors
 
