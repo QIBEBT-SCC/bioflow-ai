@@ -27,8 +27,8 @@ from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services.workflow import catalog as workflow_catalog
 from bioflow_ai.services.workflow.validation import validate_workflow
-from bioflow_ai.services.workflow.validation.adapters import subgraph_graph
-from bioflow_ai.services.workflow.validation.resolution import resolve_workflow
+from bioflow_ai.services.workflow.validation.adapters import build_graph, subgraph_graph
+from bioflow_ai.services.workflow.validation.resolution import extract_draft_marks, resolve_workflow
 from bioflow_ai.utils.formatters import format_validation_error, manager_help_command
 
 if TYPE_CHECKING:
@@ -220,6 +220,7 @@ async def _save_subgraph(runtime: ToolRuntime[ProjectContext]) -> Command:
     if not runtime.state.get('subgraph_outputs_set'):
         return _message(runtime, 'Call set_subgraph_outputs before saving.')
     graph = subgraph_graph(draft.nodes, draft.edges, runtime.state.get('subgraph_outputs', []))
+    draft_marks = extract_draft_marks([build_graph(item.nodes, item.edges) for item in drafts.values()])
     with Session(engine) as session:
         document = resolve_workflow(
             graph,
@@ -228,6 +229,7 @@ async def _save_subgraph(runtime: ToolRuntime[ProjectContext]) -> Command:
             execution_scope=draft.execution_scope,
             subgraph_purpose=runtime.state.get('subgraph_purpose', 'ordinary'),
             project_id=runtime.context.project_id,
+            draft_marks=draft_marks,
         )
     result = validate_workflow(document)
     if not result.valid:

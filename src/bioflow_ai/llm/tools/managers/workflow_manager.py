@@ -757,7 +757,7 @@ async def _save_all_workflows(runtime: ToolRuntime[ProjectContext]) -> Command:
 
     validation_errors = []
     for draft in drafts.values():
-        state = {'active_workflow_id': draft.draft_id, 'workflow_drafts': {draft.draft_id: draft}}
+        state = {'active_workflow_id': draft.draft_id, 'workflow_drafts': drafts}
         document = workflow_document(
             state,
             nodes=draft.nodes,

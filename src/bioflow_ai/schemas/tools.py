@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -323,20 +324,54 @@ class ToolNodePublic(BaseModel):
             if file.file_type == 'INPUT'
         ]
 
+        passthrough_inputs_by_mount: dict[str, list[str]] = {}
+        if self.tool_type == ToolType.DOCKER_PASSTHROUGH:
+            for file in self.file_mounts:
+                if file.is_passthrough:
+                    mount = PurePosixPath(file.mount_path).as_posix()
+                    passthrough_inputs_by_mount.setdefault(mount, []).append(file.name)
+
+        def output_description(file: FileMount) -> str:
+            if file.file_type != 'OUTPUT' or self.tool_type != ToolType.DOCKER_PASSTHROUGH:
+                return file.description
+            mount = PurePosixPath(file.mount_path).as_posix()
+            if mount == '/data/output' or mount not in passthrough_inputs_by_mount:
+                return file.description
+            inputs = ', '.join(passthrough_inputs_by_mount[mount])
+            note = f'(Written in the same directory as passthrough input {inputs}, not in workdir.)'
+            return f'{file.description} {note}'.strip()
+
         self.output_handles = [
             Handle(
                 name=file.name,
-                description=file.description,
+                description=output_description(file),
                 shared_writable=self.tool_type == ToolType.DOCKER_PASSTHROUGH,
             )
             for file in self.file_mounts
             if (file.file_type == 'OUTPUT' or file.is_passthrough) and not (file.is_log or file.is_report)
         ]
         if not any(handle.name == 'workdir' for handle in self.output_handles):
+            workdir_description = 'The working directory of the tool run.'
+            if self.tool_type == ToolType.DOCKER_PASSTHROUGH:
+                non_log_outputs = [
+                    file
+                    for file in self.file_mounts
+                    if file.file_type == 'OUTPUT' and not (file.is_log or file.is_report)
+                ]
+                has_workdir_outputs = any(
+                    PurePosixPath(file.mount_path).as_posix() == '/data/output'
+                    or PurePosixPath(file.mount_path).as_posix() not in passthrough_inputs_by_mount
+                    for file in non_log_outputs
+                )
+                if non_log_outputs and not has_workdir_outputs:
+                    workdir_description = (
+                        'The working directory of the tool run (only logs/reports are written here; '
+                        'declared outputs are written in their passthrough input directories).'
+                    )
             self.output_handles.append(
                 Handle(
                     name='workdir',
-                    description='The working directory of the tool run.',
+                    description=workdir_description,
                     shared_writable=self.tool_type == ToolType.DOCKER_PASSTHROUGH,
                 )
             )
