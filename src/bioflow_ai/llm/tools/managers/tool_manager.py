@@ -25,7 +25,7 @@ from bioflow_ai.llm.workflow_builder.graphs import workflow_document
 from bioflow_ai.llm.workflow_builder.node_ids import allocate_node_id
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.catalog import check_update_args
-from bioflow_ai.services.tools.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_container_command_preview
 from bioflow_ai.services.workflow.validation import validate_workflow
 from bioflow_ai.services.workflow.validation.adapters import bind_candidate_edges
 from bioflow_ai.utils.formatters import (
@@ -596,12 +596,13 @@ async def _update_tool_node(node_id: str, new_args: str, reason: str, runtime: T
     check_response = await check_update_args(tool_doc, origin_command, new_args, reason, runtime.context.user_id)
 
     if check_response.approve:
-        new_command = build_command_template(
+        new_command = build_container_command_preview(
             db_tool.command_template,
             db_tool.dynamic_params,
             db_tool.immutable_static_params,
             new_args,
             db_tool.file_mounts,
+            tool_type=db_tool.tool_type,
         )
         new_nodes = [
             n.model_copy(update={'data': {'tool_uid': tool_uid, 'modifiable_params': new_args}, 'command': new_command})

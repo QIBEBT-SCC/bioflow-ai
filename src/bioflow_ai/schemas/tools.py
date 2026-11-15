@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bioflow_ai.schemas.tool_config import FileMount, ImageConfig, ParamDefine, ToolType
 from bioflow_ai.schemas.workflow_run import RunStatus
-from bioflow_ai.services.tools.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_container_command_preview
 
 
 class ToolTagPublic(BaseModel):
@@ -239,12 +239,13 @@ class ToolPublic(BaseModel):
     @model_validator(mode='after')
     def build_command(self) -> Self:
         """Build the complete command after validation."""
-        self.complete_command = build_command_template(
+        self.complete_command = build_container_command_preview(
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
             immutable_static_params=self.immutable_static_params,
             modifiable_static_params=self.modifiable_static_params,
             file_mounts=self.file_mounts,
+            tool_type=self.tool_type,
         )
         return self
 
@@ -376,12 +377,13 @@ class ToolNodePublic(BaseModel):
                 )
             )
 
-        self.complete_command = build_command_template(
+        self.complete_command = build_container_command_preview(
             command_template=self.command_template,
             dynamic_params=self.dynamic_params,
             immutable_static_params=self.immutable_static_params,
             modifiable_static_params=self.modifiable_static_params,
             file_mounts=self.file_mounts,
+            tool_type=self.tool_type,
         )
         return self
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, Mapper, mapped_column, relationship
 from bioflow_ai.models.base import Base
 from bioflow_ai.models.decorator.special_field import IntEnumType, PydanticJson
 from bioflow_ai.schemas import tool_config
-from bioflow_ai.services.tools.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_container_command_preview
 from bioflow_ai.utils.system import random_uid, utc_now
 
 
@@ -126,10 +126,11 @@ class ToolMemory(Base):
 @event.listens_for(ToolDefine, 'before_update')
 def _render_complete_command(_mapper: Mapper[ToolDefine], _connection: Connection, tool: ToolDefine) -> None:
     """Keep the searchable rendered command aligned with the command definition."""
-    tool.complete_command = build_command_template(
+    tool.complete_command = build_container_command_preview(
         command_template=tool.command_template,
         dynamic_params=tool.dynamic_params or [],
         immutable_static_params=tool.immutable_static_params,
         modifiable_static_params=tool.modifiable_static_params,
         file_mounts=tool.file_mounts or [],
+        tool_type=tool.tool_type,
     )

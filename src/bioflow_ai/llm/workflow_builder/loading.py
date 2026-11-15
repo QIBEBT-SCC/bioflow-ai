@@ -13,7 +13,7 @@ from bioflow_ai.schemas.tools import Handle, WorkflowToolDefinition
 from bioflow_ai.schemas.workflow_config import ExecutionScope
 from bioflow_ai.schemas.workflow_nodes import PROCESSORS, RESOURCES
 from bioflow_ai.services.tools.cache import get_tool_definitions_sync
-from bioflow_ai.services.tools.input_format import build_command_template
+from bioflow_ai.services.tools.input_format import build_container_command_preview
 from bioflow_ai.services.workflow.validation.resolution import collect_tool_uids
 
 
@@ -46,12 +46,13 @@ def _tool_node(node_id: str, data: dict, catalog: dict[str, WorkflowToolDefiniti
         raise WorkflowLoadError(message)
     tool = db_tool.to_node()
     modifiable_params = data.get('modifiable_params')
-    command = build_command_template(
+    command = build_container_command_preview(
         db_tool.command_template,
         db_tool.dynamic_params,
         db_tool.immutable_static_params,
         modifiable_params,
         db_tool.file_mounts,
+        tool_type=db_tool.tool_type,
     )
     return BuildNode(
         id=node_id,

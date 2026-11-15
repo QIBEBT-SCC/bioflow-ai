@@ -2,13 +2,13 @@ import os
 import re
 import string
 from itertools import takewhile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.schemas.react_flow import TaskNode
-from bioflow_ai.schemas.tool_config import FileMount, ParamDefine
+from bioflow_ai.schemas.tool_config import FileMount, ParamDefine, ToolType
 
 
 class _UnresolvedField(BaseModel):
@@ -100,6 +100,47 @@ def build_command_template(
         **{file.name: file.file_path.removeprefix('value:').removeprefix('passthrough:') for file in file_mounts},
     )
     return ' '.join(final_template.split())
+
+
+def build_container_command_preview(
+    command_template: str,
+    dynamic_params: list[ParamDefine],
+    immutable_static_params: str | None,
+    modifiable_static_params: str | None,
+    file_mounts: list[FileMount],
+    *,
+    tool_type: ToolType,
+) -> str:
+    """Render declared container output mounts, retaining unresolved runtime inputs.
+
+    Unlike the execution template, this is display-only: input paths, mount conflicts,
+    and inherited workspace bindings cannot be resolved without a concrete run.
+    In particular an output's mount, rather than the literal ``{output_dir}``,
+    determines where a pass-through tool writes its sidecars.
+    """
+    formatter = PartialFormatter()
+    preview_mounts = []
+    for file in file_mounts:
+        if file.file_type != 'OUTPUT':
+            preview_mounts.append(file)
+            continue
+        if tool_type == ToolType.DOCKER_PASSTHROUGH:
+            path = formatter.format(file.file_path, output_dir=file.mount_path)
+        elif file.file_path == '{output_dir}':
+            path = file.mount_path
+        else:
+            # Ordinary outputs are mounted by basename; pass-through outputs retain
+            # their path relative to the output/workspace root (see build_tool_mounts).
+            path = str(PurePosixPath(file.mount_path) / PurePosixPath(file.file_path).name)
+        preview_mounts.append(file.model_copy(update={'file_path': path}))
+    command = build_command_template(
+        command_template,
+        dynamic_params,
+        immutable_static_params,
+        modifiable_static_params,
+        preview_mounts,
+    )
+    return formatter.format(command, output_dir='/data/output')
 
 
 def get_path(r1: str | Path, r2: str | Path, *, output_dir: str | Path) -> tuple[Path, Path, Path, str]:
