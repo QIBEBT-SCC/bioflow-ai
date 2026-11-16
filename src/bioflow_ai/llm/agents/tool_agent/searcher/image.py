@@ -7,6 +7,7 @@ from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.middleware import (
     ChatAttachmentMiddleware,
     DisableParallelToolCallsMiddleware,
+    EndLoopMiddleware,
     ParentHandoffMiddleware,
     TokenStatisticMiddleware,
     ToolCreationProgressMiddleware,
@@ -67,6 +68,7 @@ search_image_agent = create_agent(
     middleware=[
         DisableParallelToolCallsMiddleware(),
         ParentHandoffMiddleware(),
+        EndLoopMiddleware(),
         ToolCreationProgressMiddleware(),
         ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('search_image', **metadata),

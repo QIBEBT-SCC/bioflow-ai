@@ -4,7 +4,13 @@ from typing import TYPE_CHECKING, cast
 from langchain.agents import AgentState, create_agent
 
 from bioflow_ai.llm.context import BaseContext
-from bioflow_ai.llm.middleware import ChatAttachmentMiddleware, TokenStatisticMiddleware, ToolCreationProgressMiddleware
+from bioflow_ai.llm.middleware import (
+    ChatAttachmentMiddleware,
+    DisableParallelToolCallsMiddleware,
+    EndLoopMiddleware,
+    TokenStatisticMiddleware,
+    ToolCreationProgressMiddleware,
+)
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import read_tool_doc, select_tool
 from bioflow_ai.llm.tools.vector_store import search_tools_by_function
@@ -88,6 +94,8 @@ search_exist_tool_agent = create_agent(
     ],
     system_prompt=SYSTEM_PROMPT,
     middleware=[
+        DisableParallelToolCallsMiddleware(disabled_tools={'select_tool'}),
+        EndLoopMiddleware(),
         ToolCreationProgressMiddleware(),
         ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('search_exist_node', **metadata),

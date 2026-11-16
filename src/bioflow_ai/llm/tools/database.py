@@ -103,9 +103,10 @@ def select_image(
             'image_uid': tool_image.uid,
             'image': tool_image.image,
             'homepage': tool_image.homepage,
+            'should_end': True,
             'messages': [
                 ToolMessage(
-                    content='The correct image has been selected, you can summarize the information and end the task.',
+                    content='Image selected.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
@@ -162,14 +163,27 @@ def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
     Args:
         tool_id: selected tool id
     """
-    mapper = cast('BidirectionalMapper', runtime.state.get('id_mapper'))
+    mapper = cast('BidirectionalMapper | None', runtime.state.get('id_mapper'))
+    tool_uid = mapper.get_uid_by_index(tool_id) if mapper is not None else ''
+    if not tool_uid:
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content='The corresponding tool ID was not found in the current search results. Search again or use a valid tool_id.',
+                        tool_call_id=runtime.tool_call_id,
+                    )
+                ]
+            }
+        )
 
     return Command(
         update={
-            'tool_uid': mapper.get_uid_by_index(tool_id),
+            'tool_uid': tool_uid,
+            'should_end': True,
             'messages': [
                 ToolMessage(
-                    content='The corresponding tool has been found, you can summarize the information and end the task.',
+                    content='Tool selected.',
                     tool_call_id=runtime.tool_call_id,
                 )
             ],
