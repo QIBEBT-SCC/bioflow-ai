@@ -40,7 +40,9 @@ def build_uv_mounts() -> list[ContainerMount]:
     return mounts
 
 
-def resolve_registered_database_input_path(container_path: str, mounts: Iterable[ContainerMount]) -> Path:
+def resolve_registered_database_input_path(
+    container_path: str, mounts: Iterable[ContainerMount], *, for_copy: bool = False
+) -> Path:
     """Resolve an observed external mount only within a registered biological database."""
     path = PurePosixPath(container_path)
     if not path.is_absolute() or '..' in path.parts:
@@ -59,7 +61,8 @@ def resolve_registered_database_input_path(container_path: str, mounts: Iterable
             continue
 
         source = Path(mount.source).expanduser().resolve()
-        host_path = (source / Path(*relative.parts)).resolve()
+        mounted_path = source / Path(*relative.parts)
+        host_path = mounted_path.resolve()
         if not host_path.is_relative_to(source):
             msg = f'Input path resolves outside its database mount: {container_path}'
             raise ValueError(msg)
@@ -71,7 +74,7 @@ def resolve_registered_database_input_path(container_path: str, mounts: Iterable
                 continue
             root = Path(registered_path).expanduser().resolve()
             if root != Path(root.anchor) and source.is_relative_to(root):
-                return host_path
+                return mounted_path if for_copy else host_path
 
         msg = f'External mount source is not within a registered biological database: {mount.source}'
         raise ValueError(msg)
@@ -87,7 +90,7 @@ class ProjectDataMountPlan(BaseModel):
 
     mounts: tuple[ContainerMount, ...] = ()
 
-    def resolve_input_path(self, container_path: str) -> Path:
+    def resolve_input_path(self, container_path: str, *, for_copy: bool = False) -> Path:
         """Translate one concrete managed container input path back to its host path."""
         path = PurePosixPath(container_path)
         if not path.is_absolute() or '..' in path.parts:
@@ -105,7 +108,12 @@ class ProjectDataMountPlan(BaseModel):
                 relative = path.relative_to(target)
             except ValueError:
                 continue
-            return Path(mount.source, *relative.parts).absolute()
+            source = Path(mount.source)
+            host_path = (source / Path(*relative.parts)).absolute()
+            if for_copy and not host_path.resolve().is_relative_to(source.resolve()):
+                msg = f'Input path resolves outside its project mount: {container_path}'
+                raise ValueError(msg)
+            return host_path
 
         msg = f'Path is not available through a managed project mount: {container_path}'
         raise ValueError(msg)

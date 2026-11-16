@@ -49,8 +49,13 @@ def resolve_test_run_input_path(
     test_run_id: str,
     project_id: int | None = None,
     database_mounts: list[ContainerMount] | None = None,
+    *,
+    for_copy: bool = False,
 ) -> Path:
-    """Resolve an input from output storage, project data, or a registered database mount."""
+    """Resolve an input from output storage or a managed mount.
+
+    For copies of mounted inputs, check containment and preserve the filename seen in the trial.
+    """
     path = PurePosixPath(container_path)
     if not path.is_absolute() or '..' in path.parts:
         err_msg = f'Path must be absolute and cannot contain parent traversal: {container_path}'
@@ -64,10 +69,10 @@ def resolve_test_run_input_path(
         return resolve_test_run_path(container_path, test_run_id)
 
     if project_id is not None and any(_is_same_or_child(path, PurePosixPath(root)) for root in PROJECT_DATA_ROOTS):
-        return build_project_data_mount_plan(project_id).resolve_input_path(container_path)
+        return build_project_data_mount_plan(project_id).resolve_input_path(container_path, for_copy=for_copy)
 
     if database_mounts:
-        return resolve_registered_database_input_path(container_path, database_mounts)
+        return resolve_registered_database_input_path(container_path, database_mounts, for_copy=for_copy)
 
     allowed_roots = ', '.join(('/data/output', *PROJECT_DATA_ROOTS))
     err_msg = (

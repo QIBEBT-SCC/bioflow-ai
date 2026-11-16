@@ -29,7 +29,11 @@ def copy_validation_paths(paths: dict[str, Path], output_root: Path) -> dict[str
         parent = next((root for root in directory_roots if source.is_relative_to(root)), source.parent)
         group = hashlib.sha256(str(parent).encode()).hexdigest()[:24]
         destination = output_root / '_validation_inputs' / group / source.relative_to(parent)
-        copies[name] = destination if destination.exists() else copy_path(source, destination)
+        try:
+            copies[name] = destination if destination.exists() else copy_path(source, destination)
+        except OSError as error:
+            message = f'Could not copy INPUT {name!r} from {source} into the validation directory. {error}'
+            raise OSError(message) from error
     return copies
 
 

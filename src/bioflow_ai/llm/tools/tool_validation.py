@@ -183,10 +183,14 @@ def _resolve_bindings(
     missing = sorted(mounts.keys() - input_bindings.keys())
     extra = sorted(input_bindings.keys() - mounts.keys())
     if missing or extra:
-        message = f'Bind exactly the INPUT handles. Missing: {missing}. Unknown: {extra}.'
+        message = (
+            f'Bind every declared INPUT, including any declared companion index. '
+            f'Missing handles {missing}. Unknown handles {extra}.'
+        )
         raise ValueError(message)
 
     report = TestRunReport.model_validate(runtime.state['test_run_report'])
+    reported_files = {PurePosixPath(file.path) for file in report.input_files if file.file_type == 'file'}
     root = runtime.context.validation_root.resolve()
     trial_root = resolve_test_run_path('/data/output', runtime.context.test_run_id)
     runs = runtime.state.get('validation_runs', {})
@@ -202,12 +206,18 @@ def _resolve_bindings(
             continue
         if isinstance(binding, NodeOutputBinding):
             if binding.run_id not in runs:
-                message = f'Unknown execution {binding.run_id!r}. Use an output from this validation run.'
+                message = (
+                    f'INPUT {name!r} refers to unknown execution {binding.run_id!r}. '
+                    'Run the prerequisite with execute_node(node_id=...) in this validation session and use its run_id.'
+                )
                 raise ValueError(message)
             output = ToolOutput.model_validate(runs[binding.run_id])
             value = output.all_files().get(binding.output)
             if value is None:
-                message = f'Execution {binding.run_id!r} has no available output {binding.output!r}.'
+                message = (
+                    f'INPUT {name!r} refers to unavailable output {binding.output!r} from execution {binding.run_id!r}. '
+                    'Use an output name returned by that execution.'
+                )
                 raise ValueError(message)
             path = Path(value).resolve()
             if binding.relative_path != '.':
@@ -225,27 +235,49 @@ def _resolve_bindings(
                 sample_name=output.sample_name,
             )
         else:
-            path = (
-                resolve_test_run_input_path(
-                    binding, runtime.context.test_run_id, runtime.context.project_id, report.database_mounts
+            try:
+                path = (
+                    resolve_test_run_input_path(
+                        binding,
+                        runtime.context.test_run_id,
+                        runtime.context.project_id,
+                        report.database_mounts,
+                        for_copy=file.is_passthrough,
+                    )
+                    if PurePosixPath(binding).is_absolute()
+                    else _relative_path(trial_root, binding)
                 )
-                if PurePosixPath(binding).is_absolute()
-                else _relative_path(trial_root, binding)
-            )
+            except (ValueError, OSError) as error:
+                message = f'Cannot resolve INPUT {name!r} bound to {binding!r}. {error}'
+                raise ValueError(message) from error
             if file.is_passthrough:
-                # Only test-run data may be staged for a writable handle.
-                if not path.is_relative_to(trial_root):
-                    message = f'Writable input {name!r} must come from the trial directory or an earlier execution.'
-                    raise ValueError(message)
                 if path == trial_root:
-                    message = f'Bind {name!r} to a specific trial file or directory, rather than the entire trial root.'
+                    message = f'Bind {name!r} to a specific file or directory inside the trial /data/output.'
                     raise ValueError(message)
-                validate_managed_paths([path], trial_root)
+                if path.is_relative_to(trial_root):
+                    try:
+                        validate_managed_paths([path], trial_root)
+                    except FileNotFoundError as error:
+                        message = f'INPUT {name!r} is missing at trial path {binding!r}. Check it with inspect_files.'
+                        raise FileNotFoundError(message) from error
+                elif PurePosixPath(binding) not in reported_files:
+                    message = (
+                        f'Pass-through INPUT {name!r} bound to {binding!r} is outside the trial directory. '
+                        'Use a managed file listed in the trial report, a path under the trial /data/output, '
+                        'or a named output from execute_node in this validation session.'
+                    )
+                    raise ValueError(message)
+                elif not path.is_file():
+                    message = (
+                        f'Pass-through INPUT {name!r} bound to reported path {binding!r} is missing or is no longer '
+                        'a regular file. Check the source file and bind its current path from the trial report.'
+                    )
+                    raise ValueError(message)
                 to_copy[name] = path
             else:
                 resolved[name] = ResolvedToolInput(value=str(path))
         if not output_path_exists(path):
-            message = f'Input {name!r} does not exist: {path}'
+            message = f'INPUT {name!r} is missing for binding {binding!r}. Resolved path {path}.'
             raise FileNotFoundError(message)
 
     resolved.update(
@@ -348,7 +380,8 @@ def execute_node(
     Args:
         input_bindings: Bind each INPUT handle to a trial-relative path or to an earlier output using
             {"run_id": "...", "output": "...", "relative_path": "."}. Use a managed absolute container path
-            for project/reference inputs from the report and literal strings for value: inputs.
+            for project/reference inputs from the report and literal strings for value: inputs. Pass-through files
+            from the report are copied into the attempt. Bind companion indexes separately to keep them adjacent.
         node_id: ID from search_node. Omit to validate the current draft.
         output_members: For draft OUTPUTs that declare a filename prefix, give the expected suffixes, e.g.
             {"index": [".1.bt2", ".2.bt2"]}. Other OUTPUTs are checked by exact path.
@@ -375,8 +408,13 @@ def execute_node(
             _check_mount_targets(config)
         else:
             config = DockerToolExecutionConfig.model_validate(_load_node(node_id, runtime))
-        inputs = _resolve_bindings(config, input_bindings, runtime, attempt_root / 'trial')
-        inputs = isolate_validation_inputs(config, inputs, attempt_root, root)
+        try:
+            inputs = _resolve_bindings(config, input_bindings, runtime, attempt_root / 'trial')
+            inputs = isolate_validation_inputs(config, inputs, attempt_root, root)
+        except (ValueError, OSError) as error:
+            return _execution_failed(
+                runtime, f'Validation input preparation failed before launch. {error}', draft=draft, attempt=attempt
+            )
         # A separate output path also gives inherited workspaces a distinct log filename.
         execution = prepare_docker_tool_execution(
             config,
@@ -393,10 +431,13 @@ def execute_node(
             runtime.stream_writer({'validate_node': execution})
         result = execute_docker_tool_with_result(execution)
         diagnostics = _diagnostics(result, root)
+        command_details = f'Command\n{execution.command}'
+        if diagnostics:
+            command_details += f'\nLog tail\n{diagnostics}'
         if result.exit_code:
             return _execution_failed(
                 runtime,
-                f'Exit code {result.exit_code}\n{execution.command}\n{diagnostics}',
+                f'The tool command exited with code {result.exit_code}.\n{command_details}',
                 draft=draft,
                 attempt=attempt,
             )
@@ -425,7 +466,8 @@ def execute_node(
             ]
             return _execution_failed(
                 runtime,
-                f'Required outputs were not generated: {", ".join(missing)}\n{execution.command}\n{diagnostics}',
+                f'The tool command exited successfully but required outputs are missing. '
+                f'Check these declared paths in the validation directory: {", ".join(missing)}.\n{command_details}',
                 draft=draft,
                 attempt=attempt,
             )
@@ -465,7 +507,10 @@ def execute_node(
             }
         )
     except (ValueError, OSError) as error:
-        return _execution_failed(runtime, str(error), draft=draft, attempt=attempt)
+        detail = f'Could not prepare the validation command. {error}'
+        if execution is not None:
+            detail = f'Validation failed while preparing or running the tool command. {error}\n{execution.command}'
+        return _execution_failed(runtime, detail, draft=draft, attempt=attempt)
     except Exception as error:
         logger.exception('Tool node execution failed')
         command = f'\n{execution.command}' if execution is not None else ''

@@ -16,7 +16,20 @@ The host workspace is mounted at `/data/output` throughout the chain. Commands u
 directory, and ordinary OUTPUT declarations keep using `{output_dir}`. New files and directories are declared
 as ordinary OUTPUTs; there is no separate pass-through OUTPUT mode or shared mount root.
 
-For configuration validation, use `search_node` and `view_node` to find and inspect an equivalent upstream configure Tool, then run it with `execute_node(node_id=..., input_bindings=...)`. Bind the configured directory and each dependency to that run's outputs using `{"run_id": "...", "output": "..."}` (and `"relative_path"` when selecting a file inside a directory output). Inspect generated directories with `inspect_files(..., root="validation")` if needed, then call `execute_node(input_bindings=...)` without `node_id` to validate the draft using the predecessor's workspace and mount paths. If no suitable configure node exists in the catalog, report the missing prerequisite instead of inventing inputs or skipping validation. The trial directory is read-only, and the validation run isolates each attempt under its own temporary directory. A test path such as `/data/output/03_strelka_config/strelka_run/...` becomes `{output_dir}/strelka_run/...` in the draft. When a first pass-through Tool uses trial files as writable inputs, bind them to trial-relative paths; validation copies those declared paths into the attempt automatically.
+When validating a first pass-through Tool, bind files under the trial's `/data/output` using trial-relative
+paths. For a file read from a managed project or database mount during the trial, bind its absolute container
+path from the report. Validation copies these inputs into the current attempt. Bind both the primary file and
+its companion index as separate INPUT handles. Files in the same source directory are copied into the same
+temporary directory, keeping their filenames and adjacency.
+
+When validating a runner that needs a configured workspace, use `search_node` and `view_node` to find and
+inspect an equivalent upstream configure Tool. Run it with `execute_node(node_id=..., input_bindings=...)`.
+Bind the configured directory and each dependency to that run's outputs using `{"run_id": "...", "output": "..."}`
+and `"relative_path"` when selecting a file inside a directory output. Use `inspect_files(..., root="validation")`
+to inspect generated directories if needed. Call `execute_node(input_bindings=...)` to validate the runner draft
+in a copy of the predecessor's workspace with its container paths preserved. If the configure Tool is missing from
+the catalog, report that it must be created and validated before the runner. A trial path such as `/data/output/03_strelka_config/strelka_run/...`
+becomes `{output_dir}/strelka_run/...` in the draft.
 
 Mark each file or directory that should continue downstream as an INPUT with `file_path="passthrough:{name}"`.
 It automatically exposes a same-name output pointing to the original host path. Do not manually declare a second
