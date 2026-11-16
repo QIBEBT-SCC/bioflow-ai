@@ -17,18 +17,18 @@ directory, and ordinary OUTPUT declarations keep using `{output_dir}`. New files
 as ordinary OUTPUTs; there is no separate pass-through OUTPUT mode or shared mount root.
 
 When validating a first pass-through Tool, bind files under the trial's `/data/output` using trial-relative
-paths. For a file read from a managed project or database mount during the trial, bind its absolute container
-path from the report. Validation copies these inputs into the current attempt. Bind both the primary file and
+paths. For other files or directories, bind their absolute recorded container path or host path.
+You may bind `.` to a directory INPUT at `/data/output` to validate a copy of the whole trial workspace. Validation copies these inputs into the current attempt. Bind both the primary file and
 its companion index as separate INPUT handles. Files in the same source directory are copied into the same
 temporary directory, keeping their filenames and adjacency.
 
-When validating a runner that needs a configured workspace, use `search_node` and `view_node` to find and
+A fixture workspace directory may be bound directly; it does not require a catalog predecessor.
+When you need to generate a missing configured workspace, use `search_node` and `view_node` to find and
 inspect an equivalent upstream configure Tool. Run it with `execute_node(node_id=..., input_bindings=...)`.
 Bind the configured directory and each dependency to that run's outputs using `{"run_id": "...", "output": "..."}`
 and `"relative_path"` when selecting a file inside a directory output. Use `inspect_files(..., root="validation")`
 to inspect generated directories if needed. Call `execute_node(input_bindings=...)` to validate the runner draft
-in a copy of the predecessor's workspace with its container paths preserved. If the configure Tool is missing from
-the catalog, report that it must be created and validated before the runner. A trial path such as `/data/output/03_strelka_config/strelka_run/...`
+in a copy of the predecessor's workspace with its container paths preserved. If no usable fixture or prerequisite is available, report the missing input. A trial path such as `/data/output/03_strelka_config/strelka_run/...`
 becomes `{output_dir}/strelka_run/...` in the draft.
 
 Mark each file or directory that should continue downstream as an INPUT with `file_path="passthrough:{name}"`.

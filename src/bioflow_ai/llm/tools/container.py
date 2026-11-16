@@ -98,54 +98,58 @@ def _resolve_image_ref(
     return tool_image.image, None
 
 
-async def _validate_extra_mounts(
-    mounts: list[ContainerMount] | None,
-    tool_call_id: str | None,
-) -> tuple[list[ContainerMount], Command | None]:
-    if mounts is None:
-        return [], None
+def _resolve_extra_mounts(
+    mounts: list[ContainerMount], context: TestRunContext, recorded_mounts: list[ContainerMount]
+) -> list[ContainerMount]:
+    """Resolve fixture aliases and keep every source outside the trial read-only."""
+    from bioflow_ai.llm.tools.test_run_report import resolve_test_run_input_path, resolve_test_run_path
 
+    trial_root = resolve_test_run_path('/data/output', context.test_run_id)
     managed_mounts = ('/data/testdata', '/data/output', *PROJECT_DATA_ROOTS)
+    resolved: dict[str, ContainerMount] = {}
     for mount in mounts:
         target = PurePosixPath(mount.target)
         if not target.is_absolute() or '..' in target.parts:
-            return [], Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=f'The container mount target must be absolute and cannot contain parent traversal: {mount.target}',
-                            tool_call_id=tool_call_id,
-                        )
-                    ]
-                }
-            )
-        if any(target.is_relative_to(root) or PurePosixPath(root).is_relative_to(target) for root in managed_mounts):
-            return [], Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=f'The container path `{mount.target}` is already managed and mounted by default, '
-                            'so manual configuration is not required. '
-                            'If additional data needs to be mounted, use a different path.',
-                            tool_call_id=tool_call_id,
-                        )
-                    ]
-                }
-            )
+            message = f'The container mount target must be absolute without parent traversal: {mount.target}'
+            raise ValueError(message)
+        if any(PurePosixPath(root).is_relative_to(target) for root in managed_mounts):
+            message = f'Mount {mount.target} would replace a default mount. Choose another target or a subdirectory.'
+            raise ValueError(message)
+        source = resolve_test_run_input_path(
+            mount.source,
+            context.test_run_id,
+            context.project_id,
+            [*recorded_mounts, *resolved.values()],
+        ).resolve(strict=True)
+        if not (source.is_file() or source.is_dir()):
+            message = f'Mount source must be a file or directory: {source}'
+            raise ValueError(message)
+        normalized = mount.model_copy(
+            update={
+                'source': str(source),
+                'target': str(target),
+                'read_only': mount.read_only or not source.is_relative_to(trial_root),
+            }
+        )
+        if str(target) in resolved and resolved[str(target)] != normalized:
+            message = f'Multiple sources specified for mount target {target}'
+            raise ValueError(message)
+        resolved[str(target)] = normalized
+    return list(resolved.values())
 
-        if mount.source and not await AsyncPath(mount.source).exists():
-            return [], Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=f'The source path `{mount.source}` does not exist. `source` must be an actual directory or file path on the host machine.',
-                            tool_call_id=tool_call_id,
-                        )
-                    ]
-                }
-            )
 
-    return mounts, None
+async def _validate_extra_mounts(
+    mounts: list[ContainerMount] | None,
+    tool_call_id: str | None,
+    context: TestRunContext,
+    recorded_mounts: list[ContainerMount] | None = None,
+) -> tuple[list[ContainerMount], Command | None]:
+    try:
+        return await asyncio.to_thread(_resolve_extra_mounts, mounts or [], context, recorded_mounts or []), None
+    except (ValueError, OSError) as error:
+        return [], Command(
+            update={'messages': [ToolMessage(content=str(error), tool_call_id=tool_call_id, status='error')]}
+        )
 
 
 @tool('run_command', parse_docstring=True)
@@ -164,7 +168,6 @@ async def advance_run_command_tool(
         workdir: 指定命令运行的工作目录
         mounts: 除默认测试数据和输出目录外, **额外的**数据挂载
     """
-    # 指令合法性检查
     if invalid_command := _validate_command(command, workdir, runtime.tool_call_id):
         return invalid_command
 
@@ -183,7 +186,12 @@ async def advance_run_command_tool(
     if runtime.context.project_id is not None:
         project_mounts = list(build_project_data_mount_plan(runtime.context.project_id).mounts)
 
-    extra_mounts, invalid_mount = await _validate_extra_mounts(mounts, runtime.tool_call_id)
+    extra_mounts, invalid_mount = await _validate_extra_mounts(
+        mounts,
+        runtime.tool_call_id,
+        runtime.context,
+        [ContainerMount.model_validate(mount) for mount in runtime.state.get('test_run_mounts', [])],
+    )
     if invalid_mount is not None:
         return invalid_mount
 

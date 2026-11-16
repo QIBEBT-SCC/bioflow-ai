@@ -6,14 +6,12 @@ from pathlib import Path, PurePosixPath
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
 from bioflow_ai.infrastructure.containers import ContainerMount
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.models.resource import BioDb
 
 PROJECT_SAMPLES_ROOT = '/data/project_samples'
 PROJECT_REFERENCE_ROOT = '/data/project_reference'
@@ -40,46 +38,22 @@ def build_uv_mounts() -> list[ContainerMount]:
     return mounts
 
 
-def resolve_registered_database_input_path(
+def resolve_recorded_input_path(
     container_path: str, mounts: Iterable[ContainerMount], *, for_copy: bool = False
 ) -> Path:
-    """Resolve an observed external mount only within a registered biological database."""
+    """Resolve an input through the most specific recorded mount, including fixture mounts."""
     path = PurePosixPath(container_path)
     if not path.is_absolute() or '..' in path.parts:
         msg = f'Path must be absolute and cannot contain parent traversal: {container_path}'
         raise ValueError(msg)
-
-    ordered_mounts = sorted(mounts, key=lambda mount: len(PurePosixPath(mount.target).parts), reverse=True)
-    for mount in ordered_mounts:
+    latest = {mount.target: mount for mount in mounts}
+    for mount in sorted(latest.values(), key=lambda item: len(PurePosixPath(item.target).parts), reverse=True):
         target = PurePosixPath(mount.target)
-        if not target.is_absolute() or '..' in target.parts:
-            msg = f'Database mount target must be absolute and cannot contain parent traversal: {mount.target}'
-            raise ValueError(msg)
-        try:
-            relative = path.relative_to(target)
-        except ValueError:
-            continue
-
-        source = Path(mount.source).expanduser().resolve()
-        mounted_path = source / Path(*relative.parts)
-        host_path = mounted_path.resolve()
-        if not host_path.is_relative_to(source):
-            msg = f'Input path resolves outside its database mount: {container_path}'
-            raise ValueError(msg)
-
-        with Session(engine) as session:
-            registered_paths = session.scalars(select(BioDb.path).where(BioDb.path.is_not(None))).all()
-        for registered_path in registered_paths:
-            if not registered_path:
-                continue
-            root = Path(registered_path).expanduser().resolve()
-            if root != Path(root.anchor) and source.is_relative_to(root):
-                return mounted_path if for_copy else host_path
-
-        msg = f'External mount source is not within a registered biological database: {mount.source}'
-        raise ValueError(msg)
-
-    msg = f'Input path is not available through a recorded registered-database mount: {container_path}'
+        if path.is_relative_to(target):
+            source = Path(mount.source).expanduser().resolve()
+            mounted_path = source / Path(*path.relative_to(target).parts)
+            return mounted_path if for_copy else mounted_path.resolve()
+    msg = f'Input path is not available through a recorded mount: {container_path}'
     raise ValueError(msg)
 
 

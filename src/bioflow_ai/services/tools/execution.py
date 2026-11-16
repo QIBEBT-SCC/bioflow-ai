@@ -381,6 +381,22 @@ def build_tool_mounts(
     check_mount_conflicts(mount_paths, fixed_mounts)
     mount_paths.update(fixed_mounts)
     if passthrough:
+        # Nested bindings override their parent in the container. Check outputs at
+        # that effective source, rather than the directory hidden by the bind.
+        for file in output_files:
+            container_path = PurePosixPath(param_inputs[file.name])
+            for target, source in sorted(
+                mount_paths.items(), key=lambda item: len(PurePosixPath(item[0]).parts), reverse=True
+            ):
+                if container_path.is_relative_to(target):
+                    actual_output = source / container_path.relative_to(target)
+                    if file.is_log:
+                        expected_output.log = actual_output
+                    elif file.is_report:
+                        expected_output.reports[file.name] = actual_output
+                    else:
+                        expected_output.result[file.name] = actual_output
+                    break
         original_mounts.update(
             {target: str(source) for target, source in mount_paths.items() if str(source) == host_output_dir}
         )

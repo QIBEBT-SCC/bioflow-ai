@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 
 def copy_path(source: Path, destination: Path) -> Path:
     """Copy a file or directory, following symlinks so the copy shares no data with its source."""
+    if destination.resolve().is_relative_to(source.resolve()):
+        message = f'Cannot copy a directory into itself: {source} -> {destination}'
+        raise ValueError(message)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if source.is_dir():
         copytree(source, destination, dirs_exist_ok=True)

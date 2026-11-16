@@ -18,6 +18,7 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import ToolGeneratorContext
 from bioflow_ai.llm.tools.test_run_report import TestRunReport, resolve_test_run_input_path, resolve_test_run_path
 from bioflow_ai.llm.tools.tool_catalog import InvalidToolDefinitionError, SearchToolSchema, search_catalog_nodes
+from bioflow_ai.schemas.passthrough import ToolWorkspace
 from bioflow_ai.schemas.tool_config import ToolType
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.tools.execution import (
@@ -30,10 +31,10 @@ from bioflow_ai.services.tools.execution import (
 )
 from bioflow_ai.services.tools.passthrough import copy_validation_paths, isolate_validation_inputs
 from bioflow_ai.services.workflow.output_validation import output_path_exists
-from bioflow_ai.services.workflow.validation.passthrough import validate_managed_paths
 from bioflow_ai.utils.formatters import search_nodes_formatter
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper, merge_mappers, restore_mapper
 
+MAX_NODE_EXECUTION_FAILURES = 3
 MAX_LISTED_FILES = 50
 DIAGNOSTIC_TAIL_CHARS = 4000
 REQUIRED_DRAFT_FIELDS = (*DockerToolExecutionConfig.model_fields, 'name', 'description')
@@ -190,7 +191,6 @@ def _resolve_bindings(
         raise ValueError(message)
 
     report = TestRunReport.model_validate(runtime.state['test_run_report'])
-    reported_files = {PurePosixPath(file.path) for file in report.input_files if file.file_type == 'file'}
     root = runtime.context.validation_root.resolve()
     trial_root = resolve_test_run_path('/data/output', runtime.context.test_run_id)
     runs = runtime.state.get('validation_runs', {})
@@ -251,28 +251,6 @@ def _resolve_bindings(
                 message = f'Cannot resolve INPUT {name!r} bound to {binding!r}. {error}'
                 raise ValueError(message) from error
             if file.is_passthrough:
-                if path == trial_root:
-                    message = f'Bind {name!r} to a specific file or directory inside the trial /data/output.'
-                    raise ValueError(message)
-                if path.is_relative_to(trial_root):
-                    try:
-                        validate_managed_paths([path], trial_root)
-                    except FileNotFoundError as error:
-                        message = f'INPUT {name!r} is missing at trial path {binding!r}. Check it with inspect_files.'
-                        raise FileNotFoundError(message) from error
-                elif PurePosixPath(binding) not in reported_files:
-                    message = (
-                        f'Pass-through INPUT {name!r} bound to {binding!r} is outside the trial directory. '
-                        'Use a managed file listed in the trial report, a path under the trial /data/output, '
-                        'or a named output from execute_node in this validation session.'
-                    )
-                    raise ValueError(message)
-                elif not path.is_file():
-                    message = (
-                        f'Pass-through INPUT {name!r} bound to reported path {binding!r} is missing or is no longer '
-                        'a regular file. Check the source file and bind its current path from the trial report.'
-                    )
-                    raise ValueError(message)
                 to_copy[name] = path
             else:
                 resolved[name] = ResolvedToolInput(value=str(path))
@@ -280,12 +258,12 @@ def _resolve_bindings(
             message = f'INPUT {name!r} is missing for binding {binding!r}. Resolved path {path}.'
             raise FileNotFoundError(message)
 
-    resolved.update(
-        {
-            name: ResolvedToolInput(value=str(path))
-            for name, path in copy_validation_paths(to_copy, input_copy_root).items()
-        }
-    )
+    for name, path in copy_validation_paths(to_copy, input_copy_root).items():
+        # A root binding is an explicit workspace request, even without a catalog predecessor.
+        workspace = None
+        if mounts[name].mount_path == '/data/output' and path.is_dir():
+            workspace = ToolWorkspace(path=str(path), run_uid=root.name, mounts={'/data/output': str(path)})
+        resolved[name] = ResolvedToolInput(value=str(path), workspace=workspace, source_uid=str(path))
     return resolved
 
 
@@ -301,16 +279,6 @@ def _protect_trial_data(execution: DockerToolExecution, root: Path) -> DockerToo
             ],
         }
     )
-
-
-def _check_mount_targets(config: DockerToolExecutionConfig) -> None:
-    for file in config.file_mounts:
-        if file.file_type == 'INPUT' and file.file_path.startswith('value:'):
-            continue
-        target = PurePosixPath(file.mount_path)
-        if not target.is_relative_to('/data') or target == PurePosixPath('/data') or '..' in target.parts:
-            message = f'Mount {file.name!r} must target a path below /data: {file.mount_path}'
-            raise ValueError(message)
 
 
 def _expected_draft_outputs(
@@ -339,7 +307,7 @@ def _expected_draft_outputs(
         candidates = [base.with_name(base.name + suffix) for suffix in suffixes] if suffixes else [base]
         for path in candidates:
             actual = path.resolve()
-            if not actual.is_relative_to(root) or actual != path.absolute():
+            if not actual.is_relative_to(root):
                 message = f'Output {name!r} must resolve inside the validation run: {path}'
                 raise ValueError(message)
         paths[name] = candidates
@@ -356,14 +324,27 @@ def _diagnostics(result: DockerToolExecutionResult, root: Path) -> str:
     return '\n'.join(tail for tail in (result.console_output[-DIAGNOSTIC_TAIL_CHARS:], log_tail) if tail)
 
 
-def _execution_failed(runtime: ToolRuntime[ToolGeneratorContext], detail: str, *, draft: bool, attempt: int) -> Command:
+def _execution_failed(
+    runtime: ToolRuntime[ToolGeneratorContext],
+    detail: str,
+    *,
+    node_id: int | None,
+    attempt: int,
+    executed: bool = False,
+) -> Command:
+    key = 'draft' if node_id is None else f'node:{node_id}'
+    failures = dict(runtime.state.get('node_execution_failures', {}))
+    if executed:
+        failures[key] = failures.get(key, 0) + 1
+        detail += f'\nExecution failures for {key}: {failures[key]}/{MAX_NODE_EXECUTION_FAILURES}.'
+        if failures[key] >= MAX_NODE_EXECUTION_FAILURES:
+            detail += ' This node has exhausted its execution budget; other nodes remain available.'
     update: dict[str, Any] = {
         'messages': [_message(runtime, detail, error=True)],
         'execution_count': attempt,
-        'retry_times': 1,
-        'last_retry_error': detail,
+        'node_execution_failures': failures,
     }
-    if draft:
+    if node_id is None:
         update.update(validated=False, updated=False, should_end=False)
     return Command(update=update)
 
@@ -380,32 +361,43 @@ def execute_node(
     Args:
         input_bindings: Bind each INPUT handle to a trial-relative path or to an earlier output using
             {"run_id": "...", "output": "...", "relative_path": "."}. Use a managed absolute container path
-            for project/reference inputs from the report and literal strings for value: inputs. Pass-through files
-            from the report are copied into the attempt. Bind companion indexes separately to keep them adjacent.
-        node_id: ID from search_node. Omit to validate the current draft.
+            or a host path for other inputs and literal strings for value: inputs. Writable inputs are copied
+            into the attempt; directories (including "." for the entire trial) are supported.
+            Bind companion indexes separately or include them in a directory input.
+        node_id: ID from search_node. Omit to validate the current draft. Each ID and the draft have
+            separate budgets of three failed executions; input/configuration preparation errors do not count.
         output_members: For draft OUTPUTs that declare a filename prefix, give the expected suffixes, e.g.
             {"index": [".1.bt2", ".2.bt2"]}. Other OUTPUTs are checked by exact path.
     """
     draft = node_id is None
+    key = 'draft' if draft else f'node:{node_id}'
+    if runtime.state.get('node_execution_failures', {}).get(key, 0) >= MAX_NODE_EXECUTION_FAILURES:
+        return _execution_failed(
+            runtime,
+            f'Execution budget exhausted for {key}: {MAX_NODE_EXECUTION_FAILURES} failed executions. '
+            'Choose another prerequisite or report the blocker. Other nodes retain their own budgets.',
+            node_id=node_id,
+            attempt=runtime.state.get('execution_count', 0),
+        )
     root = runtime.context.validation_root.resolve()
     attempt = runtime.state.get('execution_count', 0) + 1
     run_id = str(attempt)
     attempt_root = root / run_id
     execution = None
+    executed = False
     if draft:
         missing_fields = [field for field in REQUIRED_DRAFT_FIELDS if field not in runtime.state]
         if missing_fields:
             return _execution_failed(
                 runtime,
                 f'Configure the draft before executing it. Missing: {", ".join(missing_fields)}.',
-                draft=True,
+                node_id=node_id,
                 attempt=attempt,
             )
     try:
         attempt_root.mkdir()
         if node_id is None:
             config = DockerToolExecutionConfig.model_validate(runtime.state)
-            _check_mount_targets(config)
         else:
             config = DockerToolExecutionConfig.model_validate(_load_node(node_id, runtime))
         try:
@@ -413,7 +405,7 @@ def execute_node(
             inputs = isolate_validation_inputs(config, inputs, attempt_root, root)
         except (ValueError, OSError) as error:
             return _execution_failed(
-                runtime, f'Validation input preparation failed before launch. {error}', draft=draft, attempt=attempt
+                runtime, f'Validation input preparation failed before launch. {error}', node_id=node_id, attempt=attempt
             )
         # A separate output path also gives inherited workspaces a distinct log filename.
         execution = prepare_docker_tool_execution(
@@ -430,6 +422,7 @@ def execute_node(
         if draft:
             runtime.stream_writer({'validate_node': execution})
         result = execute_docker_tool_with_result(execution)
+        executed = True
         diagnostics = _diagnostics(result, root)
         command_details = f'Command\n{execution.command}'
         if diagnostics:
@@ -438,8 +431,9 @@ def execute_node(
             return _execution_failed(
                 runtime,
                 f'The tool command exited with code {result.exit_code}.\n{command_details}',
-                draft=draft,
+                node_id=node_id,
                 attempt=attempt,
+                executed=True,
             )
 
         if draft:
@@ -468,8 +462,9 @@ def execute_node(
                 runtime,
                 f'The tool command exited successfully but required outputs are missing. '
                 f'Check these declared paths in the validation directory: {", ".join(missing)}.\n{command_details}',
-                draft=draft,
+                node_id=node_id,
                 attempt=attempt,
+                executed=True,
             )
 
         available = {
@@ -510,8 +505,10 @@ def execute_node(
         detail = f'Could not prepare the validation command. {error}'
         if execution is not None:
             detail = f'Validation failed while preparing or running the tool command. {error}\n{execution.command}'
-        return _execution_failed(runtime, detail, draft=draft, attempt=attempt)
+        return _execution_failed(runtime, detail, node_id=node_id, attempt=attempt, executed=executed)
     except Exception as error:
         logger.exception('Tool node execution failed')
         command = f'\n{execution.command}' if execution is not None else ''
-        return _execution_failed(runtime, f'{type(error).__name__}: {error}{command}', draft=draft, attempt=attempt)
+        return _execution_failed(
+            runtime, f'{type(error).__name__}: {error}{command}', node_id=node_id, attempt=attempt, executed=executed
+        )

@@ -13,9 +13,8 @@ from pydantic import BaseModel, Field
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers import ContainerMount
 from bioflow_ai.infrastructure.containers.mount_paths import (
-    PROJECT_DATA_ROOTS,
     build_project_data_mount_plan,
-    resolve_registered_database_input_path,
+    resolve_recorded_input_path,
 )
 from bioflow_ai.llm.context import TestRunContext
 
@@ -61,33 +60,23 @@ def resolve_test_run_input_path(
         err_msg = f'Path must be absolute and cannot contain parent traversal: {container_path}'
         raise ValueError(err_msg)
 
-    try:
-        path.relative_to('/data/output')
-    except ValueError:
-        pass
-    else:
-        return resolve_test_run_path(container_path, test_run_id)
-
-    if project_id is not None and any(_is_same_or_child(path, PurePosixPath(root)) for root in PROJECT_DATA_ROOTS):
-        return build_project_data_mount_plan(project_id).resolve_input_path(container_path, for_copy=for_copy)
-
-    if database_mounts:
-        return resolve_registered_database_input_path(container_path, database_mounts, for_copy=for_copy)
-
-    allowed_roots = ', '.join(('/data/output', *PROJECT_DATA_ROOTS))
-    err_msg = (
-        f'Input path must be located under one of the managed roots ({allowed_roots}) or an external mount '
-        f'of a registered biological database used by a successful run_command: {container_path}'
-    )
-    raise ValueError(err_msg)
-
-
-def _is_same_or_child(path: PurePosixPath, root: PurePosixPath) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
+    mounts = [
+        ContainerMount(
+            source=str(resolve_test_run_path('/data/output', test_run_id)), target='/data/output', read_only=False
+        ),
+        ContainerMount(
+            source=str(Path(get_settings().persistent.storage.TEST_DATA_PATH).expanduser().resolve()),
+            target='/data/testdata',
+            read_only=True,
+        ),
+    ]
+    if project_id is not None:
+        mounts.extend(build_project_data_mount_plan(project_id).mounts)
+    mounts.extend(database_mounts or [])
+    if any(path.is_relative_to(PurePosixPath(mount.target)) for mount in mounts):
+        return resolve_recorded_input_path(container_path, mounts, for_copy=for_copy)
+    # Also accept explicit host paths; callers enforce read-only access or copy before writing.
+    return Path(container_path).expanduser().absolute()
 
 
 class TestRunFile(BaseModel):
@@ -110,7 +99,7 @@ class TestRunReport(BaseModel):
     """Machine-readable facts collected from a successful tool test run."""
 
     working_dir: str = Field(
-        description='Actual process working directory of the successful invocation, as an absolute container path under /data/output.'
+        description='Actual process working directory of the successful invocation, as an absolute container or host path.'
     )
     help_command: str = Field(description='Bare command that prints help for the wrapped command or subcommand.')
     running_command: str = Field(
@@ -121,11 +110,12 @@ class TestRunReport(BaseModel):
         description='All existing files or directories consumed by running_command. Use stable logical names.'
     )
     output_files: list[TestRunFile] = Field(
-        description='Files or directories produced by running_command, including its log. Record their actual paths under /data/output, which may be outside working_dir.'
+        description='Files or directories produced by running_command, including its log. Record their actual paths under /data/output or another mount backed by the trial workspace.'
     )
+    # Keep the persisted field name for existing checkpoints; these are now general input mounts.
     database_mounts: list[ContainerMount] = Field(
         default_factory=list,
-        description='Database input mount mappings recorded automatically from successful run_command calls. Omit this field when submitting a report.',
+        description='Input mount mappings recorded automatically from successful run_command calls. Omit this field when submitting a report.',
     )
     note: str | None = Field(default=None, description='Optional additional execution notes in English.')
 
@@ -153,7 +143,7 @@ class TestRunReport(BaseModel):
             sections.append(f'**Note**\n{self.note}')
         if self.database_mounts:
             mount_lines = '\n'.join(f'- `{mount.target}`: host `{mount.source}`' for mount in self.database_mounts)
-            sections.append(f'**Registered Database Mounts**\n{mount_lines}')
+            sections.append(f'**Recorded Input Mounts**\n{mount_lines}')
         return '\n\n'.join(sections)
 
 
@@ -166,13 +156,14 @@ def _validate_report_file(
 ) -> list[str]:
     errors: list[str] = []
     try:
-        host_path = (
-            resolve_test_run_input_path(file.path, test_run_id, project_id, database_mounts)
-            if label == 'Input file'
-            else resolve_test_run_path(file.path, test_run_id)
-        )
+        host_path = resolve_test_run_input_path(file.path, test_run_id, project_id, database_mounts)
     except ValueError as error:
         return [f'{label} `{file.name}`: {error}']
+
+    if label == 'Output file' and not host_path.resolve().is_relative_to(
+        resolve_test_run_path('/data/output', test_run_id)
+    ):
+        return [f'{label} `{file.name}` must be produced inside the trial workspace: {file.path}']
 
     try:
         if not host_path.exists():
@@ -191,7 +182,9 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id
     """Return deterministic validation errors for a structured test-run report."""
     errors: list[str] = []
     try:
-        host_working_dir = resolve_test_run_path(report.working_dir, test_run_id)
+        host_working_dir = resolve_test_run_input_path(
+            report.working_dir, test_run_id, project_id, report.database_mounts
+        )
     except ValueError as error:
         errors.append(f'working_dir: {error}')
     else:
@@ -239,12 +232,7 @@ def validate_test_run_report(report: TestRunReport, test_run_id: str, project_id
 async def write_test_run_report(report: TestRunReport, runtime: ToolRuntime[TestRunContext]) -> Command:
     """Submit the final structured report after the tool command has run successfully."""
     recorded_mounts = [ContainerMount.model_validate(mount) for mount in runtime.state.get('test_run_mounts', [])]
-    database_mounts = [
-        mount
-        for mount in recorded_mounts
-        if any(_is_same_or_child(PurePosixPath(file.path), PurePosixPath(mount.target)) for file in report.input_files)
-    ]
-    report = report.model_copy(update={'database_mounts': database_mounts})
+    report = report.model_copy(update={'database_mounts': recorded_mounts})
     validation_errors = validate_test_run_report(
         report,
         runtime.context.test_run_id,

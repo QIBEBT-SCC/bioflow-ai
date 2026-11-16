@@ -245,13 +245,13 @@ def validate_managed_paths(
 
 
 def check_mount_conflicts(mounts: Mapping[str, str | Path], fixed: Mapping[str, str | Path]) -> None:
-    """Reject both exact collisions and parent/child masking of fixed bindings."""
+    """Reject conflicting sources at the same target; nested bind mounts are supported."""
     for target, source in fixed.items():
         for other_target, other_source in mounts.items():
             a, b = PurePosixPath(target), PurePosixPath(other_target)
             if a == b and Path(source) == Path(other_source):
                 continue
-            if a == b or a.is_relative_to(b) or b.is_relative_to(a):
+            if a == b:
                 message = f'Fixed mount conflict: {source} at {target} and {other_source} at {other_target}'
                 raise ValueError(message)
 

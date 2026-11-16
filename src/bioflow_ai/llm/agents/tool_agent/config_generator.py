@@ -12,7 +12,6 @@ from bioflow_ai.llm.middleware import (
     CheckStateExistMiddleware,
     DisableParallelToolCallsMiddleware,
     EndLoopMiddleware,
-    MaxRetriesMiddleware,
     SaveMessagesMiddleware,
     SkillMiddleware,
     TokenStatisticMiddleware,
@@ -140,26 +139,24 @@ Therefore, when classifying a parameter, first ask “Does it contain a runtime 
 3. **Design the command**: Using only the test run command and its actual outputs as the abstraction basis, split the command into `dynamic_params`, `immutable_static_params`, `modifiable_static_params`, and `command_template`, then call `set_command_detail`.
 4. **Complete tool information**: Generate an accurate node name and a brief description, then call `set_tool_info`.
 5. **Validate the draft**: After configuring the draft, inspect the read-only trial directory with `inspect_files` (`ls` or `stat`) if needed, then call `execute_node(input_bindings=...)` (without `node_id`) to validate it.
-    - Bind every INPUT by name: use paths relative to the trial root for test-run files, or the absolute container paths from the report for managed project and database inputs.
+    - Bind every INPUT by name: use paths relative to the trial root, absolute paths through recorded mounts, or explicit host paths. Directories are supported; `.` binds the entire trial workspace. External data stays read-only, and writable inputs are copied automatically.
     - Follow any pattern-specific binding or validation rules in the loaded `tool-configuration` reference (such as `output_members`, `value:` literals, or prerequisite executions).
-    - Fix any configuration, execution, or output errors reported by `execute_node` and run it again until validation passes. Never fabricate inputs or configurations; if a required prerequisite is genuinely missing, report the blocker accurately.
+    - Fix any configuration, execution, or output errors reported by `execute_node` and run it again until validation passes. Use available fixtures and directory inputs; do not require a catalog prerequisite merely to preserve paths. Each catalog node ID and the current draft have separate budgets of three failed executions. Preparation errors do not consume these budgets. Once a node exhausts its budget, use another prerequisite or report its blocker; other nodes remain available. If required data is genuinely missing, report the blocker accurately.
 
 ## Notes
 
 ### File Mounts
 
 1. Give each input a stable logical name and bind it explicitly during validation. All `name` values must be unique because they are both node handle names and command template keywords.
-   - Registered database or model directories are also INPUT handles. The report's recorded database mounts resolve their test paths to host sources for validation. Use a runtime variable such as `-m {model_dir}` and a FileMount with `file_path="{model_dir}"`; do not hardcode the test container path as a static parameter or omit the database input.
+   - Database, model, and ordinary data directories are all valid INPUT handles. Recorded mounts resolve their test paths for validation. Use a runtime variable such as `-m {model_dir}` and a FileMount with `file_path="{model_dir}"`; do not hardcode the test container path as a static parameter or omit the database input.
 2. `file_path` is a host-side path or value template:
     - INPUT normally must use a variable with the same name as `name`; for example, when `name="r1"`, `file_path` should use `{r1}`.
     - OUTPUT uses `{output_dir}`, `{sample_name}`, and path INPUT properties to construct dynamic paths. `file_path` may represent a single file, a directory, or a multi-file index/path prefix.
     - Use the `.name`, `.stem`, or `.suffix` property of a path INPUT when output naming depends on its actual path. Read `references/input-path-properties.md` for the naming rules, output definition example, and supported input types. The tool must actually generate the declared path; a declaration does not rename files.
-3. `mount_path` is always the **directory root** used for the bind mount inside the container. The report's `working_dir` records where the successful process started. Use the actual output paths to determine where the tool writes its results.
+3. Fixed read-only paths (including paths embedded in lists/configuration files) can use ordinary directory INPUTs. Reserve pass-through for writable inputs or an inherited writable workspace. Bind the fixture directory at the final mount path and ensure embedded paths match; do not hardcode trial step names into reusable nodes.
+   `mount_path` is always the **directory root** used for the bind mount inside the container. The report's `working_dir` records where the successful process started. Use the actual output paths to determine where the tool writes its results.
     - Map the target step's test output directory to the node's `/data/output`. For example, a result at `/data/output/04_Bowtie2/result.bam` uses `file_path="{output_dir}/result.bam"` and `mount_path="/data/output"`. Drop the test step prefix and preserve any subdirectories the tool itself needs.
-4. Each `mount_path` must be exactly a direct child directory under `/data`, in the format `/data/<directory>`.
-    - Correct: `/data/raw`, `/data/bam`, `/data/reference`, `/data/regions`, `/data/output`
-    - Incorrect: `/data`, `/data/raw/read.fastq.gz`, `/data/output/result`, `/data/output/11_run.log`
-    - In special cases where a directory created by the tool genuinely must be mounted, a deeper directory structure may be used.
+4. Use absolute container mount paths. Direct children of `/data` are a convenient convention, not a required layout. Nested mounts are supported; do not assign different sources to the exact same target.
 5. A tool may create subdirectories and files of arbitrary depth within a mount root. Specific file names, directory names, nested paths, or path prefixes should be written in `file_path`, while `mount_path` should retain only the mount root. For example, an output directory that must be exposed to downstream tools can use `file_path="{output_dir}/{sample_name}_workflow"` and `mount_path="/data/output"`.
 6. Input handles may share a mount root when they genuinely come from the same host directory. If they may come from different directories, prefer different direct-child `/data` directories to avoid mount conflicts at runtime.
 7. OUTPUT normally uses `/data/output`. Use another direct-child `/data` directory only when the tool's execution mode genuinely requires it.
@@ -307,7 +304,6 @@ config_generate_agent = create_agent(
         ToolCreationProgressMiddleware(),
         SkillMiddleware('tool_generator'),
         CheckStateExistMiddleware('validated', 'execute_node', max_retries=3),
-        MaxRetriesMiddleware(max_retries=3),
         EndLoopMiddleware(),
         SaveMessagesMiddleware('tool_generator'),
         ChatAttachmentMiddleware(),

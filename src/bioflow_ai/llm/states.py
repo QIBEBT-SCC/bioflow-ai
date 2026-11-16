@@ -76,6 +76,7 @@ class ToolGeneratorState(AgentState, total=False):
     id_mapper: BidirectionalMapper
     validation_runs: dict[str, ToolOutput]
     execution_count: int
+    node_execution_failures: dict[str, int]
 
     name: str
     tool_type: ToolType

@@ -6,7 +6,7 @@ description: Generate a BioFlow Docker tool configuration from a real execution 
 # Tool Configuration
 
 Use this skill for every tool-configuration task. First check whether the command modifies an input in place or
-must preserve a shared workspace or fixed paths across nodes, then classify how its primary output is produced.
+must preserve a shared writable workspace across nodes, then classify how its primary output is produced.
 Read exactly one matching primary output-pattern reference before configuring the tool. When output names or
 command arguments depend on an INPUT filename, also read `references/input-path-properties.md`; this includes
 input-derived output prefixes. If, and only if, a non-file text parameter must receive a value dynamically produced
@@ -18,7 +18,7 @@ Apply the first matching primary output pattern in this order:
 
 | Pattern | Use when | Reference |
 |---|---|---|
-| Pass-through workspace | The command requires the same writable workspace or fixed container paths across Tool nodes | `references/passthrough.md` |
+| Pass-through workspace | The command requires the same writable workspace across Tool nodes | `references/passthrough.md` |
 | In-place modification | The command updates an input file or directory directly; use writable pass-through instead of copying inside the command | `references/in-place-modification.md` |
 | Output prefix | An output argument is a path prefix and the tool creates multiple sibling artifacts whose names begin with that prefix | `references/prefix-output.md` |
 | Standard-output redirection | The primary result exists only because stdout is redirected to an output file | `references/stdout-output.md` |
@@ -37,6 +37,9 @@ Each Tool node must execute exactly one actual invocation of the target tool, wi
 Do not combine commands using separators, pipelines, subshells, or command substitutions, including in parameter
 fragments. Copying, preprocessing, and postprocessing belong in separate workflow nodes; this also applies to
 pass-through Tools.
+
+Fixed read-only paths, including references inside list/configuration files, can use ordinary directory INPUTs.
+They do not require pass-through. Test with the final mount layout so those references resolve.
 
 ## Runtime Text Input Exception
 
