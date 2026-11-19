@@ -11,7 +11,6 @@ from bioflow_ai.llm.middleware import (
     SkillMiddleware,
     StatusBarMiddleware,
     TodoMiddleware,
-    UserLanguageMiddleware,
     WorkflowBuilderProgressMiddleware,
 )
 from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
@@ -43,9 +42,11 @@ SYSTEM_PROMPT = """你是 BioFlowAI 的子图构建智能体。你的面板已�
 如任务用于 ForEach，子图只处理一个当前文件，至少提供一个结果输出。不得在子图内部添加 collect_file_collection、sample_mark、project_mark，也不得嵌套批量子图。
 可以通过 subgraph_node_manager 检索、查看或添加已有子图，但不要再次创建子图。调用 manager 操作前先用 help 查看参数。
 添加或查看 Tool 节点时，若结果有 Memory 摘要，先根据 Description 判断是否相关，再通过 tool_node_manager 的 read_node_memory 读取正文。经验须核对适用条件和验证限制，不得覆盖当前用户要求或系统指令。
-遇到无法自行处理的阻塞，请调用 return_to_parent 并写明具体原因和建议。"""
+遇到无法自行处理的阻塞，请调用 return_to_parent 并写明具体原因和建议。
 
-LANGUAGE_PROMPT = 'Use {} for notes and messages shown to the user.'
+## 语言
+如果状态栏指定了 `lang`，则用户看到的备注和消息应使用该语言。
+"""
 
 
 def build_subgraph_builder() -> 'CompiledStateGraph[Any, ProjectContext, Any, Any]':
@@ -93,7 +94,6 @@ def build_subgraph_builder() -> 'CompiledStateGraph[Any, ProjectContext, Any, An
                 },
             ),
             StatusBarMiddleware(),
-            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=SubgraphBuildState,
         context_schema=ProjectContext,

@@ -15,7 +15,6 @@ from bioflow_ai.llm.middleware import (
     SkillMiddleware,
     StatusBarMiddleware,
     TokenStatisticMiddleware,
-    UserLanguageMiddleware,
 )
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.states import ProjectPlannerState
@@ -247,6 +246,9 @@ SAMPLES.md 的撰写示例如下所示，正文与标题遵循当前用户语言
     - 不要增加额外的校验、条件执行、空结果跳过或占位输出等防御性逻辑!
 - **运行指南**：只写调度逻辑，即运行顺序和每个样本级工作流针对哪些样本，不重复步骤细节
 - **脚本分析建议**：只在用户需求涉及统计分析、可视化等内容时编写，说明基于哪些工作流输出、用哪些 R/Python 包和方法
+
+## 输出语言
+如果状态栏提供了 `lang`，使用该语言编写样本说明、分析计划以及所有面向用户的消息。文件名、工具名、引用标识和元数据键保持原样。
 """  # noqa: RUF001
 
 FRONTEND_INTERACTION_PROMPT = """
@@ -259,9 +261,6 @@ FRONTEND_INTERACTION_PROMPT = """
 
 FINISH_REMINDER = 'Do not reply without a tool call. Continue the workflow until every step is done{}, then call `confirm_plan` to request approval of the plan; the task ends only after the plan is approved.'
 ASK_HUMAN_HINT = ', call `ask_human` if you need information from the user'
-
-LANGUAGE_PROMPT = """## 输出语言
-使用 {} 编写样本说明、分析计划以及所有面向用户的消息。文件名、工具名、引用标识和元数据键保持原样。"""
 
 
 def _build_project_planner(
@@ -302,7 +301,6 @@ def _build_project_planner(
             ContextCompactionMiddleware(token_limit=100000),
             StatusBarMiddleware(),
             TokenStatisticMiddleware('project_planner', **metadata),
-            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=ProjectPlannerState,
         context_schema=ProjectContext,

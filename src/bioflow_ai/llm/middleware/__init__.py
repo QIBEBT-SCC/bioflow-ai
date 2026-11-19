@@ -13,7 +13,6 @@ from bioflow_ai.llm.middleware.frontend_progress import (
     ToolProgressMiddleware,
     WorkflowBuilderProgressMiddleware,
 )
-from bioflow_ai.llm.middleware.language import UserLanguageMiddleware
 from bioflow_ai.llm.middleware.limit import (
     DisableParallelToolCallsMiddleware,
     MaxRetriesMiddleware,
@@ -47,7 +46,6 @@ __all__ = [
     'TokenStatisticMiddleware',
     'ToolCreationProgressMiddleware',
     'ToolProgressMiddleware',
-    'UserLanguageMiddleware',
     'WorkflowBuilderProgressMiddleware',
     'WorkflowFixScopeMiddleware',
 ]

@@ -11,6 +11,17 @@ if TYPE_CHECKING:
 
 
 class StatusBarMiddleware(AgentMiddleware[AgentState[Any], Any]):
+    """Append the current status to the last message sent to the model.
+
+    A complete status bar looks like this, wrapped here for readability:
+
+        [image: docker.io/library/python:3.13; todo: <todo index=1>Review inputs</todo>;
+        base_path: "/workspace"; draft: <workflow id="wf1" scope="sample_level">QC</workflow>; lang: en]
+
+    The first unfinished item uses ``todo`` when in progress or ``next_todo`` when pending.
+    Fields without a value are omitted.
+    """
+
     @staticmethod
     def _add_status_to_request(request: ModelRequest) -> ModelRequest:
         """添加状态信息到请求的最后一条消息中."""
@@ -19,23 +30,21 @@ class StatusBarMiddleware(AgentMiddleware[AgentState[Any], Any]):
 
         if state.get('image'):
             image_info: ImageConfig = state['image']
-            status.append(f'Current Image: {image_info.get_image()}')
+            status.append(f'image: {image_info.get_image()}')
 
         if state.get('todos'):
             for todo in state['todos']:
                 todo: Todo
                 if todo.status == 'in_progress':
-                    status.append(f'Current To-DO: <todo index={todo.index}>{todo.content}</todo>')
+                    status.append(f'todo: <todo index={todo.index}>{todo.content}</todo>')
                     break
                 if todo.status == 'pending':
-                    status.append(
-                        f'No currently processed To-DO, the next To-DO in the queue is: <todo index={todo.index}>{todo.content}</todo>'
-                    )
+                    status.append(f'next_todo: <todo index={todo.index}>{todo.content}</todo>')
                     break
 
         if state.get('base_path'):
             base_path: str = state['base_path']
-            status.append(f'Current base_path: "{base_path}"')
+            status.append(f'base_path: "{base_path}"')
 
         if state.get('active_workflow_id'):
             active_workflow_id: str = state['active_workflow_id']
@@ -52,11 +61,13 @@ class StatusBarMiddleware(AgentMiddleware[AgentState[Any], Any]):
                 else getattr(active_draft, 'execution_scope', 'sample_level')
             )
             status.append(
-                f'Current Workflow Draft: '
-                f'<workflow id="{active_workflow_id}" scope="{workflow_scope}">{workflow_name}</workflow>'
+                f'draft: <workflow id="{active_workflow_id}" scope="{workflow_scope}">{workflow_name}</workflow>'
             )
 
-        if status:
+        if language := getattr(request.runtime.context, 'language', None):
+            status.append(f'lang: {language}')
+
+        if status and request.messages:
             last_message = request.messages[-1]
             suffix = f'\n[{"; ".join(status)}]'
             new_content = (

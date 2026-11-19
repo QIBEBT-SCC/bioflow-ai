@@ -17,7 +17,6 @@ from bioflow_ai.llm.middleware import (
     StatusBarMiddleware,
     TodoMiddleware,
     TokenStatisticMiddleware,
-    UserLanguageMiddleware,
     WorkflowBuilderProgressMiddleware,
 )
 from bioflow_ai.llm.middleware.final_check import CheckStateExistMiddleware
@@ -121,7 +120,7 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息数据分析师, 正在操作一�
 - 计划中描述的每个工作流使用一个工作流草稿
 - 创建草稿前调用 `list_workflow_drafts`。如果已有草稿, 则切换到该草稿。避免为同一工作流创建多个重复草稿
 - 如果误创建了额外的草稿, 立即使用 `delete_workflow_draft` 将其删除
-- 状态栏会显示当前激活的工作流草稿。在添加节点之前, 确保当前激活的工作流与正在处理的任务相匹配
+- 状态栏的 `draft` 显示当前激活的工作流草稿。在添加节点之前, 确保当前激活的工作流与正在处理的任务相匹配
 - 从一个工作流切换到另一个工作流时, 调用 `switch_workflow_draft`。该操作会保存当前面板的快照并加载所选的工作流草稿
 
 
@@ -179,10 +178,10 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息数据分析师, 正在操作一�
 - 工具节点统一提供的 `workdir` 不是常规输出句柄, 绝大多数情况下应直接使用节点显式声明的专用输出, 仅在两种特殊情况下使用:
     - 下游汇总/汇报工具 (如 MultiQC) 需要直接使用整个工作目录时
     - 复用现有节点且确信其会生成某个未在输出句柄中列出的非常用文件时, 用 `workdir` 配合 `select_file_in_folder` 提取该文件
-"""
 
-LANGUAGE_PROMPT = """## Language
-Use {} for notes added to the workflow and all messages shown to the user."""
+## 语言
+如果状态栏指定了 `lang`, 则用户看到的消息和添加的note节点应使用该语言。
+"""
 
 
 @tool
@@ -269,7 +268,6 @@ def build_workflow_builder(
                 SaveMessagesMiddleware('workflow_builder'),
                 ChatAttachmentMiddleware(),
                 TokenStatisticMiddleware('workflow_builder', **metadata),
-                UserLanguageMiddleware(LANGUAGE_PROMPT),
             ],
             state_schema=BuildState,
             context_schema=ProjectContext,
@@ -301,7 +299,6 @@ def build_workflow_builder(
             SaveMessagesMiddleware('workflow_builder'),
             ChatAttachmentMiddleware(),
             TokenStatisticMiddleware('reproduction_agent', **metadata),
-            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=BuildState,
         context_schema=ProjectContext,

@@ -14,7 +14,6 @@ from bioflow_ai.llm.middleware import (
     SkillMiddleware,
     StatusBarMiddleware,
     TokenStatisticMiddleware,
-    UserLanguageMiddleware,
     WorkflowBuilderProgressMiddleware,
     WorkflowFixScopeMiddleware,
 )
@@ -66,10 +65,10 @@ SYSTEM_PROMPT = """你是一个节点式生物信息工作流修复智能体。�
 - `workflow_reader`、`run_command`: 只读查看原运行快照、子图路径、内部任务和运行目录证据。
 
 节点 ID 是当前编辑会话 ID；若系统提供了诊断报告 ID 到当前面板 ID 的映射，必须使用映射后的面板 ID。删除节点不会改变其他节点 ID。添加节点前先确认来源节点和 handle；修复必须保持工作流可执行，不添加占位节点。完成最终工具调用后，在聊天中简要说明是否修改、主要内容和如何验证；no_change 时明确说明人工处理建议。
-"""
 
-LANGUAGE_PROMPT = """## 语言
-在修改完毕后最终反馈给用户的总结消息，一律使用{}"""
+## 语言
+如果状态栏提供了 `lang`，最终反馈给用户的总结消息一律使用该语言。
+"""
 
 FIX_DISABLED_TOOLS = {'finalize_workflow_fix', 'fix_subgraph', 'write_node_memory'}
 FIX_DISABLED_TOOL_ACTIONS = {
@@ -121,7 +120,6 @@ def build_workflow_fixer(
             SaveMessagesMiddleware('workflow_fixer'),
             ChatAttachmentMiddleware(),
             TokenStatisticMiddleware('workflow_fixer', **metadata),
-            UserLanguageMiddleware(LANGUAGE_PROMPT),
         ],
         state_schema=WorkflowFixState,
         context_schema=WorkflowFixContext,

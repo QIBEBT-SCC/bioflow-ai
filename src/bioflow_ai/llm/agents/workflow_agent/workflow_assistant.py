@@ -10,9 +10,9 @@ from bioflow_ai.llm.middleware import (
     ChatAttachmentMiddleware,
     DisableParallelToolCallsMiddleware,
     SkillMiddleware,
+    StatusBarMiddleware,
     TokenStatisticMiddleware,
     ToolProgressMiddleware,
-    UserLanguageMiddleware,
 )
 from bioflow_ai.llm.models import get_high_performance_model
 from bioflow_ai.llm.states import WorkflowAssistantState
@@ -39,10 +39,10 @@ SYSTEM_PROMPT = """你是工作流助手，根据用户当前的问题，读取�
 ## 回答与边界
 本轮存在 current_node_reference 时，“这个节点”指向该引用；先按 node_id 与 subgraph_path 调用 workflow_reader(action="node") 获取当前证据。附件名称仅用于显示，不代表结果快照。工具用途依据节点详情中的 name、description 和命令模板回答，工具定义缺失时说明限制。历史消息中的节点附件不会自动成为本轮选中节点。
 围绕当前指定运行回答，区分事实与推断，不把未运行或上游阻塞判为节点自身失败。检查失败、超时、截断或证据不足时说明限制。仅可通过 `write_diagnosis` 写指定报告，其他工作流、文件和数据库均只读；不调用网络、不安装软件、不搜索节点库，不声称使用不存在的编辑工具。已有报告是历史资料，涉及当前状态时按需重新读取运行证据。
-"""
 
-LANGUAGE_PROMPT = """## 语言
-回答和诊断报告一律使用 {}。"""
+## 语言
+如果状态栏提供了 `lang`，回答和诊断报告一律使用该语言。
+"""
 
 
 def build_workflow_assistant(
@@ -61,8 +61,8 @@ def build_workflow_assistant(
             SkillMiddleware('workflow_assistant'),
             DisableParallelToolCallsMiddleware(disabled_tools={'write_diagnosis'}),
             TokenStatisticMiddleware('workflow_assistant', **metadata),
-            UserLanguageMiddleware(LANGUAGE_PROMPT),
             ChatAttachmentMiddleware(),
+            StatusBarMiddleware(),
         ],
         state_schema=WorkflowAssistantState,
         context_schema=WorkflowAssistantContext,
