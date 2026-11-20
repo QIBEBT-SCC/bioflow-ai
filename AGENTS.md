@@ -74,6 +74,22 @@ This project uses `uv` to manage the Python environment and dependencies.
 - Run `uv run python -m pytest` for migration contract and offline service tests.
 - See `MIGRATION.md` for the original module mapping, validation limits, and deployment cutover.
 
+## Branches and releases
+
+- `master` is the default branch and the source of releases. `dev` is the integration branch.
+- Create `feature/<topic>` or `fix/<topic>` from `dev`. Open the pull request against `dev`,
+  check the CI results, squash merge, and delete the topic branch.
+- After integration testing, open a release pull request from `dev` to `master` and merge
+  with a merge commit. For an urgent production fix, branch `hotfix/<topic>` from the deployed
+  release, release the fix, and bring the fix back into both long-lived branches as needed.
+- The private backend relies on maintainers to enforce the pull request process for both
+  branches. Installation and packaging are blocking CI checks. Ruff and ty report existing
+  diagnostics as advisory checks during rollout.
+- The backend and frontend version independently. Use a SemVer Git tag such as
+  `v1.0.0-beta.1` on the released backend commit and the corresponding PEP 440 version
+  in `pyproject.toml` and `uv.lock`. Link related frontend and backend pull requests and
+  record the tested frontend image and any database or configuration changes in the release notes.
+
 ## Code Style
 
 Project uses Ruff for linting and formatting:
