@@ -193,7 +193,7 @@ async def finalize_workflow_fix(
         original,
         saved_to_original,
     )
-    document = workflow_document(runtime.state, graph=definition, fresh=True)
+    document = workflow_document(runtime.state, graph=definition, project_id=runtime.context.project_id, fresh=True)
     result = validate_workflow(document)
     if not result.valid:
         return Command(update={'messages': [ToolMessage(content=result.message, tool_call_id=runtime.tool_call_id)]})

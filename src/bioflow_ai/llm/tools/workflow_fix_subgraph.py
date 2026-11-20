@@ -136,7 +136,7 @@ def _save(runtime: ToolRuntime[WorkflowFixContext, WorkflowFixState]) -> Command
         return _reply(runtime, 'Cannot save subgraph without an interface.')
     outputs = frame['outputs']
     graph = subgraph_graph(nodes, edges, outputs)
-    document = workflow_document(runtime.state, graph=graph, fresh=True)
+    document = workflow_document(runtime.state, graph=graph, project_id=runtime.context.project_id, fresh=True)
     result = validate_workflow(document)
     if not result.valid:
         return _reply(runtime, result.message)
@@ -158,7 +158,7 @@ def _save(runtime: ToolRuntime[WorkflowFixContext, WorkflowFixState]) -> Command
     target = next(node for node in parent_nodes if node.id == frame['node_id'])
     target.data['workflow'] = definition.model_dump(mode='json')
     parent_state = {**runtime.state, 'exist_nodes': parent_nodes, 'exist_edges': frame['edges']}
-    parent_result = validate_workflow(workflow_document(parent_state, nodes=parent_nodes, edges=frame['edges']))
+    parent_result = validate_workflow(workflow_document(parent_state, project_id=runtime.context.project_id))
     if not parent_result.valid:
         return _reply(runtime, parent_result.message)
     changed = definition.model_dump(mode='json') != frame['original_child']
@@ -209,7 +209,9 @@ def fix_subgraph(
         if chosen is None:
             return _reply(runtime, f'Output port {port_id!r} does not exist.')
         chosen['source'] = {'node_id': source_node, 'handle': source_handle}
-        result = validate_workflow(workflow_document(runtime.state, outputs=outputs))
+        result = validate_workflow(
+            workflow_document(runtime.state, outputs=outputs, project_id=runtime.context.project_id)
+        )
         if not result.valid:
             return _reply(runtime, result.message)
         stack[-1] = {**frame, 'outputs': outputs}

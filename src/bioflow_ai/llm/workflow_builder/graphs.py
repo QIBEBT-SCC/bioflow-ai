@@ -12,6 +12,7 @@ from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 from bioflow_ai.services.workflow.validation.adapters import build_graph
 from bioflow_ai.services.workflow.validation.resolution import extract_draft_marks, resolve_workflow
 from bioflow_ai.services.workflow.validation.types import WorkflowDocument
+from bioflow_ai.utils.identifiers import as_uuid
 
 
 def workflow_document(
@@ -62,6 +63,7 @@ def workflow_document(
             graph,
         ]
     )
+    target_workflow_uid = state.get('target_workflow_uid')
     with Session(engine) as session:
         return resolve_workflow(
             graph,
@@ -71,5 +73,6 @@ def workflow_document(
             project_id=project_id,
             catalog=catalog,
             fresh=fresh,
+            workflow_uid=as_uuid(target_workflow_uid) if target_workflow_uid is not None else None,
             draft_marks=draft_marks,
         )
