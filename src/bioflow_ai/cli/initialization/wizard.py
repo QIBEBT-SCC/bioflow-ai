@@ -1,11 +1,14 @@
 import asyncio
 from pathlib import Path
 
+import click
+
 from bioflow_ai.cli.initialization import tui
 from bioflow_ai.cli.initialization.config import create_settings
 from bioflow_ai.cli.initialization.containers import initialize_project_containers
 from bioflow_ai.cli.initialization.database import initialize_preset_database
 from bioflow_ai.cli.initialization.test_data import initialize_test_data
+from bioflow_ai.services.initialization.presets import install_deployment_presets
 
 
 def _confirm(message: str, *, default: bool) -> bool:
@@ -40,6 +43,12 @@ def run_auto_init() -> None:
         update_port = None
     else:
         settings, update_port = create_settings(config_path)
+
+    try:
+        install_deployment_presets()
+    except OSError as exc:
+        message = f'Could not install deployment presets: {exc}'
+        raise click.ClickException(message) from exc
 
     test_data_ready = initialize_test_data(settings.network, settings.persistent.storage, _confirm)
     container_ready = initialize_project_containers(settings, _confirm, update_port=update_port)
