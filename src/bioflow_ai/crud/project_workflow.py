@@ -8,13 +8,13 @@ from bioflow_ai.models.workflow import ProjectWorkflow, Workflow
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 
 
-def get(session: Session, project_id: int, workflow_uid: UUIDLike) -> ProjectWorkflow | None:
-    """Return a project-workflow association when it exists."""
+def get(session: Session, project_id: int, workflow_uid: UUIDLike, *, lock: bool = False) -> ProjectWorkflow | None:
+    """Return a project-workflow association, optionally locking it for the transaction."""
     statement = select(ProjectWorkflow).where(
         ProjectWorkflow.project_id == project_id,
         ProjectWorkflow.workflow_uid == as_uuid(workflow_uid),
     )
-    return session.scalar(statement)
+    return session.scalar(statement.with_for_update() if lock else statement)
 
 
 def insert(session: Session, project_workflow: ProjectWorkflow) -> ProjectWorkflow:

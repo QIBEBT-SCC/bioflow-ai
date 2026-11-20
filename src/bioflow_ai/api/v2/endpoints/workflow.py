@@ -11,15 +11,18 @@ from anyio import Path as AsyncPath
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import Response, StreamingResponse
+from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.status import (
+    HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
     HTTP_422_UNPROCESSABLE_CONTENT,
+    HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
 from bioflow_ai.core.auth import MemberDep
@@ -189,10 +192,33 @@ def run_project_workflow(
             current_user=current_user,
             run_name_prefix=body.run_name_prefix,
         )
+    except runs.WorkflowRunNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
     except runs.WorkflowRunConflictError as error:
         raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
     except WorkflowCompileError as error:
         raise HTTPException(HTTP_400_BAD_REQUEST, str(error)) from error
+
+
+@project_router.delete('/{project_id}/workflows/{workflow_uid}/runs', status_code=HTTP_204_NO_CONTENT)
+def reset_project_workflow_runs(
+    project_id: int,
+    workflow_uid: uuid.UUID,
+    session: SessionDep,
+    current_user: MemberDep,
+) -> Response:
+    """Reset run history for an imported workflow in an owned project."""
+    _owned_project(session, project_id, current_user)
+    try:
+        runs.reset_project_workflow_runs(session, project_id, workflow_uid)
+    except runs.WorkflowRunNotFoundError as error:
+        raise HTTPException(HTTP_404_NOT_FOUND, str(error)) from error
+    except runs.WorkflowRunConflictError as error:
+        raise HTTPException(HTTP_409_CONFLICT, str(error)) from error
+    except OSError as error:
+        logger.exception('Could not delete results for project {} workflow {}', project_id, workflow_uid)
+        raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR, 'Could not delete local workflow results') from error
+    return Response(status_code=HTTP_204_NO_CONTENT)
 
 
 @project_router.get('/{project_id}/workflows/{workflow_uid}/package')

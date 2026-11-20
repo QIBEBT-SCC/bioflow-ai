@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import node_run as node_run_crud
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
+from bioflow_ai.crud import project_workflow as project_workflow_crud
 from bioflow_ai.crud import user as user_crud
 from bioflow_ai.crud import workflow_run as run_crud
 from bioflow_ai.crud.resource import sample as sample_crud
@@ -36,6 +37,7 @@ from bioflow_ai.schemas.workflow_run import (
     WorkflowRunRecord,
     WorkflowRunStatistics,
 )
+from bioflow_ai.services._transaction import committing
 from bioflow_ai.services.workflow.batch_graph import lower_batch_subgraphs
 from bioflow_ai.services.workflow.compiler import compile_run
 from bioflow_ai.services.workflow.subgraphs import flatten_workflow, inject_run_data
@@ -47,16 +49,20 @@ _NO_RUN = 'No run exists for this workflow'
 
 
 class WorkflowRunConflictError(RuntimeError):
-    """A run cannot be restarted until its active generation settles."""
+    """Run history cannot be changed until its active generation settles."""
 
 
 class WorkflowRunNotFoundError(RuntimeError):
-    """No current generation exists for a requested workflow package."""
+    """The requested workflow run or project workflow does not exist."""
+
+
+def _project_runs_root(project_id: int) -> Path:
+    return Path(STORAGE_PATH).absolute() / 'proj' / str(project_id) / 'runs'
 
 
 def _project_output_root(project_id: int, workflow: Workflow, sample: Sample | None) -> Path:
     segment = f'{to_safe_path_segment(workflow.name)}-{workflow.uid}'
-    root = Path(STORAGE_PATH).absolute() / 'proj' / str(project_id) / 'runs' / segment
+    root = _project_runs_root(project_id) / segment
     if sample is None:
         return root / 'project'
     sample_segment = f'{to_safe_path_segment(sample.sample_name)}-{sample.uid}'
@@ -174,28 +180,77 @@ def create_project_runs(
     run_name_prefix: str | None,
 ) -> WorkflowRunResult:
     """Atomically create or rerun all requested sample/project generations."""
-    old_output_dirs: list[str] = []
-    workflow_runs: list[WorkflowRun] = []
-    for sample in samples:
-        run, old_base_dir = _create_or_rerun_project_run(
-            session,
-            project_id=project_id,
-            project_name=project_name,
-            workflow=workflow,
-            current_user=current_user,
-            sample=sample,
-            run_name_prefix=run_name_prefix,
-        )
-        workflow_runs.append(run)
-        if old_base_dir:
-            old_output_dirs.append(old_base_dir)
-    session.commit()
+    workflow_uid = workflow.uid
+    old_output_dirs: dict[uuid.UUID, str] = {}
+    run_uids: list[uuid.UUID] = []
+    with committing(session):
+        if project_workflow_crud.get(session, project_id, workflow_uid, lock=True) is None:
+            message = 'Workflow not found in this project'
+            raise WorkflowRunNotFoundError(message)
+        for sample in samples:
+            run, old_base_dir = _create_or_rerun_project_run(
+                session,
+                project_id=project_id,
+                project_name=project_name,
+                workflow=workflow,
+                current_user=current_user,
+                sample=sample,
+                run_name_prefix=run_name_prefix,
+            )
+            run_uids.append(run.uid)
+            if old_base_dir:
+                old_output_dirs[run.uid] = old_base_dir
 
-    for old_output_dir in old_output_dirs:
-        old_path = Path(old_output_dir)
-        if old_path.exists():
-            shutil.rmtree(old_path)
-    return WorkflowRunResult(run_uids=[run.uid for run in workflow_runs], count=len(workflow_runs))
+    if old_output_dirs:
+        with committing(session):
+            if project_workflow_crud.get(session, project_id, workflow_uid, lock=True) is not None:
+                # A reset can run between transactions and let a new run reuse the old directory.
+                current_runs = run_crud.list_for_workflow(
+                    session, project_id=project_id, workflow_uid=workflow_uid, owner_id=None
+                )
+                for current_run in current_runs:
+                    if old_output_dir := old_output_dirs.get(current_run.uid):
+                        old_path = Path(old_output_dir)
+                        if old_path.exists():
+                            shutil.rmtree(old_path)
+    return WorkflowRunResult(run_uids=run_uids, count=len(run_uids))
+
+
+def _delete_project_workflow_outputs(project_id: int, workflow_uid: uuid.UUID) -> None:
+    root = _project_runs_root(project_id)
+    storage = Path(STORAGE_PATH).absolute()
+    if root.resolve() != storage.resolve() / root.relative_to(storage):
+        message = 'Project run directory contains a symbolic link'
+        raise OSError(message)
+    try:
+        directories = list(root.iterdir())
+    except FileNotFoundError:
+        return
+
+    # The workflow name can change between generations. Its UID is stable across all output directories.
+    for directory in directories:
+        if directory.name.endswith(f'-{workflow_uid}'):
+            shutil.rmtree(directory)
+
+
+def reset_project_workflow_runs(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
+    """Delete settled runs, their dynamic file references, and all local generations."""
+    with committing(session):
+        if project_workflow_crud.get(session, project_id, workflow_uid, lock=True) is None:
+            message = 'Workflow not found in this project'
+            raise WorkflowRunNotFoundError(message)
+        current_runs = run_crud.list_for_workflow(
+            session, project_id=project_id, workflow_uid=workflow_uid, owner_id=None
+        )
+        if any(not run.settled for run in current_runs):
+            message = 'Wait for all workflow runs to finish before resetting'
+            raise WorkflowRunConflictError(message)
+
+        project_file_mapping_crud.delete_dynamic_for_workflow(session, project_id=project_id, workflow_uid=workflow_uid)
+        sample_crud.delete_dynamic_files_by_producer(session, workflow_uid, project_id=project_id)
+        run_crud.delete_for_workflow(session, project_id, workflow_uid)
+        # Keep the records available for retry if output cleanup fails.
+        _delete_project_workflow_outputs(project_id, workflow_uid)
 
 
 def file_still_written(nodes: Sequence[NodeRun]) -> bool:

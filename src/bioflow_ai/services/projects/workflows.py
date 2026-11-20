@@ -81,9 +81,8 @@ def list_project_workflows(
 
 def remove_workflow_from_project(session: Session, project_id: int, workflow_uid: uuid.UUID) -> None:
     """Remove a workflow from a project and clean up its run data."""
-    if not project_workflow_crud.exists(session, project_id, workflow_uid):
-        raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
-
     with committing(session):
+        if project_workflow_crud.get(session, project_id, workflow_uid, lock=True) is None:
+            raise ProjectWorkflowNotFoundError(_PROJECT_WORKFLOW_NOT_FOUND)
         run_crud.delete_for_workflow(session, project_id, workflow_uid)
         project_workflow_crud.delete(session, project_id, workflow_uid)

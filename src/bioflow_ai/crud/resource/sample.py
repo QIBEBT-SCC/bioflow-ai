@@ -234,14 +234,19 @@ def delete_dynamic_files_for_workflow(
     )
 
 
-def delete_dynamic_files_by_producer(session: Session, workflow_uid: uuid.UUID) -> None:
-    """Stage deletion of every dynamic sample file registered by a workflow."""
-    session.execute(
-        sa_delete(SampleFiles).where(
-            SampleFiles.is_dynamic.is_(True),
-            SampleFiles.producer_workflow_uid == workflow_uid,
-        )
+def delete_dynamic_files_by_producer(
+    session: Session, workflow_uid: uuid.UUID, *, project_id: int | None = None
+) -> None:
+    """Stage deletion of dynamic sample files registered by a workflow, optionally within a project."""
+    statement = sa_delete(SampleFiles).where(
+        SampleFiles.is_dynamic.is_(True),
+        SampleFiles.producer_workflow_uid == workflow_uid,
     )
+    if project_id is not None:
+        statement = statement.where(
+            SampleFiles.sample_uid.in_(select(Sample.uid).where(Sample.project_id == project_id))
+        )
+    session.execute(statement)
 
 
 def get_dynamic_files_owned_elsewhere(
