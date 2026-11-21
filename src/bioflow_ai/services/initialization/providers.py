@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.setting.llm_provider as provider_crud
 import bioflow_ai.crud.setting.llm_setting as setting_crud
 from bioflow_ai.llm.pricing import find_model_defaults
-from bioflow_ai.models.setting import LLMModel, LLMProvider, ModelRole, ProviderType
+from bioflow_ai.models.setting import LLMModel, LLMProvider, LLMSetting, ModelRole, ProviderType
 from bioflow_ai.services import llm_setting as setting_service
 
 CUSTOM_PROVIDER_KEY = 'custom'
@@ -203,3 +203,23 @@ def apply_role_assignments(
 def list_providers(session: Session) -> list[LLMProvider]:
     """Read existing provider choices inside the initialization transaction."""
     return list(provider_crud.get_all(session))
+
+
+def existing_role_assignments(session: Session, providers: Sequence[LLMProvider]) -> dict[ModelRole, LLMModel]:
+    """Return existing roles backed by enabled models and providers."""
+    setting = session.get(LLMSetting, 1)
+    if setting is None:
+        return {}
+    candidates = {
+        model.id: model
+        for provider in providers
+        if provider.is_active
+        and (provider.credential_configured or provider.name.casefold() not in RESERVED_PROVIDER_NAMES)
+        for model in provider.models
+        if model.is_active
+    }
+    return {
+        role: candidates[model_id]
+        for role in ModelRole
+        if (model_id := getattr(setting, f'{role.value}_id')) in candidates
+    }

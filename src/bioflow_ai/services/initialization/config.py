@@ -1,4 +1,7 @@
+import tomllib
 from pathlib import Path
+from shutil import copymode
+from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any
 
 import tomli_w
@@ -37,8 +40,32 @@ def sanitize_config(value: Any) -> Any:
 def write_settings(settings: Any, config_path: Path) -> None:
     """Write settings to a TOML config file."""
     config_dict = sanitize_config(settings.model_dump(by_alias=True, mode='python', exclude_none=True))
-    with config_path.open('wb') as f:
-        tomli_w.dump(config_dict, f)
+    _write_config(config_dict, config_path)
+
+
+def write_embedding_settings(config_path: Path, *, model: str, base_url: str, api_key: str) -> None:
+    """Update the embedding model fields while preserving other saved settings."""
+    with config_path.open('rb') as file:
+        config = tomllib.load(file)
+    knowledge_base = config.setdefault('knowledge_base', {})
+    knowledge_base.update(embedding_model=model, base_url=base_url)
+    if api_key:
+        knowledge_base['api_key'] = api_key
+    _write_config(config, config_path)
+
+
+def _write_config(config: dict[str, Any], config_path: Path) -> None:
+    config_path = config_path.resolve()
+    with NamedTemporaryFile(dir=config_path.parent, delete=False) as file:
+        temporary_path = Path(file.name)
+        try:
+            tomli_w.dump(config, file)
+            file.close()
+            if config_path.exists():
+                copymode(config_path, temporary_path)
+            temporary_path.replace(config_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
 
 def apply_update_port(settings: 'Settings', update_port: UpdatePort) -> None:

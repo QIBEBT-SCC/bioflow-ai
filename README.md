@@ -60,7 +60,7 @@ uv run bioflow-ai auto-init
 
 ### Start the backend
 
-The interactive initializer guides you through system configuration, test data, service containers, the database, the administrator account, and model providers. See the [Automatic Initialization guide](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization) for every prompt, accepted value, and default.
+The initializer prepares the services and database tables, then configures the embedding model and chat models together. The final stage creates the administrator account, imports system presets, builds the vector indexes, and offers the optional test dataset. See the [Automatic Initialization guide](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization).
 
 After initialization, start the API (which also hosts the workflow dispatcher), the shared execution worker, and the agent worker in separate terminals:
 

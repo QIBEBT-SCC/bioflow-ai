@@ -2,7 +2,6 @@ from collections.abc import Generator
 from typing import Annotated, TypeAlias
 
 from fastapi import Depends
-from loguru import logger
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import Session
 
@@ -22,7 +21,6 @@ engine = create_engine(
 )
 
 
-@logger.catch
 def create_db_and_tables() -> None:
     """初始化数据库."""
     Base.metadata.create_all(engine)
@@ -36,7 +34,7 @@ def drop_table(table_name: str) -> None:
     table.drop(engine)
 
 
-def _get_session() -> Generator[Session, None, None]:
+def _get_session() -> Generator[Session]:
     with Session(engine) as session:
         yield session
 

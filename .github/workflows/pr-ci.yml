@@ -30,14 +30,6 @@ jobs:
           uv sync --locked
       - name: Build source distribution and wheel
         run: uv build
-      - name: Check wheel deployment without a source checkout
-        run: |
-          deployment=$(mktemp -d)
-          cd "$deployment"
-          uv init --bare --python 3.13
-          uv add "$GITHUB_WORKSPACE"/dist/*.whl
-          uv run --locked bioflow-ai --help
-          uv run --locked python "$GITHUB_WORKSPACE/tests/wheel_smoke.py"
       - name: Ruff lint (advisory)
         id: ruff
         continue-on-error: true

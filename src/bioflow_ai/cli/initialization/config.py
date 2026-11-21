@@ -1,7 +1,15 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import click
+
 from bioflow_ai.cli.initialization import tui
+from bioflow_ai.services.initialization.config import (
+    apply_update_port,
+    validate_int,
+    write_embedding_settings,
+    write_settings,
+)
 from bioflow_ai.services.initialization.ports import (
     SERVICE_DEFAULT_PORTS,
     UpdatePort,
@@ -12,16 +20,12 @@ from bioflow_ai.services.initialization.ports import (
 if TYPE_CHECKING:
     from bioflow_ai.core.config import (
         DockerConfig,
-        KnowledgeBaseConfig,
         NetworkConfig,
         PDFParserConfig,
         ResourceConfig,
         Settings,
         StorageConfig,
     )
-
-
-from bioflow_ai.services.initialization.config import apply_update_port, validate_int, write_settings
 
 
 def render_port_preflight(update_port: UpdatePort) -> None:
@@ -109,20 +113,30 @@ def ask_docker() -> 'DockerConfig':
     return DockerConfig(CONTAINER=container, USERNAME=username, PASSWORD=password)
 
 
-def ask_knowledge_base() -> 'KnowledgeBaseConfig':
-    """Prompt for knowledge-base embedding settings."""
-    from bioflow_ai.core.config import KnowledgeBaseConfig
+def initialize_embedding(config_path: Path) -> None:
+    """Keep or update the model used to build vector indexes."""
+    from bioflow_ai.core.config import get_settings
+    from bioflow_ai.services.initialization.providers import validate_base_url, validate_required_text
 
-    tui.render_section('Knowledge Base Embedding', 'Configure the embedding model used by the knowledge base.')
+    tui.render_subsection('Embedding Model')
+    current = get_settings().knowledge_base
+    has_key = bool(current.API_KEY.get_secret_value().strip())
+    if has_key and not tui.prompt_confirm(
+        f'Update the saved embedding model ({current.EMBEDDING_MODEL})?', default=False
+    ):
+        return
 
-    model = tui.prompt_text('Embedding model name', default='Qwen/Qwen3-Embedding-4B')
-    base_url = tui.prompt_text('Embedding API base URL', default='https://api.siliconflow.cn/v1/')
-    api_key = tui.prompt_password('Embedding API key')
-    return KnowledgeBaseConfig(
-        EMBEDDING_MODEL=model,
-        BASE_URL=base_url,
-        API_KEY=api_key,
-    )
+    model = tui.prompt_text('Embedding model name', default=current.EMBEDDING_MODEL, validate=validate_required_text)
+    base_url = tui.prompt_text('Embedding API base URL', default=current.BASE_URL, validate=validate_base_url)
+    key_prompt = 'Embedding API key (leave blank to keep the current key)' if has_key else 'Embedding API key'
+    api_key = tui.prompt_password(key_prompt)
+    try:
+        write_embedding_settings(config_path, model=model.strip(), base_url=base_url.strip(), api_key=api_key.strip())
+    except OSError as exc:
+        message = f'Could not save embedding settings: {exc}'
+        raise click.ClickException(message) from exc
+    get_settings.cache_clear()
+    tui.render_notice('Embedding settings saved.', style='#10b981')
 
 
 def ask_pdf_parser() -> 'PDFParserConfig':
@@ -165,7 +179,6 @@ def create_settings(config_path: Path) -> tuple['Settings', UpdatePort]:
     settings.persistent.storage = ask_storage()
     settings.persistent.resource = ask_resource()
     settings.docker = ask_docker()
-    settings.knowledge_base = ask_knowledge_base()
     settings.pdf_parser = ask_pdf_parser()
 
     render_port_preflight(update_port)
