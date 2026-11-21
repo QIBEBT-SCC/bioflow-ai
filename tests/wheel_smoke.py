@@ -6,7 +6,7 @@ from contextlib import chdir
 from pathlib import Path
 from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import yaml
 from click.testing import CliRunner
@@ -46,9 +46,16 @@ def check_deployment(runtime: str) -> None:
         result = runner.invoke(cli, ['auto-init'], catch_exceptions=False)
         assert result.exit_code == 0, result.output
         assert Path('config.toml').is_file()
-        start.assert_called_once_with([*compose_command, '-f', 'docker-compose.yml', 'up', '-d'])
-
+        compose_prefix = [*compose_command, '-f', 'docker-compose.yml']
         compose = yaml.safe_load(Path('docker-compose.yml').read_text())
+        up = call([*compose_prefix, 'up', '-d'])
+        if runtime == 'podman':
+            run = [*compose_prefix, '--profile', 'volume-init', 'run', '--rm', '-T', '--no-deps']
+            assert start.call_args_list == [call([*run, 'milvus-volume-init']), call([*run, 'rustfs-volume-init']), up]
+            assert 'depends_on' not in compose['services']['rustfs']
+            assert set(compose['services']['standalone']['depends_on']) == {'etcd', 'rustfs'}
+        else:
+            assert start.call_args_list == [up]
         assert './presets/sql:/docker-entrypoint-initdb.d' in compose['services']['postgres-db']['volumes']
         sql_file = Path('presets/sql/03_create_table.sql')
         assert sql_file.read_bytes() == (BUILTIN_PRESETS_DIR / 'sql' / sql_file.name).read_bytes()
@@ -65,6 +72,13 @@ def check_deployment(runtime: str) -> None:
         assert result.exit_code == 0, result.output
         assert edited.read_text() == original + '\nLocal edit\n'
         assert sql_file.is_file()
+
+        if runtime == 'podman':
+            start.reset_mock()
+            start.return_value = CompletedProcess([], 17)
+            result = runner.invoke(cli, ['auto-init'], catch_exceptions=False)
+            start.assert_called_once_with([*run, 'milvus-volume-init'])
+            assert 'Compose exited with code 17' in result.output
 
 
 if __name__ == '__main__':
