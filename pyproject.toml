@@ -72,8 +72,8 @@ podman = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.12.22,<0.13"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
 
 [[tool.uv.index]]
 url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
@@ -85,16 +85,32 @@ override-dependencies = [
     "hf-xet>=1.5.1", # 解除 langchain-redis 的限制, 同时满足 huggingface-hub 1.22+ 的 API 要求
 ]
 
-[tool.uv.build-backend]
-source-include = [
-    "presets/**",
-    "deploy/**",
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src/bioflow_ai",
+    "presets/code",
+    "presets/download_resources",
+    "presets/skills",
+    "presets/sql",
+    "deploy",
+    "README.md",
     "uv.lock",
     ".python-version",
     ".gitignore",
 ]
-# Keep generated data and local deployment helpers out of distributions.
-source-exclude = ["/presets/*.parquet", "/presets/build/**", "/src/bioflow_ai/cli/maintenance/**"]
+exclude = ["/src/bioflow_ai/cli/maintenance"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bioflow_ai"]
+exclude = ["/src/bioflow_ai/cli/maintenance"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"presets/code" = "bioflow_ai/_resources/presets/code"
+"presets/skills" = "bioflow_ai/_resources/presets/skills"
+"presets/sql" = "bioflow_ai/_resources/presets/sql"
+"deploy/config.example.toml" = "bioflow_ai/_resources/deploy/config.example.toml"
+"deploy/docker/docker-compose.yml" = "bioflow_ai/_resources/deploy/docker/docker-compose.yml"
+"deploy/podman/docker-compose.yml" = "bioflow_ai/_resources/deploy/podman/docker-compose.yml"
 
 [tool.ruff]
 line-length = 120

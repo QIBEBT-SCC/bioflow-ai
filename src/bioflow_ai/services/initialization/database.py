@@ -77,17 +77,18 @@ async def init_preset_database_records(
 
 async def _ensure_preset_file(filename: str) -> PresetFileResult:
     """Ensure a preset parquet file exists locally."""
-    parquet_file = str(PRESETS_DIR / filename)
-    if await Path(parquet_file).exists():
-        return PresetFileResult(path=parquet_file, downloaded=False)
+    parquet_file = Path(PRESETS_DIR / filename)
+    if await parquet_file.exists():
+        return PresetFileResult(path=str(parquet_file), downloaded=False)
 
     from huggingface_hub import download_bucket_files
 
+    await parquet_file.parent.mkdir(parents=True, exist_ok=True)
     download_bucket_files(
         PREBUILD_REPO,
-        files=[(filename, parquet_file)],
+        files=[(filename, str(parquet_file))],
     )
-    return PresetFileResult(path=parquet_file, downloaded=True)
+    return PresetFileResult(path=str(parquet_file), downloaded=True)
 
 
 async def init_images(*, drop_old: bool = True, progress: ProgressIterator | None = None) -> PresetImportResult:

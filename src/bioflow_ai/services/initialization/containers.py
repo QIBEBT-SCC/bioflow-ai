@@ -242,11 +242,10 @@ def _podman_ps_service(record: dict[str, object]) -> str:
 
 
 def check_unready_volume_initializers(compose_command: list[str], runtime: str) -> list[str]:
-    """Require successful initializer exits, including with Podman Compose providers."""
-    command = [*compose_command, '-f', str(COMPOSE_FILE), 'ps']
-    if runtime == 'docker':
-        command.append('--all')
-    result = run_command([*command, '--format', 'json'])
+    """Verify Docker initializer exits. Podman checks the exit codes before starting services."""
+    if runtime == 'podman':
+        return []
+    result = run_command([*compose_command, '-f', str(COMPOSE_FILE), 'ps', '--all', '--format', 'json'])
     if result.returncode != 0:
         return sorted(VOLUME_INIT_SERVICES)
 
@@ -258,8 +257,7 @@ def check_unready_volume_initializers(compose_command: list[str], runtime: str) 
     completed = set()
     for record in records:
         if _podman_ps_state(record) in {'exited', 'stopped'} and record.get('ExitCode') == 0:
-            service = str(record.get('Service', '')) if runtime == 'docker' else _podman_ps_service(record)
-            completed.add(service)
+            completed.add(str(record.get('Service', '')))
     return sorted(VOLUME_INIT_SERVICES - completed)
 
 
@@ -295,6 +293,16 @@ def wait_for_project_services(
             names = ', '.join(unready_services)
             return OperationResult(success=False, error=f'Timed out waiting for project services: {names}')
         time.sleep(poll_interval)
+
+
+def project_start_commands(compose_command: list[str], runtime: str) -> list[list[str]]:
+    """Run Podman volume jobs outside the long-running services' dependency graph."""
+    command = [*compose_command, '-f', str(COMPOSE_FILE)]
+    up = [*command, 'up', '-d']
+    if runtime == 'podman':
+        run = [*command, '--profile', 'volume-init', 'run', '--rm', '-T', '--no-deps']
+        return [[*run, service] for service in sorted(VOLUME_INIT_SERVICES)] + [up]
+    return [up]
 
 
 def start_project_services(command: list[str]) -> subprocess.CompletedProcess[bytes]:

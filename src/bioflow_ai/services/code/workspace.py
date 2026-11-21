@@ -5,7 +5,7 @@ from pathlib import Path
 from shutil import copyfile, rmtree
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.core.paths import PRESETS_DIR
+from bioflow_ai.core.paths import BUILTIN_PRESETS_DIR
 from bioflow_ai.infrastructure.containers import ContainerMount, run_command, run_command_async
 from bioflow_ai.infrastructure.containers.mount_paths import build_uv_mounts
 from bioflow_ai.schemas.code import CodeNodeType
@@ -58,7 +58,7 @@ def _prepare_workspace(
 ) -> tuple[list[ContainerMount], str | None]:
     (workspace / 'output').mkdir(mode=0o777, exist_ok=True)
     agents = workspace / 'AGENTS.md'
-    copyfile(PRESETS_DIR / 'code' / _LANGUAGE_DIRECTORIES[node_type] / 'AGENTS.md', agents)
+    copyfile(BUILTIN_PRESETS_DIR / 'code' / _LANGUAGE_DIRECTORIES[node_type] / 'AGENTS.md', agents)
     agents.chmod(0o666)
     if source or node_type is not CodeNodeType.PYTHON:
         script = workspace / SCRIPT_FILENAMES[node_type]

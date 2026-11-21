@@ -10,13 +10,6 @@ from bioflow_ai.cli.errors import handle_service_errors
 from bioflow_ai.cli.render import create_iterator_renderer, create_progress_renderer
 from bioflow_ai.services.development.database import DB_PATH
 from bioflow_ai.services.development.records import search_tools, statistic, update_tool_requirement
-from bioflow_ai.services.development.tool_generation import (
-    continue_run,
-    create_tool_manually,
-    delete_prebuild_tool,
-    init_tools,
-    read_interrupt,
-)
 from bioflow_ai.services.export.trajectories import compact_trajectories, default_trajectory_dataset_path
 from bioflow_ai.utils.observability.execution_logging import agent_logging_to_console
 
@@ -75,6 +68,8 @@ def create_tools_cmd(
     langsmith_tracing: bool,
 ) -> None:
     """Create tools automatically, or create one manually with --name."""
+    from bioflow_ai.services.development.tool_generation import create_tool_manually, init_tools
+
     manual_values = {
         '--name': name,
         '--help-command': help_command,
@@ -115,6 +110,8 @@ def create_tools_cmd(
 @agent_logging_to_console(enabled=False)
 def read_interrupt_cmd(index: int) -> None:
     """Read tool interruption details."""
+    from bioflow_ai.services.development.tool_generation import read_interrupt
+
     asyncio.run(read_interrupt(index, on_event=create_progress_renderer()))
 
 
@@ -129,6 +126,8 @@ def read_interrupt_cmd(index: int) -> None:
 @agent_logging_to_console(enabled=False)
 def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmith_tracing: bool) -> None:
     """Resume the tool creation task at the specified index."""
+    from bioflow_ai.services.development.tool_generation import continue_run
+
     asyncio.run(
         continue_run(
             index, message, approve=approve, langsmith_tracing=langsmith_tracing, on_event=create_progress_renderer()
@@ -141,6 +140,8 @@ def continue_run_cmd(index: int, message: str | None, *, approve: bool, langsmit
 @handle_service_errors
 def delete_prebuild_tool_cmd(indices: tuple[int, ...]) -> None:
     """Delete prebuilt tools by index (multiple indices are supported, e.g. 61 62 63 65)."""
+    from bioflow_ai.services.development.tool_generation import delete_prebuild_tool
+
     asyncio.run(delete_prebuild_tool(list(indices)))
 
 

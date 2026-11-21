@@ -7,6 +7,7 @@ from bioflow_ai.services.initialization.containers import (
     check_compose_command,
     compose_template_file,
     load_compose_file,
+    project_start_commands,
     start_project_services,
     wait_for_project_services,
 )
@@ -52,16 +53,16 @@ def initialize_project_containers(
     for message in compose_file_result.updated_port:
         tui.render_notice(f'Updated {message}.', style='#10b981')
 
-    # Reconcile Compose even when services are running so volume initializers are not skipped.
-    command = [*compose_command, '-f', str(COMPOSE_FILE), 'up', '-d']
     tui.console.print()
-    tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {" ".join(command)}')
-    result = start_project_services(command)
-    if result.returncode != 0:
-        tui.render_notice(
-            f'Project container startup failed; Compose exited with code {result.returncode}.', style='#ef4444'
-        )
-        return False
+    for command in project_start_commands(compose_command, runtime):
+        command_text = ' '.join(command)
+        tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {command_text}')
+        result = start_project_services(command)
+        if result.returncode != 0:
+            tui.render_notice(
+                f'Compose exited with code {result.returncode} while running {command_text}.', style='#ef4444'
+            )
+            return False
 
     tui.render_notice('Project containers started; waiting for services to become ready.', style='#10b981')
     ready_result = wait_for_project_services(compose_command, runtime)

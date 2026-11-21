@@ -35,9 +35,10 @@ Celery task queue, LangGraph AI agents, and containerized bioinformatics tools.
 - `infrastructure/` owns database, Redis, object storage, container runtimes, and external transport.
 - `llm/` owns agents, tools, protocols, middleware, and workflow generation.
 - `utils/` groups shared helpers by responsibility, including domain-specific subpackages.
-- `core/paths.py` locates repository resources in root-level `presets/` and `deploy/`.
-  Editable skills stay outside the wheel. Configuration and runtime output paths follow
-  the existing working-directory and settings rules.
+- `core/paths.py` locates built-in resources in root-level `presets/` and `deploy/` for
+  source checkouts and in `bioflow_ai/_resources/` for wheel installs. `auto-init` copies
+  bundled defaults into the deployment directory for installed users. Editable skills,
+  configuration, and runtime output paths follow the existing working-directory and settings rules.
 
 **Workflow System**
 
