@@ -11,11 +11,15 @@ from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langgraph.types import Command
 
     from bioflow_ai.llm.states import BuildNode, WorkflowDraft
     from bioflow_ai.models.project import ProjectFileMapping
     from bioflow_ai.models.resource import SampleFiles
+    from bioflow_ai.models.workflow import Workflow
+    from bioflow_ai.schemas.react_flow import InterfaceInput, InterfaceOutput
     from bioflow_ai.schemas.tools import Handle, ToolNodePublic
     from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
@@ -336,3 +340,44 @@ def format_marker_registry(
     output.extend(draft_entries or ['- (none)'])
 
     return '\n'.join(output)
+
+
+def format_interface_ports(ports: Sequence[InterfaceInput | InterfaceOutput]) -> list[str]:
+    """Format workflow interface ports as Markdown list items."""
+    if not ports:
+        return ['- None']
+    lines: list[str] = []
+    for port in ports:
+        desc = port.description.strip()
+        line = f'- `{port.id}` ({port.name})'
+        if desc:
+            line += f': {desc}'
+        lines.append(line)
+    return lines
+
+
+def format_subgraph_info(
+    workflow: Workflow,
+    tool_images: Sequence[str],
+    *,
+    heading: str,
+    include_ports: bool = False,
+) -> str:
+    """Render a subgraph summary as Markdown, optionally including input/output ports."""
+    tools_text = ', '.join(tool_images) if tool_images else 'None'
+    lines = [
+        f'## {heading}',
+        f'- uid: {workflow.uid}',
+        f'- name: {workflow.name}',
+        f'- description: {workflow.description}',
+        f'- execution_scope: {workflow.execution_scope.name}',
+        f'- tool_images: {tools_text}',
+    ]
+    if include_ports:
+        interface = workflow.workflow.interface
+        inputs = interface.inputs if interface else []
+        outputs = interface.outputs if interface else []
+        lines.extend(
+            ['', '### Inputs', *format_interface_ports(inputs), '', '### Outputs', *format_interface_ports(outputs)]
+        )
+    return '\n'.join(lines)
