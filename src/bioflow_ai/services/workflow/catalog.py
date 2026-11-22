@@ -9,10 +9,13 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.workflow as workflow_crud
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
+from bioflow_ai.crud import user as user_crud
 from bioflow_ai.crud.resource import sample as sample_crud
+from bioflow_ai.crud.tools import tool as tool_crud
 from bioflow_ai.llm.models import qwen3_embedding
 from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.workflow import Workflow
+from bioflow_ai.schemas.user_config import UserRole
 from bioflow_ai.schemas.workflow import WorkflowUpdate
 from bioflow_ai.schemas.workflow_config import WorkflowType
 from bioflow_ai.services._transaction import committing
@@ -52,6 +55,60 @@ async def search_subgraphs(
             limit=limit,
         )
     ]
+
+
+def get_accessible_subgraph(session: Session, uid: UUIDLike, user_id: int) -> Workflow | None:
+    """Return a single saved subgraph accessible to the active user, or None."""
+    user = user_crud.get_by_id(session, user_id)
+    if user is None or not user.is_active:
+        return None
+    items = workflow_crud.get_all_by_uid(
+        session,
+        [uid],
+        user_id,
+        include_private=user.role == UserRole.ADMIN,
+        include_owned=user.role >= UserRole.MEMBER,
+        wf_type=WorkflowType.SUBMODULE,
+    )
+    return items[0] if items else None
+
+
+def workflow_tool_image_names(session: Session, workflows: Sequence[Workflow]) -> dict[UUID, list[str]]:
+    """Map each workflow UID to the deduplicated names of tool images used by its tool nodes."""
+    uids_by_workflow: dict[UUID, list[UUID]] = {}
+    all_tool_uids: list[UUID] = []
+    seen_global: set[UUID] = set()
+    for workflow in workflows:
+        wf_tool_uids: list[UUID] = []
+        seen_wf: set[UUID] = set()
+        for node in workflow.workflow.nodes:
+            if node.type != 'tool':
+                continue
+            raw_uid = node.data.get('tool_uid')
+            if not raw_uid:
+                continue
+            try:
+                parsed = UUID(str(raw_uid))
+            except ValueError:
+                continue
+            if parsed not in seen_wf:
+                seen_wf.add(parsed)
+                wf_tool_uids.append(parsed)
+            if parsed not in seen_global:
+                seen_global.add(parsed)
+                all_tool_uids.append(parsed)
+        uids_by_workflow[workflow.uid] = wf_tool_uids
+
+    if not all_tool_uids:
+        return {workflow.uid: [] for workflow in workflows}
+
+    image_by_tool_uid = tool_crud.get_image_names_by_uids(session, all_tool_uids)
+    return {
+        workflow.uid: list(
+            dict.fromkeys(image_by_tool_uid[uid] for uid in uids_by_workflow[workflow.uid] if uid in image_by_tool_uid)
+        )
+        for workflow in workflows
+    }
 
 
 async def search_workflows(
