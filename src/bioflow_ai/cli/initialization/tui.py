@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -79,9 +80,9 @@ async def prompt_confirm_async(message: str, *, default: bool = False) -> bool:
     return await finish_async(questionary.confirm(message, default=default, style=PROMPT_STYLE))
 
 
-def prompt_select(message: str, *, choices: list[str], default: str) -> str:
+def prompt_select(message: str, *, choices: Sequence[Any], default: Any = None) -> str:
     """Prompt for a single selection with the shared style."""
-    return finish(questionary.select(message, choices=choices, default=default, style=PROMPT_STYLE))
+    return str(finish(questionary.select(message, choices=list(choices), default=default, style=PROMPT_STYLE)))
 
 
 def prompt_checkbox(message: str, *, choices: list[Any], validate: Any = None) -> list[Any]:
@@ -195,6 +196,48 @@ def render_preset_database_summary(result: Any) -> None:
             border_style='#10b981',
             box=box.ROUNDED,
             padding=(1, 2),
+        )
+    )
+
+
+def render_provider_configurations(configurations: Sequence[Any]) -> None:
+    """Render a summary of providers and models staged for activation."""
+    if not configurations:
+        console.print()
+        console.print(
+            Panel(
+                Text('No providers enabled yet. Select a built-in provider or add a custom endpoint.', style='#94a3b8'),
+                title='[bold #f8fafc]Configured AI Providers[/bold #f8fafc]',
+                border_style='#334155',
+                box=box.ROUNDED,
+                padding=(0, 2),
+            )
+        )
+        return
+
+    table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    table.add_column('Provider', style='bold #f8fafc', no_wrap=True)
+    table.add_column('API Key', no_wrap=True)
+    table.add_column('Proxy', no_wrap=True)
+    table.add_column('Models', style='#cbd5e1')
+
+    for config in configurations:
+        key_text = Text('set', style='#10b981') if config.credential_configured else Text('optional', style='#94a3b8')
+        proxy_text = Text('yes', style='#22d3ee') if config.use_proxy else Text('no', style='#64748b')
+        model_names = ', '.join(
+            f'{model.display_name} ({model.name})' if model.display_name != model.name else model.name
+            for model in config.models
+        )
+        table.add_row(config.name, key_text, proxy_text, Text(model_names))
+
+    console.print()
+    console.print(
+        Panel(
+            table,
+            title='[bold #f8fafc]Configured AI Providers[/bold #f8fafc]',
+            border_style='#334155',
+            box=box.ROUNDED,
+            padding=(0, 2),
         )
     )
 

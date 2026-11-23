@@ -32,7 +32,7 @@ def _price(input_price: str, output_price: str, cache_read_price: str) -> ModelP
     return ModelPrice(input=Decimal(input_price), output=Decimal(output_price), cache_read=Decimal(cache_read_price))
 
 
-# Verified against official catalogs on 2026-10-30. Prices are standard text rates
+# Verified against official catalogs on 2026-11-24. Prices are standard text rates
 # for the lowest context tier; service tiers, cache writes and tool fees are separate.
 # https://developers.openai.com/api/docs/pricing
 # https://platform.claude.com/docs/en/about-claude/pricing
@@ -40,6 +40,16 @@ def _price(input_price: str, output_price: str, cache_read_price: str) -> ModelP
 # https://api-docs.deepseek.com/quick_start/pricing/
 # Keep more specific model variants before their parent families.
 MODEL_DEFAULT_RULES: tuple[ModelDefaultRule, ...] = (
+    ModelDefaultRule(
+        pattern=r'gpt-6\.2-astra(?:-\d{4}-\d{2}-\d{2})?',
+        price=_price('8', '40', '0.4'),
+        context_window=1_050_000,
+    ),
+    ModelDefaultRule(
+        pattern=r'gpt-6\.2-sol(?:-\d{4}-\d{2}-\d{2})?',
+        price=_price('2', '10', '0.1'),
+        context_window=1_050_000,
+    ),
     ModelDefaultRule(
         pattern=r'gpt-6-astra(?:-\d{4}-\d{2}-\d{2})?',
         price=_price('10', '50', '1'),
@@ -106,6 +116,11 @@ MODEL_DEFAULT_RULES: tuple[ModelDefaultRule, ...] = (
         context_window=1_050_000,
     ),
     ModelDefaultRule(
+        pattern=r'claude-fable-5[.-]2',
+        price=_price('8', '40', '0.2'),
+        context_window=1_000_000,
+    ),
+    ModelDefaultRule(
         pattern=r'claude-fable-5[.-]1',
         price=_price('10', '50', '0.25'),
         context_window=1_000_000,
@@ -165,6 +180,22 @@ MODEL_DEFAULT_RULES: tuple[ModelDefaultRule, ...] = (
         pattern=r'claude-haiku-4[.-]5(?:-20251001)?',
         price=_price('1', '5', '0.1'),
         context_window=200_000,
+    ),
+    # Carbon introductory rates expire after 2026-11-30 (then 4 / 20 / 0.2).
+    ModelDefaultRule(
+        pattern=r'gemini-4-carbon',
+        price=_price('2', '10', '0.1'),
+        context_window=1_048_576,
+    ),
+    ModelDefaultRule(
+        pattern=r'gemini-4-neon',
+        price=_price('3', '15', '0.15'),
+        context_window=1_048_576,
+    ),
+    ModelDefaultRule(
+        pattern=r'gemini-4-hydrogen',
+        price=_price('1.5', '7.5', '0.075'),
+        context_window=1_048_576,
     ),
     # Argon introductory rates expire after 2026-11-30 (then 4 / 20 / 0.2).
     ModelDefaultRule(
