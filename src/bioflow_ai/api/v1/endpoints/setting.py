@@ -13,7 +13,7 @@ import bioflow_ai.crud.setting.llm_statistic as statistic_crud
 from bioflow_ai.core.auth import AdminDep
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import SessionDep
-from bioflow_ai.llm.models import invalidate_model_cache
+from bioflow_ai.llm.models import invalidate_model_cache, probe_model_availability
 from bioflow_ai.models.setting import (
     DEEPSEEK_REASONING_EFFORTS,
     SUPPORTED_REASONING_EFFORTS,
@@ -25,6 +25,7 @@ from bioflow_ai.models.setting import (
 from bioflow_ai.schemas.setting import (
     LLMModelCreate,
     LLMModelPublic,
+    LLMModelTestResult,
     LLMModelUpdate,
     LLMProviderCreate,
     LLMProviderPublic,
@@ -187,6 +188,21 @@ async def delete_llm_model(model_id: int, session: SessionDep, _current_user: Ad
         raise HTTPException(status_code=404, detail='Model not found') from error
     invalidate_model_cache()
     return {'message': 'Model deleted successfully'}
+
+
+@router.post('/models/{model_id}/test')
+async def probe_llm_model(
+    model_id: int,
+    session: SessionDep,
+    _current_user: AdminDep,
+) -> LLMModelTestResult:
+    """Send a connectivity test message to an LLM model and return availability details."""
+    try:
+        return await probe_model_availability(session, model_id)
+    except setting_service.LLMModelNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Model not found') from error
+    except setting_service.LLMProviderNotFoundError as error:
+        raise HTTPException(status_code=404, detail='Provider not found') from error
 
 
 # ==================== LLM Setting Endpoints ====================
