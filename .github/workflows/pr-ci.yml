@@ -1,15 +1,17 @@
-name: Backend PR CI
+name: Backend CI
 
 on:
   pull_request:
     branches: [master, dev]
+  push:
+    branches: [master]
 
 permissions:
   contents: read
 
 concurrency:
-  group: backend-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: backend-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:

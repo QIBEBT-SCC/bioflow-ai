@@ -1,0 +1,332 @@
+name: Release & Publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and verify only; skip PyPI publish and GitHub Release creation
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: backend-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.22'
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Resolve and validate release metadata
+        id: meta
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          GITHUB_REF_VALUE: ${{ github.ref }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+        run: |
+          uv run --no-project --python "$(tr -d '[:space:]' < .python-version)" python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path('pyproject.toml').open('rb') as f:
+              project = tomllib.load(f)['project']
+
+          name = project['name']
+          if name != 'bioflow-ai':
+              print(f"::error::Expected project.name 'bioflow-ai', got {name!r}")
+              sys.exit(1)
+
+          version = project['version']
+          pattern = r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:(a|b|rc)(0|[1-9]\d*))?$'
+          match = re.fullmatch(pattern, version)
+          if not match:
+              print(
+                  f'::error::Unsupported pyproject.toml version {version!r}. '
+                  'Expected PEP 440 X.Y.Z or X.Y.Z{a|b|rc}N (e.g. 1.0.0 or 1.0.0b1).'
+              )
+              sys.exit(1)
+
+          major, minor, patch, phase, pre_num = match.groups()
+          phase_map = {'a': 'alpha', 'b': 'beta', 'rc': 'rc'}
+          if phase is not None:
+              tag = f'v{major}.{minor}.{patch}-{phase_map[phase]}.{pre_num}'
+              is_prerelease = 'true'
+          else:
+              tag = f'v{major}.{minor}.{patch}'
+              is_prerelease = 'false'
+
+          dry_run = os.environ.get('DRY_RUN', 'false').lower() == 'true'
+          ref = os.environ.get('GITHUB_REF_VALUE', '')
+          sha = os.environ.get('GITHUB_SHA_VALUE', '')
+
+          if not dry_run and ref != 'refs/heads/master':
+              print(f'::error::Non-dry-run releases must run from refs/heads/master (got {ref!r}).')
+              sys.exit(1)
+
+          tag_exists = (
+              subprocess.run(
+                  ['git', 'rev-parse', '--verify', '--quiet', f'refs/tags/{tag}'],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode
+              == 0
+          )
+          if tag_exists:
+              if not dry_run:
+                  print(
+                      f'::error::Tag {tag} already exists. Bump pyproject.toml and uv.lock '
+                      '(or delete the unused tag) before releasing.'
+                  )
+                  sys.exit(1)
+              print(f'::warning::Tag {tag} already exists; continuing because dry_run is enabled.')
+
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as f:
+              f.write(f'version={version}\n')
+              f.write(f'tag={tag}\n')
+              f.write(f'is_prerelease={is_prerelease}\n')
+              f.write(f'commit_sha={sha}\n')
+          PY
+
+      - name: Verify uv.lock matches pyproject.toml
+        run: uv lock --check --offline
+
+      - name: Build source distribution and wheel
+        run: |
+          rm -rf dist
+          uv build
+          rm -f dist/.gitignore
+
+      - name: Validate distributions and bundled resources
+        env:
+          EXPECTED_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          uv run --no-project --python "$(tr -d '[:space:]' < .python-version)" python - <<'PY'
+          import os
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          expected_version = os.environ['EXPECTED_VERSION']
+          expected_wheel = f'bioflow_ai-{expected_version}-py3-none-any.whl'
+          expected_sdist = f'bioflow_ai-{expected_version}.tar.gz'
+
+          dist_files = sorted(p.name for p in Path('dist').iterdir())
+          expected_files = sorted([expected_wheel, expected_sdist])
+          if dist_files != expected_files:
+              print(f'::error::Unexpected dist contents: {dist_files!r}; expected {expected_files!r}')
+              sys.exit(1)
+
+          with zipfile.ZipFile(Path('dist') / expected_wheel) as zf:
+              names = set(zf.namelist())
+
+          required_files = [
+              'bioflow_ai/_resources/deploy/config.example.toml',
+              'bioflow_ai/_resources/deploy/docker/docker-compose.yml',
+              'bioflow_ai/_resources/deploy/podman/docker-compose.yml',
+          ]
+          missing_files = [p for p in required_files if p not in names]
+          if missing_files:
+              print(f'::error::Wheel missing bundled deploy files: {missing_files!r}')
+              sys.exit(1)
+
+          required_prefixes = [
+              'bioflow_ai/_resources/presets/code/',
+              'bioflow_ai/_resources/presets/skills/',
+              'bioflow_ai/_resources/presets/sql/',
+          ]
+          missing_prefixes = [
+              prefix for prefix in required_prefixes if not any(name.startswith(prefix) for name in names)
+          ]
+          if missing_prefixes:
+              print(f'::error::Wheel missing bundled preset directories: {missing_prefixes!r}')
+              sys.exit(1)
+
+          excluded = [name for name in names if name.startswith('bioflow_ai/cli/maintenance/')]
+          if excluded:
+              print(f'::error::Wheel unexpectedly contains excluded maintenance files: {excluded!r}')
+              sys.exit(1)
+          PY
+          uvx --default-index https://pypi.org/simple twine check --strict dist/*
+
+      - name: Smoke-test wheel in an isolated environment
+        env:
+          EXPECTED_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          SMOKE_DIR="$(mktemp -d)"
+          trap 'rm -rf "$SMOKE_DIR"' EXIT
+          WHEEL_PATH="$(realpath "dist/bioflow_ai-${EXPECTED_VERSION}-py3-none-any.whl")"
+          PYTHON_VERSION="$(tr -d '[:space:]' < .python-version)"
+
+          (
+            cd "$SMOKE_DIR"
+            uv venv .venv --python "$PYTHON_VERSION"
+            uv pip install --python .venv/bin/python --default-index https://pypi.org/simple "$WHEEL_PATH"
+            .venv/bin/bioflow-ai --help
+            .venv/bin/python - <<'PY'
+          import importlib.metadata
+          import os
+          import sys
+          from bioflow_ai.core import paths
+
+          expected_version = os.environ['EXPECTED_VERSION']
+          installed_version = importlib.metadata.version('bioflow-ai')
+          assert installed_version == expected_version, (
+              f'Expected version {expected_version!r}, got {installed_version!r}'
+          )
+          assert not paths._IS_SOURCE_TREE, 'Expected _IS_SOURCE_TREE to be False in wheel install'
+
+          for rel in (
+              'config.example.toml',
+              'docker/docker-compose.yml',
+              'podman/docker-compose.yml',
+          ):
+              target = paths.DEPLOY_DIR / rel
+              assert target.is_file(), f'Missing bundled deploy file: {target}'
+
+          for subdir in ('code', 'skills', 'sql'):
+              target = paths.BUILTIN_PRESETS_DIR / subdir
+              assert target.is_dir() and any(target.iterdir()), f'Missing or empty preset dir: {target}'
+
+          print(f'Smoke test passed for bioflow-ai {installed_version}', file=sys.stdout)
+          PY
+          )
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-dists
+          path: dist/
+          retention-days: 7
+
+      - name: Write dry-run summary
+        if: ${{ inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.meta.outputs.is_prerelease }}
+        run: |
+          {
+            echo '### Release dry run succeeded'
+            echo
+            echo "- **Package version**: \`${VERSION}\`"
+            echo "- **Derived tag**: \`${TAG}\`"
+            echo "- **Pre-release**: \`${IS_PRERELEASE}\`"
+            echo '- **PyPI publish & GitHub Release**: skipped (`dry_run=true`)'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/bioflow-ai
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-dists
+          path: dist
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.12.22'
+
+      - name: Publish to PyPI via Trusted Publishing
+        run: uv publish --trusted-publishing always --publish-url https://upload.pypi.org/legacy/ dist/*
+
+      - name: Write publish summary
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          {
+            echo '### Published to PyPI'
+            echo
+            echo "- **Version**: \`${VERSION}\`"
+            echo "- **Package**: https://pypi.org/project/bioflow-ai/${VERSION}/"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: [build, publish-pypi]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-dists
+          path: dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          COMMIT_SHA: ${{ needs.build.outputs.commit_sha }}
+          IS_PRERELEASE: ${{ needs.build.outputs.is_prerelease }}
+        run: |
+          args=(
+            "${TAG}"
+            dist/*
+            --repo "${GITHUB_REPOSITORY}"
+            --target "${COMMIT_SHA}"
+            --title "${TAG}"
+            --generate-notes
+          )
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"
+
+      - name: Write release summary
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          {
+            echo '### Created GitHub Release'
+            echo
+            echo "- **Release**: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+            echo '- **Next step**: Edit the release notes to link related frontend/backend PRs and record the tested frontend image and any database or configuration changes.'
+          } >> "$GITHUB_STEP_SUMMARY"

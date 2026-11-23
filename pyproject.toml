@@ -4,6 +4,26 @@ version = "1.0.0b1"
 description = "A Graph-based Intelligent BioAnalysis Platform"
 readme = "README.md"
 requires-python = ">=3.13"
+authors = [
+    { name = "Aye10032", email = "yeyu@qibebt.ac.cn" },
+]
+keywords = [
+    "bioinformatics",
+    "workflow",
+    "ai-agent",
+    "langgraph",
+    "fastapi",
+    "containers",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 dependencies = [
     "aiofiles>=24.1.0",
     "anyio>=4.11.0",
@@ -70,6 +90,13 @@ bioflow-ai = "bioflow_ai.cli.main:cli"
 podman = [
     "podman>=5.6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/QIBEBT-SCC/bioflow-ai"
+Documentation = "https://bioflow-ai-doc.vercel.app/"
+Repository = "https://github.com/QIBEBT-SCC/bioflow-ai"
+Issues = "https://github.com/QIBEBT-SCC/bioflow-ai/issues"
+Web = "https://github.com/QIBEBT-SCC/bioflow-ai-web"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
