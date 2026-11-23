@@ -1,4 +1,4 @@
-from typing import Any, NotRequired
+from typing import Any
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
@@ -6,20 +6,18 @@ from langchain.agents.middleware.types import StateT, hook_config
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 
-
-class EndLoopSchema(AgentState):
-    should_end: NotRequired[bool]
+from bioflow_ai.utils.llm.artifacts import END_LOOP_ARTIFACT_KEY, trailing_tool_artifacts
 
 
 class EndLoopMiddleware(AgentMiddleware[AgentState[Any], Any]):
-    state_schema = EndLoopSchema
-
-    def before_agent(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
-        return {'should_end': False}
+    """Stop the agent loop when a trailing tool call sets the end-loop artifact."""
 
     @hook_config(can_jump_to=['end'])
     def before_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:  # noqa: D102
-        if state.get('should_end', False):
+        if any(
+            artifact.get(END_LOOP_ARTIFACT_KEY) is True
+            for artifact in trailing_tool_artifacts(state.get('messages', ()))
+        ):
             return {'jump_to': 'end'}
 
         return None

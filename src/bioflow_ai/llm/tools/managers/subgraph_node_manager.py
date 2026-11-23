@@ -30,6 +30,7 @@ from bioflow_ai.utils.formatters import (
     format_validation_error,
     manager_help_command,
 )
+from bioflow_ai.utils.llm.artifacts import parent_handoff_request
 from bioflow_ai.utils.llm.session import workflow_thread_id
 
 
@@ -266,10 +267,8 @@ async def _create(
     }
     child_context = runtime.context.model_copy(update={'delegate_human_requests': True})
     response = await child.ainvoke(initial, context=child_context)
-    if response.get('return_to_parent'):
-        return _message(
-            runtime, f'Subgraph creation needs parent action: {response.get("parent_request", "unknown issue")}'
-        )
+    if (parent_request := parent_handoff_request(response.get('messages', ()))) is not None:
+        return _message(runtime, f'Subgraph creation needs parent action: {parent_request or "unknown issue"}')
     uid = response.get('subgraph_uid')
     if not uid:
         return _message(runtime, 'Subgraph builder stopped without saving a valid subgraph.')

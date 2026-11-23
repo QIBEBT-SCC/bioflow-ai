@@ -45,7 +45,7 @@ from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.index import index_tools
 from bioflow_ai.utils.formatters import handle_formatter, search_nodes_formatter
-from bioflow_ai.utils.llm.artifacts import latest_tool_artifact
+from bioflow_ai.utils.llm.artifacts import latest_tool_artifact, parent_handoff_request
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
@@ -180,10 +180,10 @@ class CreateToolAgent:
                 ),
             )
 
-            if response.get('return_to_parent'):
+            if (parent_request := parent_handoff_request(response.get('messages', ()))) is not None:
                 return {
                     'return_to_parent': True,
-                    'parent_request': response['parent_request'],
+                    'parent_request': parent_request,
                 }
 
             selected = latest_tool_artifact(response.get('messages', []), 'image_uid', 'image')
@@ -284,10 +284,10 @@ class CreateToolAgent:
                 delegate_human_requests=runtime.context.delegate_human_requests,
             ),
         )
-        if response.get('return_to_parent'):
+        if (parent_request := parent_handoff_request(response.get('messages', ()))) is not None:
             return {
                 'return_to_parent': True,
-                'parent_request': response['parent_request'],
+                'parent_request': parent_request,
             }
         structured_report = TestRunReport.model_validate(response['test_run_report'])
 

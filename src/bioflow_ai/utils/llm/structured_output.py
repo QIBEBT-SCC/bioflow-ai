@@ -5,18 +5,16 @@ from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import AgentState, create_agent
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.prompt_values import PromptValue
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
 from langchain_core.tools import StructuredTool
-from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
 from pydantic import BaseModel
 
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.llm_client import LLMMetadata
 from bioflow_ai.llm.middleware import EndLoopMiddleware, RequireToolCallMiddleware, TokenStatisticMiddleware
-from bioflow_ai.utils.llm.artifacts import latest_tool_artifact
+from bioflow_ai.utils.llm.artifacts import END_LOOP_ARTIFACT_KEY, latest_tool_artifact
 
 if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware
@@ -33,26 +31,18 @@ def _tool_call_failed_message(error: Exception) -> str:
 
 
 def _create_output_tool[SchemaT: BaseModel](schema: type[SchemaT]) -> StructuredTool:
-    def build_command(runtime: ToolRuntime, **kwargs: Any) -> Command:
+    def build_result(**kwargs: Any) -> tuple[str, dict[str, Any]]:
         parsed = schema.model_validate(kwargs)
-        return Command(
-            update={
-                'should_end': True,
-                'messages': [
-                    ToolMessage(
-                        content='Structured output has been captured.',
-                        tool_call_id=runtime.tool_call_id,
-                        artifact={'structured_output': parsed},
-                    )
-                ],
-            }
+        return (
+            'Structured output has been captured.',
+            {'structured_output': parsed, END_LOOP_ARTIFACT_KEY: True},
         )
 
-    def submit_structured_output(runtime: ToolRuntime, **kwargs: Any) -> Command:
-        return build_command(runtime, **kwargs)
+    def submit_structured_output(**kwargs: Any) -> tuple[str, dict[str, Any]]:
+        return build_result(**kwargs)
 
-    async def asubmit_structured_output(runtime: ToolRuntime, **kwargs: Any) -> Command:
-        return build_command(runtime, **kwargs)
+    async def asubmit_structured_output(**kwargs: Any) -> tuple[str, dict[str, Any]]:
+        return build_result(**kwargs)
 
     return StructuredTool.from_function(
         submit_structured_output,
@@ -60,6 +50,7 @@ def _create_output_tool[SchemaT: BaseModel](schema: type[SchemaT]) -> Structured
         name='submit_structured_output',
         description='Return the final answer using the required structured schema.',
         args_schema=schema,
+        response_format='content_and_artifact',
         handle_validation_error=_tool_call_failed_message,
     )
 

@@ -151,8 +151,6 @@ class SubgraphBuildState(BuildState, total=False):
     subgraph_uid: uuid.UUID
     subgraph_creation_id: str
     subgraph_purpose: Literal['ordinary', 'foreach']
-    return_to_parent: bool
-    parent_request: str
 
 
 class WorkflowFixState(BuildState, total=False):

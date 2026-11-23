@@ -4,13 +4,13 @@ from typing import Any
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import ModelCallResult, StateT, hook_config
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
-from langgraph.types import Command
 
 from bioflow_ai.llm.context import BaseContext
+from bioflow_ai.utils.llm.artifacts import PARENT_HANDOFF_ARTIFACT_KEY, parent_handoff_request
 
 PARENT_HANDOFF_PROMPT = """## Parent-agent handoff
 You are running as a sub-agent. If any instruction tells you to call `ask_human`, call `return_to_parent`
@@ -21,49 +21,26 @@ the request to the parent agent; do not try to continue afterward.
 """
 
 
-@tool('return_to_parent', parse_docstring=True)
-async def return_to_parent(request: str, runtime: ToolRuntime[BaseContext]) -> Command:
+@tool('return_to_parent', parse_docstring=True, response_format='content_and_artifact')
+async def return_to_parent(request: str, runtime: ToolRuntime[BaseContext]) -> tuple[str, dict[str, str] | None]:
     """Return a blocking request to the supervising agent and stop this sub-agent.
 
     Args:
         request: Complete issue context, recommended next action, and any exact question that still requires user input.
     """
     if not runtime.context.delegate_human_requests:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='`return_to_parent` is only available in delegated runs. Call `ask_human` instead.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
-        )
+        return '`return_to_parent` is only available in delegated runs. Call `ask_human` instead.', None
 
-    return Command(
-        update={
-            'return_to_parent': True,
-            'parent_request': request,
-            'messages': [
-                ToolMessage(
-                    content='The blocking request has been returned to the parent agent.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
+    return (
+        'The blocking request has been returned to the parent agent.',
+        {PARENT_HANDOFF_ARTIFACT_KEY: request},
     )
-
-
-class ParentHandoffState(AgentState, total=False):
-    return_to_parent: bool
-    parent_request: str
 
 
 class ParentHandoffMiddleware[ContextT: BaseContext](AgentMiddleware[AgentState[Any], ContextT]):
     """Swap human interrupts for an early, structured parent handoff in delegated runs."""
 
     tools = [return_to_parent]  # noqa: RUF012
-    state_schema = ParentHandoffState
 
     @staticmethod
     def _tool_name(candidate: BaseTool | dict[str, Any]) -> str | None:
@@ -106,7 +83,7 @@ class ParentHandoffMiddleware[ContextT: BaseContext](AgentMiddleware[AgentState[
     @hook_config(can_jump_to=['end'])
     def before_model(self, state: StateT, runtime: Runtime[ContextT]) -> dict[str, Any] | None:
         """End immediately after a sub-agent returns a blocking request."""
-        if state.get('return_to_parent', False):
+        if parent_handoff_request(state.get('messages', ())) is not None:
             return {'jump_to': 'end'}
         return None
 

@@ -32,6 +32,7 @@ from bioflow_ai.services.tools.execution import (
 from bioflow_ai.services.tools.passthrough import copy_validation_paths, isolate_validation_inputs
 from bioflow_ai.services.workflow.output_validation import output_path_exists
 from bioflow_ai.utils.formatters import search_nodes_formatter
+from bioflow_ai.utils.llm.artifacts import END_LOOP_ARTIFACT_KEY
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper, merge_mappers, restore_mapper
 
 MAX_NODE_EXECUTION_FAILURES = 3
@@ -345,7 +346,7 @@ def _execution_failed(
         'node_execution_failures': failures,
     }
     if node_id is None:
-        update.update(validated=False, updated=False, should_end=False)
+        update.update(validated=False, updated=False)
     return Command(update=update)
 
 
@@ -486,8 +487,13 @@ def execute_node(
                     'validated': True,
                     'execution_count': attempt,
                     'updated': True,
-                    'should_end': True,
-                    'messages': [_message(runtime, json.dumps(summary, ensure_ascii=False))],
+                    'messages': [
+                        _message(
+                            runtime,
+                            json.dumps(summary, ensure_ascii=False),
+                            artifact={END_LOOP_ARTIFACT_KEY: True},
+                        )
+                    ],
                 }
             )
 
