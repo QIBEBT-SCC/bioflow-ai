@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from bioflow_ai.models.project import Project
-from bioflow_ai.models.tools import ToolDefine
+from bioflow_ai.models.tools import ToolDefine, ToolImage
 from bioflow_ai.models.workflow import NodeRun, Workflow, WorkflowRun
 from bioflow_ai.schemas.tools import ToolRunUsage, ToolWorkflowUsage
 from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
@@ -145,6 +145,19 @@ def get_all_by_uid(session: Session, uids: Sequence[UUIDLike], *, refresh: bool 
     tools_by_uid = {str(tool.uid): tool for tool in session.scalars(stmt).all()}
     requested_uids = dict.fromkeys(str(uid) for uid in normalized_uids)
     return [tools_by_uid[uid] for uid in requested_uids if uid in tools_by_uid]
+
+
+def get_image_names_by_uids(session: Session, uids: Sequence[UUIDLike]) -> dict[uuid.UUID, str]:
+    """Return a mapping of tool UID to its associated image name."""
+    if not uids:
+        return {}
+    normalized_uids = list(dict.fromkeys(as_uuid(uid) for uid in uids))
+    stmt = (
+        select(ToolDefine.uid, ToolImage.name)
+        .join(ToolImage, ToolDefine.image_uid == ToolImage.uid)
+        .where(ToolDefine.uid.in_(normalized_uids))
+    )
+    return dict(session.execute(stmt).tuples().all())
 
 
 def get_by_name_fuzzy(session: Session, name: str, limit: int, offset: int) -> Sequence[ToolDefine]:

@@ -14,7 +14,6 @@ from bioflow_ai.llm.vectorstores import MilvusVectorStore
 from bioflow_ai.models.code import CodeDefine
 from bioflow_ai.schemas.code import CodeCreate, CodeMetadataPublic, CodeMetadataRequest, CodeUpdate
 from bioflow_ai.services._transaction import committing
-from bioflow_ai.utils.llm.structured_output import json_output
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
@@ -129,6 +128,8 @@ async def delete_code(session: Session, code_uid: str) -> bool:
 
 async def generate_code_metadata(request: CodeMetadataRequest, user_id: int) -> CodeMetadataPublic:
     """Generate human-facing name and description for existing source code."""
+    from bioflow_ai.utils.llm.structured_output import json_output
+
     model = get_coding_model()
     metadata = cast('LLMMetadata', model.metadata)
     chain = json_output(

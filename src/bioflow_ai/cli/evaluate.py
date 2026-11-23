@@ -3,7 +3,6 @@ import asyncio
 import click
 
 from bioflow_ai.cli.render import create_progress_renderer
-from bioflow_ai.services.evaluation.workflow import wf_eval
 from bioflow_ai.utils.observability.execution_logging import agent_logging_to_console
 
 
@@ -54,6 +53,8 @@ def wf_cmd(
     resume: str | None,
 ) -> None:
     """Run the workflow design evaluation on TASK_FILE."""
+    from bioflow_ai.services.evaluation.workflow import wf_eval
+
     try:
         asyncio.run(
             wf_eval(

@@ -5,6 +5,7 @@ x-webui-image: &webui-image ghcr.io/qibebt-scc/bioflow-ai-web:1.0.0-beta
 services:
   # Remove the matching owner marker after restoring files owned by a different user.
   milvus-volume-init:
+    profiles: [volume-init]
     image: *milvus-image
     user: "0:0"
     network_mode: none
@@ -27,6 +28,7 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
 
   rustfs-volume-init:
+    profiles: [volume-init]
     image: *rustfs-image
     user: "0:0"
     network_mode: none
@@ -70,9 +72,6 @@ services:
   rustfs:
     container_name: milvus-rustfs
     image: *rustfs-image
-    depends_on:
-      rustfs-volume-init:
-        condition: service_completed_successfully
     environment:
       RUSTFS_ACCESS_KEY: minioadmin
       RUSTFS_SECRET_KEY: minioadmin
@@ -120,8 +119,6 @@ services:
       - "19530:19530"
       - "9091:9091"
     depends_on:
-      milvus-volume-init:
-        condition: service_completed_successfully
       etcd:
         condition: service_started
       rustfs:

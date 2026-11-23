@@ -139,11 +139,17 @@ def render_notice(message: str, *, style: str = '#f59e0b') -> None:
     console.print(Panel(Text(message, style=style), border_style=style, box=box.ROUNDED, padding=(0, 2)))
 
 
+def render_subsection(title: str) -> None:
+    """Render a model setup heading within the current section."""
+    console.print()
+    console.print(Text(title, style='bold #f8fafc'))
+
+
 def render_success(config_path: Path) -> None:
-    """Render config initialization success."""
+    """Render deployment configuration success."""
     body = Table.grid(padding=(0, 1))
     body.add_column()
-    body.add_row(Text('Configuration complete', style='bold #10b981'))
+    body.add_row(Text('Deployment configuration saved', style='bold #10b981'))
     body.add_row(Text(f'Written to {config_path}', style='#cbd5e1'))
 
     console.print()

@@ -45,7 +45,8 @@ meta = metadata('bioflow-ai')
 
 @asynccontextmanager
 async def lifespan(main_app: FastAPI):  # noqa: ANN201, D103
-    create_db_and_tables()
+    with logger.catch():
+        create_db_and_tables()
     async with open_checkpointer(setup=True):
         pass
     init_bucket()

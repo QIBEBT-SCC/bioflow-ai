@@ -10,6 +10,19 @@ from bioflow_ai.services.initialization.database import (
 )
 
 
+def prepare_database() -> bool:
+    """Create the tables needed by the model configuration and data stages."""
+    tui.render_section('Database Preparation', 'Create any missing database tables.')
+    try:
+        from bioflow_ai.infrastructure.database import create_db_and_tables
+
+        create_db_and_tables()
+    except Exception as exc:
+        tui.render_notice(f'Database preparation failed: {exc}', style='#ef4444')
+        return False
+    return True
+
+
 async def init_admin() -> AdminInitResult:
     """Prompt for credentials only when the user table is empty."""
     from pydantic import SecretStr
@@ -56,9 +69,6 @@ async def initialize_preset_database(confirm: Callable[..., Awaitable[bool]]) ->
         return None
 
     try:
-        from bioflow_ai.infrastructure.database import create_db_and_tables
-
-        create_db_and_tables()
         result = await init_preset_database_records(drop_old=True, show_progress=False)
         await rebuild_auxiliary_node_index(show_progress=False)
     except Exception as exc:

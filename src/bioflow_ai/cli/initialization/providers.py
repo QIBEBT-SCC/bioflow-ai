@@ -1,10 +1,9 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import questionary
 from sqlalchemy.orm import Session
 
 from bioflow_ai.cli.initialization import tui
-from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.setting import LLMModel, LLMProvider, ModelRole, ProviderType
 from bioflow_ai.services.initialization.providers import (
     CUSTOM_PROVIDER_KEY,
@@ -17,6 +16,7 @@ from bioflow_ai.services.initialization.providers import (
     apply_provider_configurations,
     apply_role_assignments,
     existing_provider,
+    existing_role_assignments,
     list_providers,
     validate_api_key,
     validate_base_url,
@@ -196,9 +196,13 @@ def prompt_provider_configurations(providers: Sequence[LLMProvider]) -> list[Pro
     return configurations
 
 
-def prompt_role_assignments(models: Sequence[LLMModel]) -> dict[ModelRole, LLMModel]:
+def prompt_role_assignments(
+    models: Sequence[LLMModel], existing: Mapping[ModelRole, LLMModel]
+) -> dict[ModelRole, LLMModel]:
     """Show current role assignments and let users edit them one at a time."""
     assignments = dict.fromkeys(ModelRole, models[0])
+    available = {model.id: model for model in models}
+    assignments.update({role: available[model.id] for role, model in existing.items() if model.id in available})
     model_labels = [f'{_model_provider_name(model)} / {model.display_name} ({model.name})' for model in models]
     model_by_label = dict(zip(model_labels, models, strict=True))
     done_choice = 'Done'
@@ -233,19 +237,28 @@ def _model_provider_name(model: LLMModel) -> str:
     return model.provider.name
 
 
-def initialize_llm_providers() -> bool:
+def initialize_llm_providers(*, reuse_existing: bool) -> bool:
     """Interactively create providers, models, prices, and system-role assignments."""
-    tui.render_section(
-        'AI Providers and Models',
-        'Configure official or OpenAI-compatible services, available models, and system agent models.',
-    )
+    tui.render_subsection('Chat Models')
 
     try:
+        from bioflow_ai.infrastructure.database import engine
+
         with Session(engine) as session:
             providers = list_providers(session)
+            roles = existing_role_assignments(session, providers)
+            if reuse_existing and len(roles) == len(ModelRole):
+                tui.render_model_role_assignments(
+                    [
+                        (label, f'{_model_provider_name(roles[role])} / {roles[role].display_name}')
+                        for role, label in ROLE_LABELS.items()
+                    ]
+                )
+                if not tui.prompt_confirm('Update the saved chat models and role assignments?', default=False):
+                    return True
             configurations = prompt_provider_configurations(providers)
             models, models_without_prices = apply_provider_configurations(session, providers, configurations)
-            role_assignments = prompt_role_assignments(models)
+            role_assignments = prompt_role_assignments(models, roles)
             apply_role_assignments(session, role_assignments)
             model_names = ', '.join(f'{_model_provider_name(model)}/{model.display_name}' for model in models)
             session.commit()
