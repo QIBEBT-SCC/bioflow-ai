@@ -33,6 +33,30 @@ uv run python -m pytest
 - **Formatting & linting**: Ruff (120-character line length, single quotes, Google-style docstrings; see [pyproject.toml](./pyproject.toml)).
 - **CI checks**: Installation and packaging checks in [pr-ci.yml](./.github/workflows/pr-ci.yml) (`Backend checks`) are blocking. Ruff and `ty` currently run as advisory checks during rollout.
 
+### Local Wheel Build and Testing
+
+To test local changes as an installed wheel in a clean deployment directory (without bumping the version in `pyproject.toml`):
+
+1. Build a temporary wheel into a gitignored `dist/` subdirectory from the repository root:
+   ```bash
+   uv build --wheel --clear --out-dir dist/local-test
+   ```
+2. Install and test it in a clean directory mirroring end-user deployment (stop any existing development Compose containers first if testing full startup, since Compose container names are fixed):
+   ```bash
+   mkdir -p /tmp/bioflow-test && cd /tmp/bioflow-test
+   uv init --bare --python 3.13
+   uv add /abs/path/to/bioflow-ai/dist/local-test/bioflow_ai-*.whl
+   # Add `--extra podman` when testing with Podman
+   uv run bioflow-ai auto-init
+   ```
+3. To iterate after rebuilding the wheel at the same version, refresh the wheel in the existing test directory:
+   ```bash
+   uv run bioflow-ai stop
+   uv sync --reinstall-package bioflow-ai
+   uv run bioflow-ai start
+   ```
+4. When finished, stop the test services (`uv run bioflow-ai stop`), tear down any test Compose containers (`docker compose down` or `podman compose down`), and delete the temporary `dist/local-test` folder.
+
 ## Branches and Pull Requests
 
 - `master` is the default branch and the source of releases. `dev` is the integration branch.

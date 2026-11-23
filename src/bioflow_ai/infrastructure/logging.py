@@ -72,7 +72,7 @@ loguru_config = {
             '<bold><light-blue>{extra[logger_type]: <7}</light-blue></bold><red>|</red> '
             '<cyan>{extra[name]}</cyan><red>:</red><cyan>{extra[funcName]}</cyan><red>:</red><cyan>{extra[lineno]}</cyan> <red>-</red> <level>{message}</level>',
             'filter': lambda record: 'logger_type' in record['extra'] and agent_record_visible(record),
-            'colorize': True,
+            'colorize': sys.stdout.isatty(),
         },
         {
             'sink': sys.stdout,
@@ -82,7 +82,7 @@ loguru_config = {
             '<bold>default</bold><red>|</red> '
             '<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> <red>-</red> <level>{message}</level>',
             'filter': lambda record: 'logger_type' not in record['extra'] and agent_record_visible(record),
-            'colorize': True,
+            'colorize': sys.stdout.isatty(),
         },
         # 默认运行时日志
         {

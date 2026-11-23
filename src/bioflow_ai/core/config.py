@@ -138,6 +138,8 @@ class CodeEditingConfig(BaseSectionConfig):
 class CeleryConfig(BaseSectionConfig):
     BROKER: AmqpDsn = AmqpDsn('amqp://bioflow_ai:123456@localhost:5672//')
     BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
+    EXECUTION_CONCURRENCY: int = Field(default=4, ge=1)
+    AGENT_CONCURRENCY: int = Field(default=4, ge=1)
 
 
 class WorkflowConfig(BaseSectionConfig):

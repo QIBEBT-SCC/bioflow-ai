@@ -220,12 +220,35 @@ def render_model_role_assignments(assignments: list[tuple[str, str]]) -> None:
     )
 
 
-def render_system_success() -> None:
+def render_system_success(
+    *,
+    web_ui_url: str | None = None,
+    api_url: str | None = None,
+    services_started: bool = False,
+) -> None:
     """Render system initialization success."""
+    body = Table.grid(padding=(0, 2))
+    body.add_column(style='#cbd5e1')
+    body.add_column(style='#f8fafc')
+
+    body.add_row(Text('Status', style='bold #10b981'), Text('System initialization complete.', style='bold #10b981'))
+    if web_ui_url:
+        body.add_row('Web UI', Text(web_ui_url, style='bold #22d3ee'))
+    if api_url:
+        body.add_row('API URL', Text(api_url, style='#cbd5e1'))
+
+    if services_started:
+        body.add_row('Backend services', Text('Running in background', style='#10b981'))
+        body.add_row('Check status', Text('uv run bioflow-ai status', style='#22d3ee'))
+        body.add_row('Follow logs', Text('uv run bioflow-ai logs -f', style='#22d3ee'))
+        body.add_row('Restart / Stop', Text('uv run bioflow-ai restart  |  uv run bioflow-ai stop', style='#22d3ee'))
+    elif web_ui_url or api_url:
+        body.add_row('Start backend', Text('uv run bioflow-ai start', style='#22d3ee'))
+
     console.print()
     console.print(
         Panel(
-            Text('System initialization complete.', style='bold #10b981'),
+            body,
             title='[bold #10b981]Done[/bold #10b981]',
             border_style='#10b981',
             box=box.ROUNDED,
