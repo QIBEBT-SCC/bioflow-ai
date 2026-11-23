@@ -3,6 +3,14 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/QIBEBT-SCC/bioflow-ai/actions/workflows/pr-ci.yml"><img src="https://github.com/QIBEBT-SCC/bioflow-ai/actions/workflows/pr-ci.yml/badge.svg?branch=master" alt="Backend CI" /></a>
+  <a href="https://pypi.org/project/bioflow-ai/"><img src="https://img.shields.io/pypi/v/bioflow-ai" alt="PyPI version" /></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.13%2B-blue" alt="Python 3.13+" /></a>
+  <a href="https://bioflow-ai-doc.vercel.app/"><img src="https://img.shields.io/badge/docs-bioflow--ai-informational" alt="Documentation" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+</p>
+
+<p align="center">
   <a href="./README.md">English</a> | 简体中文
 </p>
 
@@ -23,17 +31,15 @@ BioFlow AI 是一个图驱动的智能生物信息分析平台。它通过可视
 
 ## 安装与初始化
 
-在空的部署目录中安装对应版本的 wheel：
+在空的部署目录中从 PyPI 安装 `bioflow-ai`：
 
 ```bash
 uv init --bare --python 3.13
-uv add /path/to/bioflow_ai-1.0.0b1-py3-none-any.whl
+uv add bioflow-ai
 uv run bioflow-ai auto-init
 ```
 
-如果配置的包索引已提供 BioFlowAI，可以用 `uv add bioflow-ai` 安装。使用 Podman 时，在安装命令中加入
-`--extra podman`。初始化和三个后端进程都应在同一个部署目录中运行。初始化会把可编辑的 Skills 放到
-`presets/skills/`，把数据库初始化文件放到 `presets/sql/`。再次运行时会补齐缺失的文件，并保留已有副本。
+如需安装特定的预发布版本，可显式指定版本号（例如 `uv add 'bioflow-ai==1.0.0b1'`）；如需离线部署，也可从 [GitHub Releases](https://github.com/QIBEBT-SCC/bioflow-ai/releases) 下载 `.whl` 文件并将其路径传给 `uv add`。使用 Podman 时，在安装命令中加入 `--extra podman`。初始化和三个后端进程都应在同一个部署目录中运行。初始化会把可编辑的 Skills 放到 `presets/skills/`，把数据库初始化文件放到 `presets/sql/`。再次运行时会补齐缺失的文件，并保留已有副本。
 
 ### 从源码安装
 
@@ -69,3 +75,11 @@ uv run bioflow-ai agent-worker
 ```
 
 默认在浏览器中访问 `http://localhost:3000`。如果默认端口已被占用，自动初始化程序会选择可用端口并在终端中显示。
+
+## 参与贡献
+
+开发环境配置、分支规范与发版流程请参阅 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+## 开源协议
+
+BioFlow AI 基于 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 开源。
