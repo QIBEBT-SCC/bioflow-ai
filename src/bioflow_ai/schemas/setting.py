@@ -92,6 +92,16 @@ class LLMModelPublic(BaseModel):
     provider_name: str | None = None
 
 
+class LLMModelTestResult(BaseModel):
+    model_id: int
+    model_name: str
+    provider_name: str
+    available: bool
+    latency_ms: int
+    response_text: str | None = None
+    error: str | None = None
+
+
 class LLMProviderPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
