@@ -83,13 +83,12 @@ def select_image(
 
     return Command(
         update={
-            'image_uid': tool_image.uid,
-            'image': tool_image.image,
             'should_end': True,
             'messages': [
                 ToolMessage(
                     content='Image selected.',
                     tool_call_id=runtime.tool_call_id,
+                    artifact={'image_uid': tool_image.uid, 'image': tool_image.image},
                 )
             ],
         }
@@ -108,11 +107,14 @@ def select_classification(group_id: int, tag_ids: list[int], runtime: ToolRuntim
     """
     return Command(
         update={
-            'group_id': group_id,
-            'tag_ids': tag_ids,
-            'updated': True,
             'should_end': True,
-            'messages': [ToolMessage(content='Tool classification selected.', tool_call_id=runtime.tool_call_id)],
+            'messages': [
+                ToolMessage(
+                    content='Tool classification selected.',
+                    tool_call_id=runtime.tool_call_id,
+                    artifact={'group_id': group_id, 'tag_ids': tag_ids},
+                )
+            ],
         }
     )
 
@@ -161,12 +163,12 @@ def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
 
     return Command(
         update={
-            'tool_uid': tool_uid,
             'should_end': True,
             'messages': [
                 ToolMessage(
                     content='Tool selected.',
                     tool_call_id=runtime.tool_call_id,
+                    artifact={'tool_uid': tool_uid},
                 )
             ],
         }

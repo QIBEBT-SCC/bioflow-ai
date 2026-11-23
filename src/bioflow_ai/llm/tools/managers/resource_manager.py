@@ -27,6 +27,7 @@ from bioflow_ai.utils.formatters import (
     manager_help_command,
     node_formatter,
 )
+from bioflow_ai.utils.llm.artifacts import latest_tool_artifact
 
 
 class ViewResourceSchema(BaseModel):
@@ -293,17 +294,9 @@ async def _create_db(name: str, description: str, query: str, runtime: ToolRunti
             context=BaseContext(user_id=runtime.context.user_id, language=runtime.context.language),
         )
         content = response['messages'][-1].content
-        new_db = next(
-            (
-                msg.artifact['db_id']
-                for msg in reversed(response.get('messages', []))
-                if isinstance(msg, ToolMessage)
-                and isinstance(msg.artifact, dict)
-                and isinstance(msg.artifact.get('db_id'), int)
-                and not isinstance(msg.artifact.get('db_id'), bool)
-            ),
-            None,
-        )
+        artifact = latest_tool_artifact(response.get('messages', []), 'db_id')
+        db_id = artifact['db_id'] if artifact is not None else None
+        new_db = db_id if isinstance(db_id, int) and not isinstance(db_id, bool) else None
     except Exception as exc:
         new_db = None
         content = f'Failed to create biological database "{name}": {exc}'

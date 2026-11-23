@@ -82,7 +82,6 @@ class SearchToolNodeState(AgentState, total=False):
     id_mapper: BidirectionalMapper
 
     image_uid: uuid.UUID
-    tool_uid: str
 
 
 search_exist_tool_agent = create_agent(

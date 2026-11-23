@@ -129,8 +129,6 @@ class UserInputState(AgentState, total=False):
 
 
 class BuildState(UserInputState, total=False):
-    previous_summary: str
-
     id_mapper: BidirectionalMapper
     # Every tool UID matched by this workflow's searches, shown or not; used to spot concurrent creations.
     seen_tool_uids: Annotated[list[str], union_uids]

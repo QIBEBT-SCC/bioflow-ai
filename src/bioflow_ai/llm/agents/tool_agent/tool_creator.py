@@ -1,9 +1,9 @@
 import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from langchain.agents import AgentState, create_agent
+from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.graph import CurveStyle
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -30,8 +30,8 @@ from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import search_exist_too
 from bioflow_ai.llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
 from bioflow_ai.llm.middleware import (
     ChatAttachmentMiddleware,
-    CheckStateExistMiddleware,
     EndLoopMiddleware,
+    RequireToolCallMiddleware,
     TokenStatisticMiddleware,
     ToolCreationProgressMiddleware,
 )
@@ -41,9 +41,11 @@ from bioflow_ai.llm.states import CreateToolOutput, CreateToolState
 from bioflow_ai.llm.tools.database import select_classification
 from bioflow_ai.llm.tools.test_run_report import TestRunReport, resolve_test_run_path
 from bioflow_ai.models.tools import ToolDefine, ToolHelpDoc
+from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.tools import ToolNodePublic
 from bioflow_ai.services.tools.index import index_tools
 from bioflow_ai.utils.formatters import handle_formatter, search_nodes_formatter
+from bioflow_ai.utils.llm.artifacts import latest_tool_artifact
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
@@ -125,11 +127,6 @@ class TempIDClass(BaseModel):
     uid: uuid.UUID
 
 
-class SelectClassificationState(AgentState):
-    group_id: NotRequired[int]
-    tag_ids: NotRequired[list[int]]
-
-
 PostReportRoute = Literal['__end__'] | list[Literal['choose_group', 'generate_tool_config', 'process_help_doc']]
 
 
@@ -146,11 +143,12 @@ class CreateToolAgent:
             middleware=[
                 ToolCreationProgressMiddleware(),
                 ChatAttachmentMiddleware(),
-                CheckStateExistMiddleware('tag_ids', 'select_classification'),
+                RequireToolCallMiddleware(
+                    'Before concluding the task, call `select_classification` with valid group_id and tag_ids.'
+                ),
                 EndLoopMiddleware(),
                 TokenStatisticMiddleware('select_group', **metadata),
             ],
-            state_schema=SelectClassificationState,
             context_schema=BaseContext,
         )
 
@@ -188,10 +186,20 @@ class CreateToolAgent:
                     'parent_request': response['parent_request'],
                 }
 
-            logger.success(f'Select image {response["image"]}')
+            selected = latest_tool_artifact(response.get('messages', []), 'image_uid', 'image')
+            if selected is None:
+                err_msg = 'Image search agent stopped without selecting an image.'
+                raise ValueError(err_msg)
+            image_uid = (
+                selected['image_uid']
+                if isinstance(selected['image_uid'], uuid.UUID)
+                else uuid.UUID(str(selected['image_uid']))
+            )
+            image = ImageConfig.model_validate(selected['image'])
+            logger.success(f'Select image {image}')
             return {
-                'image_uid': response['image_uid'],
-                'image': response['image'],
+                'image_uid': image_uid,
+                'image': image,
             }
 
     @staticmethod
@@ -212,11 +220,13 @@ class CreateToolAgent:
             },
             context=BaseContext(user_id=runtime.context.user_id),
         )
-        if pre_search_result.get('tool_uid'):
+        selected = latest_tool_artifact(pre_search_result.get('messages', []), 'tool_uid')
+        selected_tool_uid = selected['tool_uid'] if selected is not None else None
+        if selected_tool_uid:
             with Session(engine) as session:
-                tool_data = tool_crud.get(session, pre_search_result['tool_uid'])
+                tool_data = tool_crud.get(session, selected_tool_uid)
                 if tool_data is None:
-                    err_msg = f'Tool with uid {pre_search_result["tool_uid"]} not found'
+                    err_msg = f'Tool with uid {selected_tool_uid} not found'
                     raise LookupError(err_msg)
 
                 mapper = BidirectionalMapper(datas=[TempIDClass(uid=tool_data.uid)])
@@ -295,10 +305,15 @@ class CreateToolAgent:
             context=BaseContext(user_id=runtime.context.user_id),
         )
 
+        selected = latest_tool_artifact(response.get('messages', []), 'group_id', 'tag_ids')
+        if selected is None:
+            err_msg = 'Classification agent stopped without selecting a group and tags.'
+            raise ValueError(err_msg)
+
         # 不更新消息
         return {
-            'group_id': response['group_id'],
-            'tag_ids': response['tag_ids'],
+            'group_id': selected['group_id'],
+            'tag_ids': selected['tag_ids'],
         }
 
     @staticmethod

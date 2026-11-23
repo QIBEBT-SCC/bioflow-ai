@@ -1,12 +1,9 @@
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from langchain.agents import create_agent
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
 
 from bioflow_ai.llm.context import ProjectContext
 from bioflow_ai.llm.middleware import (
@@ -184,19 +181,12 @@ BUILD_FLOW_SYSTEM = """你是一名生物信息数据分析师, 正在操作一�
 """
 
 
-@tool
-async def summarize_work(content: str, runtime: ToolRuntime) -> Command:
+@tool(response_format='content_and_artifact')
+async def summarize_work(content: str) -> tuple[str, dict[str, str]]:
     """Summarize the current work to assist with the next round of tasks."""
-    return Command(
-        update={
-            'previous_summary': content,
-            'messages': [
-                ToolMessage(
-                    content='Handover information has been saved. You can mark the current task as complete and proceed to the next round.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
+    return (
+        'Handover information has been saved. You can mark the current task as complete and proceed to the next round.',
+        {'handover_summary': content},
     )
 
 

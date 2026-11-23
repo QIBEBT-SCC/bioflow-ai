@@ -1,7 +1,6 @@
-import uuid
 from typing import TYPE_CHECKING, cast
 
-from langchain.agents import AgentState, create_agent
+from langchain.agents import create_agent
 
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.middleware import (
@@ -15,7 +14,6 @@ from bioflow_ai.llm.middleware import (
 from bioflow_ai.llm.models import get_agent_model
 from bioflow_ai.llm.tools.database import search_local_image, select_image
 from bioflow_ai.llm.tools.human import ask_human
-from bioflow_ai.schemas.tool_config import ImageConfig
 
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
@@ -43,11 +41,6 @@ After a suitable image is found, use `select_image(image_ref=...)` with the exac
 """
 
 
-class SearchImageState(AgentState, total=False):
-    image_uid: uuid.UUID
-    image: ImageConfig
-
-
 # TODO: 目前是手动补充
 search_image_agent = create_agent(
     model=get_agent_model(),
@@ -65,6 +58,5 @@ search_image_agent = create_agent(
         ChatAttachmentMiddleware(),
         TokenStatisticMiddleware('search_image', **metadata),
     ],
-    state_schema=SearchImageState,
     context_schema=BaseContext,
 )

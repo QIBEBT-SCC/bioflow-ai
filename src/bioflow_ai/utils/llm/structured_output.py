@@ -15,19 +15,14 @@ from pydantic import BaseModel
 
 from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.llm.llm_client import LLMMetadata
-from bioflow_ai.llm.middleware import CheckStateExistMiddleware, EndLoopMiddleware, TokenStatisticMiddleware
+from bioflow_ai.llm.middleware import EndLoopMiddleware, RequireToolCallMiddleware, TokenStatisticMiddleware
+from bioflow_ai.utils.llm.artifacts import latest_tool_artifact
 
 if TYPE_CHECKING:
     from langchain.agents.middleware import AgentMiddleware
 
 FORCE_TOOL_PROMPT = """You must produce the final answer by calling `submit_structured_output` exactly once.
 Do not answer in natural language or perform any other action."""
-
-
-class JsonOutputState(AgentState, total=False):
-    target_structure: BaseModel
-    should_end: bool
-    updated: bool
 
 
 def _tool_call_failed_message(error: Exception) -> str:
@@ -42,13 +37,12 @@ def _create_output_tool[SchemaT: BaseModel](schema: type[SchemaT]) -> Structured
         parsed = schema.model_validate(kwargs)
         return Command(
             update={
-                'target_structure': parsed,
-                'updated': True,
                 'should_end': True,
                 'messages': [
                     ToolMessage(
                         content='Structured output has been captured.',
                         tool_call_id=runtime.tool_call_id,
+                        artifact={'structured_output': parsed},
                     )
                 ],
             }
@@ -89,12 +83,16 @@ def _coerce_messages(input_: LanguageModelInput | Mapping[str, Any]) -> dict[str
     return {'messages': list(cast('list[BaseMessage]', input_))}
 
 
-def _get_target_structure[SchemaT: BaseModel](output: Mapping[str, Any]) -> SchemaT:
-    target_structure = output.get('target_structure')
-    if target_structure is None:
-        msg = 'Structured output agent finished without target_structure output.'
+def _get_target_structure[SchemaT: BaseModel](
+    output: Mapping[str, Any],
+    schema: type[SchemaT],
+) -> SchemaT:
+    artifact = latest_tool_artifact(output.get('messages', ()), 'structured_output')
+    if artifact is None:
+        msg = 'Structured output agent finished without structured_output artifact.'
         raise ValueError(msg)
-    return cast('SchemaT', target_structure)
+    raw = artifact['structured_output']
+    return raw if isinstance(raw, schema) else schema.model_validate(raw)
 
 
 def json_output[SchemaT: BaseModel](
@@ -108,7 +106,9 @@ def json_output[SchemaT: BaseModel](
     """Create a structured-output runnable backed by a forced tool-call agent."""
     prompt = f'{system_prompt}\n\n{FORCE_TOOL_PROMPT}'
     middleware: list[AgentMiddleware[AgentState[Any], BaseContext]] = [
-        CheckStateExistMiddleware('target_structure', 'submit_structured_output'),
+        RequireToolCallMiddleware(
+            'Before concluding the task, invoke the `submit_structured_output` tool with arguments matching the required schema.'
+        ),
         EndLoopMiddleware(),
     ]
     if metadata:
@@ -119,7 +119,6 @@ def json_output[SchemaT: BaseModel](
         [_create_output_tool(schema)],
         system_prompt=prompt,
         middleware=middleware,
-        state_schema=JsonOutputState,
         context_schema=BaseContext,
     )
 
@@ -129,7 +128,7 @@ def json_output[SchemaT: BaseModel](
             config=config,
             context=kwargs.get('context'),
         )
-        return _get_target_structure(output)
+        return _get_target_structure(output, schema)
 
     async def ainvoke(input_: LanguageModelInput, config: RunnableConfig | None = None, **kwargs: Any) -> Any:
         output = await structure_agent.ainvoke(
@@ -137,6 +136,6 @@ def json_output[SchemaT: BaseModel](
             config=config,
             context=kwargs.get('context'),
         )
-        return _get_target_structure(output)
+        return _get_target_structure(output, schema)
 
     return RunnableLambda(invoke, afunc=ainvoke, name=name)

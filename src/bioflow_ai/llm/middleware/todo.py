@@ -14,6 +14,7 @@ from langgraph.typing import ContextT
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from bioflow_ai.utils.llm.artifacts import latest_tool_artifact
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 SYSTEM_PROMPT = """## Todo List
@@ -178,7 +179,8 @@ def update_todo_state(
         # -1: AI calling this tool
         logger.debug(f'TODO complete: {target_todo.content}')
         keep_msgs = runtime.state.get('msg_to_keep', 1)
-        remove_messages = [RemoveMessage(id=m.id) for m in runtime.state['messages'][keep_msgs:-1] if m.id is not None]
+        round_messages = runtime.state['messages'][keep_msgs:-1]
+        remove_messages = [RemoveMessage(id=m.id) for m in round_messages if m.id is not None]
 
         pending_todos = [t for t in updated_todos if t.status == 'pending']
         in_progress_todos = [t for t in updated_todos if t.status == 'in_progress']
@@ -210,7 +212,9 @@ def update_todo_state(
             )
 
             msg_content = f'{todo_msg}\n\nTask {index} marked as {status}. Context cleared.\n\n{remaining_count} todos remaining to be processed'
-            if previous_summary := runtime.state.get('previous_summary'):
+            handover = latest_tool_artifact(round_messages, 'handover_summary')
+            previous_summary = handover['handover_summary'] if handover is not None else None
+            if isinstance(previous_summary, str) and previous_summary:
                 msg_content += f'\n\n<Handover Message>\n{previous_summary}</Handover Message>'
 
             update_messages = [
