@@ -3,9 +3,11 @@ name = "bioflow-ai"
 version = "1.0.0b1"
 description = "A Graph-based Intelligent BioAnalysis Platform"
 readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 authors = [
-    { name = "Aye10032", email = "yeyu@qibebt.ac.cn" },
+    { name = "Aye10032", email = "aye10032@gmail.com" },
 ]
 keywords = [
     "bioinformatics",
@@ -120,6 +122,7 @@ only-include = [
     "presets/skills",
     "presets/sql",
     "deploy",
+    "LICENSE",
     "README.md",
     "uv.lock",
     ".python-version",
