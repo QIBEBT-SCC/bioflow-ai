@@ -170,7 +170,6 @@ async def utility_node_manager(action: str, params: dict[str, Any], runtime: Too
 
     match action:
         case 'help':
-            # ty: ignore[invalid-argument-type]
             return manager_help_command(params, valid_operates, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'search':
@@ -431,7 +430,17 @@ async def _search_nodes(query: str, runtime: ToolRuntime[ProjectContext]) -> Com
     ]
     if named_processors:
         content = f'<UtilityNodes>\n{json.dumps({"processors": named_processors, "codes": []})}\n</UtilityNodes>'
-        return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
+        return Command(
+            update={
+                'messages': [
+                    ToolMessage(
+                        content=content,
+                        tool_call_id=runtime.tool_call_id,
+                        artifact={'result_count': len(named_processors)},
+                    )
+                ]
+            }
+        )
 
     results = await retrieve_auxiliary_nodes(query)
 
@@ -442,6 +451,7 @@ async def _search_nodes(query: str, runtime: ToolRuntime[ProjectContext]) -> Com
                     ToolMessage(
                         content='Based on your search query, no corresponding results found',
                         tool_call_id=runtime.tool_call_id,
+                        artifact={'result_count': 0},
                     )
                 ]
             }
@@ -468,7 +478,17 @@ async def _search_nodes(query: str, runtime: ToolRuntime[ProjectContext]) -> Com
             )
 
     content = f'<UtilityNodes>\n{json.dumps({"processors": processors, "codes": codes})}\n</UtilityNodes>'
-    return Command(update={'messages': [ToolMessage(content=content, tool_call_id=runtime.tool_call_id)]})
+    return Command(
+        update={
+            'messages': [
+                ToolMessage(
+                    content=content,
+                    tool_call_id=runtime.tool_call_id,
+                    artifact={'result_count': len(processors) + len(codes)},
+                )
+            ]
+        }
+    )
 
 
 def _view_node(node_id: str, runtime: ToolRuntime[ProjectContext]) -> Command:

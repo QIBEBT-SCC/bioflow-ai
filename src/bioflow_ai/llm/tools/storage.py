@@ -1,15 +1,11 @@
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
 from loguru import logger
 
-from bioflow_ai.llm.context import BaseContext
 from bioflow_ai.services.documents.pdf_index import read_pdf
 
 
 @tool(parse_docstring=True)
-async def view_pdf(file_id: str, runtime: ToolRuntime[BaseContext], query: str | None = None) -> Command:
+async def view_pdf(file_id: str, query: str | None = None) -> str:
     """Read an attached PDF as full text or relevant paragraphs in original order.
 
     Omit query to read the complete Markdown. Provide query to retain paragraphs
@@ -27,9 +23,4 @@ async def view_pdf(file_id: str, runtime: ToolRuntime[BaseContext], query: str |
         logger.error(e)
         context = f'Error reading PDF: {e}'
 
-    return Command(
-        update={
-            'paper_id': file_id,
-            'messages': [ToolMessage(content=context, tool_call_id=runtime.tool_call_id)],
-        }
-    )
+    return context

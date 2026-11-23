@@ -12,7 +12,7 @@ import bioflow_ai.crud.resource.bio_db as db_crud
 from bioflow_ai.crud import project_file_mapping as project_file_mapping_crud
 from bioflow_ai.crud.resource import sample as sample_crud
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.context import ProjectContext
+from bioflow_ai.llm.context import BaseContext, ProjectContext
 from bioflow_ai.llm.states import BuildEdge, BuildNode
 from bioflow_ai.llm.workflow_builder.drafts import snapshot_active_workflow
 from bioflow_ai.llm.workflow_builder.graphs import workflow_document
@@ -91,7 +91,6 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
     """
     match action:
         case 'help':
-            # ty: ignore[invalid-argument-type]
             return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'view':
@@ -143,7 +142,7 @@ async def resource_node_manager(action: str, params: dict[str, Any], runtime: To
                         ]
                     }
                 )
-            return _create_db(validate_param.name, validate_param.description, validate_param.query, runtime)
+            return await _create_db(validate_param.name, validate_param.description, validate_param.query, runtime)
 
         case 'add':
             try:
@@ -290,10 +289,21 @@ async def _create_db(name: str, description: str, query: str, runtime: ToolRunti
                         f'User query: {query}'
                     )
                 ]
-            }
+            },
+            context=BaseContext(user_id=runtime.context.user_id, language=runtime.context.language),
         )
         content = response['messages'][-1].content
-        new_db = response.get('new_db', None)
+        new_db = next(
+            (
+                msg.artifact['db_id']
+                for msg in reversed(response.get('messages', []))
+                if isinstance(msg, ToolMessage)
+                and isinstance(msg.artifact, dict)
+                and isinstance(msg.artifact.get('db_id'), int)
+                and not isinstance(msg.artifact.get('db_id'), bool)
+            ),
+            None,
+        )
     except Exception as exc:
         new_db = None
         content = f'Failed to create biological database "{name}": {exc}'
@@ -306,7 +316,7 @@ async def _create_db(name: str, description: str, query: str, runtime: ToolRunti
             )
         ],
     }
-    if new_db:
+    if new_db is not None:
         update['new_dbs'] = [new_db]
 
     return Command(update=update)

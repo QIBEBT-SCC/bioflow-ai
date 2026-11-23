@@ -352,8 +352,8 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                                 )
                             )
                             fix_messages = [*history[:-1], diagnosis_message, current_message]
-                        if prepared.state.get('source_subgraph_path'):
-                            source_path = prepared.state['source_subgraph_path']
+                        if prepared.source_subgraph_path:
+                            source_path = prepared.source_subgraph_path
                             root_id = prepared.node_id_mapping.get(source_path[0], source_path[0])
                             fix_messages = [
                                 *fix_messages[:-1],
@@ -437,7 +437,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 agent_service.import_generated_workflows(session, run, execution.values)
                 if final_text:
                     agent_service.add_assistant_message(session, run, final_text)
-                result, changes = result_payload(run, execution.values)
+                result, changes = result_payload(run, execution.values, context)
 
             for change in changes:
                 await _append_event(redis, run_uid, AgentEventType.RESOURCE_CHANGED, change)

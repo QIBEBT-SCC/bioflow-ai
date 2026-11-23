@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 
-@tool(parse_docstring=True)
-def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def search_local_image(query: str) -> tuple[str, dict[str, int]]:
     """Search the database for images that have already been pulled locally.
 
     Args:
@@ -42,16 +42,8 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
             for image in images
         ]
 
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
+        content = f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>'
+        return content, {'result_count': len(images)}
 
     if ' ' in query:
         feedback_msg = (
@@ -61,16 +53,7 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
     else:
         feedback_msg = 'Based on the keywords you provided, no results found. Try searching with different keywords.'
 
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(
-                    content=feedback_msg,
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ]
-        }
-    )
+    return feedback_msg, {'result_count': 0}
 
 
 @tool(parse_docstring=True)
@@ -102,7 +85,6 @@ def select_image(
         update={
             'image_uid': tool_image.uid,
             'image': tool_image.image,
-            'homepage': tool_image.homepage,
             'should_end': True,
             'messages': [
                 ToolMessage(
@@ -191,8 +173,8 @@ def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
     )
 
 
-@tool(parse_docstring=True)
-def search_biodb(query: str) -> str:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def search_biodb(query: str) -> tuple[str, dict[str, int]]:
     """Search for the biological databases used by the tool using its name.
 
     Args:
@@ -213,11 +195,15 @@ def search_biodb(query: str) -> str:
             for db in exist_dbs
         ]
 
-        return f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}'
+        return (
+            f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}',
+            {'result_count': len(exist_dbs)},
+        )
 
     return (
         'Based on the keywords you provided, no results found. '
-        'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.'
+        'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.',
+        {'result_count': 0},
     )
 
 
@@ -242,6 +228,7 @@ def create_biodb(
             name=name, description=description, download_command=download_command, download_image=download_image
         )
         new_db = db_service.create_bio_db(session, new_db)
+        artifact = {'db_id': new_db.id} if new_db.id is not None else None
         update: dict[str, Any] = {
             'should_end': True,
             'messages': [
@@ -256,10 +243,9 @@ def create_biodb(
                         f'</db>'
                     ),
                     tool_call_id=runtime.tool_call_id,
+                    artifact=artifact,
                 )
             ],
         }
-        if new_db.id is not None:
-            update['new_db'] = new_db.id
 
         return Command(update=update)

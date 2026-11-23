@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.workflow as workflow_crud
@@ -32,6 +32,7 @@ class WorkflowFixPreparation(BaseModel):
     diagnosis_run_uid: uuid.UUID | None
     workflow_uid: uuid.UUID
     node_id_mapping: dict[str, str]
+    source_subgraph_path: list[str] = Field(default_factory=list)
 
 
 def prepare_workflow_fix(
@@ -90,9 +91,7 @@ def prepare_workflow_fix(
     )
     draft = loaded.draft
     state: dict[str, Any] = {
-        'source_run_uid': str(source_run.uid),
         'target_workflow_uid': str(workflow.uid),
-        'source_subgraph_path': source_subgraph_path,
         'original_workflow': workflow.workflow.model_dump(mode='json'),
         'original_node_id_mapping': loaded.node_id_mapping,
         'subgraph_stack': [],
@@ -109,13 +108,11 @@ def prepare_workflow_fix(
         'update_path': None,
         'updated': False,
     }
-    if diagnosis_run_uid is not None:
-        state['diagnosis_run_uid'] = str(diagnosis_run_uid)
-        state['diagnosis_report'] = diagnosis_report
     return WorkflowFixPreparation(
         state=state,
         diagnosis_report=diagnosis_report,
         diagnosis_run_uid=diagnosis_run_uid,
         workflow_uid=workflow.uid,
         node_id_mapping=loaded.node_id_mapping,
+        source_subgraph_path=source_subgraph_path,
     )

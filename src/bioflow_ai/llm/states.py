@@ -99,16 +99,13 @@ class ProjectPlannerState(AgentState, total=False):
     # 文件工具未显式指定工作目录时的默认容器目录, 缺省为 /work
     default_dir: Literal['/app/data', '/work']
 
-    # view_pdf / web_run 使用
-    paper_id: str
+    # web_run 使用
     web_refs: Annotated[dict[str, dict], operator.or_]
 
 
 # =====================workflow assistant state==========================
 class WorkflowAssistantState(AgentState, total=False):
     diagnosis_path: str
-    source_run_uid: str
-    workflow_uid: str | None
 
 
 # =====================build workflow agent state==========================
@@ -132,8 +129,6 @@ class UserInputState(AgentState, total=False):
 
 
 class BuildState(UserInputState, total=False):
-    paper_id: str
-
     previous_summary: str
 
     id_mapper: BidirectionalMapper
@@ -163,11 +158,7 @@ class SubgraphBuildState(BuildState, total=False):
 
 
 class WorkflowFixState(BuildState, total=False):
-    source_run_uid: str
-    diagnosis_run_uid: str | None
     target_workflow_uid: str
-    source_subgraph_path: list[str]
-    diagnosis_report: str | None
     original_workflow: dict[str, Any]
     original_node_id_mapping: dict[str, str]
     subgraph_stack: list[dict[str, Any]]

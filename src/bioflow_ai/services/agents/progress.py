@@ -121,7 +121,11 @@ def event_payload(payload: object) -> dict[str, Any]:
     }
 
 
-def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def result_payload(
+    run: AgentRun,
+    values: dict[str, Any],
+    context: Any = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Extract UI artifacts and resource invalidations from a completed run."""
     result: dict[str, Any] = {}
     changes: list[dict[str, Any]] = []
@@ -159,19 +163,31 @@ def result_payload(run: AgentRun, values: dict[str, Any]) -> tuple[dict[str, Any
             ]
         )
     elif run.agent_name == AgentName.WORKFLOW_ASSISTANT.value:
+        source_run_uid = getattr(context, 'source_run_uid', None) or values.get('source_run_uid')
+        workflow_uid = (
+            context.workflow_uid
+            if context is not None and hasattr(context, 'workflow_uid')
+            else values.get('workflow_uid')
+        )
         result.update(
             diagnosis_path=values.get('diagnosis_path'),
-            source_run_uid=values.get('source_run_uid'),
-            workflow_uid=values.get('workflow_uid'),
+            source_run_uid=source_run_uid,
+            workflow_uid=workflow_uid,
         )
     elif run.agent_name == AgentName.WORKFLOW_FIXER.value:
-        workflow_uid = values.get('target_workflow_uid')
+        workflow_uid = values.get('target_workflow_uid') or getattr(context, 'workflow_uid', None)
+        source_run_uid = getattr(context, 'source_run_uid', None) or values.get('source_run_uid')
+        diagnosis_run_uid = (
+            context.diagnosis_run_uid
+            if context is not None and hasattr(context, 'diagnosis_run_uid')
+            else values.get('diagnosis_run_uid')
+        )
         changed = bool(values.get('workflow_changed'))
         result.update(
             workflow_uid=workflow_uid,
-            source_run_uid=values.get('source_run_uid'),
+            source_run_uid=source_run_uid,
             workflow_changed=changed,
-            diagnosis_run_uid=values.get('diagnosis_run_uid'),
+            diagnosis_run_uid=diagnosis_run_uid,
             update_path=values.get('update_path'),
             changed_workflow_uids=values.get('changed_workflow_uids') or [],
         )
