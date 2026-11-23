@@ -339,8 +339,6 @@ def write_diagnosis(content: str, runtime: ToolRuntime[WorkflowAssistantContext]
     return Command(
         update={
             'diagnosis_path': relative_path,
-            'source_run_uid': runtime.context.source_run_uid,
-            'workflow_uid': runtime.context.workflow_uid,
             'messages': [
                 ToolMessage(
                     content=f'The diagnosis report has been saved to {relative_path}.',

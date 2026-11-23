@@ -41,6 +41,4 @@ def prepare_workflow_assistant_input(
     previous = [message for message in history if message is not current_message]
     return {
         'messages': [*previous, HumanMessage(content=background), current_message],
-        'source_run_uid': context.source_run_uid,
-        'workflow_uid': context.workflow_uid,
     }

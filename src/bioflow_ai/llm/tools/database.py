@@ -1,9 +1,7 @@
 from typing import TYPE_CHECKING, Any, cast
 
-from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.resource.bio_db as db_crud
@@ -13,13 +11,14 @@ from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.models.resource import BioDb
 from bioflow_ai.services.resource import bio_db as db_service
 from bioflow_ai.services.tools import catalog as tool_catalog
+from bioflow_ai.utils.llm.artifacts import END_LOOP_ARTIFACT_KEY
 
 if TYPE_CHECKING:
     from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 
-@tool(parse_docstring=True)
-def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def search_local_image(query: str) -> tuple[str, dict[str, int]]:
     """Search the database for images that have already been pulled locally.
 
     Args:
@@ -42,16 +41,8 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
             for image in images
         ]
 
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content=f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
-        )
+        content = f'Based on the keywords you provided, the following potentially related images were found:\n<images>\n{"\n\n".join(image_blocks)}\n</images>'
+        return content, {'result_count': len(images)}
 
     if ' ' in query:
         feedback_msg = (
@@ -61,23 +52,11 @@ def search_local_image(query: str, runtime: ToolRuntime[Any]) -> Command:
     else:
         feedback_msg = 'Based on the keywords you provided, no results found. Try searching with different keywords.'
 
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(
-                    content=feedback_msg,
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ]
-        }
-    )
+    return feedback_msg, {'result_count': 0}
 
 
-@tool(parse_docstring=True)
-def select_image(
-    image_ref: str,
-    runtime: ToolRuntime[Any],
-) -> Command:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def select_image(image_ref: str) -> tuple[str, dict[str, Any] | None]:
     """Select existing image in the database.
 
     Args:
@@ -87,35 +66,23 @@ def select_image(
         tool_image = tool_catalog.resolve_image_reference(session, image_ref)
 
     if tool_image is None:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='The corresponding image was not found in the local database. Please use the exact `<image_ref>` from `search_local_image` or search again.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
+        return (
+            'The corresponding image was not found in the local database. Please use the exact `<image_ref>` from `search_local_image` or search again.',
+            None,
         )
 
-    return Command(
-        update={
+    return (
+        'Image selected.',
+        {
             'image_uid': tool_image.uid,
             'image': tool_image.image,
-            'homepage': tool_image.homepage,
-            'should_end': True,
-            'messages': [
-                ToolMessage(
-                    content='Image selected.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
+            END_LOOP_ARTIFACT_KEY: True,
+        },
     )
 
 
-@tool(parse_docstring=True)
-def select_classification(group_id: int, tag_ids: list[int], runtime: ToolRuntime[Any]) -> Command:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def select_classification(group_id: int, tag_ids: list[int]) -> tuple[str, dict[str, Any]]:
     """Select a primary Function group and Function/Domain tags using IDs from the prompt.
 
     Args:
@@ -124,14 +91,9 @@ def select_classification(group_id: int, tag_ids: list[int], runtime: ToolRuntim
             Include at least one Domain. The primary Function tag is included automatically.
             Exclude Default, AI Checked and AI Unchecked.
     """
-    return Command(
-        update={
-            'group_id': group_id,
-            'tag_ids': tag_ids,
-            'updated': True,
-            'should_end': True,
-            'messages': [ToolMessage(content='Tool classification selected.', tool_call_id=runtime.tool_call_id)],
-        }
+    return (
+        'Tool classification selected.',
+        {'group_id': group_id, 'tag_ids': tag_ids, END_LOOP_ARTIFACT_KEY: True},
     )
 
 
@@ -156,8 +118,8 @@ def read_tool_doc(tool_id: int, runtime: ToolRuntime[Any]) -> str:
     return doc_content
 
 
-@tool(parse_docstring=True)
-def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> tuple[str, dict[str, Any] | None]:
     """Select existing tool in the database.
 
     Args:
@@ -166,33 +128,16 @@ def select_tool(tool_id: int, runtime: ToolRuntime[Any]) -> Command:
     mapper = cast('BidirectionalMapper | None', runtime.state.get('id_mapper'))
     tool_uid = mapper.get_uid_by_index(tool_id) if mapper is not None else ''
     if not tool_uid:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='The corresponding tool ID was not found in the current search results. Search again or use a valid tool_id.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ]
-            }
+        return (
+            'The corresponding tool ID was not found in the current search results. Search again or use a valid tool_id.',
+            None,
         )
 
-    return Command(
-        update={
-            'tool_uid': tool_uid,
-            'should_end': True,
-            'messages': [
-                ToolMessage(
-                    content='Tool selected.',
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
-    )
+    return 'Tool selected.', {'tool_uid': tool_uid, END_LOOP_ARTIFACT_KEY: True}
 
 
-@tool(parse_docstring=True)
-def search_biodb(query: str) -> str:
+@tool(parse_docstring=True, response_format='content_and_artifact')
+def search_biodb(query: str) -> tuple[str, dict[str, int]]:
     """Search for the biological databases used by the tool using its name.
 
     Args:
@@ -213,22 +158,25 @@ def search_biodb(query: str) -> str:
             for db in exist_dbs
         ]
 
-        return f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}'
+        return (
+            f'Based on the keywords, the following db nodes are available:\n\n{"\n".join(db_blocks)}',
+            {'result_count': len(exist_dbs)},
+        )
 
     return (
         'Based on the keywords you provided, no results found. '
-        'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.'
+        'Consider using new search keywords or add a note node at the corresponding location, explaining that a database is needed here and how to download it.',
+        {'result_count': 0},
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, response_format='content_and_artifact')
 def create_biodb(
     name: str,
     description: str,
     download_command: str,
     download_image: str,
-    runtime: ToolRuntime[Any],
-) -> Command:
+) -> tuple[str, dict[str, Any]]:
     """Add a new downloadable biological database to the system.
 
     Args:
@@ -242,24 +190,16 @@ def create_biodb(
             name=name, description=description, download_command=download_command, download_image=download_image
         )
         new_db = db_service.create_bio_db(session, new_db)
-        update: dict[str, Any] = {
-            'should_end': True,
-            'messages': [
-                ToolMessage(
-                    content=(
-                        f'Based on your request, a biological database has been added:\n'
-                        f'<db id="{new_db.id}">\n'
-                        f'  <name>{new_db.name}</name>\n'
-                        f'  <description>{new_db.description}</description>\n'
-                        f'  <download_command>{new_db.download_command}</download_command>\n'
-                        f'  <download_image>{new_db.download_image}</download_image>\n'
-                        f'</db>'
-                    ),
-                    tool_call_id=runtime.tool_call_id,
-                )
-            ],
-        }
+        artifact: dict[str, Any] = {END_LOOP_ARTIFACT_KEY: True}
         if new_db.id is not None:
-            update['new_db'] = new_db.id
-
-        return Command(update=update)
+            artifact['db_id'] = new_db.id
+        content = (
+            f'Based on your request, a biological database has been added:\n'
+            f'<db id="{new_db.id}">\n'
+            f'  <name>{new_db.name}</name>\n'
+            f'  <description>{new_db.description}</description>\n'
+            f'  <download_command>{new_db.download_command}</download_command>\n'
+            f'  <download_image>{new_db.download_image}</download_image>\n'
+            f'</db>'
+        )
+        return content, artifact

@@ -146,7 +146,7 @@ class CheckStateExistMiddleware(AgentMiddleware[AgentState[Any], Any]):
 class RequireToolCallMiddleware(AgentMiddleware[AgentState[Any], Any]):
     """拦截不带工具调用的纯文本回复.
 
-    适用于只能通过工具 (如 confirm_plan 设置 should_end) 结束的智能体: 正常流程中模型不会直接输出纯文本,
+    适用于只能通过工具 (如 confirm_plan 触发结束循环) 结束的智能体: 正常流程中模型不会直接输出纯文本,
     一旦出现即说明它试图跳过流程提前结束, 此时附上提醒打回模型. 连续失败超过 ``max_retries`` 次时抛出 MaxCheckError.
     """
 

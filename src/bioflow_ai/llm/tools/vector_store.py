@@ -36,6 +36,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
                     ToolMessage(
                         content='Based on your search query, no corresponding results found',
                         tool_call_id=runtime.tool_call_id,
+                        artifact={'result_count': 0},
                     )
                 ],
             }
@@ -51,6 +52,7 @@ async def search_tools_by_function(query: str, runtime: ToolRuntime) -> Command:
                 ToolMessage(
                     content=search_nodes_formatter(tool_nodes, merged_mapper),
                     tool_call_id=runtime.tool_call_id,
+                    artifact={'result_count': len(tool_nodes)},
                 )
             ],
         }

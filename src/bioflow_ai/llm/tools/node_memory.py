@@ -7,7 +7,7 @@ import uuid
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
-from langgraph.types import Command, interrupt
+from langgraph.types import interrupt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -60,13 +60,13 @@ def node_memory_message(memory_id: uuid.UUID, tool_call_id: str | None) -> ToolM
 
 
 @tool(parse_docstring=True)
-def read_node_memory(memory_id: uuid.UUID, runtime: ToolRuntime[ProjectContext]) -> Command:
+def read_node_memory(memory_id: uuid.UUID, runtime: ToolRuntime[ProjectContext]) -> ToolMessage:
     """Read the full content of a memory listed in a tool node's details.
 
     Args:
         memory_id: Memory ID listed in the ``memories`` field of the node details.
     """
-    return Command(update={'messages': [node_memory_message(memory_id, runtime.tool_call_id)]})
+    return node_memory_message(memory_id, runtime.tool_call_id)
 
 
 def _questions(
@@ -97,7 +97,7 @@ def _questions(
 def write_node_memory(
     memories: list[NodeMemoryDraft],
     runtime: ToolRuntime[ProjectContext],
-) -> Command:
+) -> ToolMessage:
     """Propose reusable tool-node lessons and save only entries explicitly approved by the user.
 
     Only Tool nodes on the active panel are supported. The user reviews the full description
@@ -113,61 +113,37 @@ def write_node_memory(
     for draft in memories:
         node = nodes.get(draft.node_id)
         if node is None:
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=f'Node "{draft.node_id}" was not found on the current panel.',
-                            tool_call_id=runtime.tool_call_id,
-                            status='error',
-                        )
-                    ],
-                }
+            return ToolMessage(
+                content=f'Node "{draft.node_id}" was not found on the current panel.',
+                tool_call_id=runtime.tool_call_id,
+                status='error',
             )
         if node.type != 'tool':
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=(
-                                f'Node "{draft.node_id}" is a {node.type} node. '
-                                'Memories can only be written for Tool nodes. '
-                                'No memories were written and no approval was requested.'
-                            ),
-                            tool_call_id=runtime.tool_call_id,
-                            status='error',
-                        )
-                    ],
-                }
+            return ToolMessage(
+                content=(
+                    f'Node "{draft.node_id}" is a {node.type} node. '
+                    'Memories can only be written for Tool nodes. '
+                    'No memories were written and no approval was requested.'
+                ),
+                tool_call_id=runtime.tool_call_id,
+                status='error',
             )
         try:
             tool_uids.append(uuid.UUID(node.data['tool_uid']))
         except (KeyError, TypeError, ValueError):
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content=f'Tool node "{draft.node_id}" has no valid tool_uid.',
-                            tool_call_id=runtime.tool_call_id,
-                            status='error',
-                        )
-                    ],
-                }
+            return ToolMessage(
+                content=f'Tool node "{draft.node_id}" has no valid tool_uid.',
+                tool_call_id=runtime.tool_call_id,
+                status='error',
             )
 
     with Session(engine) as session:
         existing = set(session.scalars(select(ToolDefine.uid).where(ToolDefine.uid.in_(tool_uids))))
     if set(tool_uids) - existing:
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='A target tool definition no longer exists. No approval was requested.',
-                        tool_call_id=runtime.tool_call_id,
-                        status='error',
-                    )
-                ],
-            }
+        return ToolMessage(
+            content='A target tool definition no longer exists. No approval was requested.',
+            tool_call_id=runtime.tool_call_id,
+            status='error',
         )
 
     thread_id = workflow_thread_id(runtime.config)
@@ -180,15 +156,9 @@ def write_node_memory(
     except (TypeError, ValueError):
         decisions = None
     if not isinstance(decisions, list) or len(decisions) != len(questions):
-        return Command(
-            update={
-                'messages': [
-                    ToolMessage(
-                        content='No memories were written: explicit answers to every memory proposal are required.',
-                        tool_call_id=runtime.tool_call_id,
-                    )
-                ],
-            }
+        return ToolMessage(
+            content='No memories were written: explicit answers to every memory proposal are required.',
+            tool_call_id=runtime.tool_call_id,
         )
     for question, decision in zip(questions, decisions, strict=True):
         if (
@@ -197,15 +167,9 @@ def write_node_memory(
             or not isinstance(decision.get('answer'), str)
             or not decision['answer'].strip()
         ):
-            return Command(
-                update={
-                    'messages': [
-                        ToolMessage(
-                            content='No memories were written: the response did not match the reviewed proposals.',
-                            tool_call_id=runtime.tool_call_id,
-                        )
-                    ],
-                }
+            return ToolMessage(
+                content='No memories were written: the response did not match the reviewed proposals.',
+                tool_call_id=runtime.tool_call_id,
             )
 
     approved = []
@@ -233,11 +197,7 @@ def write_node_memory(
             with Session(engine) as session:
                 saved = save_tool_memories(session, approved)
         except ValueError as error:
-            return Command(
-                update={
-                    'messages': [ToolMessage(content=str(error), tool_call_id=runtime.tool_call_id, status='error')],
-                }
-            )
+            return ToolMessage(content=str(error), tool_call_id=runtime.tool_call_id, status='error')
     content = f'Saved {len(saved)} approved shared tool memories.'
     if saved:
         content += '\n' + '\n'.join(f'- `{memory.uid}`: {memory.description}' for memory in saved)
@@ -246,10 +206,4 @@ def write_node_memory(
             '\nThe following proposals were not written. Respect the user feedback; any revised proposal '
             'requires a new approval:\n' + json.dumps(feedback, ensure_ascii=False)
         )
-    return Command(
-        update={
-            'messages': [
-                ToolMessage(content=content, tool_call_id=runtime.tool_call_id, artifact={'result_count': len(saved)})
-            ]
-        }
-    )
+    return ToolMessage(content=content, tool_call_id=runtime.tool_call_id, artifact={'result_count': len(saved)})

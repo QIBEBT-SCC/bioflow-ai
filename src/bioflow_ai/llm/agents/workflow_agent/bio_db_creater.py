@@ -1,5 +1,4 @@
-import operator
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
 
@@ -80,10 +79,6 @@ AGENT_MODEL = get_long_context_model()
 metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
 
-class BioDbCreatorState(WebResearchState, total=False):
-    new_db: Annotated[list[int], operator.add]
-
-
 bio_db_creator = create_agent(
     AGENT_MODEL,
     [
@@ -97,6 +92,6 @@ bio_db_creator = create_agent(
         EndLoopMiddleware(),
         TokenStatisticMiddleware('bio_db_creator', **metadata),
     ],
-    state_schema=BioDbCreatorState,
+    state_schema=WebResearchState,
     context_schema=BaseContext,
 )

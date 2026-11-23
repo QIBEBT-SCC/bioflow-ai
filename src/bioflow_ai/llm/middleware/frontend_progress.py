@@ -239,7 +239,7 @@ def _agent_tool_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | 
 TOOL_CREATION_SUBJECT_FIELDS = {
     'search_local_image': 'query',
     'search_biodb': 'query',
-    'search_tools_by_function': 'query',
+    'search_tools': 'query',
     'select_image': 'image_ref',
 }
 TOOL_CREATION_PLAIN_TOOLS = {
@@ -256,7 +256,7 @@ TOOL_CREATION_PLAIN_TOOLS = {
     'inspect_files',
     'execute_node',
 }
-TOOL_CREATION_ACTIVITY_NAMES = {'run_command': 'container_command'}
+TOOL_CREATION_ACTIVITY_NAMES = {'run_command': 'container_command', 'search_tools': 'search_tools_by_function'}
 
 
 def _tool_creation_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | None:
