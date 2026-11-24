@@ -20,6 +20,7 @@ from bioflow_ai.llm.context import CreateToolContext, ProjectContext, WorkflowAs
 from bioflow_ai.models.agent import AgentRun
 from bioflow_ai.models.workflow import WorkflowRun
 from bioflow_ai.runtime.celery_app import celery_app
+from bioflow_ai.runtime.worker_loop import run_in_worker_loop
 from bioflow_ai.schemas.agent import TERMINAL_AGENT_RUN_STATUSES, AgentEventType, AgentName, AgentRunStatus
 from bioflow_ai.schemas.notification import NotificationEventType
 from bioflow_ai.services.agents import sessions as agent_service
@@ -467,4 +468,4 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
 @celery_app.task(bind=True, acks_late=False, name='bioflow_ai.tasks.agent_run.execute_agent_run')
 def execute_agent_run_task(self: Task, run_uid: str, language: str | None = None) -> None:  # noqa: ARG001
     """Execute one durable web-agent run outside the HTTP request lifecycle."""
-    asyncio.run(_run_agent(uuid.UUID(run_uid), language))
+    run_in_worker_loop(_run_agent(uuid.UUID(run_uid), language))
