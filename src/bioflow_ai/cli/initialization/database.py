@@ -36,7 +36,7 @@ async def init_admin() -> AdminInitResult:
         return True if value.strip() else 'This field is required.'
 
     email = (await tui.prompt_text_async('Administrator email', validate=required)).strip().casefold()
-    username = (await tui.prompt_text_async('Administrator username', default='admin', validate=required)).strip()
+    username = email.partition('@')[0].strip() or 'admin'
     password = await tui.prompt_password_async(
         'Administrator password (any strength, required, maximum 128 UTF-8 bytes)',
         validate=lambda value: (

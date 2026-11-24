@@ -22,7 +22,6 @@ if TYPE_CHECKING:
         DockerConfig,
         NetworkConfig,
         PDFParserConfig,
-        ResourceConfig,
         Settings,
         StorageConfig,
     )
@@ -87,30 +86,16 @@ def ask_storage() -> 'StorageConfig':
     )
 
 
-def ask_resource() -> 'ResourceConfig':
-    """Prompt for resource settings."""
-    from bioflow_ai.core.config import ResourceConfig
-
-    tui.render_section('Resource Limits', 'Set the default thread and memory limits for analysis tasks.')
-
-    max_thread = int(tui.prompt_text('Maximum threads (max_thread)', default='8', validate=validate_int))
-    max_mem = tui.prompt_text('Maximum memory (max_mem, e.g. 4G)', default='4G')
-
-    return ResourceConfig(MAX_THREAD=max_thread, MAX_MEM=max_mem)
-
-
 def ask_docker() -> 'DockerConfig':
     """Prompt for container runtime settings."""
     from bioflow_ai.core.config import DockerConfig
 
-    tui.render_section('Container Runtime', 'Select Docker or Podman and configure optional registry credentials.')
+    tui.render_section('Container Runtime', 'Select Docker or Podman as the container engine.')
 
     container = tui.prompt_select('Container runtime', choices=['docker', 'podman'], default='docker')
-    username = tui.prompt_text('docker.io username (optional)', default='')
-    password = tui.prompt_password('docker.io password (optional)')
 
     # ty: ignore[invalid-argument-type]
-    return DockerConfig(CONTAINER=container, USERNAME=username, PASSWORD=password)
+    return DockerConfig(CONTAINER=container)
 
 
 def initialize_embedding(config_path: Path) -> None:
@@ -174,14 +159,14 @@ def create_settings(
     network: 'NetworkConfig | None' = None,
 ) -> tuple['Settings', UpdatePort]:
     """Interactively create settings, persist them, and return the settings object."""
-    from bioflow_ai.core.config import Settings
+    from bioflow_ai.core.config import ResourceConfig, Settings
 
     update_port = create_update_port()
 
     settings = Settings()
     settings.network = network if network is not None else ask_network()
     settings.persistent.storage = ask_storage()
-    settings.persistent.resource = ask_resource()
+    settings.persistent.resource = ResourceConfig()
     settings.docker = ask_docker()
     settings.pdf_parser = ask_pdf_parser()
 
