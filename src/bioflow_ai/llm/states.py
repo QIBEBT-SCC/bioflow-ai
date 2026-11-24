@@ -20,6 +20,18 @@ def union_uids(existing: list[str] | None, new: list[str] | None) -> list[str]:
     return list(dict.fromkeys([*(existing or []), *(new or [])]))
 
 
+def merge_test_run_mounts(
+    existing: list[ContainerMount] | None,
+    new: list[ContainerMount] | None,
+) -> list[ContainerMount]:
+    """Merge container mounts by target path, keeping the latest mount per target."""
+    merged: dict[str, ContainerMount] = {}
+    for mount in [*(existing or []), *(new or [])]:
+        validated = ContainerMount.model_validate(mount)
+        merged[validated.target] = validated
+    return list(merged.values())
+
+
 # =====================create tool agent state==========================
 class CreateToolState(AgentState, total=False):
     id_mapper: BidirectionalMapper
@@ -64,7 +76,7 @@ class CreateToolOutput(BaseModel):
 # =====================test run agent state==========================
 class TestRunState(AgentState):
     test_run_report: NotRequired[TestRunReport]
-    test_run_mounts: NotRequired[list[ContainerMount]]
+    test_run_mounts: NotRequired[Annotated[list[ContainerMount], merge_test_run_mounts]]
     updated: NotRequired[bool]
     checked: NotRequired[bool]
 

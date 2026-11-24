@@ -226,10 +226,7 @@ async def advance_run_command_tool(
         ],
     }
     if code == 0 and extra_mounts:
-        previous_mounts = [ContainerMount.model_validate(mount) for mount in runtime.state.get('test_run_mounts', [])]
-        recorded_mounts = {mount.target: mount for mount in previous_mounts}
-        recorded_mounts.update({mount.target: mount for mount in extra_mounts})
-        update['test_run_mounts'] = list(recorded_mounts.values())
+        update['test_run_mounts'] = extra_mounts
     return Command(update=update)
 
 
