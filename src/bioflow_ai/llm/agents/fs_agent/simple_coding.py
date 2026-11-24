@@ -52,16 +52,15 @@ Implement the caller's task in the temporary authoring workspace.
 If the status bar specifies `lang`, write explanations and questions in that language. Preserve code identifiers and CLI options.
 """
 
-CODING_LLM = get_coding_model()
-metadata = cast('LLMMetadata', CODING_LLM.metadata)
-
 
 def build_simple_coding_agent(
     checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph[Any, CodingContext, Any, Any]:
     """Build the coding agent, optionally with a session checkpointer."""
+    model = get_coding_model()
+    metadata = cast('LLMMetadata', model.metadata)
     return create_agent(
-        CODING_LLM,
+        model,
         [coding_run_command, coding_apply_patch],
         system_prompt=CODING_SYSTEM,
         middleware=[

@@ -36,9 +36,6 @@ if TYPE_CHECKING:
 
     from bioflow_ai.llm.llm_client import LLMMetadata
 
-AGENT_LLM = get_agent_model()
-metadata = cast('LLMMetadata', AGENT_LLM.metadata)
-
 SYSTEM_PROMPT = """你的任务是把用户的原始数据和分析需求转化为已注册的样本、可供后续智能体读取的样本说明，以及经过用户批准的分析计划。
 最终，你需要在当前项目根目录产生以下文件：
 - `SAMPLES.md`：已注册样本和项目共享文件的说明
@@ -286,9 +283,11 @@ def _build_project_planner(
         tools.append(ask_human_with_choices)
         disabled_tools.add('ask_human')
 
+    model = get_agent_model()
+    metadata = cast('LLMMetadata', model.metadata)
     kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
     return create_agent(
-        model=AGENT_LLM,
+        model=model,
         tools=tools,
         system_prompt=system_prompt,
         middleware=[
@@ -328,6 +327,3 @@ def build_evaluate_project_planner(
         allow_human_input=False,
         checkpointer=checkpointer,
     )
-
-
-project_planner_agent = build_project_planner()

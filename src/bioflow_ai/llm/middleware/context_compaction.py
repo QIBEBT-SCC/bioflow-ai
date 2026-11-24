@@ -1,6 +1,6 @@
 """Summarize oversized history before sampling, using the todo message-reset pattern."""
 
-from typing import Any, NotRequired
+from typing import TYPE_CHECKING, Any, NotRequired
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import AgentState
@@ -12,6 +12,9 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
 
 from bioflow_ai.llm.models import get_long_context_model
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import Runnable
 
 COMPACTION_PROMPT = """You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 
@@ -31,8 +34,6 @@ SUMMARY_PREFIX = (
     'to assist with your own analysis:'
 )
 
-SUMMARY_LLM = get_long_context_model()
-
 
 class ContextCompactionState(AgentState):
     msg_to_keep: NotRequired[int]
@@ -50,10 +51,12 @@ class ContextCompactionMiddleware(AgentMiddleware[AgentState[Any], Any]):
         super().__init__()
 
         self.token_limit = token_limit
-        prompt = ChatPromptTemplate.from_messages(
+        self._prompt = ChatPromptTemplate.from_messages(
             [MessagesPlaceholder('messages'), HumanMessage(content=COMPACTION_PROMPT)]
         )
-        self.summary_chain = prompt | SUMMARY_LLM | StrOutputParser()
+
+    def _build_summary_chain(self) -> 'Runnable[Any, str]':
+        return self._prompt | get_long_context_model() | StrOutputParser()
 
     def _should_compact(self, state: ContextCompactionState) -> bool:
         return (
@@ -76,12 +79,12 @@ class ContextCompactionMiddleware(AgentMiddleware[AgentState[Any], Any]):
         """Persist the summary before the ordinary model call."""
         if not self._should_compact(state):
             return None
-        summary = self.summary_chain.invoke({'messages': state['messages']})
+        summary = self._build_summary_chain().invoke({'messages': state['messages']})
         return self._replace_messages(state, summary)
 
     async def abefore_model(self, state: ContextCompactionState, runtime: Runtime) -> dict[str, Any] | None:
         """Summarize and replace messages asynchronously."""
         if not self._should_compact(state):
             return None
-        summary = await self.summary_chain.ainvoke({'messages': state['messages']})
+        summary = await self._build_summary_chain().ainvoke({'messages': state['messages']})
         return self._replace_messages(state, summary)

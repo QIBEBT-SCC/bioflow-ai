@@ -56,22 +56,6 @@ AGENTS: dict[RouteTask, AgentSpec] = {
 }
 
 
-def build_agents(checkpointer: Optional[BaseCheckpointSaver] = None) -> dict[RouteTask, CompiledStateGraph]:
-    """Compile every wired agent once, sharing a single checkpointer.
-
-    Intended to run at application startup so compiled graphs are cached and reused across
-    requests. Per-request variation is carried by ``thread_id`` and ``context`` at invoke
-    time, never by rebuilding the graph.
-
-    Args:
-        checkpointer: The shared, long-lived checkpointer bound to every top-level agent.
-
-    Returns:
-        Mapping of route to compiled agent.
-    """
-    return {route: spec.factory(checkpointer) for route, spec in AGENTS.items()}
-
-
 class AgentGraph(Protocol):
     def astream(self, *args: Any, **kwargs: Any) -> Any:
         """Stream graph events."""

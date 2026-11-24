@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, NotRequired, cast
+from typing import TYPE_CHECKING, Any, NotRequired, cast
 
 from langchain.agents import AgentState, create_agent
 
@@ -14,11 +14,10 @@ from bioflow_ai.llm.models import get_coding_model
 from bioflow_ai.llm.tools.container import report_run_command
 
 if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
+
     from bioflow_ai.llm.llm_client import LLMMetadata
 
-
-AGENT_LLM = get_coding_model()
-metadata = cast('LLMMetadata', AGENT_LLM.metadata)
 
 SUMMARY_PROMPT = """# Role and Task
 You are a professional bioinformatics upstream analysis reporting agent. You operate within a lightweight Alpine Linux container, pre-installed with tools such as bash, gawk, grep, jq, miller, find, tree, file, coreutils, and pigz.
@@ -155,17 +154,21 @@ class SummaryState(AgentState):
     container_id: NotRequired[str]
 
 
-summary_analysis_agent = create_agent(
-    get_coding_model(),
-    [report_run_command],
-    system_prompt=SUMMARY_PROMPT,
-    middleware=[
-        TodoMiddleware(),
-        DisableParallelToolCallsMiddleware(),
-        StatusBarMiddleware(),
-        CheckTaskReportMiddleware(),
-        TokenStatisticMiddleware('write_report', **metadata),
-    ],
-    state_schema=SummaryState,
-    context_schema=FolderContext,
-)
+def build_summary_analysis_agent() -> 'CompiledStateGraph[Any, FolderContext, Any, Any]':
+    """Build the upstream summary analysis agent with the current coding model."""
+    model = get_coding_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    return create_agent(
+        model,
+        [report_run_command],
+        system_prompt=SUMMARY_PROMPT,
+        middleware=[
+            TodoMiddleware(),
+            DisableParallelToolCallsMiddleware(),
+            StatusBarMiddleware(),
+            CheckTaskReportMiddleware(),
+            TokenStatisticMiddleware('write_report', **metadata),
+        ],
+        state_schema=SummaryState,
+        context_schema=FolderContext,
+    )

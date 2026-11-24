@@ -277,10 +277,10 @@ def _search_db(query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
 
 
 async def _create_db(name: str, description: str, query: str, runtime: ToolRuntime[ProjectContext]) -> Command:
-    from bioflow_ai.llm.agents.workflow_agent.bio_db_creater import bio_db_creator
+    from bioflow_ai.llm.agents.workflow_agent.bio_db_creater import build_bio_db_creator
 
     try:
-        response = await bio_db_creator.ainvoke(
+        response = await build_bio_db_creator().ainvoke(
             {
                 'messages': [
                     HumanMessage(

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import create_agent
 
@@ -16,10 +16,9 @@ from bioflow_ai.llm.tools.database import search_local_image, select_image
 from bioflow_ai.llm.tools.human import ask_human
 
 if TYPE_CHECKING:
-    from bioflow_ai.llm.llm_client import LLMMetadata
+    from langgraph.graph.state import CompiledStateGraph
 
-SEARCH_IMAGE_LLM = get_agent_model()
-metadata = cast('LLMMetadata', SEARCH_IMAGE_LLM.metadata)
+    from bioflow_ai.llm.llm_client import LLMMetadata
 
 SEARCH_IMAGE_SYSTEM = """You are a bioinformatics data engineer. Your task is to find the corresponding tool's image based on the user's needs and return it.
 
@@ -42,21 +41,25 @@ After a suitable image is found, use `select_image(image_ref=...)` with the exac
 
 
 # TODO: 目前是手动补充
-search_image_agent = create_agent(
-    model=get_agent_model(),
-    tools=[
-        search_local_image,
-        select_image,
-        ask_human,
-    ],
-    system_prompt=SEARCH_IMAGE_SYSTEM,
-    middleware=[
-        DisableParallelToolCallsMiddleware(),
-        ParentHandoffMiddleware(),
-        EndLoopMiddleware(),
-        ToolCreationProgressMiddleware(),
-        ChatAttachmentMiddleware(),
-        TokenStatisticMiddleware('search_image', **metadata),
-    ],
-    context_schema=BaseContext,
-)
+def build_search_image_agent() -> 'CompiledStateGraph[Any, BaseContext, Any, Any]':
+    """Build the container image search agent with the current agent model."""
+    model = get_agent_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    return create_agent(
+        model=model,
+        tools=[
+            search_local_image,
+            select_image,
+            ask_human,
+        ],
+        system_prompt=SEARCH_IMAGE_SYSTEM,
+        middleware=[
+            DisableParallelToolCallsMiddleware(),
+            ParentHandoffMiddleware(),
+            EndLoopMiddleware(),
+            ToolCreationProgressMiddleware(),
+            ChatAttachmentMiddleware(),
+            TokenStatisticMiddleware('search_image', **metadata),
+        ],
+        context_schema=BaseContext,
+    )
