@@ -104,16 +104,10 @@ class StorageConfig(BaseSectionConfig):
     s3: S3StorageConfig = S3StorageConfig()
 
 
-class ResourceConfig(BaseSectionConfig):
-    MAX_THREAD: int = 8
-    MAX_MEM: str = '4G'
-
-
 class PersistenceConfig(BaseSectionConfig):
     database: DatabaseConfig = DatabaseConfig()
     cache: CacheConfig = CacheConfig()
     storage: StorageConfig = StorageConfig()
-    resource: ResourceConfig = ResourceConfig()
 
 
 class DockerConfig(BaseSectionConfig):

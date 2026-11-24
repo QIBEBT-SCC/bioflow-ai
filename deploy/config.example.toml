@@ -52,10 +52,6 @@ secret_key = "minioadmin"
 use_ssl = true
 presign_expire = 3600
 
-[persistent.resource]
-max_thread = 16
-max_mem = "64G"
-
 [docker]
 container = "docker"
 username = ""
