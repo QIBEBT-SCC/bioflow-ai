@@ -4,9 +4,10 @@ from pathlib import Path
 import click
 
 from bioflow_ai.cli.initialization import tui
-from bioflow_ai.cli.initialization.config import create_settings, initialize_embedding
+from bioflow_ai.cli.initialization.config import ask_network, create_settings, initialize_embedding
 from bioflow_ai.cli.initialization.containers import initialize_project_containers
 from bioflow_ai.cli.initialization.database import initialize_preset_database, prepare_database
+from bioflow_ai.cli.initialization.network import verify_network_connectivity
 from bioflow_ai.cli.initialization.providers import initialize_llm_providers
 from bioflow_ai.cli.initialization.services import (
     initialize_backend_services,
@@ -46,10 +47,15 @@ def run_auto_init() -> None:
 
         tui.render_notice('Keeping the existing configuration and continuing system initialization.', style='#94a3b8')
         settings = get_settings()
+        if not verify_network_connectivity(settings.network):
+            return
         update_port = None
     else:
+        network = ask_network()
+        if not verify_network_connectivity(network):
+            return
         stop_running_services_before_reconfigure(_confirm)
-        settings, update_port = create_settings(config_path)
+        settings, update_port = create_settings(config_path, network=network)
 
     try:
         install_deployment_presets()

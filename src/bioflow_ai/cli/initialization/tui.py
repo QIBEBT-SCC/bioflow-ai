@@ -146,6 +146,102 @@ def render_subsection(title: str) -> None:
     console.print(Text(title, style='bold #f8fafc'))
 
 
+def render_network_preflight_results(result: Any) -> None:
+    """Render proxy and external registry connectivity check results."""
+    from bioflow_ai.services.initialization.network import build_preflight_targets
+
+    table = Table(title='Network Connectivity Check', box=box.ROUNDED, show_header=True)
+    table.add_column('Target', style='bold #f8fafc', no_wrap=True)
+    table.add_column('Domain', style='#cbd5e1')
+    table.add_column('Status', no_wrap=True)
+    table.add_column('Latency', justify='right', style='#cbd5e1', no_wrap=True)
+    table.add_column('Details', style='#cbd5e1')
+
+    if result.proxy.enabled:
+        proxy_latency = f'{result.proxy.latency_ms} ms' if result.proxy.latency_ms is not None else '-'
+        proxy_status = (
+            Text('reachable', style='bold #10b981')
+            if result.proxy.reachable
+            else Text('unreachable', style='bold #ef4444')
+        )
+        proxy_detail = result.proxy.error or 'TCP connection ok'
+        table.add_row(
+            'Proxy',
+            Text(result.proxy.proxy_url or ''),
+            proxy_status,
+            proxy_latency,
+            Text(proxy_detail),
+        )
+
+    for item in result.endpoints:
+        latency = f'{item.latency_ms} ms' if item.latency_ms is not None else '-'
+        status_text = Text('ok', style='bold #10b981') if item.ok else Text('failed', style='bold #ef4444')
+        detail = (
+            f'HTTP {item.status_code} ({item.purpose})'
+            if item.ok and item.status_code is not None
+            else (item.error or item.purpose)
+        )
+        table.add_row(item.name, Text(item.domain), status_text, latency, Text(detail))
+
+    console.print()
+    console.print(table)
+
+    if result.ok:
+        return
+
+    body = Text()
+    if result.proxy.enabled:
+        body.append(f'Configured proxy: {result.proxy.proxy_url}\n', style='#f8fafc')
+    else:
+        body.append('Connection mode: Direct (no proxy)\n', style='#f8fafc')
+
+    if result.proxy.enabled and not result.proxy.reachable:
+        body.append(f'\nProxy connection failed: {result.proxy.error}\n', style='bold #ef4444')
+        body.append(
+            '- Check that your proxy service is running and listening on the configured host/port.\n',
+            style='#cbd5e1',
+        )
+        body.append(
+            '- Verify whether your proxy uses http or socks5.\n',
+            style='#cbd5e1',
+        )
+
+    body.append('\nEnsure the following required domains are reachable:\n', style='bold #f8fafc')
+    if result.endpoints:
+        for item in result.endpoints:
+            if item.ok:
+                body.append(f'  [OK]   {item.domain} ({item.purpose})\n', style='#10b981')
+            else:
+                reason = f' - {item.error}' if item.error else ''
+                body.append(f'  [FAIL] {item.domain} ({item.purpose}){reason}\n', style='#ef4444')
+    else:
+        for target in build_preflight_targets():
+            body.append(f'  - {target.domain} ({target.purpose})\n', style='#cbd5e1')
+
+    if not result.proxy.enabled and result.shell_proxy_detected:
+        body.append(
+            f'\nNote: Detected proxy in your shell environment ({result.shell_proxy_detected}). '
+            'If direct access is blocked, enable the network proxy in auto-init.\n',
+            style='#f59e0b',
+        )
+
+    body.append(
+        '\nInitialization stopped. Fix your network or proxy settings and run `uv run bioflow-ai auto-init` again.',
+        style='bold #f8fafc',
+    )
+
+    console.print()
+    console.print(
+        Panel(
+            body,
+            title='[bold #ef4444]Network Check Failed[/bold #ef4444]',
+            border_style='#ef4444',
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def render_success(config_path: Path) -> None:
     """Render deployment configuration success."""
     body = Table.grid(padding=(0, 1))

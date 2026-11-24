@@ -2,10 +2,12 @@ from collections.abc import Callable
 
 from bioflow_ai.cli.initialization import tui
 from bioflow_ai.core.config import Settings
+from bioflow_ai.services.initialization.common import proxy_environment
 from bioflow_ai.services.initialization.containers import (
     COMPOSE_FILE,
     check_compose_command,
     compose_template_file,
+    inspect_docker_proxy,
     load_compose_file,
     project_start_commands,
     start_project_services,
@@ -53,11 +55,28 @@ def initialize_project_containers(
     for message in compose_file_result.updated_port:
         tui.render_notice(f'Updated {message}.', style='#10b981')
 
+    if runtime == 'docker' and settings.network.USE_PROXY:
+        docker_proxy = inspect_docker_proxy()
+        if (
+            docker_proxy is not None
+            and not docker_proxy.http_proxy
+            and not docker_proxy.https_proxy
+            and not docker_proxy.mirrors
+        ):
+            tui.render_notice(
+                'Docker daemon has no HTTP/HTTPS proxy or registry mirror configured. '
+                'Docker pulls images via the dockerd service and does not read config.toml proxy settings; '
+                'if image pulls stall, configure daemon proxy in /etc/systemd/system/docker.service.d/http-proxy.conf '
+                'or ~/.docker/config.json.',
+                style='#f59e0b',
+            )
+
+    compose_env = proxy_environment(settings.network) if runtime == 'podman' else None
     tui.console.print()
     for command in project_start_commands(compose_command, runtime):
         command_text = ' '.join(command)
         tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {command_text}')
-        result = start_project_services(command)
+        result = start_project_services(command, env=compose_env)
         if result.returncode != 0:
             tui.render_notice(
                 f'Compose exited with code {result.returncode} while running {command_text}.', style='#ef4444'

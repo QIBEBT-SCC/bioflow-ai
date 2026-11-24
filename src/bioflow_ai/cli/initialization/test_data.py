@@ -38,14 +38,19 @@ def initialize_test_data(
         tui.render_notice('Test data download skipped.', style='#94a3b8')
         return None
 
-    command = ['uvx', 'hf', 'sync', TESTDATA_SOURCE, str(inspection.path)]
     tui.console.print()
-    tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {" ".join(command)}')
+    tui.console.print(f'[bold #22d3ee]Syncing:[/bold #22d3ee] {TESTDATA_SOURCE} -> {inspection.path}')
 
     try:
-        sync_test_data(network, storage)
+        plan = sync_test_data(network, storage)
     except ValueError as error:
         tui.render_notice(str(error), style='#ef4444')
         return False
-    tui.render_notice(f'Test data synchronized to {inspection.path}.', style='#10b981')
+    summary = plan.summary()
+    downloads = summary.get('downloads', 0)
+    skips = summary.get('skips', 0)
+    tui.render_notice(
+        f'Test data synchronized to {inspection.path} (downloaded: {downloads}, skipped: {skips}).',
+        style='#10b981',
+    )
     return True

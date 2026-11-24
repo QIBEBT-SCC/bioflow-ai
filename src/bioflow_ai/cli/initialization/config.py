@@ -168,14 +168,18 @@ def ask_pdf_parser() -> 'PDFParserConfig':
     return parser
 
 
-def create_settings(config_path: Path) -> tuple['Settings', UpdatePort]:
+def create_settings(
+    config_path: Path,
+    *,
+    network: 'NetworkConfig | None' = None,
+) -> tuple['Settings', UpdatePort]:
     """Interactively create settings, persist them, and return the settings object."""
     from bioflow_ai.core.config import Settings
 
     update_port = create_update_port()
 
     settings = Settings()
-    settings.network = ask_network()
+    settings.network = network if network is not None else ask_network()
     settings.persistent.storage = ask_storage()
     settings.persistent.resource = ask_resource()
     settings.docker = ask_docker()

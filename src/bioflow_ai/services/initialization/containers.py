@@ -74,6 +74,40 @@ class OperationResult(BaseModel):
     error: str | None = None
 
 
+class DockerProxyInfo(BaseModel):
+    """Proxy and registry-mirror configuration reported by the Docker daemon."""
+
+    model_config = ConfigDict(frozen=True)
+
+    http_proxy: str = ''
+    https_proxy: str = ''
+    mirrors: tuple[str, ...] = ()
+
+
+def inspect_docker_proxy() -> DockerProxyInfo | None:
+    """Inspect Docker daemon proxy and registry mirror settings."""
+    result = run_command(['docker', 'info', '--format', '{{json .}}'])
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    registry_config = payload.get('RegistryConfig')
+    raw_mirrors = registry_config.get('Mirrors') if isinstance(registry_config, dict) else None
+    mirrors = (
+        tuple(str(item).strip() for item in raw_mirrors if str(item).strip()) if isinstance(raw_mirrors, list) else ()
+    )
+    return DockerProxyInfo(
+        http_proxy=str(payload.get('HTTPProxy') or '').strip(),
+        https_proxy=str(payload.get('HTTPSProxy') or '').strip(),
+        mirrors=mirrors,
+    )
+
+
 def compose_template_file(runtime: str) -> Path:
     """Return the compose template for the selected runtime."""
     return COMPOSE_TEMPLATE_ROOT / runtime / 'docker-compose.yml'
@@ -305,6 +339,10 @@ def project_start_commands(compose_command: list[str], runtime: str) -> list[lis
     return [up]
 
 
-def start_project_services(command: list[str]) -> subprocess.CompletedProcess[bytes]:
+def start_project_services(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[bytes]:
     """Start the rendered Compose services using their native command."""
-    return subprocess.run(command, check=False)
+    return subprocess.run(command, check=False, env=env)

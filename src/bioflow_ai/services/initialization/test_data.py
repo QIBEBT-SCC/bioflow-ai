@@ -1,10 +1,10 @@
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from huggingface_hub import SyncPlan, sync_bucket
 from pydantic import BaseModel, ConfigDict
 
-from bioflow_ai.services.initialization.common import proxy_environment, resolve_path
+from bioflow_ai.services.initialization.common import applied_proxy_environment, resolve_path
 
 if TYPE_CHECKING:
     from bioflow_ai.core.config import NetworkConfig, StorageConfig
@@ -36,16 +36,13 @@ def inspect_test_data(network: 'NetworkConfig', storage: 'StorageConfig') -> Tes
     )
 
 
-def sync_test_data(network: 'NetworkConfig', storage: 'StorageConfig') -> None:
+def sync_test_data(network: 'NetworkConfig', storage: 'StorageConfig') -> SyncPlan:
     """Synchronize the configured test dataset without collecting user input."""
     inspection = inspect_test_data(network, storage)
-    command = ['uvx', 'hf', 'sync', TESTDATA_SOURCE, str(inspection.path)]
     try:
         inspection.path.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(command, check=False, env=proxy_environment(network))
-    except FileNotFoundError as error:
-        message = 'uvx was not found. Install uv and try again: https://docs.astral.sh/uv/'
+        with applied_proxy_environment(network):
+            return sync_bucket(TESTDATA_SOURCE, str(inspection.path))
+    except Exception as error:
+        message = f'Test data download failed: {error}'
         raise ValueError(message) from error
-    if result.returncode != 0:
-        message = f'Test data download failed; uvx hf sync exited with code {result.returncode}.'
-        raise ValueError(message)
