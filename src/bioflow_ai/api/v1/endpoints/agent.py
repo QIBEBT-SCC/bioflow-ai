@@ -5,7 +5,6 @@ import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import suppress
 from datetime import datetime
 from typing import Annotated, Literal, NoReturn
 
@@ -55,6 +54,8 @@ from bioflow_ai.services.documents import pdf_index as pdf_service
 session_router = APIRouter()
 run_router = APIRouter()
 SSE_HEARTBEAT_SECONDS = 15
+SSE_ACTIVE_POLL_SECONDS = 0.3
+SSE_IDLE_POLL_SECONDS = 1.0
 RESUME_STATUS_ERROR = 'Only waiting_input runs can be resumed.'
 CANCEL_STATUS_ERROR = 'A terminal run cannot be cancelled.'
 RETRY_STATUS_ERROR = 'Only failed runs can be retried.'
@@ -461,6 +462,25 @@ def _sse_event(event: AgentEventPublic) -> str:
     )
 
 
+def _read_stream_batch(
+    run_uid: uuid.UUID,
+    owner_id: int,
+    *,
+    is_admin: bool,
+    after_id: int,
+) -> tuple[AgentRunStatus, list[AgentEventPublic]] | None:
+    with Session(engine) as event_session:
+        run = agent_crud.get_run(event_session, run_uid)
+        if run is None or (run.agent_session.owner_id != owner_id and not is_admin):
+            return None
+        agent_service.reconcile_stale_run(event_session, run)
+        events = [
+            AgentEventPublic.model_validate(stored_event)
+            for stored_event in agent_crud.list_events(event_session, run_uid, after_id)
+        ]
+        return AgentRunStatus(run.status), events
+
+
 @run_router.get('/{run_uid}/stream')
 async def stream_agent_events(
     request: Request,
@@ -482,53 +502,37 @@ async def stream_agent_events(
         after_id = max(after_id, int(header_id))
 
     async def generate() -> AsyncGenerator[str]:
-        from bioflow_ai.tasks.agent_run import AGENT_EVENT_CHANNEL_PREFIX
-
         cursor = after_id
         last_heartbeat = time.monotonic()
-        channel = f'{AGENT_EVENT_CHANNEL_PREFIX}{run_uid}'
-        pubsub = None
-        pubsub_available = False
-        try:
-            pubsub = request.app.state.redis.pubsub()
-            await pubsub.subscribe(channel)
-            pubsub_available = True
-        except Exception:
-            pubsub_available = False
-        try:
-            while not await request.is_disconnected():
-                with Session(engine) as event_session:
-                    run = agent_crud.get_run(event_session, run_uid)
-                    if run is None or (run.agent_session.owner_id != owner_id and not is_admin):
-                        return
-                    events = agent_crud.list_events(event_session, run_uid, cursor)
-                    status_value = AgentRunStatus(run.status)
+        poll_interval = SSE_ACTIVE_POLL_SECONDS
+        while not await request.is_disconnected():
+            batch = await run_in_threadpool(
+                _read_stream_batch,
+                run_uid,
+                owner_id,
+                is_admin=is_admin,
+                after_id=cursor,
+            )
+            if batch is None:
+                return
+            status_value, events = batch
 
-                for stored_event in events:
-                    event = AgentEventPublic.model_validate(stored_event)
+            if events:
+                for event in events:
                     cursor = event.id
                     yield _sse_event(event)
+                poll_interval = SSE_ACTIVE_POLL_SECONDS
+                last_heartbeat = time.monotonic()
 
-                if status_value in TERMINAL_AGENT_RUN_STATUSES or status_value == AgentRunStatus.WAITING_INPUT:
-                    return
+            if status_value in TERMINAL_AGENT_RUN_STATUSES or status_value == AgentRunStatus.WAITING_INPUT:
+                return
 
+            if not events:
                 if time.monotonic() - last_heartbeat >= SSE_HEARTBEAT_SECONDS:
                     yield ': heartbeat\n\n'
                     last_heartbeat = time.monotonic()
-
-                if not pubsub_available or pubsub is None:
-                    await asyncio.sleep(1)
-                    continue
-                try:
-                    await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-                except Exception:
-                    pubsub_available = False
-                    await asyncio.sleep(1)
-        finally:
-            if pubsub is not None:
-                with suppress(Exception):
-                    await pubsub.unsubscribe(channel)
-                    await pubsub.aclose()
+                await asyncio.sleep(poll_interval)
+                poll_interval = min(SSE_IDLE_POLL_SECONDS, poll_interval * 1.5)
 
     return StreamingResponse(
         generate(),
