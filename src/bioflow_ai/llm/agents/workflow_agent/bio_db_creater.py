@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import create_agent
 
@@ -9,6 +9,8 @@ from bioflow_ai.llm.tools.database import create_biodb, search_local_image
 from bioflow_ai.llm.tools.web_search import WebResearchState, web_run
 
 if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
+
     from bioflow_ai.llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """## Role
@@ -75,23 +77,24 @@ When BioFlowAI runs the download task:
 - If a source requires authentication, license acceptance, manual registration, or restricted access, do not create a fake automated command. State the limitation instead.
 - Keep conversation messages concise. The substantive final action is the `create_biodb` tool call."""
 
-AGENT_MODEL = get_long_context_model()
-metadata = cast('LLMMetadata', AGENT_MODEL.metadata)
 
-
-bio_db_creator = create_agent(
-    AGENT_MODEL,
-    [
-        web_run,
-        search_local_image,
-        create_biodb,
-    ],
-    system_prompt=SYSTEM_PROMPT,
-    middleware=[
-        DisableParallelToolCallsMiddleware(disabled_tools={'create_biodb'}),
-        EndLoopMiddleware(),
-        TokenStatisticMiddleware('bio_db_creator', **metadata),
-    ],
-    state_schema=WebResearchState,
-    context_schema=BaseContext,
-)
+def build_bio_db_creator() -> 'CompiledStateGraph[Any, BaseContext, Any, Any]':
+    """Build the bio-database creator agent with the current long-context model."""
+    model = get_long_context_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    return create_agent(
+        model,
+        [
+            web_run,
+            search_local_image,
+            create_biodb,
+        ],
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[
+            DisableParallelToolCallsMiddleware(disabled_tools={'create_biodb'}),
+            EndLoopMiddleware(),
+            TokenStatisticMiddleware('bio_db_creator', **metadata),
+        ],
+        state_schema=WebResearchState,
+        context_schema=BaseContext,
+    )

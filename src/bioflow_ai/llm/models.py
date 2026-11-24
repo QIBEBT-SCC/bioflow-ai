@@ -15,12 +15,20 @@ from sqlalchemy.orm import Session
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.llm_client import ChatDeepseekReasoning, ChatOpenAIReasoning
-from bioflow_ai.models.setting import LLMModel, ModelRole, ProviderType, ReasoningEffort, is_deepseek_provider
+from bioflow_ai.models.setting import (
+    LLMModel,
+    LLMProvider,
+    ModelRole,
+    ProviderType,
+    ReasoningEffort,
+    is_deepseek_provider,
+)
 from bioflow_ai.schemas.setting import LLMModelTestResult
 from bioflow_ai.services import llm_setting as setting_service
 from bioflow_ai.utils.cache import MemoryCache
 
 _model_cache: MemoryCache[ModelRole, BaseChatModel] = MemoryCache()
+_model_signatures: dict[ModelRole, tuple[Any, ...]] = {}
 AnthropicEffort = Literal['low', 'medium', 'high', 'xhigh', 'max']
 GoogleThinkingLevel = Literal['minimal', 'low', 'medium', 'high']
 GEMINI_25_REASONING_BUDGETS = {
@@ -160,14 +168,26 @@ def _build_chat_model(
             raise TypeError
 
 
-def _get_model_from_db(session: Session, model_id: int) -> tuple[BaseChatModel, LLMModel]:
-    model_config = setting_service.get_model(session, model_id)
-    if model_config.provider is None:
-        raise setting_service.LLMProviderNotFoundError
-
-    api_key = setting_service.get_provider_api_key(model_config.provider)
-    model = _build_chat_model(model_config, api_key)
-    return model, model_config
+def _model_signature(model_config: LLMModel, provider: LLMProvider) -> tuple[Any, ...]:
+    """Build a hashable snapshot of all DB and proxy settings affecting a built model."""
+    base_url = (provider.base_url or '').strip() or None
+    proxy = get_settings().network.get_proxy_url() if provider.use_proxy else None
+    return (
+        model_config.id,
+        model_config.name,
+        model_config.reasoning_effort,
+        model_config.context_window,
+        model_config.input_price,
+        model_config.output_price,
+        model_config.cache_read_price,
+        provider.id,
+        provider.name,
+        provider.provider_type,
+        base_url,
+        provider.api_key_ciphertext,
+        provider.use_proxy,
+        proxy,
+    )
 
 
 def _truncate_text(text: str, max_length: int) -> str:
@@ -303,19 +323,28 @@ def invalidate_model_cache(role: ModelRole | None = None) -> None:
     """清除单个角色或全部模型配置缓存."""
     if role is None:
         _model_cache.clear()
+        _model_signatures.clear()
     else:
         _model_cache.delete(role)
+        _model_signatures.pop(role, None)
 
 
 def get_model(role: ModelRole) -> BaseChatModel:
     """获取指定类型的模型配置."""
-    cached_model = _model_cache.get(role)
-    if cached_model is not None:
-        return cached_model
-
     with Session(engine) as session:
         model_id = setting_service.get_role_model_id(session, role)
-        model, model_config = _get_model_from_db(session, model_id)
+        model_config = setting_service.get_model(session, model_id)
+        provider = model_config.provider
+        if provider is None:
+            raise setting_service.LLMProviderNotFoundError
+
+        signature = _model_signature(model_config, provider)
+        cached_model = _model_cache.get(role)
+        if cached_model is not None and _model_signatures.get(role) == signature:
+            return cached_model
+
+        api_key = setting_service.get_provider_api_key(provider)
+        model = _build_chat_model(model_config, api_key)
         model.metadata = {
             'setting_key': role.value,
             'model_id': model_id,
@@ -326,6 +355,7 @@ def get_model(role: ModelRole) -> BaseChatModel:
             'cache_read_price': model_config.cache_read_price,
         }
     _model_cache.set(role, model)
+    _model_signatures[role] = signature
     return model
 
 

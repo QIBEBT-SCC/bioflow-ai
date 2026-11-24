@@ -23,10 +23,10 @@ import bioflow_ai.crud.tools.tool_group as group_crud
 import bioflow_ai.crud.tools.tool_tag as tag_crud
 from bioflow_ai.infrastructure.containers import run_command_async
 from bioflow_ai.infrastructure.database import engine
-from bioflow_ai.llm.agents.tool_agent.config_generator import config_generate_agent
-from bioflow_ai.llm.agents.tool_agent.report_generator_v2 import test_run_agent
-from bioflow_ai.llm.agents.tool_agent.searcher import search_image_agent
-from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import search_exist_tool_agent
+from bioflow_ai.llm.agents.tool_agent.config_generator import build_config_generate_agent
+from bioflow_ai.llm.agents.tool_agent.report_generator_v2 import build_test_run_agent
+from bioflow_ai.llm.agents.tool_agent.searcher import build_search_image_agent
+from bioflow_ai.llm.agents.tool_agent.searcher.tool_node import build_search_exist_tool_agent
 from bioflow_ai.llm.context import BaseContext, CreateToolContext, TestRunContext, ToolGeneratorContext
 from bioflow_ai.llm.middleware import (
     ChatAttachmentMiddleware,
@@ -171,7 +171,7 @@ class CreateToolAgent:
         else:
             # TODO: 重写镜像搜索
             search_input = {'messages': state['messages']}
-            response = await search_image_agent.ainvoke(
+            response = await build_search_image_agent().ainvoke(
                 search_input,
                 context=BaseContext(
                     user_id=runtime.context.user_id,
@@ -213,7 +213,7 @@ class CreateToolAgent:
             if not tools:
                 return Command[Literal['get_report', '__end__']](goto='get_report')
 
-        pre_search_result = await search_exist_tool_agent.ainvoke(
+        pre_search_result = await build_search_exist_tool_agent().ainvoke(
             {
                 'messages': state['messages'],
                 'image_uid': state['image_uid'],
@@ -273,7 +273,7 @@ class CreateToolAgent:
     async def get_report_node(state: CreateToolState, runtime: Runtime[CreateToolContext]) -> dict[str, Any]:
         """获取工具的输出结果."""
         testrun_input = {'messages': state['messages']}
-        response = await test_run_agent.ainvoke(
+        response = await build_test_run_agent().ainvoke(
             testrun_input,
             context=TestRunContext(
                 user_id=runtime.context.user_id,
@@ -324,7 +324,7 @@ class CreateToolAgent:
         storage.mkdir(parents=True, exist_ok=True)
         directory = TemporaryDirectory(prefix='.tool-validation-', dir=storage)
         try:
-            result = await config_generate_agent.ainvoke(
+            result = await build_config_generate_agent().ainvoke(
                 {
                     'messages': state['messages'],
                     'image': state['image'],

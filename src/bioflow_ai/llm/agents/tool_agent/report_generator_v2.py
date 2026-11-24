@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import create_agent
 
@@ -22,6 +22,8 @@ from bioflow_ai.llm.tools.human import ask_human
 from bioflow_ai.llm.tools.test_run_report import write_test_run_report
 
 if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
+
     from bioflow_ai.llm.llm_client import LLMMetadata
 
 TEST_RUN_SYSTEM = """你是一名专业的生物信息软件工程师。
@@ -213,32 +215,34 @@ TEST_RUN_SYSTEM = """你是一名专业的生物信息软件工程师。
     - 例如: 此工具直接使用 stdout 作为输出, 因此只重定向 stderr 用于日志记录
 """
 
-TEST_RUN_MODEL = get_long_context_model()
-metadata = cast('LLMMetadata', TEST_RUN_MODEL.metadata)
 
-test_run_agent = create_agent(
-    model=TEST_RUN_MODEL,
-    tools=[
-        search_biodb,
-        search_local_image,
-        advance_run_command_tool,
-        ask_human,
-        write_test_run_report,
-    ],
-    system_prompt=TEST_RUN_SYSTEM,
-    middleware=[
-        DisableParallelToolCallsMiddleware(
-            disabled_tools={'add_todos', 'update_todo', 'ask_human', 'return_to_parent', 'write_tool_report'}
-        ),
-        ParentHandoffMiddleware(),
-        ToolCreationProgressMiddleware(),
-        StatusBarMiddleware(),
-        CheckStateExistMiddleware('test_run_report', 'write_tool_report'),
-        TodoMiddleware(),
-        SaveMessagesMiddleware('test_run'),
-        ChatAttachmentMiddleware(),
-        TokenStatisticMiddleware('test_run', **metadata),
-    ],
-    state_schema=TestRunState,
-    context_schema=TestRunContext,
-)
+def build_test_run_agent() -> 'CompiledStateGraph[Any, TestRunContext, Any, Any]':
+    """Build the tool test-run agent with the current long-context model."""
+    model = get_long_context_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    return create_agent(
+        model=model,
+        tools=[
+            search_biodb,
+            search_local_image,
+            advance_run_command_tool,
+            ask_human,
+            write_test_run_report,
+        ],
+        system_prompt=TEST_RUN_SYSTEM,
+        middleware=[
+            DisableParallelToolCallsMiddleware(
+                disabled_tools={'add_todos', 'update_todo', 'ask_human', 'return_to_parent', 'write_tool_report'}
+            ),
+            ParentHandoffMiddleware(),
+            ToolCreationProgressMiddleware(),
+            StatusBarMiddleware(),
+            CheckStateExistMiddleware('test_run_report', 'write_tool_report'),
+            TodoMiddleware(),
+            SaveMessagesMiddleware('test_run'),
+            ChatAttachmentMiddleware(),
+            TokenStatisticMiddleware('test_run', **metadata),
+        ],
+        state_schema=TestRunState,
+        context_schema=TestRunContext,
+    )

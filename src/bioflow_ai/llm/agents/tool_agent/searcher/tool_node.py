@@ -1,5 +1,5 @@
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import AgentState, create_agent
 
@@ -17,10 +17,9 @@ from bioflow_ai.llm.tools.vector_store import search_tools_by_function
 from bioflow_ai.utils.uid_mapper import BidirectionalMapper
 
 if TYPE_CHECKING:
-    from bioflow_ai.llm.llm_client import LLMMetadata
+    from langgraph.graph.state import CompiledStateGraph
 
-SEARCH_LLM = get_agent_model()
-metadata = cast('LLMMetadata', SEARCH_LLM.metadata)
+    from bioflow_ai.llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are a bioinformatics data administrator. The database contains many commonly used bioinformatics analysis tools packaged within it.
 Your task is to search the database by calling tools according to the user's requirements and determine whether the current database contains a tool that meets those requirements.
@@ -84,21 +83,25 @@ class SearchToolNodeState(AgentState, total=False):
     image_uid: uuid.UUID
 
 
-search_exist_tool_agent = create_agent(
-    model=get_agent_model(),
-    tools=[
-        search_tools_by_function,
-        read_tool_doc,
-        select_tool,
-    ],
-    system_prompt=SYSTEM_PROMPT,
-    middleware=[
-        DisableParallelToolCallsMiddleware(disabled_tools={'select_tool'}),
-        EndLoopMiddleware(),
-        ToolCreationProgressMiddleware(),
-        ChatAttachmentMiddleware(),
-        TokenStatisticMiddleware('search_exist_node', **metadata),
-    ],
-    state_schema=SearchToolNodeState,
-    context_schema=BaseContext,
-)
+def build_search_exist_tool_agent() -> 'CompiledStateGraph[Any, BaseContext, Any, Any]':
+    """Build the existing tool search agent with the current agent model."""
+    model = get_agent_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    return create_agent(
+        model=model,
+        tools=[
+            search_tools_by_function,
+            read_tool_doc,
+            select_tool,
+        ],
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[
+            DisableParallelToolCallsMiddleware(disabled_tools={'select_tool'}),
+            EndLoopMiddleware(),
+            ToolCreationProgressMiddleware(),
+            ChatAttachmentMiddleware(),
+            TokenStatisticMiddleware('search_exist_node', **metadata),
+        ],
+        state_schema=SearchToolNodeState,
+        context_schema=BaseContext,
+    )

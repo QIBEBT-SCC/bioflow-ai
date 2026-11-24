@@ -190,9 +190,6 @@ async def summarize_work(content: str) -> tuple[str, dict[str, str]]:
     )
 
 
-BUILDER_LLM = get_long_context_model()
-metadata = cast('LLMMetadata', BUILDER_LLM.metadata)
-
 WORKFLOW_BUILDER_DISABLED_TOOLS = {'add_todos', 'update_todo', 'summarize_work', 'ask_human'}
 WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS = {
     'subgraph_node_manager': {'create', 'add'},
@@ -231,40 +228,12 @@ def build_workflow_builder(
     Returns:
         The compiled workflow-builder agent.
     """
-    if checkpointer:
-        return create_agent(
-            BUILDER_LLM,
-            [
-                tool_node_manager,
-                resource_node_manager,
-                subgraph_node_manager,
-                utility_node_manager,
-                workflow_manager,
-                summarize_work,
-                ask_human,
-            ],
-            system_prompt=BUILD_FLOW_SYSTEM,
-            middleware=[
-                PendingUserInputMiddleware(close_inbox=True),
-                TodoMiddleware(),
-                WorkflowBuilderProgressMiddleware(),
-                SkillMiddleware('workflow_builder'),
-                CheckStateExistMiddleware('workflow_uids', 'workflow_manager'),
-                DisableParallelToolCallsMiddleware(
-                    disabled_tools=WORKFLOW_BUILDER_DISABLED_TOOLS,
-                    disabled_tool_actions=WORKFLOW_BUILDER_DISABLED_TOOL_ACTIONS,
-                ),
-                StatusBarMiddleware(),
-                SaveMessagesMiddleware('workflow_builder'),
-                ChatAttachmentMiddleware(),
-                TokenStatisticMiddleware('workflow_builder', **metadata),
-            ],
-            state_schema=BuildState,
-            context_schema=ProjectContext,
-            checkpointer=checkpointer,
-        )
+    model = get_long_context_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    stat_name = 'workflow_builder' if checkpointer is not None else 'reproduction_agent'
+    kwargs = {'checkpointer': checkpointer} if checkpointer is not None else {}
     return create_agent(
-        BUILDER_LLM,
+        model,
         [
             tool_node_manager,
             resource_node_manager,
@@ -288,11 +257,9 @@ def build_workflow_builder(
             StatusBarMiddleware(),
             SaveMessagesMiddleware('workflow_builder'),
             ChatAttachmentMiddleware(),
-            TokenStatisticMiddleware('reproduction_agent', **metadata),
+            TokenStatisticMiddleware(stat_name, **metadata),
         ],
         state_schema=BuildState,
         context_schema=ProjectContext,
+        **kwargs,
     )
-
-
-build_workflow_agent: CompiledStateGraph[Any, ProjectContext, Any, Any] = build_workflow_builder()

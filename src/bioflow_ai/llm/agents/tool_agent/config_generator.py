@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from langchain.agents import create_agent
 from langchain_core.messages import ToolMessage
@@ -23,6 +23,8 @@ from bioflow_ai.llm.tools.tool_validation import execute_node, inspect_validatio
 from bioflow_ai.schemas.tool_config import FileMount, ParamDefine, ToolType
 
 if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
+
     from bioflow_ai.llm.llm_client import LLMMetadata
 
 SYSTEM_PROMPT = """You are a bioinformatics engineer. You will be shown a real execution report for a bioinformatics tool, containing the help command, test run command, input files, and the output files actually generated. Your task is to abstract the verified usage of the tool based on this information into a Docker tool node configuration that can be stored in a database and reused in workflows.
@@ -282,33 +284,34 @@ def set_tool_info(
     )
 
 
-GENERATOR_LLM = get_high_performance_model()
-metadata = cast('LLMMetadata', GENERATOR_LLM.metadata)
-
-config_generate_agent = create_agent(
-    GENERATOR_LLM,
-    [
-        set_file_mounts,
-        set_command_detail,
-        set_tool_info,
-        search_node,
-        view_node,
-        inspect_validation_files,
-        execute_node,
-    ],
-    system_prompt=SYSTEM_PROMPT,
-    middleware=[
-        DisableParallelToolCallsMiddleware(
-            disabled_tools={'execute_node', 'search_node', 'set_file_mounts', 'set_command_detail', 'set_tool_info'}
-        ),
-        ToolCreationProgressMiddleware(),
-        SkillMiddleware('tool_generator'),
-        CheckStateExistMiddleware('validated', 'execute_node', max_retries=3),
-        EndLoopMiddleware(),
-        SaveMessagesMiddleware('tool_generator'),
-        ChatAttachmentMiddleware(),
-        TokenStatisticMiddleware('tool_generator', **metadata),
-    ],
-    state_schema=ToolGeneratorState,
-    context_schema=ToolGeneratorContext,
-)
+def build_config_generate_agent() -> 'CompiledStateGraph[Any, ToolGeneratorContext, Any, Any]':
+    """Build the tool config generator agent with the current high-performance model."""
+    model = get_high_performance_model()
+    metadata = cast('LLMMetadata', model.metadata)
+    return create_agent(
+        model,
+        [
+            set_file_mounts,
+            set_command_detail,
+            set_tool_info,
+            search_node,
+            view_node,
+            inspect_validation_files,
+            execute_node,
+        ],
+        system_prompt=SYSTEM_PROMPT,
+        middleware=[
+            DisableParallelToolCallsMiddleware(
+                disabled_tools={'execute_node', 'search_node', 'set_file_mounts', 'set_command_detail', 'set_tool_info'}
+            ),
+            ToolCreationProgressMiddleware(),
+            SkillMiddleware('tool_generator'),
+            CheckStateExistMiddleware('validated', 'execute_node', max_retries=3),
+            EndLoopMiddleware(),
+            SaveMessagesMiddleware('tool_generator'),
+            ChatAttachmentMiddleware(),
+            TokenStatisticMiddleware('tool_generator', **metadata),
+        ],
+        state_schema=ToolGeneratorState,
+        context_schema=ToolGeneratorContext,
+    )
