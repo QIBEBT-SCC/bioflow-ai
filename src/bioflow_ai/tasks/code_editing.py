@@ -9,6 +9,7 @@ from redis.asyncio import Redis
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.runtime.celery_app import celery_app
+from bioflow_ai.runtime.worker_loop import run_in_worker_loop
 from bioflow_ai.schemas.code import CodeNodeType
 from bioflow_ai.services.code.coding import CodingAgent, run_coding_turn
 from bioflow_ai.services.code.sessions import CodeSessionStore, StaleCodingTurnError
@@ -114,4 +115,4 @@ def execute_code_turn(session_id: str, turn_id: str) -> None:
         finally:
             await redis.aclose()
 
-    asyncio.run(run())
+    run_in_worker_loop(run())

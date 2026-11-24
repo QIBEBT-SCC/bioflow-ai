@@ -242,7 +242,7 @@ async def run_coding_turn(
                 final = await agent.ainvoke({'messages': messages}, config={'recursion_limit': 100}, context=context)
             else:
                 agent_run_id = uuid.uuid4()
-                async for event in agent.astream_events(
+                stream = agent.astream_events(
                     {'messages': messages},
                     config={
                         'run_id': agent_run_id,
@@ -251,41 +251,47 @@ async def run_coding_turn(
                     },
                     context=context,
                     version='v2',
-                ):
-                    run_log.native_event(event)
-                    kind = event['event']
-                    data = event.get('data', {})
-                    if kind == 'on_chain_end' and event['run_id'] == str(agent_run_id):
-                        final = data['output']
-                    elif kind == 'on_chat_model_stream':
-                        text = message_text(data.get('chunk'))
-                        if text and on_progress is not None:
-                            streamed_text = True
-                            await on_progress('message.delta', {'text': text})
-                    elif kind in {'on_tool_start', 'on_tool_end', 'on_tool_error'} and on_progress is not None:
-                        arguments = data.get('input') or {}
-                        detail = subject = ''
-                        if isinstance(arguments, dict):
-                            detail = str(arguments.get('command') or '')
-                            if event['name'] == 'apply_patch':
-                                subject = patch_files(str(arguments.get('patch') or '')) or ''
-                            elif event['name'] in SKILL_TOOLS:
-                                subject = str(arguments.get(SKILL_TOOLS[event['name']]) or '')
-                        await on_progress(
-                            'tool.updated',
-                            {
-                                'call_id': str(event['run_id']),
-                                'name': event['name'],
-                                'status': {
-                                    'on_tool_start': 'running',
-                                    'on_tool_end': 'completed',
-                                    'on_tool_error': 'failed',
-                                }[kind],
-                                'detail': detail[:16_000],
-                                'subject': subject[:1_000],
-                                'output': message_text(data.get('output', data.get('error', '')))[:16_000],
-                            },
-                        )
+                )
+                try:
+                    async for event in stream:
+                        run_log.native_event(event)
+                        kind = event['event']
+                        data = event.get('data', {})
+                        if kind == 'on_chain_end' and event['run_id'] == str(agent_run_id):
+                            final = data['output']
+                        elif kind == 'on_chat_model_stream':
+                            text = message_text(data.get('chunk'))
+                            if text and on_progress is not None:
+                                streamed_text = True
+                                await on_progress('message.delta', {'text': text})
+                        elif kind in {'on_tool_start', 'on_tool_end', 'on_tool_error'} and on_progress is not None:
+                            arguments = data.get('input') or {}
+                            detail = subject = ''
+                            if isinstance(arguments, dict):
+                                detail = str(arguments.get('command') or '')
+                                if event['name'] == 'apply_patch':
+                                    subject = patch_files(str(arguments.get('patch') or '')) or ''
+                                elif event['name'] in SKILL_TOOLS:
+                                    subject = str(arguments.get(SKILL_TOOLS[event['name']]) or '')
+                            await on_progress(
+                                'tool.updated',
+                                {
+                                    'call_id': str(event['run_id']),
+                                    'name': event['name'],
+                                    'status': {
+                                        'on_tool_start': 'running',
+                                        'on_tool_end': 'completed',
+                                        'on_tool_error': 'failed',
+                                    }[kind],
+                                    'detail': detail[:16_000],
+                                    'subject': subject[:1_000],
+                                    'output': message_text(data.get('output', data.get('error', '')))[:16_000],
+                                },
+                            )
+                finally:
+                    aclose = getattr(stream, 'aclose', None)
+                    if callable(aclose):
+                        await aclose()
             if final is None or final.get('__interrupt__'):
                 msg = 'The coding agent did not return a complete conversation.'
                 raise ValueError(msg)

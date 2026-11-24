@@ -1,8 +1,9 @@
 from celery import Celery
-from celery.signals import worker_process_init
+from celery.signals import worker_process_init, worker_process_shutdown
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import engine
+from bioflow_ai.runtime.worker_loop import close_worker_loop, reset_worker_loop
 
 celery_app = Celery(
     'tasks',
@@ -44,5 +45,12 @@ celery_app.autodiscover_tasks(
 
 @worker_process_init.connect
 def on_worker_process_init(**kwargs) -> None:  # noqa: ARG001
-    """Fork 后重置数据库连接池, 防止多进程共享同一连接."""
+    """Fork 后重置数据库连接池与事件循环状态, 防止多进程共享同一连接."""
     engine.dispose()
+    reset_worker_loop()
+
+
+@worker_process_shutdown.connect
+def on_worker_process_shutdown(**kwargs) -> None:  # noqa: ARG001
+    """Close the worker process's persistent asyncio event loop on exit."""
+    close_worker_loop()

@@ -136,19 +136,25 @@ async def consume_agent_graph(
     """
     observation = execution_log.observe(resumed=resumed) if record_lifecycle else nullcontext()
     with observation:
-        async for chunk in graph.astream(
+        stream = graph.astream(
             agent_input,
             config,
             context=context,
             stream_mode=['updates', 'custom'],
             version='v2',
             subgraphs=True,
-        ):
-            execution_log.stream_chunk(chunk)
-            if on_chunk is not None:
-                on_chunk(chunk)
-            if chunk['type'] == 'custom' and on_progress is not None:
-                await on_progress(chunk['data'], tuple(chunk['ns']))
+        )
+        try:
+            async for chunk in stream:
+                execution_log.stream_chunk(chunk)
+                if on_chunk is not None:
+                    on_chunk(chunk)
+                if chunk['type'] == 'custom' and on_progress is not None:
+                    await on_progress(chunk['data'], tuple(chunk['ns']))
+        finally:
+            aclose = getattr(stream, 'aclose', None)
+            if callable(aclose):
+                await aclose()
 
         state = await graph.aget_state(config)
         if record_lifecycle:
