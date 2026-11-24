@@ -228,7 +228,7 @@ test_run_agent = create_agent(
     system_prompt=TEST_RUN_SYSTEM,
     middleware=[
         DisableParallelToolCallsMiddleware(
-            disabled_tools={'add_todos', 'update_todo', 'ask_human', 'return_to_parent'}
+            disabled_tools={'add_todos', 'update_todo', 'ask_human', 'return_to_parent', 'write_tool_report'}
         ),
         ParentHandoffMiddleware(),
         ToolCreationProgressMiddleware(),
