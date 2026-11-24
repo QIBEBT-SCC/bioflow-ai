@@ -8,8 +8,6 @@ from celery import Task
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
-from loguru import logger
-from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
@@ -37,7 +35,6 @@ from bioflow_ai.utils.observability.execution_logging import AgentRunLogger
 from bioflow_ai.utils.system import utc_now
 
 HEARTBEAT_INTERVAL_SECONDS = 10
-AGENT_EVENT_CHANNEL_PREFIX = 'bioflow:agent-run:'
 MISSING_WORKFLOW_RUN_TARGET_ERROR = 'Workflow assistant or fix target is missing.'
 MISSING_WORKFLOW_RUN_SOURCE_ERROR = 'Workflow assistant or fix source run no longer exists.'
 RUN_NOTIFICATIONS = {
@@ -69,15 +66,7 @@ def _message_text(message: BaseMessage | None) -> str:
     return ''.join(texts)
 
 
-async def _publish_wakeup(redis: Redis, run_uid: uuid.UUID) -> None:
-    try:
-        await redis.publish(f'{AGENT_EVENT_CHANNEL_PREFIX}{run_uid}', str(utc_now().timestamp()))
-    except Exception:
-        logger.warning('Unable to publish agent event wakeup for {}; SSE will use polling fallback.', run_uid)
-
-
-async def _append_event(
-    redis: Redis,
+def _append_event_sync(
     run_uid: uuid.UUID,
     event_type: AgentEventType,
     payload: dict[str, Any],
@@ -87,11 +76,17 @@ async def _append_event(
         if run is None:
             return
         agent_service.append_event(session, run, event_type, payload)
-    await _publish_wakeup(redis, run_uid)
+
+
+async def _append_event(
+    run_uid: uuid.UUID,
+    event_type: AgentEventType,
+    payload: dict[str, Any],
+) -> None:
+    await asyncio.to_thread(_append_event_sync, run_uid, event_type, payload)
 
 
 async def _transition(
-    redis: Redis,
     run_uid: uuid.UUID,
     status: AgentRunStatus,
     event_type: AgentEventType,
@@ -135,7 +130,6 @@ async def _transition(
         kwargs.get('error_message')
         or (kwargs.get('payload', {}).get('value') if status == AgentRunStatus.WAITING_INPUT else ''),
     )
-    await _publish_wakeup(redis, run_uid)
     if notification is not None:
         await _notify_run_finished(updated, notification, subject)
     return updated
@@ -174,10 +168,6 @@ async def _heartbeat(run_uid: uuid.UUID, agent_task: asyncio.Task[Any]) -> None:
 
 async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
     execution_log = AgentRunLogger('agent', str(run_uid))
-    redis = Redis.from_url(
-        get_settings().persistent.cache.API_CACHE.unicode_string(),
-        decode_responses=True,
-    )
     try:
         with Session(engine) as session:
             run = agent_crud.get_run(session, run_uid)
@@ -215,7 +205,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                     raise ValueError(agent_service.NODE_STALE_ERROR)  # noqa: TRY301
 
         started = await _transition(
-            redis,
             run_uid,
             AgentRunStatus.RUNNING,
             AgentEventType.STARTED,
@@ -389,10 +378,9 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
 
             async def on_progress(payload: object, namespace: tuple[str, ...]) -> None:
                 if (usage := scopes.usage(payload, namespace)) is not None:
-                    await _append_event(redis, run_uid, AgentEventType.USAGE, usage)
+                    await _append_event(run_uid, AgentEventType.USAGE, usage)
                     return
                 await _append_event(
-                    redis,
                     run_uid,
                     AgentEventType.PROGRESS,
                     scopes.progress(payload, namespace),
@@ -406,7 +394,7 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             try:
                 execution = await consumer
             except asyncio.CancelledError:
-                await _transition(redis, run_uid, AgentRunStatus.CANCELLED, AgentEventType.CANCELLED)
+                await _transition(run_uid, AgentRunStatus.CANCELLED, AgentEventType.CANCELLED)
                 return
             finally:
                 heartbeat.cancel()
@@ -416,7 +404,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             if execution.interrupt is not None:
                 interrupt = execution.interrupt
                 await _transition(
-                    redis,
                     run_uid,
                     AgentRunStatus.WAITING_INPUT,
                     AgentEventType.INTERRUPTED,
@@ -441,9 +428,8 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 result, changes = result_payload(run, execution.values, context)
 
             for change in changes:
-                await _append_event(redis, run_uid, AgentEventType.RESOURCE_CHANGED, change)
+                await _append_event(run_uid, AgentEventType.RESOURCE_CHANGED, change)
             await _transition(
-                redis,
                 run_uid,
                 AgentRunStatus.COMPLETED,
                 AgentEventType.COMPLETED,
@@ -453,7 +439,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
     except Exception as error:
         execution_log.status('execution_error', str(error), error=error)
         await _transition(
-            redis,
             run_uid,
             AgentRunStatus.FAILED,
             AgentEventType.FAILED,
@@ -461,8 +446,6 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
             error_code=type(error).__name__,
             error_message=str(error),
         )
-    finally:
-        await redis.aclose()
 
 
 @celery_app.task(bind=True, acks_late=False, name='bioflow_ai.tasks.agent_run.execute_agent_run')
