@@ -25,9 +25,10 @@ from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.schemas.workflow_config import ToolOutput
 from bioflow_ai.services.resource import reference_genome as genome_service
 from bioflow_ai.services.workflow.execution_context import get_node_output
+from bioflow_ai.utils.system import get_cpu_cores
 
 GENOME_PATH = get_settings().persistent.storage.GENOME_PATH
-MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
+INDEX_BUILD_THREADS = min(get_cpu_cores(), 32)
 
 HG38_FILES: dict[str, dict[str, str]] = {
     'genome_fasta': {
@@ -75,7 +76,7 @@ def build_bowtie2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'bowtie2-build --threads {MAX_THREAD} /data/raw/{genome_path.name} /data/output/{genome_path.stem}',
+        f'bowtie2-build --threads {INDEX_BUILD_THREADS} /data/raw/{genome_path.name} /data/output/{genome_path.stem}',
     )
 
     if status == 0:
@@ -129,7 +130,7 @@ def build_hisat2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'hisat2-build -p {MAX_THREAD} /data/raw/{genome_path.name} /data/output/{genome_path.stem}',
+        f'hisat2-build -p {INDEX_BUILD_THREADS} /data/raw/{genome_path.name} /data/output/{genome_path.stem}',
     )
 
     if status == 0:
@@ -157,7 +158,7 @@ def build_star_index(genome_fasta: str, gff: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'STAR --runThreadN {MAX_THREAD} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_path.name} --sjdbGTFfile /data/raw/{gff_path.name}',
+        f'STAR --runThreadN {INDEX_BUILD_THREADS} --runMode genomeGenerate --genomeDir /data/output --genomeFastaFiles /data/raw/{genome_path.name} --sjdbGTFfile /data/raw/{gff_path.name}',
     )
 
     if status == 0:
@@ -184,7 +185,7 @@ def build_minimap2_index(genome_fasta: str) -> str:
     status, output = run_command(
         image_cfg,
         mounts,
-        f'minimap2 -t {MAX_THREAD} -d /data/output/{genome_path.stem}.mmi /data/raw/{genome_path.name} ',
+        f'minimap2 -t {INDEX_BUILD_THREADS} -d /data/output/{genome_path.stem}.mmi /data/raw/{genome_path.name} ',
     )
 
     if status == 0:

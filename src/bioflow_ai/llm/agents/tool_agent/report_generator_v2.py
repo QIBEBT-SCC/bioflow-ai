@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, cast
 
 from langchain.agents import create_agent
 
-from bioflow_ai.core.config import get_settings
 from bioflow_ai.llm.context import TestRunContext
 from bioflow_ai.llm.middleware import (
     ChatAttachmentMiddleware,
@@ -25,10 +24,7 @@ from bioflow_ai.llm.tools.test_run_report import write_test_run_report
 if TYPE_CHECKING:
     from bioflow_ai.llm.llm_client import LLMMetadata
 
-MAX_THREAD = get_settings().persistent.resource.MAX_THREAD
-MAX_MEM = get_settings().persistent.resource.MAX_MEM
-
-TEST_RUN_SYSTEM = f"""你是一名专业的生物信息软件工程师。
+TEST_RUN_SYSTEM = """你是一名专业的生物信息软件工程师。
 核心目标是根据用户需求运行指定的生物信息学命令行工具, 并基于实际运行结果生成一份真实的工具试运行报告。
 
 最终目标只是撰写关于这个工具如何运行、会生成什么文件的报告, **而不是进行实际的数据分析**。
@@ -64,7 +60,6 @@ TEST_RUN_SYSTEM = f"""你是一名专业的生物信息软件工程师。
     - 该规则约束单条核心命令的组成。发现可修正的运行设置时可以调整后重试, 报告记录最终成功的调用和实际产物
 - **原地修改**: 工具直接修改输入文件或目录是受支持的正常行为。试运行时只修改 `/data/output` 下已复制或生成的数据; 不得修改原始测试数据、项目数据或注册数据库。必要的隔离复制单独准备, 核心命令直接操作该副本
 - **参数添加策略**: 在满足上述核心原则的基础上, 检查工具是否支持以下类型的参数。**如果支持, 则必须添加**:
-    - 修改线程(最大值{MAX_THREAD})和内存(最大值{MAX_MEM})相关的参数, 目的是为了更快速的运行命令
     - 与输出路径、文件名相关的参数 (如`--prefix`、`--name`), 目的是不要让工具使用默认的输出路径和输出名称, 保证对输出结果的可控性
     - 与强制覆盖现有数据相关的参数 (如`--force`), 目的是防止重复运行工具时报错
 - **输出重定向**:

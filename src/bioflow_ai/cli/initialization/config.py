@@ -159,14 +159,13 @@ def create_settings(
     network: 'NetworkConfig | None' = None,
 ) -> tuple['Settings', UpdatePort]:
     """Interactively create settings, persist them, and return the settings object."""
-    from bioflow_ai.core.config import ResourceConfig, Settings
+    from bioflow_ai.core.config import Settings
 
     update_port = create_update_port()
 
     settings = Settings()
     settings.network = network if network is not None else ask_network()
     settings.persistent.storage = ask_storage()
-    settings.persistent.resource = ResourceConfig()
     settings.docker = ask_docker()
     settings.pdf_parser = ask_pdf_parser()
 
