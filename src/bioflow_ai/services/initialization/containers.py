@@ -329,6 +329,13 @@ def wait_for_project_services(
         time.sleep(poll_interval)
 
 
+def project_pull_command(compose_command: list[str], runtime: str) -> list[str] | None:
+    """Return the pre-pull command for Podman so image pulls can use a proxy without leaking into containers."""
+    if runtime != 'podman':
+        return None
+    return [*compose_command, '-f', str(COMPOSE_FILE), 'pull']
+
+
 def project_start_commands(compose_command: list[str], runtime: str) -> list[list[str]]:
     """Run Podman volume jobs outside the long-running services' dependency graph."""
     command = [*compose_command, '-f', str(COMPOSE_FILE)]

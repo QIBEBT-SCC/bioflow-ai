@@ -16,6 +16,7 @@ PROXY_ENV_KEYS: tuple[str, ...] = (
     'https_proxy',
     'all_proxy',
 )
+ALL_PROXY_ENV_KEYS: tuple[str, ...] = (*PROXY_ENV_KEYS, 'FTP_PROXY', 'ftp_proxy')
 
 
 def resolve_path(path: str) -> Path:
@@ -44,6 +45,14 @@ def proxy_environment(network: 'NetworkConfig') -> dict[str, str]:
     proxy_url = network.get_proxy_url()
     for key in PROXY_ENV_KEYS:
         env[key] = proxy_url
+    return env
+
+
+def no_proxy_environment() -> dict[str, str]:
+    """Build a child-process environment with all proxy variables stripped."""
+    env = os.environ.copy()
+    for key in ALL_PROXY_ENV_KEYS:
+        env.pop(key, None)
     return env
 
 

@@ -2,13 +2,14 @@ from collections.abc import Callable
 
 from bioflow_ai.cli.initialization import tui
 from bioflow_ai.core.config import Settings
-from bioflow_ai.services.initialization.common import proxy_environment
+from bioflow_ai.services.initialization.common import no_proxy_environment, proxy_environment
 from bioflow_ai.services.initialization.containers import (
     COMPOSE_FILE,
     check_compose_command,
     compose_template_file,
     inspect_docker_proxy,
     load_compose_file,
+    project_pull_command,
     project_start_commands,
     start_project_services,
     wait_for_project_services,
@@ -71,12 +72,22 @@ def initialize_project_containers(
                 style='#f59e0b',
             )
 
-    compose_env = proxy_environment(settings.network) if runtime == 'podman' else None
     tui.console.print()
+    if (pull_command := project_pull_command(compose_command, runtime)) is not None:
+        pull_text = ' '.join(pull_command)
+        tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {pull_text}')
+        pull_result = start_project_services(pull_command, env=proxy_environment(settings.network))
+        if pull_result.returncode != 0:
+            tui.render_notice(
+                f'Compose exited with code {pull_result.returncode} while running {pull_text}.', style='#ef4444'
+            )
+            return False
+
+    container_env = no_proxy_environment()
     for command in project_start_commands(compose_command, runtime):
         command_text = ' '.join(command)
         tui.console.print(f'[bold #22d3ee]Running:[/bold #22d3ee] {command_text}')
-        result = start_project_services(command, env=compose_env)
+        result = start_project_services(command, env=container_env)
         if result.returncode != 0:
             tui.render_notice(
                 f'Compose exited with code {result.returncode} while running {command_text}.', style='#ef4444'
