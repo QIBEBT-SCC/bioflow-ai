@@ -44,18 +44,14 @@ def _prompt_api_key(provider_name: str, *, credential_configured: bool, required
     return api_key or None
 
 
-def _prompt_display_name(model_name: str) -> str:
-    return tui.prompt_text(
-        f'{model_name} display name',
-        default=model_name,
-        validate=validate_required_text,
-    ).strip()
+def _format_model_label(name: str, display_name: str) -> str:
+    if display_name != name:
+        return f'{display_name} ({name})'
+    return name
 
 
 def _format_model_choice(model: ModelConfiguration) -> str:
-    if model.display_name != model.name:
-        return f'{model.display_name} ({model.name})'
-    return model.name
+    return _format_model_label(model.name, model.display_name)
 
 
 def _prompt_additional_models(
@@ -69,7 +65,7 @@ def _prompt_additional_models(
 
     while True:
         model_name = tui.prompt_text(
-            f'{provider_name} model API name',
+            'Model name (e.g. gpt-6.2-sol, deepseek-flash)',
             validate=validate_required_text,
         ).strip()
         if model_name in known_names:
@@ -86,7 +82,7 @@ def _prompt_additional_models(
         added.append(
             ModelConfiguration(
                 name=model_name,
-                display_name=_prompt_display_name(model_name),
+                display_name=model_name,
             )
         )
         if not tui.prompt_confirm(f'Add another model to {provider_name}?', default=False):
@@ -109,6 +105,11 @@ def _prompt_official_provider(
     use_proxy = tui.prompt_confirm(
         f'Use the system proxy for {preset.name}?',
         default=default_proxy,
+    )
+
+    tui.render_step_divider(
+        f'Select Models ({preset.name})',
+        f'Provider settings complete. Next, select or add models for {preset.name}.',
     )
 
     candidates = preset_model_candidates(preset, existing, draft)
@@ -185,6 +186,10 @@ def _prompt_new_custom_provider(
     )
     api_key = _prompt_api_key(provider_name, credential_configured=False, required=False)
     use_proxy = tui.prompt_confirm(f'Use the system proxy for {provider_name}?', default=False)
+    tui.render_step_divider(
+        f'Add Models ({provider_name})',
+        f'Provider settings complete. Next, add one or more models for {provider_name}.',
+    )
     models = _prompt_additional_models(provider_name, existing_models=(), require_at_least_one=True)
     return ProviderConfiguration(
         key=CUSTOM_PROVIDER_KEY,
@@ -227,6 +232,13 @@ def _prompt_existing_custom_provider(
     use_proxy = tui.prompt_confirm(f'Use the system proxy for {provider_name}?', default=default_proxy)
 
     candidates = custom_model_candidates(existing, draft)
+    divider_title = f'Select Models ({provider_name})' if candidates else f'Add Models ({provider_name})'
+    divider_desc = (
+        f'Provider settings complete. Next, select or add models for {provider_name}.'
+        if candidates
+        else f'Provider settings complete. Next, add one or more models for {provider_name}.'
+    )
+    tui.render_step_divider(divider_title, divider_desc)
     if candidates:
         checked_names = (
             {model.name for model in draft.models} if draft is not None else {model.name for model in candidates}
@@ -360,6 +372,10 @@ def prompt_provider_configurations(providers: Sequence[LLMProvider]) -> list[Pro
                     drafts.pop(normalized, None)
                     continue
                 if action == 'add_models':
+                    tui.render_step_divider(
+                        f'Add Models ({preset.name})',
+                        f'Enter one or more custom model names to add to {preset.name}.',
+                    )
                     extra = _prompt_additional_models(
                         preset.name,
                         existing_models=draft.models,
@@ -385,6 +401,10 @@ def prompt_provider_configurations(providers: Sequence[LLMProvider]) -> list[Pro
                     drafts.pop(normalized, None)
                     continue
                 if action == 'add_models':
+                    tui.render_step_divider(
+                        f'Add Models ({draft.name})',
+                        f'Enter one or more model names to add to {draft.name}.',
+                    )
                     extra = _prompt_additional_models(
                         draft.name,
                         existing_models=draft.models,
@@ -406,7 +426,8 @@ def prompt_role_assignments(
     assignments.update({role: available[model.id] for role, model in existing.items() if model.id in available})
     model_by_id = {str(model.id): model for model in models}
     label_by_id = {
-        str(model.id): f'{_model_provider_name(model)} / {model.display_name} ({model.name})' for model in models
+        str(model.id): f'{_model_provider_name(model)} / {_format_model_label(model.name, model.display_name)}'
+        for model in models
     }
     model_choices = [questionary.Choice(label_by_id[str(model.id)], value=str(model.id)) for model in models]
     done_choice = 'Done'

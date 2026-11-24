@@ -7,6 +7,7 @@ from rich import box
 from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -144,6 +145,15 @@ def render_subsection(title: str) -> None:
     """Render a model setup heading within the current section."""
     console.print()
     console.print(Text(title, style='bold #f8fafc'))
+
+
+def render_step_divider(title: str, description: str | None = None) -> None:
+    """Render a visual separator transitioning to the next sub-step."""
+    console.print()
+    console.print(Rule(title=Text(title, style='bold #22d3ee'), align='left', style='#334155'))
+    if description:
+        console.print(Text(description, style='#94a3b8'))
+    console.print()
 
 
 def render_network_preflight_results(result: Any) -> None:
