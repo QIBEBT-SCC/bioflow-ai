@@ -4,10 +4,16 @@ from pathlib import Path
 import click
 
 from bioflow_ai.cli.initialization import tui
-from bioflow_ai.cli.initialization.config import create_settings, initialize_embedding
+from bioflow_ai.cli.initialization.config import ask_network, create_settings, initialize_embedding
 from bioflow_ai.cli.initialization.containers import initialize_project_containers
 from bioflow_ai.cli.initialization.database import initialize_preset_database, prepare_database
+from bioflow_ai.cli.initialization.network import verify_network_connectivity
 from bioflow_ai.cli.initialization.providers import initialize_llm_providers
+from bioflow_ai.cli.initialization.services import (
+    initialize_backend_services,
+    resolve_web_ui_port,
+    stop_running_services_before_reconfigure,
+)
 from bioflow_ai.cli.initialization.test_data import initialize_test_data
 from bioflow_ai.services.initialization.presets import install_deployment_presets
 
@@ -41,9 +47,15 @@ def run_auto_init() -> None:
 
         tui.render_notice('Keeping the existing configuration and continuing system initialization.', style='#94a3b8')
         settings = get_settings()
+        if not verify_network_connectivity(settings.network):
+            return
         update_port = None
     else:
-        settings, update_port = create_settings(config_path)
+        network = ask_network()
+        if not verify_network_connectivity(network):
+            return
+        stop_running_services_before_reconfigure(_confirm)
+        settings, update_port = create_settings(config_path, network=network)
 
     try:
         install_deployment_presets()
@@ -67,8 +79,13 @@ def run_auto_init() -> None:
     tui.render_section('Data Initialization', 'Import system presets and optionally download the test dataset.')
     preset_data_ready = asyncio.run(initialize_preset_database(_confirm_async))
     test_data_ready = initialize_test_data(settings.network, settings.persistent.storage, _confirm)
+    services_ready = initialize_backend_services(_confirm)
 
-    if any(result is False for result in (provider_ready, preset_data_ready, test_data_ready)):
+    if any(result is False for result in (provider_ready, preset_data_ready, test_data_ready, services_ready)):
         tui.render_notice('System initialization finished with incomplete steps.', style='#f59e0b')
     else:
-        tui.render_system_success()
+        tui.render_system_success(
+            web_ui_url=f'http://localhost:{resolve_web_ui_port(update_port)}',
+            api_url=f'http://localhost:{settings.network.PORT}',
+            services_started=bool(services_ready),
+        )

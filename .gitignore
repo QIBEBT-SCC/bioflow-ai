@@ -167,6 +167,7 @@ test/
 testdata/
 storage/
 log/
+.bioflow/
 volumes/
 
 skills-lock.json

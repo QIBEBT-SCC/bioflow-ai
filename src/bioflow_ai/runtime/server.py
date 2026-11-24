@@ -128,6 +128,12 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
     app.include_router(workflow_v2.project_router, prefix='/api/v2/projects', tags=['workflow'])
     app.include_router(workflow_v2.run_router, prefix='/api/v2/runs', tags=['workflow'])
     app.include_router(workflow_v2.node_router, prefix='/api/v2/node-runs', tags=['workflow'])
+
+    @app.get('/health', tags=['health'])
+    async def health() -> dict[str, str]:
+        """Return liveness status once FastAPI startup completes."""
+        return {'status': 'ok'}
+
     return app
 
 

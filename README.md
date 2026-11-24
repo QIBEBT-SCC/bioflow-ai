@@ -62,17 +62,21 @@ uv sync --extra podman
 uv run bioflow-ai auto-init
 ```
 
-### Start the backend
+### Start and manage the backend
 
-The initializer prepares the services and database tables, then configures the embedding model and chat models together. The final stage creates the administrator account, imports system presets, builds the vector indexes, and offers the optional test dataset. See the [Automatic Initialization guide](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization).
+The initializer prepares the services and database tables, configures the embedding and chat models, creates the administrator account, imports system presets, builds the vector indexes, offers the optional test dataset, and finally offers to start the API (with built-in workflow dispatcher), shared execution worker, and agent worker in the background. See the [Automatic Initialization guide](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization).
 
-After initialization, start the API (which also hosts the workflow dispatcher), the shared execution worker, and the agent worker in separate terminals:
+Manage the background backend processes from the same deployment directory:
 
 ```bash
-uv run bioflow-ai api
-uv run bioflow-ai execution-worker --concurrency 4
-uv run bioflow-ai agent-worker
+uv run bioflow-ai start       # Start all backend services (or pass specific service names)
+uv run bioflow-ai status      # Check process status, uptime, and API health
+uv run bioflow-ai logs -f     # Follow service logs (or specify api / execution-worker / agent-worker)
+uv run bioflow-ai restart     # Restart all or selected services (e.g. uv run bioflow-ai restart api)
+uv run bioflow-ai stop        # Stop all or selected services
 ```
+
+Worker concurrency defaults (`execution_concurrency = 4`, `agent_concurrency = 4`) can be configured under `[celery]` in `config.toml`.
 
 Open `http://localhost:3000` in your browser. If a default port is already in use, the initializer selects an available port and displays it in the terminal.
 

@@ -62,17 +62,21 @@ uv sync --extra podman
 uv run bioflow-ai auto-init
 ```
 
-### 启动后端
+### 启动与管理后端
 
-自动初始化程序先准备依赖服务和数据库表，再集中配置 Embedding 模型和聊天模型。最后创建管理员账号、导入系统预置数据并构建向量索引，也可选择下载测试数据。参阅[自动初始化指南](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization)。
+自动初始化程序先准备依赖服务和数据库表，再集中配置 Embedding 模型和聊天模型；随后创建管理员账号、导入系统预置数据、构建向量索引并可选下载测试数据，最后会直接询问是否在后台一键启动 API（内置工作流 Dispatcher）、统一执行 Worker 和智能体 Worker。参阅[自动初始化指南](https://bioflow-ai-doc.vercel.app/docs/configuration/initialization)。
 
-初始化完成后，分别在独立终端中启动 API（内置工作流 Dispatcher）、统一执行 Worker 和智能体 Worker：
+后续可在同一部署目录中使用以下命令管理后台服务：
 
 ```bash
-uv run bioflow-ai api
-uv run bioflow-ai execution-worker --concurrency 4
-uv run bioflow-ai agent-worker
+uv run bioflow-ai start       # 后台启动全部服务（也可传入指定服务名）
+uv run bioflow-ai status      # 查看各服务运行状态、运行时长和 API 健康状态
+uv run bioflow-ai logs -f     # 实时查看日志（也可指定 api / execution-worker / agent-worker）
+uv run bioflow-ai restart     # 重启全部或单个服务（例如 uv run bioflow-ai restart api）
+uv run bioflow-ai stop        # 停止全部或单个服务
 ```
+
+Worker 并发数可在 `config.toml` 的 `[celery]` 段中通过 `execution_concurrency`（默认 `4`）和 `agent_concurrency`（默认 `4`）调整。
 
 默认在浏览器中访问 `http://localhost:3000`。如果默认端口已被占用，自动初始化程序会选择可用端口并在终端中显示。
 

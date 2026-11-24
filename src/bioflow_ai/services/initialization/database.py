@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from bioflow_ai.core.paths import PRESETS_DIR
+from bioflow_ai.services.initialization.common import applied_proxy_environment
 from bioflow_ai.services.progress import ProgressIterator, with_progress
 
 MAX_PASSWORD_BYTES = 128
@@ -83,11 +84,14 @@ async def _ensure_preset_file(filename: str) -> PresetFileResult:
 
     from huggingface_hub import download_bucket_files
 
+    from bioflow_ai.core.config import get_settings
+
     await parquet_file.parent.mkdir(parents=True, exist_ok=True)
-    download_bucket_files(
-        PREBUILD_REPO,
-        files=[(filename, str(parquet_file))],
-    )
+    with applied_proxy_environment(get_settings().network):
+        download_bucket_files(
+            PREBUILD_REPO,
+            files=[(filename, str(parquet_file))],
+        )
     return PresetFileResult(path=str(parquet_file), downloaded=True)
 
 

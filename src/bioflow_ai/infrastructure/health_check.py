@@ -33,7 +33,7 @@ def check_rustfs(compose_command: list[str], compose_file: Path) -> bool:
         compose_command,
         compose_file,
         'rustfs',
-        ['curl', '-fsS', 'http://localhost:9000/health'],
+        ['curl', '--noproxy', '*', '-fsS', 'http://localhost:9000/health'],
     )
 
 
@@ -43,5 +43,5 @@ def check_milvus(compose_command: list[str], compose_file: Path) -> bool:
         compose_command,
         compose_file,
         'standalone',
-        ['curl', '-fsS', 'http://localhost:9091/healthz'],
+        ['curl', '--noproxy', '*', '-fsS', 'http://localhost:9091/healthz'],
     )
