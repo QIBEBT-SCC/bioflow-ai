@@ -6,15 +6,12 @@ from bioflow_ai.services.documents.pdf_index import read_pdf
 
 @tool(parse_docstring=True)
 async def view_pdf(file_id: str, query: str | None = None) -> str:
-    """Read an attached PDF as full text or relevant paragraphs in original order.
+    """Read an attached PDF as full Markdown or relevant paragraphs in original order.
 
-    Omit query to read the complete Markdown. Provide query to retain paragraphs
-    exceeding the system's similarity threshold, with omissions marked in place.
-    PDF tags in conversation history only identify attachments; call this tool
-    before claiming to have read their content.
+    Omit `query` for full text, or provide `query` for paragraph-level semantic filtering with omissions marked.
 
     Args:
-        file_id: The exact S3 ID supplied by the user's PDF tag.
+        file_id: The exact `id` attribute from the user's `<PDF id="...">` attachment tag.
         query: Optional question or topic for paragraph-level semantic filtering.
     """
     try:

@@ -29,11 +29,10 @@ async def set_base_dir(
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     base_path: str | None = None,
 ) -> Command | str:
-    """Manage the /app/data mount and switch the default working dir of the file tools.
+    """Switch the default working dir and optionally mount a host directory read-only at /app/data.
 
-    With `base_path`: mount that host directory read-only at /app/data and make /app/data the default dir.
-    Without arguments: make /work the default dir; any existing /app/data mount is kept unchanged.
-    /work (the project dir) stays mounted either way.
+    Passing `base_path` mounts it at /app/data and makes /app/data the default dir; omitting it makes /work
+    the default dir while keeping any existing /app/data mount.
 
     Args:
         base_path: Host directory to mount at /app/data. Omit to switch the default dir to /work.
@@ -57,31 +56,21 @@ async def project_apply_patch(
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     workdir: str | None = None,
 ) -> str:
-    """Create, edit, move or delete UTF-8 files in the project dir /work using a Codex-format patch.
+    """Create, edit, move, or delete UTF-8 files under /work using a Codex-format patch.
 
-    Patch format and path rules:
-    - Start with `*** Begin Patch` and finish with `*** End Patch`, each on its own line.
-    - Add: `*** Add File: path`, followed by content lines prefixed with `+`.
-    - Delete: `*** Delete File: path`, without a content block.
-    - Update: `*** Update File: path`, followed by `@@` context hunks.
-    - Inside a hunk, prefix unchanged lines with a space, removals with `-`, and additions with `+`.
-    - Move: put `*** Move to: new_path` immediately after the Update header, before its hunks.
-    - To anchor the final hunk at the end of a file, finish it with `*** End of File`.
-    - Do not use unified-diff line numbers. Combine hunks for the same file.
-    - All file paths must be relative to `workdir`, or the current default dir when it is omitted. Do not use absolute
-      paths in the patch. The working directory must be inside /work; /app/data is read-only.
-    - Files are applied in patch order. An error can leave earlier file changes in place; inspect files before retrying.
-    - Minimal patch (send its contents without the code fences):
-      ```text
+    Syntax and path rules:
+    - Wrap with `*** Begin Patch` and `*** End Patch` on their own lines; do not use unified-diff line numbers.
+    - Operations: `*** Add File: path` (`+` lines), `*** Delete File: path`, `*** Update File: path` (optional
+      `*** Move to: new_path`, then `@@` hunks with space/`-`/`+` prefixes; end final hunk with `*** End of File`).
+    - All paths must be relative to `workdir` (or the current default dir under /work). Minimal example:
       *** Begin Patch
       *** Add File: PLAN.md
       +# Plan
       *** End Patch
-      ```
 
     Args:
-        patch: Complete raw patch text, without Markdown fences or shell commands.
-        workdir: Working dir for this call only, e.g. /work. Defaults to the current default dir.
+        patch: Complete raw patch text without Markdown code fences.
+        workdir: Working dir inside /work for this call only (defaults to the current default dir).
     """
     try:
         cwd = resolve_project_cwd(workdir, runtime.state.get('default_dir', PROJECT_WORK_DIR))

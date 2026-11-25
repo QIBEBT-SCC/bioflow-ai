@@ -26,13 +26,11 @@ async def add_samples(
     meta_data: dict[str, str] | None,
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
 ) -> Command | str:
-    """Create sample objects.
-
-    Samples added in the same batch share the same metadata.
+    """Create sample objects in batch; all samples in one call share the same metadata.
 
     Args:
-        names: The list of sample names. Each sample name must be unique and may use uppercase letters, hyphens, and numbers.
-        meta_data: Confirmed input-file metadata. Common optional keys are organism (scientific name), assay (experimental assay), layout (single-end or paired-end), and platform (acquisition platform). Omit unknown fields; custom keys are allowed.
+        names: Unique sample names within the project.
+        meta_data: Confirmed input metadata shared by this batch; omit unknown fields.
     """
     duplicates = sorted({n for n in names if names.count(n) > 1})
     if duplicates:
@@ -78,12 +76,12 @@ async def add_sample_file(
     file_path: str,
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
 ) -> str:
-    """Register the sample file.
+    """Register a file or directory for an existing sample.
 
     Args:
-        sample_name: The sample name of the file to add
-        file_path: The file_path uses a path relative to **base_dir**.
-        tag: Unique file tag within the sample, such as r1, r2, single, spectrum, or image.
+        sample_name: Target sample name.
+        file_path: File or directory path relative to `base_path`.
+        tag: Unique file tag within the sample, such as `r1`, `r2`, `read`, `spectrum`, or `img`.
     """
     base_dir = runtime.state.get('base_path')
     if not base_dir:
@@ -122,12 +120,12 @@ async def add_project_file(
     description: str,
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
 ) -> str:
-    """Register project-level shared files.
+    """Register a project-level shared file or directory.
 
     Args:
-        keyword: File key-word
-        file_path: The file_path uses a path relative to **base_dir**.
-        description: Description of this file.
+        keyword: Unique project-level keyword.
+        file_path: File or directory path relative to `base_path`.
+        description: Factual description of the file's role and format characteristics.
     """
     base_dir = runtime.state.get('base_path')
     if not base_dir:
@@ -154,12 +152,7 @@ async def add_project_file(
 
 @tool(parse_docstring=True)
 async def list_project_samples(runtime: ToolRuntime[ProjectContext, ProjectPlannerState]) -> str:
-    """List existing samples already registered in the database for the current project.
-
-    Returns an aggregated summary grouped by shared metadata and tag set, suitable for projects
-    with hundreds of samples. Call this BEFORE any filesystem exploration to decide whether
-    re-scanning is needed.
-    """
+    """Summarize samples and project-level files currently registered in this project's database, grouped by metadata and tags."""
     project_id = runtime.context.project_id
     with Session(engine) as session:
         groups = sample_crud.summarize_samples_by_project(session, project_id)
