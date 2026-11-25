@@ -349,17 +349,31 @@ def get_run(uid: uuid.UUID, session: SessionDep, current_user: MemberDep) -> Wor
     return runs.to_public(session, _owned_run(session, uid, current_user))
 
 
+_SSE_KEEPALIVE_INTERVAL_TICKS = 15
+
+
 async def _stream_run_updates(
     uid: uuid.UUID,
     session: Session,
     user: CurrentUser,
     request: Request,
 ) -> AsyncGenerator[str]:
+    last_payload: str | None = None
+    idle_ticks = 0
     while not await request.is_disconnected():
         session.expire_all()
         run = _owned_run(session, uid, user)
         public = runs.to_public(session, run)
-        yield f'data: {public.model_dump_json()}\n\n'
+        payload = public.model_dump_json()
+        if payload != last_payload:
+            last_payload = payload
+            idle_ticks = 0
+            yield f'data: {payload}\n\n'
+        else:
+            idle_ticks += 1
+            if idle_ticks >= _SSE_KEEPALIVE_INTERVAL_TICKS:
+                idle_ticks = 0
+                yield ': keepalive\n\n'
         if public.settled:
             return
         await asyncio.sleep(2)
@@ -816,6 +830,7 @@ async def _stream_node_log(
     request: Request,
     offset: int,
 ) -> AsyncGenerator[str]:
+    idle_ticks = 0
     while not await request.is_disconnected():
         session.expire_all()
         node = _owned_node(session, uid, user)
@@ -827,7 +842,13 @@ async def _stream_node_log(
                 content = log_file.read()
                 offset = log_file.tell()
         if content:
+            idle_ticks = 0
             yield f'data: {json.dumps({"content": content})}\n\n'
+        elif node.status not in TERMINAL_NODE_STATUSES:
+            idle_ticks += 1
+            if idle_ticks >= _SSE_KEEPALIVE_INTERVAL_TICKS:
+                idle_ticks = 0
+                yield ': keepalive\n\n'
         if node.status in TERMINAL_NODE_STATUSES:
             return
         await asyncio.sleep(2)
