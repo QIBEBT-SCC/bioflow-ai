@@ -302,7 +302,7 @@ class HTTPDownloader:
             if not self.failed_files:
                 break
 
-            logger.info(f'第 {retry + 1} 次重试下载失败的文件，共 {len(self.failed_files)} 个')
+            logger.info(f'第 {retry + 1} 次重试下载失败的文件, 共 {len(self.failed_files)} 个')
 
             current_failed = list(self.failed_files)
             self.failed_files.clear()

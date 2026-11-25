@@ -121,7 +121,6 @@ async def workflow_manager(action: str, params: dict[str, Any], runtime: ToolRun
     """
     match action:
         case 'help':
-            # ty: ignore[invalid-argument-type]
             return manager_help_command(params, VALID_OPERATES, HELP_MESSAGE, runtime.tool_call_id)
 
         case 'list_workflow_drafts':

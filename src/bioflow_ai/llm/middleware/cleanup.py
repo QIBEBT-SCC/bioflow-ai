@@ -12,9 +12,12 @@ from bioflow_ai.infrastructure.containers import remove_container
 
 class ClearContainerMiddleware(AgentMiddleware[AgentState[Any], Any]):
     def after_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
-        if state.get('container_id'):
-            remove_container(state['container_id'])
+        """Remove any leftover container associated with the agent state."""
+        container_id = state.get('container_id')
+        if isinstance(container_id, str) and container_id:
+            remove_container(container_id)
             logger.debug(f'Remove {get_settings().docker.CONTAINER} containers')
 
     async def aafter_agent(self, state: StateT, runtime: Runtime) -> dict[str, Any] | None:
+        """Asynchronously remove any leftover container associated with the agent state."""
         return self.after_agent(state, runtime)

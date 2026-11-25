@@ -97,7 +97,7 @@ def _metadata(path: Path, kind: str, query: str) -> dict[str, Any]:
         for chrom, _, end, _ in _bed_rows(path):
             chroms[chrom] = max(chroms.get(chrom, 0), end)
     else:
-        import pyBigWig
+        import pyBigWig  # ty: ignore[unresolved-import]
 
         try:
             with pyBigWig.open(str(path)) as big_file:
@@ -132,7 +132,7 @@ def _region(path: Path, kind: str, chrom: str, start: int, end: int, bins: int) 
             raise PreviewError('invalid_region', 'Region extends beyond this chromosome.')
         return {'kind': 'intervals', 'chrom': chrom, 'start': start, 'end': end, 'items': items}
 
-    import pyBigWig
+    import pyBigWig  # ty: ignore[unresolved-import]
 
     try:
         with pyBigWig.open(str(path)) as big_file:
@@ -200,7 +200,7 @@ def _contact_region(path: Path, kind: str, request: dict[str, Any]) -> dict[str,
     end2 = request.get('end2')
     if (start2 is None) != (end2 is None):
         raise PreviewError('invalid_region', 'Both coordinates of the second locus are required.')
-    if start2 is None:
+    if start2 is None or end2 is None:
         start2, end2 = start1, end1
     axes = ((chrom1, start1, end1), (chrom2, start2, end2))
     for chrom, start, end in axes:

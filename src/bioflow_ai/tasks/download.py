@@ -2,15 +2,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import aiofiles
+from loguru import logger
 
 from bioflow_ai.infrastructure.transfers.ftp import DownloadInfo, download_http_files
 
 
-async def download_raw_data(
-    urls_file: str, save_dir: str, max_concurrent: int = 5, timeout: int = 60
-) -> None:
-    """
-    从文本文件中读取URL并异步下载所有文件
+async def download_raw_data(urls_file: str, save_dir: str, max_concurrent: int = 5, timeout: int = 60) -> None:
+    """从文本文件中读取URL并异步下载所有文件.
 
     Args:
         urls_file: 包含下载链接的文本文件路径
@@ -20,14 +18,14 @@ async def download_raw_data(
     """
     # 读取URL列表
     try:
-        async with aiofiles.open(urls_file, 'r') as f:
+        async with aiofiles.open(urls_file) as f:
             content = await f.read()
             urls = [line.strip() for line in content.split('\n') if line.strip()]
     except FileNotFoundError:
-        print(f'找不到URL文件: {urls_file}')
+        logger.error(f'找不到URL文件: {urls_file}')
         return
     except Exception as e:
-        print(f'读取URL文件时出错: {str(e)}')
+        logger.error(f'读取URL文件时出错: {e}')
         return
 
     download_list = []
@@ -37,10 +35,7 @@ async def download_raw_data(
 
         parts = decoded_path.parts
 
-        if len(parts) >= 2:
-            local_file = Path(parts[-2]) / parts[-1]
-        else:
-            local_file = parts[-1] if parts else 'unknown_file'
+        local_file = Path(parts[-2]) / parts[-1] if len(parts) > 1 else (parts[-1] if parts else 'unknown_file')
 
         download_list.append(DownloadInfo(remote_link=origin_url, local_path=local_file))
 

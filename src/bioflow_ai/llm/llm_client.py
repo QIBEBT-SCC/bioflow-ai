@@ -3,6 +3,7 @@ from collections.abc import Callable, Sequence
 from decimal import Decimal
 from typing import Any, Literal, Optional, TypedDict
 
+import openai
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
@@ -10,7 +11,6 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import _DictOrPydantic, _DictOrPydanticClass
-from pydantic import BaseModel
 
 
 class LLMMetadata(TypedDict):
@@ -54,7 +54,7 @@ class ChatOpenAIReasoning(ChatOpenAI):
 
     def _create_chat_result(
         self,
-        response: dict | BaseModel,
+        response: dict | openai.BaseModel,
         generation_info: Optional[dict] = None,
     ) -> ChatResult:
         rtn = super()._create_chat_result(response, generation_info)
@@ -62,7 +62,7 @@ class ChatOpenAIReasoning(ChatOpenAI):
         for generation in rtn.generations:
             generation.message.response_metadata['model_provider'] = self.provider
 
-        if not isinstance(response, BaseModel):
+        if not isinstance(response, openai.BaseModel):
             return rtn
 
         choices = getattr(response, 'choices', None)
@@ -108,9 +108,9 @@ class ChatDeepseekReasoning(ChatOpenAIReasoning):
                     # Try to get reasoning content from original message
                     if isinstance(input_, list) and i < len(input_):
                         original_msg = input_[i]
-                        if hasattr(original_msg, 'additional_kwargs'):
-                            reasoning = original_msg.additional_kwargs.get('reasoning_content', '')
-                            message['reasoning_content'] = reasoning
+                        additional_kwargs = getattr(original_msg, 'additional_kwargs', None)
+                        if isinstance(additional_kwargs, dict):
+                            message['reasoning_content'] = additional_kwargs.get('reasoning_content', '')
                         else:
                             message['reasoning_content'] = ''
                     else:
@@ -132,6 +132,7 @@ class ChatDeepseekReasoning(ChatOpenAIReasoning):
         response_format: _DictOrPydanticClass | None = None,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, AIMessage]:
+        """Bind tools while mapping `tool_choice='any'` to DeepSeek's `'required'`."""
         tool_choice = 'required' if tool_choice == 'any' else tool_choice
         return super().bind_tools(
             tools,
@@ -151,5 +152,6 @@ class ChatDeepseekReasoning(ChatOpenAIReasoning):
         strict: bool | None = None,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, _DictOrPydantic]:
+        """Configure structured output while falling back from `json_schema` to `json_mode`."""
         method = 'json_mode' if method == 'json_schema' else method
         return super().with_structured_output(schema, method=method, include_raw=include_raw, strict=strict, **kwargs)

@@ -19,7 +19,7 @@ from bioflow_ai.services.workflow.validation.types import (
 )
 
 
-def graph_nodes(graph: Any) -> Generator[dict[str, Any], None, None]:
+def graph_nodes(graph: Any) -> Generator[dict[str, Any]]:
     """Visit available nodes without requiring an otherwise valid graph."""
     pending = [(copy_graph(graph), 0)]
     while pending:

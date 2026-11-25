@@ -6,8 +6,9 @@ from typing import Any, Optional
 
 import psutil
 from loguru import logger
-from podman import PodmanClient  # ty: ignore[unresolved-import]
-from podman.errors import APIError, ImageNotFound  # ty: ignore[unresolved-import]
+from podman import PodmanClient
+from podman.domain.containers import Container
+from podman.errors import APIError, ImageNotFound
 
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
@@ -108,8 +109,9 @@ def run_podman(
         if user is not None:
             kwargs['user'] = user
 
+        container: Container | None = None
         try:
-            container = client.containers.run(
+            run_result = client.containers.run(
                 image_cfg.get_image(),
                 command,
                 mounts=mounts,
@@ -120,8 +122,12 @@ def run_podman(
                 devices=_get_gpu_devices(),
                 **kwargs,
             )
+            if not isinstance(run_result, Container):
+                raise TypeError
+            container = run_result
             status_code = container.wait()
-            log = b''.join(container.logs())
+            raw_logs = container.logs()
+            log = raw_logs if isinstance(raw_logs, bytes) else b''.join(raw_logs)
             try:
                 return status_code, log.decode('utf-8').rstrip()
             except UnicodeDecodeError as e:
@@ -140,7 +146,7 @@ def run_podman_background(
     *,
     user: str | None = CONTAINER_ROOT_USER,
     **kwargs: Any,
-) -> Generator[dict[str, Any] | None, None, None]:
+) -> Generator[dict[str, Any] | None]:
     """后台运行podman容器, 并实时返回容器资源占用信息.
 
     在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,
@@ -167,13 +173,13 @@ def run_podman_background(
 
         _check_runtime_mode()
         _check_image(client, image_cfg)
-        container = None
+        container: Container | None = None
 
         if user is not None:
             kwargs['user'] = user
 
         try:
-            container = client.containers.run(
+            run_result = client.containers.run(
                 image_cfg.get_image(),
                 command,
                 mounts=mounts,
@@ -184,6 +190,9 @@ def run_podman_background(
                 devices=_get_gpu_devices(),
                 **kwargs,
             )
+            if not isinstance(run_result, Container):
+                raise TypeError
+            container = run_result
 
             container_info = container.inspect()
             start_time = datetime.datetime.fromisoformat(container_info['State']['StartedAt'])
@@ -199,7 +208,7 @@ def run_podman_background(
                 except APIError:
                     yield None
                 else:
-                    yield calculate_podman_stats(stat, start_time, pid)
+                    yield calculate_podman_stats(stat, start_time, pid) if isinstance(stat, dict) else None
                 time.sleep(interval)
             exit_code = container.wait()
             if exit_code != 0:
@@ -283,15 +292,22 @@ def run_podman_by_id(
             raise RuntimeError
 
         container = client.containers.get(container_id)
-        code, result = container.exec_run(['/bin/sh', '-c', command], tty=False, stream=False, workdir=workdir)
-        if isinstance(result, bytes):
+        exec_kwargs: dict[str, Any] = {'tty': False, 'stream': False}
+        if workdir is not None:
+            exec_kwargs['workdir'] = workdir
+        code, raw_result = container.exec_run(['/bin/sh', '-c', command], **exec_kwargs)
+        if isinstance(raw_result, bytes):
             try:
-                result = result.decode()
+                result = raw_result.decode()
             except UnicodeDecodeError as e:
                 result = f'{e}'
+        elif isinstance(raw_result, str):
+            result = raw_result
+        else:
+            result = str(raw_result)
 
         result = _strip_ansi_escape_sequences(result.strip())
-        return code, result
+        return (code if code is not None else -1), result
 
 
 def remove_container(container_id: str) -> None:

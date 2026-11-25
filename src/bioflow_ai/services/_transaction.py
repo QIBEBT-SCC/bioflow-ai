@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 
 @contextmanager
-def committing(session: Session) -> Generator[None, None, None]:
+def committing(session: Session) -> Generator[None]:
     """Commit a service operation or roll it back on failure."""
     try:
         yield

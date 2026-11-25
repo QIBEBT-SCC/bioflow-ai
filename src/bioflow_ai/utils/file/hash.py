@@ -16,13 +16,13 @@ def calculate_file_sha256(file_path: str | Path, chunk_size: int = 8192) -> str:
     sha256_hash = hashlib.sha256()
 
     try:
-        with open(file_path, 'rb') as f:
+        with Path(file_path).open('rb') as f:
             while chunk := f.read(chunk_size):
                 sha256_hash.update(chunk)
     except FileNotFoundError:
         return 'Error: File not found.'
     except Exception as e:
-        return f'Error: {str(e)}'
+        return f'Error: {e}'
 
     return sha256_hash.hexdigest()
 
@@ -37,10 +37,10 @@ def calculate_file_md5(file_path: str | Path, chunk_size: int = 8192) -> str:
     Returns:
         Hexadecimal digest string if the file is read successfully
     """
-    md5_hash = hashlib.md5()
+    md5_hash = hashlib.md5(usedforsecurity=False)
 
     try:
-        with open(file_path, 'rb') as f:
+        with Path(file_path).open('rb') as f:
             while chunk := f.read(chunk_size):
                 md5_hash.update(chunk)
     except FileNotFoundError:

@@ -125,7 +125,7 @@ async def stream_download_status(
 ) -> StreamingResponse:
     """Stream bio database download status updates using Server-Sent Events."""
 
-    async def event_generator() -> AsyncGenerator[str, None]:
+    async def event_generator() -> AsyncGenerator[str]:
         terminal_statuses = {
             BioDbDownloadStatus.ready,
             BioDbDownloadStatus.not_downloaded,
