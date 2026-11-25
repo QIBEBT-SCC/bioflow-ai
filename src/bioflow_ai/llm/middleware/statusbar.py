@@ -16,7 +16,7 @@ class StatusBarMiddleware(AgentMiddleware[AgentState[Any], Any]):
     A complete status bar looks like this, wrapped here for readability:
 
         [image: docker.io/library/python:3.13; todo: <todo index=1>Review inputs</todo>;
-        base_path: "/workspace"; draft: <workflow id="wf1" scope="sample_level">QC</workflow>; lang: en]
+        base_path: "/workspace"; default: /work; draft: <workflow id="wf1" scope="sample_level">QC</workflow>; lang: en]
 
     The first unfinished item uses ``todo`` when in progress or ``next_todo`` when pending.
     Fields without a value are omitted.
@@ -45,6 +45,9 @@ class StatusBarMiddleware(AgentMiddleware[AgentState[Any], Any]):
         if state.get('base_path'):
             base_path: str = state['base_path']
             status.append(f'base_path: "{base_path}"')
+
+        if default_dir := state.get('default_dir'):
+            status.append(f'default: {default_dir}')
 
         if state.get('active_workflow_id'):
             active_workflow_id: str = state['active_workflow_id']

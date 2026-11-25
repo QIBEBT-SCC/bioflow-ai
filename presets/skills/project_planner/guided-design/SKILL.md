@@ -1,32 +1,35 @@
 ---
 name: guided-design
-description: Use this skill when the user wants the agent to design, revise, extend, or operationalize a bioinformatics workflow using user-provided guidance, such as a preliminary plan, reference papers, existing protocols, tool preferences, prior results, constraints, or partial workflow steps.
+description: '当用户提供了参考方案、论文、既有协议、工具偏好或明确约束时使用，用于裁决参考信息与平台规划原则之间的冲突。'
 ---
 
-# Guided Design Workflow
+# 参考信息与平台原则冲突裁决手册（Q&A）
 
-## Workflow
+当用户提供了论文、协议、初步流程或明确的工具偏好时，按以下 Q&A 裁决参考信息与平台规范之间的边界和冲突：
 
-You must strictly follow the interactive workflow below:
+### Q1：参考方案或论文使用了较旧的工具，需要自动换成更新的替代工具吗？
+**不需要。** 忠实沿用参考资料中的工具和分析路线，不要仅仅因为存在更新或更流行的替代工具就擅自升级或替换。
 
-1. Read the provided literature excerpt.
-   - If the user provides a paper, use `view_pdf` to read its full text or the relevant Methods paragraphs.
-   - If the user’s plan or original paper mentions a tool you are unfamiliar with, use `web_run` to search for information about that tool. Perform an online search only when additional information is genuinely necessary and the plan cannot otherwise be written. Do not search merely to improve or supplement the information.
-2. Based on the information collected, write the analysis plan to `PLAN.md` with `apply_patch`, then request approval with `confirm_plan`.
+### Q2：参考方案使用了 GUI 工具、闭源或强耦合黑盒一体化套件（如 CellRanger），或第三方流水线的现成脚本（R/Python/Bash/Perl）怎么办？
+**平台兼容性约束优先，不得直接采用。**
+- 对于 GUI 工具，以及闭源、缺乏公开容器/Bioconda 生态或强耦合黑盒多步调度器、难以拆入节点工作流的一体化套件，应替换为功能最接近的命令行兼容工具；具体替代选型请加载 `how-to-choose-tool` 技能。
+- 对第三方流水线中的脚本功能，改用合适独立 CLI 工具，或将其设为由后续构建智能体实现的中间转换步骤。
+- 在 `PLAN.md` 对应工作流步骤的说明中简要记录替换原因（不要写进“工作流运行指南”）。
 
-## Fidelity Principle
+### Q3：参考方案包含下载参考基因组/数据库、大量命令行参数与版本号，或防御性校验与条件分支怎么办？
+**除非用户明确要求保留，否则一律遵循平台默认规则：**
+- 默认所需参考基因组和数据库已在系统中，不添加下载参考基因组或数据库的步骤。
+- `PLAN.md` 中只描述工具和目的，不写具体命令行参数、文件路径细节和工具版本（方法学层面的核心设计决策可保留，具体参数留给下游构建智能体）。
+- 不添加空结果跳过、前置校验、条件执行或占位输出等防御性逻辑。
 
-In general, follow the principles below when designing the plan:
+### Q4：参考方案把单样本流程拆成了多条独立脚本，或混入了 R/Python 统计、聚类和可视化步骤怎么办？
+**按平台执行粒度重新划定边界：**
+- 只要每步输入都来自当前样本、项目共享文件或同一次运行的前序输出，就应合并留在同一条样本级工作流中，不要沿用外部脚本的文件拆分习惯。
+- 仅在必须全局执行一次的预处理或需要整合多个独立样本输出的跨样本分析时，才拆分项目级工作流。
+- 统计分析、聚类、可视化、数据挖掘和生物学解释不放入工作流，统一写入 `PLAN.md` 的“脚本分析建议”（仅在用户需求涉及这些内容时编写）。
 
-- Faithfully follow the tools and parameters described in the literature. Do not replace or “upgrade” tools merely because newer alternatives exist.
-- For steps not mentioned in the paper, add only the minimum scientifically necessary default settings and avoid overdesigning.
+### Q5：参考方案省略了部分科学上必要的前置或衔接步骤（如原始数据质控、自备基因组建索引）怎么办？
+**补充最小必要的步骤，避免过度设计。** 仅补齐保证流程科学成立和下游工具可运行所需的最小步骤（注意公开发布的参考基因组配合系统内置索引工具无需额外建索引）；未指明工具的步骤按 `how-to-choose-tool` 选择。
 
-## Tool Selection Constraints
-
-When any of the following situations applies, you may replace or modify the tool selection in the original reference:
-
-- Tools requiring a graphical user interface (GUI) must not be used.
-- Tools that depend on a specific directory structure or file-naming convention to run (e.g., CellRanger, HiC-Pro) must not be used.
-- Do not directly use the R, Python, Bash, or Perl scripts from third-party pipelines. For the relevant functions, choose suitable tools or rewrite the scripts yourself.
-
-If the paper/plan uses such a tool, replace it with the most functionally similar command-line-compatible alternative, and document this change in the **Workflow Guide**.
+### Q6：参考方案提到不熟悉的冷门工具怎么办？
+仅在确实存在信息缺口、不查就无法确认其功能与输入输出时，才调用 `web_run` 查证；不要逐个工具或步骤都联网搜索。

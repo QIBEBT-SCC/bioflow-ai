@@ -50,10 +50,7 @@ def ask_human_with_choices(
 
 @tool(response_format='content_and_artifact')
 def confirm_plan(runtime: ToolRuntime[ProjectContext]) -> tuple[str, dict[str, bool] | None]:
-    """Request human approval of the data analysis plan saved in `PLAN.md`.
-
-    Approval ends the task via ``EndLoopMiddleware``.
-    """
+    """Request human approval of the analysis plan saved in `PLAN.md`. Approval ends the task."""
     workdir = Path(runtime.context.workdir)
     missing = [name for name in ('SAMPLES.md', 'PLAN.md') if not (workdir / name).is_file()]
     if missing:
