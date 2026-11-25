@@ -10,6 +10,7 @@ from bioflow_ai.schemas.user import (
     RoleUpdate,
     StatusUpdate,
     UserDetail,
+    UserProfileUpdate,
     UserPublic,
     UserUpdate,
 )
@@ -24,11 +25,15 @@ def _ensure_active_admin_remains(session: SessionDep, user_id: int, update: User
     target = user_crud.get_by_id(session, user_id)
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
-    removes_active_admin = target.role == UserRole.ADMIN and target.is_active and (
-        (update.role is not None and update.role != UserRole.ADMIN) or update.is_active is False
+    removes_active_admin = (
+        target.role == UserRole.ADMIN
+        and target.is_active
+        and ((update.role is not None and update.role != UserRole.ADMIN) or update.is_active is False)
     )
     if removes_active_admin and user_crud.count_active_admins(session, lock=True) <= 1:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='At least one active administrator is required')
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail='At least one active administrator is required'
+        )
 
 
 async def _after_security_update(redis: RedisDep, user_id: int) -> None:
@@ -50,6 +55,23 @@ def new_user(user_create: AdminUserCreate, session: SessionDep, _admin: AdminDep
 def list_users(session: SessionDep, _admin: AdminDep) -> list[UserDetail]:
     """Return all users with token cost and run-instance statistics."""
     return user_crud.get_all_with_stats(session)
+
+
+@router.patch('/{user_id}')
+async def update_user_profile(
+    user_id: int,
+    body: UserProfileUpdate,
+    session: SessionDep,
+    redis: RedisDep,
+    _admin: AdminDep,
+) -> UserPublic:
+    """Update a user's profile without revoking their sessions."""
+    try:
+        user = user_service.update_user(session, user_id, UserUpdate(username=body.username))
+    except user_service.UserNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found') from error
+    await user_service.invalidate_user_cache(redis, user.id)
+    return UserPublic.model_validate(user)
 
 
 @router.patch('/{user_id}/role')

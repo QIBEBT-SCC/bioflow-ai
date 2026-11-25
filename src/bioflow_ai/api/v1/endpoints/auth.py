@@ -8,7 +8,7 @@ from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.database import SessionDep
 from bioflow_ai.infrastructure.redis.client import RedisDep
 from bioflow_ai.schemas.auth import LoginRequest
-from bioflow_ai.schemas.user import PasswordUpdate, UserPublic
+from bioflow_ai.schemas.user import PasswordUpdate, UserProfileUpdate, UserPublic, UserUpdate
 from bioflow_ai.services.identity import auth as auth_service
 from bioflow_ai.services.identity import user as user_service
 
@@ -88,6 +88,22 @@ async def login(
 async def read_users_me(current_user: UserDep) -> UserPublic:
     """Return the current authenticated user's information."""
     return UserPublic.model_validate(current_user)
+
+
+@router.patch('/me')
+async def update_users_me(
+    body: UserProfileUpdate,
+    session: SessionDep,
+    redis: RedisDep,
+    current_user: UserDep,
+) -> UserPublic:
+    """Update the current authenticated user's profile."""
+    try:
+        user = user_service.update_user(session, current_user.id, UserUpdate(username=body.username))
+    except user_service.UserNotFoundError as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found') from error
+    await user_service.invalidate_user_cache(redis, user.id)
+    return UserPublic.model_validate(user)
 
 
 @router.post('/logout', status_code=status.HTTP_204_NO_CONTENT)
