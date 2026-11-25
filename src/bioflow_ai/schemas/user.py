@@ -6,6 +6,18 @@ from bioflow_ai.schemas.auth import EMAIL_REQUIRED_ERROR, validate_password
 from bioflow_ai.schemas.user_config import UserRole
 
 USERNAME_REQUIRED_ERROR = 'Username must not be empty'
+USERNAME_MAX_LENGTH = 64
+USERNAME_TOO_LONG_ERROR = f'Username must be at most {USERNAME_MAX_LENGTH} characters'
+
+
+def validate_username(value: str) -> str:
+    """Trim usernames and reject empty or overly long display names."""
+    value = value.strip()
+    if not value:
+        raise ValueError(USERNAME_REQUIRED_ERROR)
+    if len(value) > USERNAME_MAX_LENGTH:
+        raise ValueError(USERNAME_TOO_LONG_ERROR)
+    return value
 
 
 class UserCreate(BaseModel):
@@ -26,10 +38,7 @@ class UserCreate(BaseModel):
     @classmethod
     def validate_username(cls, value: str) -> str:
         """Trim usernames and reject empty display names."""
-        value = value.strip()
-        if not value:
-            raise ValueError(USERNAME_REQUIRED_ERROR)
-        return value
+        return validate_username(value)
 
     @field_validator('password')
     @classmethod
@@ -67,6 +76,16 @@ class UserUpdate(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
     hashed_password: str | None = None
+
+
+class UserProfileUpdate(BaseModel):
+    username: str
+
+    @field_validator('username')
+    @classmethod
+    def validate_username_value(cls, value: str) -> str:
+        """Trim usernames and enforce display-name bounds."""
+        return validate_username(value)
 
 
 class RoleUpdate(BaseModel):
