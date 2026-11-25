@@ -1,3 +1,5 @@
+from typing import Any
+
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -16,7 +18,8 @@ s3_client = boto3.resource(
 )
 
 
-def init_bucket():
+def init_bucket() -> Any:
+    """Initialize and return the configured S3 bucket, creating it if missing."""
     settings = get_settings().persistent.storage.s3
     bucket_name = settings.BUCKET
     bucket = s3_client.Bucket(bucket_name)

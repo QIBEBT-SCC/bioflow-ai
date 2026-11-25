@@ -212,6 +212,12 @@ include = ["src/bioflow_ai/"]
 [tool.ty.rules]
 invalid-method-override = "ignore"
 
+[[tool.ty.overrides]]
+include = ["src/bioflow_ai/infrastructure/containers/podman.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires isolated temporary external services"]

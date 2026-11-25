@@ -10,7 +10,7 @@ from bioflow_ai.schemas.workflow_config import ToolOutput
 def set_value(
     *,
     value: str,
-    value_type: Literal['string'],
+    value_type: Literal['string'],  # noqa: ARG001
     sample_uid: str | None = None,
 ) -> ToolOutput:
     """Return literal text or a metadata value from the current sample."""

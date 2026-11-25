@@ -127,7 +127,7 @@ def run_docker_background(
     *,
     user: str | None = CONTAINER_ROOT_USER,
     **kwargs: Any,
-) -> Generator[dict[str, Any] | None, None, None]:
+) -> Generator[dict[str, Any] | None]:
     """后台运行docker容器, 并实时返回容器资源占用信息.
 
     在容器内运行长耗时任务, 定期采样并返回容器的资源使用情况,

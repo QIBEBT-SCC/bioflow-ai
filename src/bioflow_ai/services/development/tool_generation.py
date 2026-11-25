@@ -81,7 +81,7 @@ def _prepare_tool_resources(tool_name: str, help_command: str) -> tuple[uuid.UUI
 
 @asynccontextmanager
 async def _tool_agent_session() -> AsyncGenerator[
-    tuple['AsyncPostgresSaver', 'CompiledStateGraph[Any, CreateToolContext, Any, CreateToolOutput]'], None
+    tuple['AsyncPostgresSaver', 'CompiledStateGraph[Any, CreateToolContext, Any, CreateToolOutput]']
 ]:
     """初始化 CreateToolAgent 会话."""
     from bioflow_ai.llm.agents.tool_agent import CreateToolAgent
@@ -193,7 +193,7 @@ async def init_tools(
         placeholders = ','.join(['?' for _ in skip_tools])
         todo_rows = rows_to_dicts(
             con,
-            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND status = ? ORDER BY index ASC',
+            f'SELECT * FROM tool_functions WHERE tool_name NOT IN ({placeholders}) AND status = ? ORDER BY index ASC',  # noqa: S608
             [*skip_tools, TOOL_STATUS_PENDING],
         )
 

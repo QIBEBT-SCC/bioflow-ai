@@ -41,7 +41,7 @@ def retry(retries: int = 3, delay: float = 1) -> Callable:
                 except (ResponseError, SSLError, ReadTimeout, ChunkedEncodingError, ConnectionError) as e:
                     if i == retries:
                         logger.error(f'Error: {e!r}.')
-                        logger.error(f'"{func.__name__}()" failed after {retries} retries.')
+                        logger.error(f'"{getattr(func, "__name__", repr(func))}()" failed after {retries} retries.')
                         break
                     logger.debug(f'Error: {e!r} -> Retrying...')
                     time.sleep(delay)

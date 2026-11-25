@@ -81,7 +81,6 @@ async def subgraph_interface_manager(
         params: Parameters for the selected action.
     """
     if action == 'help':
-        # ty: ignore[invalid-argument-type]
         return manager_help_command(params, SCHEMAS, 'Inspect one subgraph interface action.', runtime.tool_call_id)
     schema = SCHEMAS.get(action)
     if action not in SCHEMAS:
@@ -90,11 +89,11 @@ async def subgraph_interface_manager(
         values = schema.model_validate(params) if schema is not None else None
     except ValidationError as error:
         return _message(runtime, format_validation_error(action, error, schema))
-    if action == 'add_subgraph_inputs':
+    if isinstance(values, AddInputs):
         return _add_inputs(values, runtime)
-    if action == 'remove_subgraph_inputs':
+    if isinstance(values, RemoveInputs):
         return _remove_inputs(values, runtime)
-    if action == 'set_subgraph_outputs':
+    if isinstance(values, SetOutputs):
         return _set_outputs(values, runtime)
     return await _save_subgraph(runtime)
 

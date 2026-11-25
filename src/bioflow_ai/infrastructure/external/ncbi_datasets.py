@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Literal
 
+import anyio
 import httpx
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -534,7 +535,7 @@ async def adownload_genome_data(
     logger.info(f'Downloading and processing genome data for accession: {accession}')
 
     output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    await anyio.Path(output_path).mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
