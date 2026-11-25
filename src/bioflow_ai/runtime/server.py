@@ -13,6 +13,7 @@ from bioflow_ai.api.v1.endpoints import (
     code,
     code_agent,
     genome,
+    library,
     notification,
     project,
     resource,
@@ -88,6 +89,7 @@ def create_app(*, log_requests: bool = False) -> FastAPI:
         app.add_middleware(LogRequestMiddleware)
 
     app.include_router(auth.router, prefix='/api/v1/auth', tags=['auth'])
+    app.include_router(library.router, prefix='/api/v1/library', tags=['library'])
     protected = [Depends(get_current_active_user)]
     member_protected = [Depends(require_role(UserRole.MEMBER))]
     app.include_router(
