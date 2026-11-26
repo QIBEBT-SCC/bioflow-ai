@@ -132,23 +132,15 @@ def check_compose_command(docker: 'DockerConfig') -> ComposeCommandResult:
             error='Docker is installed, but `docker compose` is unavailable. Install the Docker Compose plugin.',
         )
 
-    compose_command = ['podman', 'compose']
-    compose_result = run_command([*compose_command, 'version'])
-    if compose_result.returncode == 0:
-        return ComposeCommandResult(command=compose_command)
-
     if shutil.which('podman-compose') is not None:
-        fallback_command = ['podman-compose']
-        fallback_result = run_command([*fallback_command, 'version'])
-        if fallback_result.returncode == 0:
-            return ComposeCommandResult(
-                command=fallback_command,
-                warning='`podman compose` is unavailable; using `podman-compose` instead.',
-            )
+        compose_command = ['podman-compose']
+        compose_result = run_command([*compose_command, 'version'])
+        if compose_result.returncode == 0:
+            return ComposeCommandResult(command=compose_command)
 
     return ComposeCommandResult(
         command=None,
-        error='Podman is installed, but Compose is unavailable. Install podman-compose or the Podman Compose plugin.',
+        error='Podman is installed, but `podman-compose` is unavailable. Install `podman-compose` first.',
     )
 
 

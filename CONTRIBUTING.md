@@ -55,7 +55,7 @@ To test local changes as an installed wheel in a clean deployment directory (wit
    uv sync --reinstall-package bioflow-ai
    uv run bioflow-ai start
    ```
-4. When finished, stop the test services (`uv run bioflow-ai stop`), tear down any test Compose containers (`docker compose down` or `podman compose down`), and delete the temporary `dist/local-test` folder.
+4. When finished, stop the test services (`uv run bioflow-ai stop`), tear down any test Compose containers (`docker compose down` or `podman-compose down`), and delete the temporary `dist/local-test` folder.
 
 ## Branches and Pull Requests
 
