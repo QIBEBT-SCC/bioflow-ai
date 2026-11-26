@@ -3,7 +3,7 @@
 import uuid
 from collections.abc import Collection
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.orm import Session
 
 from bioflow_ai.models.workflow import NodeDependency, NodeRun
@@ -13,6 +13,11 @@ from bioflow_ai.schemas.workflow_run import NodeRunStatus
 def insert(session: Session, dependency: NodeDependency) -> None:
     """Stage a dependency after its nodes have been flushed."""
     session.add(dependency)
+
+
+def delete_for_run(session: Session, run_uid: uuid.UUID) -> None:
+    """Delete all dependencies for a run."""
+    session.execute(delete(NodeDependency).where(NodeDependency.run_uid == run_uid))
 
 
 def list_successor_uids(session: Session, source_uids: Collection[uuid.UUID]) -> list[uuid.UUID]:

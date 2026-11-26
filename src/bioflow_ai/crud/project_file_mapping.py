@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection
 
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
@@ -45,15 +46,17 @@ def delete_dynamic_for_workflow(
     *,
     project_id: int,
     workflow_uid: uuid.UUID,
+    exclude_keywords: Collection[str] = (),
 ) -> None:
     """Stage deletion of dynamic project mappings owned by a workflow."""
-    session.execute(
-        sa_delete(ProjectFileMapping).where(
-            ProjectFileMapping.project_id == project_id,
-            ProjectFileMapping.is_dynamic.is_(True),
-            ProjectFileMapping.producer_workflow_uid == workflow_uid,
-        )
+    statement = sa_delete(ProjectFileMapping).where(
+        ProjectFileMapping.project_id == project_id,
+        ProjectFileMapping.is_dynamic.is_(True),
+        ProjectFileMapping.producer_workflow_uid == workflow_uid,
     )
+    if exclude_keywords:
+        statement = statement.where(ProjectFileMapping.keyword.notin_(exclude_keywords))
+    session.execute(statement)
 
 
 def get_dynamic_owned_elsewhere(

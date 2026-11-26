@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection
 
 from sqlalchemy import and_, func, select
 from sqlalchemy import delete as sa_delete
@@ -223,15 +224,17 @@ def delete_dynamic_files_for_workflow(
     *,
     sample_uid: UUIDLike,
     workflow_uid: uuid.UUID,
+    exclude_tags: Collection[str] = (),
 ) -> None:
     """Stage deletion of dynamic sample files owned by a workflow."""
-    session.execute(
-        sa_delete(SampleFiles).where(
-            SampleFiles.sample_uid == as_uuid(sample_uid),
-            SampleFiles.is_dynamic.is_(True),
-            SampleFiles.producer_workflow_uid == workflow_uid,
-        )
+    statement = sa_delete(SampleFiles).where(
+        SampleFiles.sample_uid == as_uuid(sample_uid),
+        SampleFiles.is_dynamic.is_(True),
+        SampleFiles.producer_workflow_uid == workflow_uid,
     )
+    if exclude_tags:
+        statement = statement.where(SampleFiles.tag.notin_(exclude_tags))
+    session.execute(statement)
 
 
 def delete_dynamic_files_by_producer(

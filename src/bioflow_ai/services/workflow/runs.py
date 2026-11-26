@@ -69,9 +69,28 @@ def _project_output_root(project_id: int, workflow: Workflow, sample: Sample | N
     return root / sample_segment
 
 
-def _clear_generation(session: Session, run: WorkflowRun) -> None:
-    node_run_crud.delete_for_run(session, run.uid)
-    session.flush()
+def _cleanup_stale_outputs(
+    run_base_dir: str,
+    stale_dirs: Sequence[Path],
+    stale_files: Sequence[Path],
+) -> None:
+    """Remove only non-reused node outputs strictly inside the run's base directory."""
+    root = Path(run_base_dir).resolve()
+    for stale_dir in stale_dirs:
+        resolved = stale_dir.resolve()
+        if resolved == root or not resolved.is_relative_to(root):
+            continue
+        if resolved.is_symlink() or resolved.is_file():
+            resolved.unlink(missing_ok=True)
+        elif resolved.exists():
+            shutil.rmtree(resolved)
+
+    for stale_file in stale_files:
+        resolved = stale_file.resolve()
+        if not resolved.parent.is_relative_to(root):
+            continue
+        if resolved.is_file() or resolved.is_symlink():
+            resolved.unlink(missing_ok=True)
 
 
 def create_editor_run(
@@ -113,45 +132,65 @@ def _create_or_rerun_project_run(
     current_user: CurrentUser,
     sample: Sample | None,
     run_name_prefix: str | None,
-) -> tuple[WorkflowRun, str | None]:
+) -> WorkflowRun:
     sample_uid = sample.uid if sample else None
     sample_name = sample.sample_name if sample else None
     existing = run_crud.find_project_run(session, project_id, workflow.uid, sample_uid)
     output_root = _project_output_root(project_id, workflow, sample)
-    old_base_dir: str | None = None
 
     if existing is not None:
         if not existing.settled:
             label = sample_name or project_name
             message = f'{label} already has an unsettled workflow run'
             raise WorkflowRunConflictError(message)
-        old_base_dir = existing.base_dir
-        _clear_generation(session, existing)
+        previous_workflow = existing.workflow
+        previous_nodes = node_run_crud.list_for_runs(session, [existing.uid])
         existing.generation += 1
-        existing.base_dir = str(output_root / f'generation-{existing.generation}')
         existing.workflow = workflow.workflow.model_copy(deep=True)
         existing.status = RunStatus.PENDING
         existing.settled = False
         existing.start_time = None
         existing.end_time = None
-        run = existing
-    else:
-        run_uid = random_uid()
-        label = sample_name or project_name
-        run_name = f'{run_name_prefix}-{label}' if run_name_prefix else f'{project_name}-{workflow.name}-{label}'
-        run = WorkflowRun(
-            uid=run_uid,
-            generation=1,
-            name=run_name,
-            owner_id=current_user.id,
-            project_id=project_id,
-            workflow_uid=workflow.uid,
-            sample_uid=sample_uid,
-            base_dir=str(output_root / 'generation-1'),
-            workflow=workflow.workflow.model_copy(deep=True),
+        compile_result = compile_run(
+            session,
+            existing,
+            sample_name=sample_name,
+            previous_workflow=previous_workflow,
+            previous_nodes=previous_nodes,
         )
-        run_crud.insert(session, run)
-        session.flush()
+        if sample is None:
+            project_file_mapping_crud.delete_dynamic_for_workflow(
+                session,
+                project_id=project_id,
+                workflow_uid=workflow.uid,
+                exclude_keywords=compile_result.reused_project_marks,
+            )
+        else:
+            sample_crud.delete_dynamic_files_for_workflow(
+                session,
+                sample_uid=sample.uid,
+                workflow_uid=workflow.uid,
+                exclude_tags=compile_result.reused_sample_marks,
+            )
+        _cleanup_stale_outputs(existing.base_dir, compile_result.stale_dirs, compile_result.stale_files)
+        return existing
+
+    run_uid = random_uid()
+    label = sample_name or project_name
+    run_name = f'{run_name_prefix}-{label}' if run_name_prefix else f'{project_name}-{workflow.name}-{label}'
+    run = WorkflowRun(
+        uid=run_uid,
+        generation=1,
+        name=run_name,
+        owner_id=current_user.id,
+        project_id=project_id,
+        workflow_uid=workflow.uid,
+        sample_uid=sample_uid,
+        base_dir=str(output_root / 'generation-1'),
+        workflow=workflow.workflow.model_copy(deep=True),
+    )
+    run_crud.insert(session, run)
+    session.flush()
 
     if sample is None:
         project_file_mapping_crud.delete_dynamic_for_workflow(
@@ -166,7 +205,7 @@ def _create_or_rerun_project_run(
             workflow_uid=workflow.uid,
         )
     compile_run(session, run, sample_name=sample_name)
-    return run, old_base_dir
+    return run
 
 
 def create_project_runs(
@@ -181,14 +220,13 @@ def create_project_runs(
 ) -> WorkflowRunResult:
     """Atomically create or rerun all requested sample/project generations."""
     workflow_uid = workflow.uid
-    old_output_dirs: dict[uuid.UUID, str] = {}
     run_uids: list[uuid.UUID] = []
     with committing(session):
         if project_workflow_crud.get(session, project_id, workflow_uid, lock=True) is None:
             message = 'Workflow not found in this project'
             raise WorkflowRunNotFoundError(message)
         for sample in samples:
-            run, old_base_dir = _create_or_rerun_project_run(
+            run = _create_or_rerun_project_run(
                 session,
                 project_id=project_id,
                 project_name=project_name,
@@ -198,21 +236,7 @@ def create_project_runs(
                 run_name_prefix=run_name_prefix,
             )
             run_uids.append(run.uid)
-            if old_base_dir:
-                old_output_dirs[run.uid] = old_base_dir
 
-    if old_output_dirs:
-        with committing(session):
-            if project_workflow_crud.get(session, project_id, workflow_uid, lock=True) is not None:
-                # A reset can run between transactions and let a new run reuse the old directory.
-                current_runs = run_crud.list_for_workflow(
-                    session, project_id=project_id, workflow_uid=workflow_uid, owner_id=None
-                )
-                for current_run in current_runs:
-                    if old_output_dir := old_output_dirs.get(current_run.uid):
-                        old_path = Path(old_output_dir)
-                        if old_path.exists():
-                            shutil.rmtree(old_path)
     return WorkflowRunResult(run_uids=run_uids, count=len(run_uids))
 
 
@@ -466,6 +490,7 @@ def _to_public(
                 uid=node.uid,
                 run_uid=run.uid,
                 status=node.status,
+                reused=bool((node.prepared_data or {}).get('reused')),
                 create_time=node.create_time,
                 start_time=node.start_time,
                 end_time=node.end_time,
