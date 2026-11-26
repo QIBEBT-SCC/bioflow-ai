@@ -10,7 +10,10 @@ MemoryDescription = Annotated[
         min_length=1,
         max_length=120,
         pattern=r'^[^\r\n]+$',
-        description='One or two short sentences describing when this memory applies; at most 120 characters',
+        description=(
+            'Single-line summary (<=120 chars) of the configuration topic or usage scenario covered so '
+            'future workflow-building agents can judge relevance'
+        ),
     ),
 ]
 MemoryContent = Annotated[
@@ -18,7 +21,11 @@ MemoryContent = Annotated[
     Field(
         min_length=1,
         max_length=8000,
-        description='Reusable Markdown lesson with its applicability, evidence, fix, and actual validation limits',
+        description=(
+            'Reusable Markdown usage guidance for future workflows: explain the underlying tool mechanism '
+            'or constraint first, then give concrete configuration/usage recommendations and key trade-offs; '
+            'avoid single-run incident logs or unverified test claims'
+        ),
     ),
 ]
 
@@ -33,9 +40,17 @@ class ToolMemoryFields(BaseModel):
 
 
 class NodeMemoryDraft(ToolMemoryFields):
-    """One proposed memory targeting a tool node on the active workflow panel."""
+    """One proposed memory targeting a Tool node in the selected workflow run."""
 
-    node_id: str = Field(min_length=1, description='Tool node ID on the current panel, not a search result ID')
+    node_id: str = Field(min_length=1, description='Local Tool node ID from workflow_reader in the selected run')
+    subgraph_path: list[str] | None = Field(
+        default=None,
+        description='Nested ordinary subgraph node IDs when the target Tool node is inside a subgraph',
+    )
+    child_run_uid: str | None = Field(
+        default=None,
+        description='ForEach child run UID from workflow_reader(action="children") when targeting a batch child run',
+    )
 
 
 class ToolMemoryCreate(ToolMemoryFields):
