@@ -112,6 +112,7 @@ services:
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
+    cpus: 16
     environment:
       <<: *no-proxy-env
       MINIO_REGION: us-east-1
