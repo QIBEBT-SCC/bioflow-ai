@@ -88,6 +88,8 @@ def prompt_select(message: str, *, choices: Sequence[Any], default: Any = None) 
 
 def prompt_checkbox(message: str, *, choices: list[Any], validate: Any = None) -> list[Any]:
     """Prompt for multiple selections with the shared style."""
+    if validate is None:
+        return finish(questionary.checkbox(message, choices=choices, style=PROMPT_STYLE))
     return finish(questionary.checkbox(message, choices=choices, validate=validate, style=PROMPT_STYLE))
 
 
