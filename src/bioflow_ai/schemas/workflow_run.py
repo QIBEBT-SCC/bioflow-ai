@@ -65,6 +65,7 @@ class NodeRunData(BaseModel):
     uid: uuid.UUID
     run_uid: uuid.UUID | None = None
     status: NodeRunStatus
+    reused: bool = False
     create_time: datetime | None = None
     start_time: datetime | None = None
     end_time: datetime | None = None

@@ -29,6 +29,13 @@ def delete_for_run(session: Session, run_uid: uuid.UUID) -> None:
     session.execute(delete(NodeRun).where(NodeRun.run_uid == run_uid))
 
 
+def delete_by_uids(session: Session, uids: Collection[uuid.UUID]) -> None:
+    """Delete specific node runs; database cascades remove their dependencies."""
+    if not uids:
+        return
+    session.execute(delete(NodeRun).where(NodeRun.uid.in_(uids)))
+
+
 def list_for_runs(session: Session, run_uids: Sequence[uuid.UUID]) -> list[NodeRun]:
     """Load nodes for multiple runs in definition order."""
     if not run_uids:

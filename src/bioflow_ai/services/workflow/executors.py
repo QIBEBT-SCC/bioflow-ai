@@ -6,11 +6,10 @@ Node implementations are plain Python callables and have no Celery lifecycle.
 """
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Any
 
-import nanoid
 from pydantic import BaseModel, ConfigDict
 
 from bioflow_ai.models.workflow import WorkflowRun
@@ -64,8 +63,8 @@ class PreparedExecutor(BaseModel):
     base_dir: str | None = None
 
 
-def _output_dir(context: ExecutorContext, position_index: int, suffix: str) -> str:
-    return str(Path(context.run.base_dir) / f'{position_index}_{suffix}')
+def _output_dir(context: ExecutorContext, dir_index: int, suffix: str) -> str:
+    return str(Path(context.run.base_dir) / f'{dir_index:02d}_{suffix}')
 
 
 # Nodes whose plan is their inputs, some data fields and an indexed output directory:
@@ -80,11 +79,46 @@ _INDEXED_NODES: dict[str, tuple[str, dict[str, Any]]] = {
 }
 
 
+def node_numbered_dir_suffix(
+    node: Node,
+    context: ExecutorContext,
+    *,
+    used_dir_names: Collection[str] = (),
+) -> str | None:
+    """Return the suffix for nodes that allocate a numbered directory, or None otherwise."""
+    node_type = node.type
+    data = node.data
+    if node_type == 'tool':
+        tool = context.tool_definitions[str(data['tool_uid'])]
+        return to_safe_path_segment(tool.name)
+    if node_type == 'resource_text_file':
+        return 'text_file'
+    if node_type == 'resource_sample_mark_collection':
+        return 'sample_mark_collection'
+    if node_type == 'collect_mount_dirs':
+        return 'mount_dirs'
+    if node_type == 'collect_file_collection':
+        return 'file_collection'
+    if node_type == 'foreach':
+        return 'foreach'
+    if node_type in _INDEXED_NODES:
+        return _INDEXED_NODES[node_type][0]
+    if node_type == 'copy2folder':
+        folder_name = str(data.get('folder_name') or '').strip()
+        if not folder_name:
+            return 'copy2folder'
+        segment = to_safe_path_segment(folder_name)
+        return segment if segment in used_dir_names else None
+    return None
+
+
 def prepare_node(
     node: Node,
     inputs: dict[str, dict[str, str] | list[dict[str, str]]],
-    position_index: int,
+    dir_index: int,
     context: ExecutorContext,
+    *,
+    used_dir_names: Collection[str] = (),
 ) -> PreparedExecutor:
     """Freeze a node from an already-validated workflow without changing its ID."""
     data = node.data
@@ -93,7 +127,7 @@ def prepare_node(
     if node_type == 'tool':
         tool_uid = uuid.UUID(str(data['tool_uid']))
         tool = context.tool_definitions[str(tool_uid)]
-        output_dir = _output_dir(context, position_index, to_safe_path_segment(tool.name))
+        output_dir = _output_dir(context, dir_index, to_safe_path_segment(tool.name))
         return PreparedExecutor(
             kwargs={
                 'tool_uid': str(tool_uid),
@@ -127,7 +161,7 @@ def prepare_node(
         )
 
     if node_type == 'resource_text_file':
-        output_dir = _output_dir(context, position_index, 'text_file')
+        output_dir = _output_dir(context, dir_index, 'text_file')
         return PreparedExecutor(
             kwargs={
                 'file_name': data.get('file_name', ''),
@@ -191,8 +225,11 @@ def prepare_node(
         )
 
     if node_type == 'copy2folder':
-        folder_name = data.get('folder_name') or nanoid.generate(size=8)
-        output_dir = str(Path(context.run.base_dir) / to_safe_path_segment(folder_name))
+        if suffix := node_numbered_dir_suffix(node, context, used_dir_names=used_dir_names):
+            output_dir = _output_dir(context, dir_index, suffix)
+        else:
+            folder_name = str(data.get('folder_name') or '').strip()
+            output_dir = str(Path(context.run.base_dir) / to_safe_path_segment(folder_name))
         return PreparedExecutor(
             kwargs={'inputs': inputs, 'output_dir': output_dir},
             name='copy2folder',
@@ -212,7 +249,7 @@ def prepare_node(
         )
 
     if node_type == 'resource_sample_mark_collection':
-        output_dir = _output_dir(context, position_index, 'sample_mark_collection')
+        output_dir = _output_dir(context, dir_index, 'sample_mark_collection')
         return PreparedExecutor(
             kwargs={
                 'project_id': context.run.project_id,
@@ -226,7 +263,7 @@ def prepare_node(
         )
 
     if node_type == 'collect_mount_dirs':
-        output_dir = str(Path(context.run.base_dir) / f'{node.id}_mount_dirs')
+        output_dir = _output_dir(context, dir_index, 'mount_dirs')
         return PreparedExecutor(
             kwargs={'inputs': inputs, 'output_dir': output_dir},
             name='collect_mount_dirs',
@@ -257,7 +294,7 @@ def prepare_node(
 
     if node_type == 'collect_file_collection':
         pattern = data['pattern']
-        output_dir = _output_dir(context, position_index, 'file_collection')
+        output_dir = _output_dir(context, dir_index, 'file_collection')
         return PreparedExecutor(
             kwargs={'inputs': inputs, 'pattern': pattern.strip(), 'output_dir': output_dir},
             name=str(data.get('name') or 'ForEach'),
@@ -266,7 +303,7 @@ def prepare_node(
 
     if node_type == 'foreach':
         child = WorkflowDefinition.model_validate(data['workflow'])
-        output_dir = _output_dir(context, position_index, 'foreach')
+        output_dir = _output_dir(context, dir_index, 'foreach')
         return PreparedExecutor(
             kwargs={
                 'inputs': inputs,
@@ -282,7 +319,7 @@ def prepare_node(
 
     if node_type in _INDEXED_NODES:
         suffix, defaults = _INDEXED_NODES[node_type]
-        output_dir = _output_dir(context, position_index, suffix)
+        output_dir = _output_dir(context, dir_index, suffix)
         return PreparedExecutor(
             kwargs={
                 'inputs': inputs,

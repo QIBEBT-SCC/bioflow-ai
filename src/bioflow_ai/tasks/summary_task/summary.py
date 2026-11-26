@@ -21,8 +21,11 @@ def build_downstream_summary(
     references = input_files if isinstance(input_files, list) else [input_files]
 
     output_folder = Path(output_dir)
-    output_folder.unlink(missing_ok=True)
-    output_folder.mkdir(parents=True)
+    if output_folder.is_dir() and not output_folder.is_symlink():
+        shutil.rmtree(output_folder)
+    else:
+        output_folder.unlink(missing_ok=True)
+    output_folder.mkdir(parents=True, exist_ok=True)
 
     for reference in references:
         origin_file = Path(get_node_output(reference.source_uid, reference.source_k)[0])
