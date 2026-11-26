@@ -19,8 +19,10 @@ def get(session: Session, channel_id: int) -> NotificationChannel | None:
 
 def get_all(session: Session) -> Sequence[NotificationChannel]:
     """Return all notification channels with subscriptions."""
-    stmt = select(NotificationChannel).options(selectinload(NotificationChannel.subscriptions)).order_by(
-        NotificationChannel.id
+    stmt = (
+        select(NotificationChannel)
+        .options(selectinload(NotificationChannel.subscriptions))
+        .order_by(NotificationChannel.id)
     )
     return session.scalars(stmt).all()
 
