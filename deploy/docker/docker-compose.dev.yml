@@ -114,6 +114,10 @@ services:
     command: [ "milvus", "run", "standalone" ]
     security_opt:
       - seccomp:unconfined
+    # Cap Milvus to at most 16 CPUs; use CFS period/quota instead of `cpus`
+    # so Docker hosts with fewer than 16 CPUs do not reject container startup.
+    cpu_period: 100000
+    cpu_quota: 1600000
     environment:
       <<: *no-proxy-env
       MINIO_REGION: us-east-1
