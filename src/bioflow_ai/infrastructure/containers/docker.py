@@ -1,4 +1,5 @@
 import datetime
+import threading
 import time
 from collections.abc import Generator
 from contextlib import suppress
@@ -70,6 +71,7 @@ def run_docker(
     ensure_ascii: bool = True,
     user: str | None = CONTAINER_ROOT_USER,
     timeout: int | None = None,
+    cancel_event: threading.Event | None = None,
     **kwargs,
 ) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果.
@@ -85,6 +87,7 @@ def run_docker(
         ensure_ascii: 是否过滤命令行富文本格式
         user: 容器内的用户身份。默认使用容器 root, 由 rootless Docker 映射到 daemon 所属宿主机用户
         timeout: 可选超时时间 (秒); 超时后会终止并清理容器并抛出 ContainerCommandTimeoutError
+        cancel_event: 可选取消事件; 置位后会立即终止并清理容器
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -99,6 +102,8 @@ def run_docker(
     """
     _check_runtime_mode()
     _check_image(image_cfg)
+    if cancel_event is not None and cancel_event.is_set():
+        return -1, ''
 
     # 处理 GPU 配置
     device_requests = None
@@ -124,16 +129,30 @@ def run_docker(
     )
 
     try:
-        if timeout is None:
+        if timeout is None and cancel_event is None:
             status_code = container.wait()['StatusCode']
         else:
-            try:
-                status_code = container.wait(timeout=timeout)['StatusCode']
-            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as error:
-                with suppress(NotFound, APIError):
-                    container.kill()
-                partial_output = _read_container_logs(container, ensure_ascii=ensure_ascii)
-                raise ContainerCommandTimeoutError(timeout=timeout, output=partial_output) from error
+            deadline = time.monotonic() + timeout if timeout is not None else None
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    with suppress(NotFound, APIError):
+                        container.kill()
+                    return -1, _read_container_logs(container, ensure_ascii=ensure_ascii)
+                container.reload()
+                if container.status in {'exited', 'dead'}:
+                    status_code = container.wait()['StatusCode']
+                    break
+                remaining = deadline - time.monotonic() if deadline is not None else None
+                if timeout is not None and remaining is not None and remaining <= 0:
+                    with suppress(NotFound, APIError):
+                        container.kill()
+                    partial_output = _read_container_logs(container, ensure_ascii=ensure_ascii)
+                    raise ContainerCommandTimeoutError(timeout=timeout, output=partial_output)
+                sleep_for = min(0.25, remaining) if remaining is not None else 0.25
+                if cancel_event is not None:
+                    cancel_event.wait(sleep_for)
+                else:
+                    time.sleep(sleep_for)
         return status_code, _read_container_logs(container, ensure_ascii=ensure_ascii)
     finally:
         if container:

@@ -71,13 +71,9 @@ def _raise_service_error(error: Exception) -> NoReturn:
         raise HTTPException(
             status_code=503, detail='The attachment snapshot is unavailable. Please try again.'
         ) from error
-    if isinstance(error, (agent_service.AgentSessionNotFoundError, agent_service.AgentRunNotFoundError)):
-        raise HTTPException(status_code=404, detail='Agent resource not found.') from error
-    if isinstance(error, agent_service.AgentProjectAccessError):
-        raise HTTPException(status_code=404, detail='Project not found.') from error
-    if isinstance(error, (agent_service.AgentRunConflictError, agent_service.AgentRunTransitionError)):
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    if isinstance(error, (agent_service.AgentScopeError, ImagePreparationError)):
+    if isinstance(error, agent_service.AgentServiceError):
+        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+    if isinstance(error, ImagePreparationError):
         raise HTTPException(status_code=422, detail=str(error)) from error
     raise error
 
@@ -351,7 +347,7 @@ def resume_agent_run(
     try:
         run = agent_service.get_owned_run(session, run_uid, current_user.id)
         if run.status != AgentRunStatus.WAITING_INPUT.value:
-            raise agent_service.AgentRunTransitionError(RESUME_STATUS_ERROR)
+            raise HTTPException(status_code=409, detail=RESUME_STATUS_ERROR)
         if data.feedback:
             agent_service.add_resume_message(session, run, data.feedback)
         run = agent_service.transition_run(
@@ -360,9 +356,8 @@ def resume_agent_run(
             AgentRunStatus.QUEUED,
             event_type=AgentEventType.QUEUED,
             payload={'resume': True, 'approved': data.approved, 'feedback': data.feedback},
+            result_payload={'resume': {'approved': data.approved, 'feedback': data.feedback}},
         )
-        run.result_payload = {'resume': {'approved': data.approved, 'feedback': data.feedback}}
-        session.commit()
         run = _dispatch_run(session, run, data.language.value if data.language else None)
     except agent_service.AgentServiceError as error:
         _raise_service_error(error)
@@ -375,16 +370,12 @@ def cancel_agent_run(
     session: SessionDep,
     current_user: UserDep,
 ) -> AgentRunPublic:
-    from bioflow_ai.runtime.celery_app import celery_app
-
     try:
         run = agent_service.get_owned_run(session, run_uid, current_user.id)
         current_status = AgentRunStatus(run.status)
         if current_status in TERMINAL_AGENT_RUN_STATUSES:
-            raise agent_service.AgentRunTransitionError(CANCEL_STATUS_ERROR)
+            raise HTTPException(status_code=409, detail=CANCEL_STATUS_ERROR)
         if current_status in {AgentRunStatus.QUEUED, AgentRunStatus.WAITING_INPUT}:
-            if run.celery_task_id:
-                celery_app.control.revoke(run.celery_task_id, terminate=False)
             run = agent_service.transition_run(
                 session,
                 run,
@@ -392,8 +383,6 @@ def cancel_agent_run(
                 event_type=AgentEventType.CANCELLED,
             )
         else:
-            run.cancel_requested = True
-            session.commit()
             run = agent_service.transition_run(
                 session,
                 run,
@@ -415,14 +404,14 @@ def retry_agent_run(
     try:
         old_run = agent_service.get_owned_run(session, run_uid, current_user.id)
         if AgentRunStatus(old_run.status) != AgentRunStatus.FAILED:
-            raise agent_service.AgentRunTransitionError(RETRY_STATUS_ERROR)
+            raise HTTPException(status_code=409, detail=RETRY_STATUS_ERROR)
         messages = [
             message
             for message in agent_crud.list_messages(session, old_run.session_uid)
             if message.run_uid == old_run.uid and message.role == 'user'
         ]
         if not messages:
-            raise agent_service.AgentRunTransitionError(RETRY_INPUT_ERROR)
+            raise HTTPException(status_code=409, detail=RETRY_INPUT_ERROR)
         text = ''.join(str(part.get('text', '')) for part in messages[0].parts if part.get('type') == 'text')
         images = [ImageMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'image']
         pdfs = [PDFMessagePart.model_validate(part) for part in messages[0].parts if part.get('type') == 'pdf']
