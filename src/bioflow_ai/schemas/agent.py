@@ -220,8 +220,12 @@ class AgentRunResume(AgentLanguagePreference):
 
     @model_validator(mode='after')
     def validate_resume_input(self) -> 'AgentRunResume':
-        """Require either explicit approval or non-empty feedback."""
-        if not self.approved and not (self.feedback and self.feedback.strip()):
+        """Require either explicit approval or non-empty feedback, never both."""
+        has_feedback = bool(self.feedback and self.feedback.strip())
+        if self.approved and has_feedback:
+            message = 'feedback cannot be provided when approved is true'
+            raise ValueError(message)
+        if not self.approved and not has_feedback:
             message = 'feedback is required when approved is false'
             raise ValueError(message)
         return self
