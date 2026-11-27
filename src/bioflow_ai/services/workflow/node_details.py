@@ -94,6 +94,8 @@ def describe_node(
     node: Node,
     path: tuple[str, ...],
     by_id: dict[str, NodeRun],
+    *,
+    include_results: bool = True,
 ) -> dict[str, Any]:
     """Describe a node's usable ports without exposing its internal task record.
 
@@ -159,7 +161,10 @@ def describe_node(
         {**handle.model_dump(exclude_defaults=True), 'sources': sources.get(handle.name, [])} for handle in inputs
     ]
     details['output_handles'] = [
-        {**handle.model_dump(exclude_defaults=True), 'result': _recorded_result(node, handle.name, path, by_id)}
+        {
+            **handle.model_dump(exclude_defaults=True),
+            **({'result': _recorded_result(node, handle.name, path, by_id)} if include_results else {}),
+        }
         for handle in outputs
     ]
     return details
