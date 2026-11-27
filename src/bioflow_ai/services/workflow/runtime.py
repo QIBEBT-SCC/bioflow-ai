@@ -110,9 +110,10 @@ def _settle_run_if_complete(session: Session, run_uid: uuid.UUID) -> bool:
         return False
     run.settled = True
     run.end_time = utc_now()
-    # mark_node_failed already marks the run FAILED, so any other run succeeded.
-    if run.status != RunStatus.FAILED:
-        run.status = RunStatus.SUCCEEDED
+    has_failed = run.status == RunStatus.FAILED or bool(
+        node_run_crud.count_by_status(session, run_uid, [NodeRunStatus.FAILED])
+    )
+    run.status = RunStatus.FAILED if has_failed else RunStatus.SUCCEEDED
     return True
 
 
@@ -173,7 +174,6 @@ def mark_node_failed(node_run_uid: uuid.UUID, error: BaseException | str) -> boo
         node.error_message = str(error)[:4000]
         node.heartbeat_at = now
         node.end_time = now
-        run.status = RunStatus.FAILED
         if node.node_type == 'foreach':
             run_crud.update_unstarted_children(
                 session, node.uid, {'status': RunStatus.FAILED, 'settled': True, 'end_time': now}
@@ -208,6 +208,15 @@ def recover_runtime() -> None:
 
     with Session(engine) as session, session.begin():
         for run_uid in run_crud.list_unsettled_uids(session):
-            settled += int(_settle_run_if_complete(session, run_uid))
+            if _settle_run_if_complete(session, run_uid):
+                settled += 1
+            else:
+                run = run_crud.get(session, run_uid, lock=True)
+                if (
+                    run is not None
+                    and run.status == RunStatus.FAILED
+                    and node_run_crud.count_by_status(session, run_uid, [NodeRunStatus.FAILED]) > 0
+                ):
+                    run.status = RunStatus.RUNNING if run.start_time is not None else RunStatus.PENDING
     if stale or settled:
         logger.info(f'Workflow recovery: stale={stale}, settled={settled}')

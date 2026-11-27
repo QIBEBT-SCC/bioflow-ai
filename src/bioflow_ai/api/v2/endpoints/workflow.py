@@ -386,7 +386,7 @@ def stream_run(
     session: SessionDep,
     current_user: MemberDep,
 ) -> StreamingResponse:
-    """Stream through FAILED/unsettled and close only after settled=true."""
+    """Stream run updates until all branches converge and settled=true."""
     _owned_run(session, uid, current_user)
     return StreamingResponse(
         _stream_run_updates(uid, session, current_user, request),

@@ -85,7 +85,8 @@ def _initialize(session: Session, node: NodeRun, parent: WorkflowRun) -> None:
     node.prepared_data = {**plan, 'items': items, 'shared_paths': paths, 'base_sample_name': base_sample_name}
     node.status = NodeRunStatus.RUNNING
     node.start_time = utc_now()
-    parent.status = RunStatus.RUNNING
+    if parent.status == RunStatus.PENDING:
+        parent.status = RunStatus.RUNNING
     parent.settled = False
     if parent.start_time is None:
         parent.start_time = utc_now()
