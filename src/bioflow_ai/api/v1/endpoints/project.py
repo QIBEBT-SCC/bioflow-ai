@@ -1,4 +1,6 @@
+import asyncio
 import uuid
+from pathlib import Path
 from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -45,6 +47,7 @@ from bioflow_ai.services.projects import file_mapping as project_file_mapping_se
 from bioflow_ai.services.projects import project as project_service
 from bioflow_ai.services.projects import workflows as project_workflow_service
 from bioflow_ai.services.resource import sample as sample_service
+from bioflow_ai.utils.file.hash import calculate_file_md5
 
 router = APIRouter()
 tag_router = APIRouter()
@@ -465,10 +468,39 @@ async def add_file_to_project_sample(
         tag=file_prop.tag,
         file_format='',
         file_size=0,
-        md5_checksum='',
+        md5_checksum=None,
     )
 
     return SampleFilePublic.model_validate(sample_service.add_file(session, sample_file))
+
+
+@router.post('/{project_id}/samples/{sample_uid}/files/{file_uid}/md5')
+async def calculate_project_sample_file_md5(
+    project_id: int,
+    sample_uid: uuid.UUID,
+    file_uid: uuid.UUID,
+    session: SessionDep,
+    _current_user: UserDep,
+) -> SampleFilePublic:
+    """Calculate and persist the MD5 checksum for an existing sample file."""
+    existing_sample = sample_crud.get(session, sample_uid)
+    if not existing_sample or existing_sample.project_id != project_id:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'Sample not found in this project')
+
+    sample_file = sample_crud.get_file(session, file_uid)
+    if sample_file is None or sample_file.sample_uid != sample_uid:
+        raise HTTPException(HTTP_404_NOT_FOUND, 'File not found')
+
+    file_path = Path(sample_file.file_path)
+    if not await asyncio.to_thread(file_path.is_file):
+        raise HTTPException(HTTP_400_BAD_REQUEST, 'Sample file does not exist or is not a regular file')
+
+    md5_checksum = await asyncio.to_thread(calculate_file_md5, file_path, 1024 * 1024)
+    if not md5_checksum:
+        raise HTTPException(HTTP_400_BAD_REQUEST, 'Failed to calculate MD5 checksum')
+
+    updated = sample_service.update_file_md5(session, sample_uid, file_uid, md5_checksum)
+    return SampleFilePublic.model_validate(updated)
 
 
 @router.delete('/{project_id}/samples/{sample_uid}/files/{file_uid}')
