@@ -57,7 +57,19 @@ SSE_HEARTBEAT_SECONDS = 15
 SSE_ACTIVE_POLL_SECONDS = 0.3
 SSE_IDLE_POLL_SECONDS = 1.0
 RESUME_STATUS_ERROR = 'Only waiting_input runs can be resumed.'
+RESUME_FEEDBACK_REQUIRED_ERROR = 'This interrupt requires text feedback instead of approval.'
 CANCEL_STATUS_ERROR = 'A terminal run cannot be cancelled.'
+
+
+def _interrupt_requires_feedback(payload: dict[str, object] | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if payload.get('kind') == 'questions':
+        return True
+    question = payload.get('question')
+    return isinstance(question, str) and bool(question.strip())
+
+
 RETRY_STATUS_ERROR = 'Only failed runs can be retried.'
 RETRY_INPUT_ERROR = 'The original run input is unavailable.'
 
@@ -348,15 +360,18 @@ def resume_agent_run(
         run = agent_service.get_owned_run(session, run_uid, current_user.id)
         if run.status != AgentRunStatus.WAITING_INPUT.value:
             raise HTTPException(status_code=409, detail=RESUME_STATUS_ERROR)
-        if data.feedback:
-            agent_service.add_resume_message(session, run, data.feedback)
+        if data.approved and _interrupt_requires_feedback(run.interrupt_payload):
+            raise HTTPException(status_code=422, detail=RESUME_FEEDBACK_REQUIRED_ERROR)
+        feedback = data.feedback.strip() if data.feedback else None
+        if feedback:
+            agent_service.add_resume_message(session, run, feedback)
         run = agent_service.transition_run(
             session,
             run,
             AgentRunStatus.QUEUED,
             event_type=AgentEventType.QUEUED,
-            payload={'resume': True, 'approved': data.approved, 'feedback': data.feedback},
-            result_payload={'resume': {'approved': data.approved, 'feedback': data.feedback}},
+            payload={'resume': True, 'approved': data.approved, 'feedback': feedback},
+            result_payload={'resume': {'approved': data.approved, 'feedback': feedback}},
         )
         run = _dispatch_run(session, run, data.language.value if data.language else None)
     except agent_service.AgentServiceError as error:
