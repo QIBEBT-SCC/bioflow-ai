@@ -1,4 +1,5 @@
 import datetime
+import threading
 import time
 from collections.abc import Generator
 from contextlib import suppress
@@ -86,6 +87,7 @@ def run_podman(
     *,
     user: str | None = CONTAINER_ROOT_USER,
     timeout: int | None = None,
+    cancel_event: threading.Event | None = None,
     **kwargs: Any,
 ) -> tuple[int, str]:
     """在podman容器中运行命令并返回执行结果.
@@ -100,6 +102,7 @@ def run_podman(
         workdir: 命令运行的工作目录
         user: 容器内的用户身份。默认使用容器 root, 由 rootless Podman 映射到 service 所属宿主机用户
         timeout: 可选超时时间 (秒); 超时后会终止并清理容器并抛出 ContainerCommandTimeoutError
+        cancel_event: 可选取消事件; 置位后会立即终止并清理容器
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -119,6 +122,8 @@ def run_podman(
 
         _check_runtime_mode()
         _check_image(client, image_cfg)
+        if cancel_event is not None and cancel_event.is_set():
+            return -1, ''
 
         if user is not None:
             kwargs['user'] = user
@@ -139,22 +144,30 @@ def run_podman(
             if not isinstance(run_result, Container):
                 raise TypeError
             container = run_result
-            if timeout is None:
+            if timeout is None and cancel_event is None:
                 status_code = container.wait()
             else:
-                deadline = time.monotonic() + timeout
+                deadline = time.monotonic() + timeout if timeout is not None else None
                 while True:
+                    if cancel_event is not None and cancel_event.is_set():
+                        with suppress(APIError):
+                            container.kill()
+                        return -1, _read_container_logs(container)
                     container.reload()
                     if container.status in {'exited', 'stopped', 'dead'}:
                         status_code = container.wait()
                         break
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
+                    remaining = deadline - time.monotonic() if deadline is not None else None
+                    if timeout is not None and remaining is not None and remaining <= 0:
                         with suppress(APIError):
                             container.kill()
                         partial_output = _read_container_logs(container)
                         raise ContainerCommandTimeoutError(timeout=timeout, output=partial_output)
-                    time.sleep(min(0.25, remaining))
+                    sleep_for = min(0.25, remaining) if remaining is not None else 0.25
+                    if cancel_event is not None:
+                        cancel_event.wait(sleep_for)
+                    else:
+                        time.sleep(sleep_for)
             return status_code, _read_container_logs(container)
         finally:
             if container:

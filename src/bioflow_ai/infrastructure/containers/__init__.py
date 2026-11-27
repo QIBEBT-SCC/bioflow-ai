@@ -1,4 +1,5 @@
 import asyncio
+import threading
 
 from docker.types import Mount
 
@@ -45,6 +46,7 @@ def run_command(
     ensure_ascii: bool = True,
     user: str | None = CONTAINER_ROOT_USER,
     timeout: int | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[int, str]:
     """Execute shell commands within a specified container environment.
 
@@ -56,6 +58,7 @@ def run_command(
         ensure_ascii: Whether to ensure the output is ASCII-encoded. Defaults to True.
         user: User identity inside the container. Defaults to container root; the rootless runtime maps it to the host user that owns the daemon.
         timeout: Optional execution timeout in seconds. When exceeded, the container is killed and ContainerCommandTimeoutError is raised.
+        cancel_event: Optional event signalling caller cancellation so the running container is killed promptly.
 
     Returns:
         A tuple containing two elements:
@@ -72,6 +75,7 @@ def run_command(
             workdir,
             user=user,
             timeout=timeout,
+            cancel_event=cancel_event,
         )
     else:
         from bioflow_ai.infrastructure.containers.docker import run_docker
@@ -84,6 +88,7 @@ def run_command(
             ensure_ascii=ensure_ascii,
             user=user,
             timeout=timeout,
+            cancel_event=cancel_event,
         )
 
     return status, output
@@ -105,9 +110,10 @@ async def run_command_async(
     wait for command completion. Running them in a worker thread keeps unrelated
     tasks such as Redis lock renewal and agent heartbeats schedulable.
 
-    Cancellation waits for the worker to finish so the runtime-specific
-    ``finally`` block can remove the container before cancellation propagates.
+    Cancellation signals ``cancel_event`` so the running container is killed
+    promptly and waits for the worker to remove the container before propagating.
     """
+    cancel_event = threading.Event()
     worker = asyncio.create_task(
         asyncio.to_thread(
             run_command,
@@ -118,12 +124,14 @@ async def run_command_async(
             ensure_ascii=ensure_ascii,
             user=user,
             timeout=timeout,
+            cancel_event=cancel_event,
         ),
         name='container-command',
     )
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:
+        cancel_event.set()
         while not worker.done():
             try:
                 await asyncio.shield(worker)

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
 import bioflow_ai.crud.project_workflow as project_workflow_crud
+from bioflow_ai.core.config import get_settings
 from bioflow_ai.crud import project as project_crud
 from bioflow_ai.crud import user as user_crud
 from bioflow_ai.crud import workflow_run as run_crud
@@ -56,7 +57,6 @@ WORKFLOW_INPUT_ONLY = 'Only workflow-builder runs accept additional input.'
 INPUT_STATUS_ERROR = 'Additional input requires a queued or running workflow build.'
 INPUT_CLOSED_ERROR = 'This workflow build is finishing and no longer accepts input.'
 
-STALE_HEARTBEAT_AFTER = timedelta(seconds=60)
 ACTIVE_DELETE_ERROR = 'An active run must be cancelled before deleting the session.'
 GLOBAL_SCOPE_ERROR = 'Global sessions only support tool-generator.'
 ACTIVE_RUN_ERROR = 'This session already has an active run.'
@@ -65,6 +65,8 @@ WORKFLOW_RUN_TARGET_REQUIRED_ERROR = 'workflow-assistant and workflow-fixer requ
 WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR = 'source_run_uid is only valid for workflow-assistant and workflow-fixer.'
 NODE_AGENT_ERROR = 'Node attachments are only supported by workflow-assistant.'
 NODE_STALE_ERROR = 'The workflow run has been re-executed. Remove the old node attachment and add it again.'
+PROJECT_NOT_FOUND_ERROR = 'Project not found.'
+AGENT_RESOURCE_NOT_FOUND_ERROR = 'Agent resource not found.'
 
 ALLOWED_RUN_TRANSITIONS = {
     AgentRunStatus.QUEUED: {
@@ -94,31 +96,11 @@ ALLOWED_RUN_TRANSITIONS = {
 
 
 class AgentServiceError(ValueError):
-    """Base exception for durable web-agent operations."""
+    """Business error raised by agent session/run service operations."""
 
-
-class AgentSessionNotFoundError(AgentServiceError):
-    pass
-
-
-class AgentRunNotFoundError(AgentServiceError):
-    pass
-
-
-class AgentProjectAccessError(AgentServiceError):
-    pass
-
-
-class AgentRunConflictError(AgentServiceError):
-    pass
-
-
-class AgentRunTransitionError(AgentServiceError):
-    pass
-
-
-class AgentScopeError(AgentServiceError):
-    pass
+    def __init__(self, detail: str, *, status_code: int = 400) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
 
 
 class QueuedAgentInput(BaseModel):
@@ -142,21 +124,21 @@ def _is_admin_actor(session: Session, user_id: int) -> bool:
 def _require_owned_project(session: Session, project_id: int, owner_id: int) -> Project:
     project = project_crud.get_by_id(session, project_id)
     if project is None or (project.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
-        raise AgentProjectAccessError
+        raise AgentServiceError(PROJECT_NOT_FOUND_ERROR, status_code=404)
     return project
 
 
 def get_owned_session(session: Session, session_uid: UUIDLike, owner_id: int) -> AgentSession:
     agent_session = agent_crud.get_session(session, as_uuid(session_uid))
     if agent_session is None or (agent_session.owner_id != owner_id and not _is_admin_actor(session, owner_id)):
-        raise AgentSessionNotFoundError
+        raise AgentServiceError(AGENT_RESOURCE_NOT_FOUND_ERROR, status_code=404)
     return agent_session
 
 
 def get_owned_run(session: Session, run_uid: UUIDLike, owner_id: int) -> AgentRun:
     run = agent_crud.get_run(session, as_uuid(run_uid))
     if run is None:
-        raise AgentRunNotFoundError
+        raise AgentServiceError(AGENT_RESOURCE_NOT_FOUND_ERROR, status_code=404)
     get_owned_session(session, run.session_uid, owner_id)
     reconcile_stale_run(session, run)
     return run
@@ -179,12 +161,7 @@ def list_sessions(
     cursor: datetime | None,
     limit: int,
 ) -> Sequence[AgentSession]:
-    sessions = agent_crud.get_sessions_page(session, owner_id, project_id, cursor, limit)
-    for agent_session in sessions:
-        latest_run = agent_crud.get_latest_run(session, agent_session.uid)
-        if latest_run is not None:
-            reconcile_stale_run(session, latest_run)
-    return sessions
+    return agent_crud.get_sessions_page(session, owner_id, project_id, cursor, limit)
 
 
 def update_session(
@@ -204,7 +181,7 @@ def delete_session(session: Session, agent_session: AgentSession) -> None:
     if active is not None:
         reconcile_stale_run(session, active)
         if AgentRunStatus(active.status) in ACTIVE_AGENT_RUN_STATUSES:
-            raise AgentRunConflictError(ACTIVE_DELETE_ERROR)
+            raise AgentServiceError(ACTIVE_DELETE_ERROR, status_code=409)
     with committing(session):
         agent_crud.delete_session(session, agent_session)
 
@@ -223,41 +200,41 @@ def create_run(
 ) -> AgentRun:
     if len(images or []) + len(pdfs or []) > MAX_IMAGES:
         message = 'A message can contain at most 4 image or PDF attachments.'
-        raise AgentScopeError(message)
+        raise AgentServiceError(message, status_code=422)
     if not text.strip() and ((not images and not pdfs and node is None) or agent_name == AgentName.WORKFLOW_FIXER):
         message = 'A text request is required for workflow-fixer; other agents accept attachments alone.'
-        raise AgentScopeError(message)
+        raise AgentServiceError(message, status_code=422)
     if node is not None and agent_name != AgentName.WORKFLOW_ASSISTANT:
-        raise AgentScopeError(NODE_AGENT_ERROR)
+        raise AgentServiceError(NODE_AGENT_ERROR, status_code=422)
     if agent_session.project_id is None and agent_name != AgentName.TOOL_GENERATOR:
-        raise AgentScopeError(GLOBAL_SCOPE_ERROR)
+        raise AgentServiceError(GLOBAL_SCOPE_ERROR, status_code=422)
     prepared_node = None
     if agent_name in {AgentName.WORKFLOW_ASSISTANT, AgentName.WORKFLOW_FIXER}:
         if source_run_uid is None:
-            raise AgentScopeError(WORKFLOW_RUN_TARGET_REQUIRED_ERROR)
+            raise AgentServiceError(WORKFLOW_RUN_TARGET_REQUIRED_ERROR, status_code=422)
         source_run = run_crud.get(session, source_run_uid)
         if (
             source_run is None
             or (source_run.owner_id != agent_session.owner_id and not _is_admin_actor(session, agent_session.owner_id))
             or source_run.project_id != agent_session.project_id
         ):
-            raise AgentProjectAccessError
+            raise AgentServiceError(PROJECT_NOT_FOUND_ERROR, status_code=404)
         if node is not None:
             prepared_node = _resolve_node(session, source_run, node)
     elif source_run_uid is not None:
-        raise AgentScopeError(WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR)
+        raise AgentServiceError(WORKFLOW_RUN_TARGET_NOT_ALLOWED_ERROR, status_code=422)
     if (
         agent_name == AgentName.WORKFLOW_BUILDER
         and agent_session.project_id is not None
         and not has_project_plan(get_project_root(agent_session.project_id))
     ):
-        raise AgentScopeError(MISSING_PLAN_ERROR)
+        raise AgentServiceError(MISSING_PLAN_ERROR, status_code=422)
 
     active = agent_crud.get_active_run(session, agent_session.uid)
     if active is not None:
         reconcile_stale_run(session, active)
         if AgentRunStatus(active.status) in ACTIVE_AGENT_RUN_STATUSES:
-            raise AgentRunConflictError(ACTIVE_RUN_ERROR)
+            raise AgentServiceError(ACTIVE_RUN_ERROR, status_code=409)
 
     run_uid = random_uid()
     try:
@@ -266,7 +243,7 @@ def create_run(
             resolve_image(session, image).model_copy(update={'id': str(random_uid())}) for image in images or []
         ]
     except (ImagePreparationError, PDFNotFoundError, PDFPreparationError, OSError, ValueError) as error:
-        raise AgentScopeError(str(error)) from error
+        raise AgentServiceError(str(error), status_code=422) from error
     now = utc_now()
     run = AgentRun(
         uid=run_uid,
@@ -309,7 +286,7 @@ def create_run(
             agent_session.update_time = now
     except IntegrityError as error:
         if _is_active_run_integrity_error(error):
-            raise AgentRunConflictError(ACTIVE_RUN_ERROR) from error
+            raise AgentServiceError(ACTIVE_RUN_ERROR, status_code=409) from error
         raise
     session.refresh(run)
     return run
@@ -319,17 +296,17 @@ def _resolve_node(session: Session, run: WorkflowRun, node: WorkflowNodeReferenc
     """Validate the node address against the run snapshot and replace client labels with saved ones."""
     if node.run_uid != run.uid:
         message = 'The attached node must belong to the selected workflow run.'
-        raise AgentScopeError(message)
+        raise AgentServiceError(message, status_code=422)
     if node.generation != run.generation:
-        raise AgentScopeError(NODE_STALE_ERROR)
+        raise AgentServiceError(NODE_STALE_ERROR, status_code=422)
     try:
         graph, containers = enter_subgraphs(run.workflow, node.subgraph_path)
     except SubgraphError as error:
-        raise AgentScopeError(str(error)) from error
+        raise AgentServiceError(str(error), status_code=422) from error
     saved = next((item for item in graph.nodes if item.id == node.node_id), None)
     if saved is None:
         message = 'The attached node does not exist in this run.'
-        raise AgentScopeError(message)
+        raise AgentServiceError(message, status_code=422)
     name = saved.data.get('name') or session.scalar(
         select(NodeRun.name).where(
             NodeRun.run_uid == run.uid,
@@ -380,7 +357,7 @@ def transition_run(
     current_status = AgentRunStatus(run.status)
     if status not in ALLOWED_RUN_TRANSITIONS[current_status]:
         message = f'Invalid agent run transition: {current_status.value} -> {status.value}.'
-        raise AgentRunTransitionError(message)
+        raise AgentServiceError(message, status_code=409)
     now = utc_now()
     with committing(session):
         run.status = status.value
@@ -481,13 +458,13 @@ def queue_input(session: Session, run: AgentRun, data: AgentRunInput) -> AgentMe
         if existing.run_uid == run.uid and is_input and existing.parts == [{'type': 'text', 'text': data.text}]:
             session.commit()
             return existing
-        raise AgentRunConflictError(MESSAGE_ID_CONFLICT)
+        raise AgentServiceError(MESSAGE_ID_CONFLICT, status_code=409)
     if run.agent_name != AgentName.WORKFLOW_BUILDER.value:
-        raise AgentRunTransitionError(WORKFLOW_INPUT_ONLY)
+        raise AgentServiceError(WORKFLOW_INPUT_ONLY, status_code=409)
     if run.status not in {AgentRunStatus.QUEUED.value, AgentRunStatus.RUNNING.value} or run.cancel_requested:
-        raise AgentRunTransitionError(INPUT_STATUS_ERROR)
+        raise AgentServiceError(INPUT_STATUS_ERROR, status_code=409)
     if any(event.event_type == AgentEventType.INPUT_CLOSED.value for event in events):
-        raise AgentRunTransitionError(INPUT_CLOSED_ERROR)
+        raise AgentServiceError(INPUT_CLOSED_ERROR, status_code=409)
     now = utc_now()
     message = AgentMessage(
         uid=data.message_uid,
@@ -512,7 +489,7 @@ def queue_input(session: Session, run: AgentRun, data: AgentRunInput) -> AgentMe
             run.update_time = now
             run.agent_session.update_time = now
     except IntegrityError as error:
-        raise AgentRunConflictError(MESSAGE_ID_CONFLICT) from error
+        raise AgentServiceError(MESSAGE_ID_CONFLICT, status_code=409) from error
     session.refresh(message)
     return message
 
@@ -598,7 +575,7 @@ def import_generated_workflows(session: Session, run: AgentRun, values: dict[str
 
 def update_heartbeat(session: Session, run: AgentRun) -> bool:
     session.refresh(run)
-    if run.cancel_requested:
+    if run.cancel_requested or run.status != AgentRunStatus.RUNNING.value:
         return False
     now = utc_now()
     with committing(session):
@@ -614,7 +591,8 @@ def reconcile_stale_run(session: Session, run: AgentRun) -> AgentRun:
     }
     if run.status not in heartbeat_statuses or run.heartbeat_at is None:
         return run
-    if utc_now() - run.heartbeat_at <= STALE_HEARTBEAT_AFTER:
+    stale_after = timedelta(seconds=get_settings().celery.AGENT_HEARTBEAT_TIMEOUT)
+    if utc_now() - run.heartbeat_at <= stale_after:
         return run
     return transition_run(
         session,

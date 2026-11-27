@@ -1,6 +1,6 @@
 import asyncio
+import threading
 import uuid
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +8,7 @@ from celery import Task
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
+from loguru import logger
 from sqlalchemy.orm import Session
 
 import bioflow_ai.crud.agent as agent_crud
@@ -109,7 +110,7 @@ async def _transition(
             kwargs = {}
         try:
             updated = agent_service.transition_run(session, run, status, event_type=event_type, **kwargs)
-        except agent_service.AgentRunTransitionError:
+        except agent_service.AgentServiceError:
             session.refresh(run)
             if AgentRunStatus(run.status) in TERMINAL_AGENT_RUN_STATUSES:
                 return None
@@ -156,14 +157,23 @@ async def _notify_run_finished(run: AgentRun, event_type: NotificationEventType,
     await notify(event_type, source=f'agent.{run.agent_name}', title=title, fields=fields, note=note)
 
 
-async def _heartbeat(run_uid: uuid.UUID, agent_task: asyncio.Task[Any]) -> None:
-    while not agent_task.done():
-        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
-        with Session(engine) as session:
-            run = agent_crud.get_run(session, run_uid)
-            if run is None or not agent_service.update_heartbeat(session, run):
-                agent_task.cancel()
-                return
+def _heartbeat_until_stopped(
+    run_uid: uuid.UUID,
+    stop: threading.Event,
+    loop: asyncio.AbstractEventLoop,
+    agent_task: asyncio.Task[Any],
+) -> None:
+    while not stop.wait(HEARTBEAT_INTERVAL_SECONDS):
+        try:
+            with Session(engine) as session:
+                run = agent_crud.get_run(session, run_uid)
+                alive = run is not None and agent_service.update_heartbeat(session, run)
+        except Exception:
+            logger.exception(f'Failed to heartbeat agent run {run_uid}')
+            continue
+        if not alive:
+            loop.call_soon_threadsafe(agent_task.cancel)
+            return
 
 
 async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
@@ -390,16 +400,22 @@ async def _run_agent(run_uid: uuid.UUID, language: str | None = None) -> None:
                 execute_agent_graph(graph, agent_input, config, context, on_progress, execution_log=execution_log),
                 name=f'agent-run-{run_uid}',
             )
-            heartbeat = asyncio.create_task(_heartbeat(run_uid, consumer), name=f'agent-heartbeat-{run_uid}')
+            stop_heartbeat = threading.Event()
+            heartbeat = threading.Thread(
+                target=_heartbeat_until_stopped,
+                args=(run_uid, stop_heartbeat, asyncio.get_running_loop(), consumer),
+                name=f'agent-heartbeat-{run_uid}',
+                daemon=True,
+            )
+            heartbeat.start()
             try:
                 execution = await consumer
             except asyncio.CancelledError:
                 await _transition(run_uid, AgentRunStatus.CANCELLED, AgentEventType.CANCELLED)
                 return
             finally:
-                heartbeat.cancel()
-                with suppress(asyncio.CancelledError):
-                    await heartbeat
+                stop_heartbeat.set()
+                heartbeat.join(timeout=2)
 
             if execution.interrupt is not None:
                 interrupt = execution.interrupt

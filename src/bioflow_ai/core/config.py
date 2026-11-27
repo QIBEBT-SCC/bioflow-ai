@@ -134,6 +134,8 @@ class CeleryConfig(BaseSectionConfig):
     BACKEND: RedisDsn = RedisDsn('redis://localhost:6379/1')
     EXECUTION_CONCURRENCY: int = Field(default=4, ge=1)
     AGENT_CONCURRENCY: int = Field(default=4, ge=1)
+    # Seconds without a worker heartbeat before a running agent run is marked failed; workers beat every 10 seconds.
+    AGENT_HEARTBEAT_TIMEOUT: int = Field(default=180, ge=60)
 
 
 class WorkflowConfig(BaseSectionConfig):
