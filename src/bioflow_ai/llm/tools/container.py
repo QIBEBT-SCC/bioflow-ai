@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session
 import bioflow_ai.crud.project_file_mapping as project_file_mapping_crud
 import bioflow_ai.crud.resource.sample as sample_crud
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.infrastructure.containers import ContainerMount, run_command_async, run_command_in_container
+from bioflow_ai.infrastructure.containers import (
+    ContainerCommandTimeoutError,
+    ContainerMount,
+    run_command_async,
+    run_command_in_container,
+)
 from bioflow_ai.infrastructure.containers.mount_paths import (
     PROJECT_DATA_ROOTS,
     build_project_data_mount_plan,
@@ -37,6 +42,47 @@ EVIDENCE_MOUNT_PATH = '/app/data/input'
 EVIDENCE_WORKDIR = '/app/data'
 PROJECT_DATA_DIR = '/app/data'
 PROJECT_WORK_DIR = '/work'
+
+
+def _resolve_timeout(timeout: int | None, *, default: int, maximum: int) -> tuple[int, str | None]:
+    if timeout is None:
+        return default, None
+    minimum = get_settings().agent_command.MIN_TIMEOUT
+    if not (minimum <= timeout <= maximum):
+        return default, f'Invalid timeout {timeout}s: must be between {minimum} and {maximum} seconds.'
+    return timeout, None
+
+
+def _format_timeout_notice(
+    *,
+    timeout: int,
+    maximum: int,
+    partial_output: str,
+    mode: Literal['execution', 'inspection'],
+    image_name: str | None = None,
+) -> str:
+    prefix = f'[Image: {image_name}]\n' if image_name else ''
+    header = (
+        f'{prefix}Command was intentionally terminated because it exceeded the {timeout}s timeout '
+        '(this is a proactive timeout safeguard, not an unexpected crash).'
+    )
+    if mode == 'execution':
+        guidance = (
+            'Before retrying, consider:\n'
+            '1. Downsampling or subsetting large input files (for example, creating a smaller test subset in the writable directory) so verification finishes quickly.\n'
+            '2. Adding constraining or resource parameters (such as thread count, memory limits, or lighter modes).\n'
+            f'3. Last resort only: if you are certain the tool inherently requires longer (for example, loading a large database like Kraken2), retry with a larger `timeout` (up to {maximum}s).'
+        )
+    else:
+        guidance = (
+            'Before retrying, consider:\n'
+            '1. Narrowing the command or sampling the target instead of scanning entire large files (for example, using `head`, `tail`, `seqkit head`, `rg -m`, or limiting `find` depth).\n'
+            f'2. Last resort only: if you are certain the inspection inherently requires longer, retry with a larger `timeout` (up to {maximum}s).'
+        )
+    sections = [header, guidance]
+    if clean_output := partial_output.strip():
+        sections.append(f'Partial output before termination:\n{truncate_output(clean_output)}')
+    return '\n\n'.join(sections)
 
 
 def _validate_command(command: str, workdir: str | None, tool_call_id: str | None) -> Command | None:
@@ -159,17 +205,30 @@ async def advance_run_command_tool(
     image_ref: str | None = None,
     workdir: str | None = '/data/output',
     mounts: list[ContainerMount] | None = None,
+    timeout: int | None = None,
 ) -> Command:
     """在容器环境中运行指定 bash 命令或生物信息学命令行工具并返回执行结果.
+
+    使用默认的较短超时时间; 超时会主动终止命令并返回提示. 仅在确定工具本身确实需要更长耗时(如加载 Kraken2 等大型数据库)时作为最后手段传入更大的 `timeout`.
 
     Args:
         command: 要运行的Linux命令行指令
         image_ref: `search_local_image` 返回的镜像 `<image_ref>`; 若不指定则使用默认的Linux基础镜像
         workdir: 指定命令运行的工作目录
         mounts: 除默认测试数据和输出目录外, **额外的**数据挂载
+        timeout: 可选超时时间(秒). 仅作为最后手段用于确认需要长耗时的工具, 优先考虑对数据下采样或调整线程/内存等限制参数.
     """
     if invalid_command := _validate_command(command, workdir, runtime.tool_call_id):
         return invalid_command
+
+    timeout_cfg = get_settings().agent_command
+    resolved_timeout, timeout_error = _resolve_timeout(
+        timeout,
+        default=timeout_cfg.TRIAL_DEFAULT_TIMEOUT,
+        maximum=timeout_cfg.TRIAL_MAX_TIMEOUT,
+    )
+    if timeout_error is not None:
+        return Command(update={'messages': [ToolMessage(content=timeout_error, tool_call_id=runtime.tool_call_id)]})
 
     # 镜像解析
     image, invalid_image = _resolve_image_ref(image_ref, runtime)
@@ -202,10 +261,21 @@ async def advance_run_command_tool(
         *extra_mounts,
     ]
 
-    code, output = await run_command_async(image, all_mounts, command, workdir)
+    image_name = image_ref or 'linux_default'
+    try:
+        code, output = await run_command_async(image, all_mounts, command, workdir, timeout=resolved_timeout)
+    except ContainerCommandTimeoutError as exc:
+        timeout_msg = _format_timeout_notice(
+            timeout=exc.timeout,
+            maximum=timeout_cfg.TRIAL_MAX_TIMEOUT,
+            partial_output=exc.output,
+            mode='execution',
+            image_name=image_name,
+        )
+        return Command(update={'messages': [ToolMessage(content=timeout_msg, tool_call_id=runtime.tool_call_id)]})
+
     status = 'successfully' if code == 0 else 'failed'
 
-    image_name = image_ref or 'linux_default'
     if output.strip():
         if not any(k in command for k in ('about.md', 'DESCRIPTION.md')):
             output = truncate_output(output)
@@ -235,20 +305,41 @@ async def coding_run_command(
     command: str,
     runtime: ToolRuntime[CodingContext],
     workdir: str = '/workspace',
+    timeout: int | None = None,
 ) -> str:
     """Run shell commands in container.
 
     The authoring workspace is mounted read-write at /workspace. Commands can
     read or modify files and run checks. Each CODE language uses the same image
-    for authoring checks and workflow execution.
+    for authoring checks and workflow execution. Commands use a short default
+    timeout and are terminated if exceeded; only raise `timeout` as a last resort
+    when you are certain the command legitimately needs longer.
 
     Args:
         command: Shell command to run; narrow large outputs.
         workdir: Working directory inside the container.
+        timeout: Optional timeout in seconds. Last resort only; prefer downsampling or constraining parameters first.
     """
+    timeout_cfg = get_settings().agent_command
+    resolved_timeout, timeout_error = _resolve_timeout(
+        timeout,
+        default=timeout_cfg.CODING_DEFAULT_TIMEOUT,
+        maximum=timeout_cfg.CODING_MAX_TIMEOUT,
+    )
+    if timeout_error is not None:
+        return timeout_error
+
     mounts = build_workspace_mounts(runtime.context.workspace_path, runtime.context.node_type)
     image = CODE_IMAGES[runtime.context.node_type]
-    code, output = await run_command_async(image, mounts, command, workdir)
+    try:
+        code, output = await run_command_async(image, mounts, command, workdir, timeout=resolved_timeout)
+    except ContainerCommandTimeoutError as exc:
+        return _format_timeout_notice(
+            timeout=exc.timeout,
+            maximum=timeout_cfg.CODING_MAX_TIMEOUT,
+            partial_output=exc.output,
+            mode='execution',
+        )
 
     msgs = []
     if code != 0:
@@ -390,18 +481,31 @@ async def run_evidence_command(
     source: str,
     command: str,
     runtime: ToolRuntime[WorkflowAssistantContext],
+    timeout: int | None = None,
 ) -> str:
     """Run a shell inspection against one read-only workflow evidence source.
 
     The source is mounted at ``/app/data/input``. It may be a file or a directory, so
     inspect it with ``file /app/data/input`` when the type is not already known.
     The command is passed directly to the container executor. Long output is shortened
-    in the returned preview, preserving its beginning and end.
+    in the returned preview, preserving its beginning and end. Commands use a short
+    default timeout and are terminated if exceeded; only raise ``timeout`` as a last
+    resort after trying narrower or sampled inspection commands.
 
     Args:
         source: ``run:current``, ``run:child:<uid>``, ``sample:<tag>``, or ``proj:<keyword>``.
         command: Shell inspection command using ``/app/data/input`` as the evidence path.
+        timeout: Optional timeout in seconds. Last resort only; prefer sampling or narrowing the inspection command first.
     """
+    timeout_cfg = get_settings().agent_command
+    resolved_timeout, timeout_error = _resolve_timeout(
+        timeout,
+        default=timeout_cfg.INSPECTION_DEFAULT_TIMEOUT,
+        maximum=timeout_cfg.INSPECTION_MAX_TIMEOUT,
+    )
+    if timeout_error is not None:
+        return timeout_error
+
     try:
         evidence = await asyncio.to_thread(resolve_evidence_source, source, runtime.context)
     except ValueError as error:
@@ -409,7 +513,16 @@ async def run_evidence_command(
 
     mount = ContainerMount(source=str(evidence.path), target=EVIDENCE_MOUNT_PATH, read_only=True)
     try:
-        code, output = await run_command_async(INSPECTION_IMAGE, [mount], command, EVIDENCE_WORKDIR)
+        code, output = await run_command_async(
+            INSPECTION_IMAGE, [mount], command, EVIDENCE_WORKDIR, timeout=resolved_timeout
+        )
+    except ContainerCommandTimeoutError as exc:
+        return _format_timeout_notice(
+            timeout=exc.timeout,
+            maximum=timeout_cfg.INSPECTION_MAX_TIMEOUT,
+            partial_output=exc.output,
+            mode='inspection',
+        )
     except Exception as error:
         return f'Error executing command: {type(error).__name__}: {error}'
 
@@ -453,17 +566,30 @@ async def planner_run_command(
     command: str,
     runtime: ToolRuntime[ProjectContext, ProjectPlannerState],
     workdir: str | None = None,
+    timeout: int | None = None,
 ) -> str:
     """Run a read-only shell command in a container.
 
     /app/data (the data dir set by `set_base_dir`) and /work (the project dir) are both mounted read-only.
     Relative paths resolve against the current default dir unless `workdir` is given.
     Available commands include seqkit, fd, rg, jq, yq, mlr, awk, grep, find, head and file.
+    Commands use a short default timeout and are terminated if exceeded; only raise `timeout`
+    as a last resort after trying narrower or sampled inspection commands.
 
     Args:
         command: Shell command to run in the container.
         workdir: Working dir for this call only, inside /work or /app/data. Defaults to the current default dir.
+        timeout: Optional timeout in seconds. Last resort only; prefer sampling or narrowing the command first.
     """
+    timeout_cfg = get_settings().agent_command
+    resolved_timeout, timeout_error = _resolve_timeout(
+        timeout,
+        default=timeout_cfg.INSPECTION_DEFAULT_TIMEOUT,
+        maximum=timeout_cfg.INSPECTION_MAX_TIMEOUT,
+    )
+    if timeout_error is not None:
+        return timeout_error
+
     try:
         cwd = resolve_project_cwd(workdir, runtime.state.get('default_dir', PROJECT_WORK_DIR))
     except ValueError as exc:
@@ -482,7 +608,16 @@ async def planner_run_command(
     elif _under(cwd, PROJECT_DATA_DIR):
         return f'{PROJECT_DATA_DIR} is not mounted. Call `set_base_dir` with the data path first.'
 
-    code, result = await run_command_async(INSPECTION_IMAGE, mounts, command, cwd)
+    try:
+        code, result = await run_command_async(INSPECTION_IMAGE, mounts, command, cwd, timeout=resolved_timeout)
+    except ContainerCommandTimeoutError as exc:
+        return _format_timeout_notice(
+            timeout=exc.timeout,
+            maximum=timeout_cfg.INSPECTION_MAX_TIMEOUT,
+            partial_output=exc.output,
+            mode='inspection',
+        )
+
     run_status = 'successfully' if code == 0 else 'failed'
     if clean_out := result.strip():
         return (
@@ -510,7 +645,7 @@ async def report_run_command(command: str, runtime: ToolRuntime, workdir: str | 
     """Execute shell commands within the container."""
     runtime.stream_writer(f'run: {command[:100]}')
     container_id = runtime.state.get('container_id', '')
-    code, out = run_command_in_container(container_id, command, workdir)
+    code, out = await asyncio.to_thread(run_command_in_container, container_id, command, workdir)
 
     run_status = 'successfully' if code == 0 else 'failed'
     if out.strip():

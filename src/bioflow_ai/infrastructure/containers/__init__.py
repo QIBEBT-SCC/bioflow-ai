@@ -5,6 +5,7 @@ from docker.types import Mount
 from bioflow_ai.core.config import get_settings
 from bioflow_ai.infrastructure.containers._general import (
     CONTAINER_ROOT_USER,
+    ContainerCommandTimeoutError,
     ContainerMount,
 )
 from bioflow_ai.schemas.tool_config import ImageConfig
@@ -43,6 +44,7 @@ def run_command(
     *,
     ensure_ascii: bool = True,
     user: str | None = CONTAINER_ROOT_USER,
+    timeout: int | None = None,
 ) -> tuple[int, str]:
     """Execute shell commands within a specified container environment.
 
@@ -53,6 +55,7 @@ def run_command(
         workdir: The working directory of command execution.
         ensure_ascii: Whether to ensure the output is ASCII-encoded. Defaults to True.
         user: User identity inside the container. Defaults to container root; the rootless runtime maps it to the host user that owns the daemon.
+        timeout: Optional execution timeout in seconds. When exceeded, the container is killed and ContainerCommandTimeoutError is raised.
 
     Returns:
         A tuple containing two elements:
@@ -68,6 +71,7 @@ def run_command(
             _convert_to_podman_mount(mounts),
             workdir,
             user=user,
+            timeout=timeout,
         )
     else:
         from bioflow_ai.infrastructure.containers.docker import run_docker
@@ -79,6 +83,7 @@ def run_command(
             workdir,
             ensure_ascii=ensure_ascii,
             user=user,
+            timeout=timeout,
         )
 
     return status, output
@@ -92,6 +97,7 @@ async def run_command_async(
     *,
     ensure_ascii: bool = True,
     user: str | None = CONTAINER_ROOT_USER,
+    timeout: int | None = None,
 ) -> tuple[int, str]:
     """Run a blocking container command without blocking the asyncio event loop.
 
@@ -111,6 +117,7 @@ async def run_command_async(
             workdir,
             ensure_ascii=ensure_ascii,
             user=user,
+            timeout=timeout,
         ),
         name='container-command',
     )
@@ -189,6 +196,7 @@ def remove_container(container_id: str) -> None:
 
 __all__ = [
     'CONTAINER_ROOT_USER',
+    'ContainerCommandTimeoutError',
     'ContainerMount',
     'create_container',
     'remove_container',

@@ -1,17 +1,22 @@
 import datetime
 import time
 from collections.abc import Generator
+from contextlib import suppress
 from functools import lru_cache
 from typing import Any, Optional
 
 import docker
 import requests
-from docker.errors import ImageNotFound, NotFound
+from docker.errors import APIError, ImageNotFound, NotFound
 from docker.types import DeviceRequest, Mount
 from loguru import logger
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.infrastructure.containers._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
+from bioflow_ai.infrastructure.containers._general import (
+    CONTAINER_ROOT_USER,
+    ContainerCommandTimeoutError,
+    _strip_ansi_escape_sequences,
+)
 from bioflow_ai.schemas.tool_config import ImageConfig
 
 client = docker.from_env()
@@ -46,6 +51,16 @@ def _check_image(image_cfg: ImageConfig) -> None:
         time.sleep(1)
 
 
+def _read_container_logs(container: Any, *, ensure_ascii: bool) -> str:
+    raw_logs = container.logs(stderr=True)
+    text = (
+        raw_logs.decode('utf-8', errors='replace').rstrip() if isinstance(raw_logs, bytes) else str(raw_logs).rstrip()
+    )
+    if ensure_ascii:
+        return _strip_ansi_escape_sequences(text)
+    return text
+
+
 def run_docker(
     image_cfg: ImageConfig,
     command: str,
@@ -54,6 +69,7 @@ def run_docker(
     *,
     ensure_ascii: bool = True,
     user: str | None = CONTAINER_ROOT_USER,
+    timeout: int | None = None,
     **kwargs,
 ) -> tuple[int, str]:
     """在docker容器中运行命令并返回执行结果.
@@ -68,6 +84,7 @@ def run_docker(
         workdir: 命令运行的工作目录
         ensure_ascii: 是否过滤命令行富文本格式
         user: 容器内的用户身份。默认使用容器 root, 由 rootless Docker 映射到 daemon 所属宿主机用户
+        timeout: 可选超时时间 (秒); 超时后会终止并清理容器并抛出 ContainerCommandTimeoutError
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -76,6 +93,7 @@ def run_docker(
             - 输出日志: 命令的标准输出和错误输出
 
     Raises:
+        ContainerCommandTimeoutError: 命令超过指定超时时间并被终止时抛出
         docker.errors.ContainerError: 容器运行失败时抛出
         docker.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
     """
@@ -106,16 +124,21 @@ def run_docker(
     )
 
     try:
-        status_code = container.wait()['StatusCode']
-        result = container.logs(stderr=True)
-        result = result.decode('utf-8').rstrip()
-
-        if ensure_ascii:
-            return status_code, _strip_ansi_escape_sequences(result)
-        return status_code, result
+        if timeout is None:
+            status_code = container.wait()['StatusCode']
+        else:
+            try:
+                status_code = container.wait(timeout=timeout)['StatusCode']
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as error:
+                with suppress(NotFound, APIError):
+                    container.kill()
+                partial_output = _read_container_logs(container, ensure_ascii=ensure_ascii)
+                raise ContainerCommandTimeoutError(timeout=timeout, output=partial_output) from error
+        return status_code, _read_container_logs(container, ensure_ascii=ensure_ascii)
     finally:
         if container:
-            container.remove(force=True)
+            with suppress(NotFound):
+                container.remove(force=True)
 
 
 def run_docker_background(
