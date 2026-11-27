@@ -13,6 +13,15 @@ class ContainerMount(BaseModel):
     read_only: bool
 
 
+class ContainerCommandTimeoutError(TimeoutError):
+    """Raised when a container command exceeds its timeout and is terminated."""
+
+    def __init__(self, timeout: int, output: str = '') -> None:
+        super().__init__(f'Container command exceeded {timeout}s timeout and was terminated.')
+        self.timeout = timeout
+        self.output = output
+
+
 def _strip_ansi_escape_sequences(text: str) -> str:
     """Remove ANSI escape sequences from text.
 

@@ -144,6 +144,35 @@ class WorkflowConfig(BaseSectionConfig):
     HEARTBEAT_TIMEOUT: int = Field(default=300, ge=90)
 
 
+class AgentCommandConfig(BaseSectionConfig):
+    """Timeout limits (in seconds) for agent container `run_command` tools."""
+
+    MIN_TIMEOUT: int = Field(default=10, ge=1)
+    INSPECTION_DEFAULT_TIMEOUT: int = Field(default=30, ge=1)
+    INSPECTION_MAX_TIMEOUT: int = Field(default=300, ge=1)
+    CODING_DEFAULT_TIMEOUT: int = Field(default=45, ge=1)
+    CODING_MAX_TIMEOUT: int = Field(default=600, ge=1)
+    TRIAL_DEFAULT_TIMEOUT: int = Field(default=60, ge=1)
+    TRIAL_MAX_TIMEOUT: int = Field(default=1800, ge=1)
+
+    @model_validator(mode='after')
+    def validate_timeout_bounds(self) -> 'AgentCommandConfig':
+        """Ensure min <= default <= max for every agent command timeout tier."""
+        tiers = (
+            ('inspection', self.INSPECTION_DEFAULT_TIMEOUT, self.INSPECTION_MAX_TIMEOUT),
+            ('coding', self.CODING_DEFAULT_TIMEOUT, self.CODING_MAX_TIMEOUT),
+            ('trial', self.TRIAL_DEFAULT_TIMEOUT, self.TRIAL_MAX_TIMEOUT),
+        )
+        for name, default, maximum in tiers:
+            if default < self.MIN_TIMEOUT:
+                msg = f'{name}_default_timeout ({default}) must be >= min_timeout ({self.MIN_TIMEOUT})'
+                raise ValueError(msg)
+            if maximum < default:
+                msg = f'{name}_max_timeout ({maximum}) must be >= {name}_default_timeout ({default})'
+                raise ValueError(msg)
+        return self
+
+
 class MinerUConfig(BaseSectionConfig):
     API_URL: str = 'https://api.mineru.app'
     API_KEY: SecretStr = SecretStr('')
@@ -191,6 +220,7 @@ class Settings(BaseSettings):
     code_editing: CodeEditingConfig = CodeEditingConfig()
     celery: CeleryConfig = CeleryConfig()
     workflow: WorkflowConfig = WorkflowConfig()
+    agent_command: AgentCommandConfig = AgentCommandConfig()
     knowledge_base: KnowledgeBaseConfig = KnowledgeBaseConfig()
     pdf_parser: PDFParserConfig = PDFParserConfig()
 

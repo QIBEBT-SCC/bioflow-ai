@@ -1,6 +1,7 @@
 import datetime
 import time
 from collections.abc import Generator
+from contextlib import suppress
 from functools import lru_cache
 from typing import Any, Optional
 
@@ -11,7 +12,11 @@ from podman.domain.containers import Container
 from podman.errors import APIError, ImageNotFound
 
 from bioflow_ai.core.config import get_settings
-from bioflow_ai.infrastructure.containers._general import CONTAINER_ROOT_USER, _strip_ansi_escape_sequences
+from bioflow_ai.infrastructure.containers._general import (
+    CONTAINER_ROOT_USER,
+    ContainerCommandTimeoutError,
+    _strip_ansi_escape_sequences,
+)
 from bioflow_ai.schemas.tool_config import ImageConfig
 from bioflow_ai.utils.system import get_cpu_cores
 
@@ -67,6 +72,12 @@ def _get_gpu_devices() -> list[str]:
     return [f'nvidia.com/gpu={gpu_id}' for gpu_id in settings.GPU_DEVICES.split(',')]
 
 
+def _read_container_logs(container: Container) -> str:
+    raw_logs = container.logs()
+    log = raw_logs if isinstance(raw_logs, bytes) else b''.join(raw_logs)
+    return log.decode('utf-8', errors='replace').rstrip()
+
+
 def run_podman(
     image_cfg: ImageConfig,
     command: str,
@@ -74,6 +85,7 @@ def run_podman(
     workdir: Optional[str] = None,
     *,
     user: str | None = CONTAINER_ROOT_USER,
+    timeout: int | None = None,
     **kwargs: Any,
 ) -> tuple[int, str]:
     """在podman容器中运行命令并返回执行结果.
@@ -87,6 +99,7 @@ def run_podman(
         mounts: 文件挂载列表
         workdir: 命令运行的工作目录
         user: 容器内的用户身份。默认使用容器 root, 由 rootless Podman 映射到 service 所属宿主机用户
+        timeout: 可选超时时间 (秒); 超时后会终止并清理容器并抛出 ContainerCommandTimeoutError
         **kwargs: 其他容器参数, 如环境变量、端口映射等
 
     Returns:
@@ -95,6 +108,7 @@ def run_podman(
             - 输出日志: 命令的标准输出和错误输出
 
     Raises:
+        ContainerCommandTimeoutError: 命令超过指定超时时间并被终止时抛出
         podman.errors.ContainerError: 容器运行失败时抛出
         podman.errors.ImageNotFound: 镜像不存在且拉取失败时抛出
         AssertionError: Podman客户端连接失败时抛出
@@ -125,16 +139,27 @@ def run_podman(
             if not isinstance(run_result, Container):
                 raise TypeError
             container = run_result
-            status_code = container.wait()
-            raw_logs = container.logs()
-            log = raw_logs if isinstance(raw_logs, bytes) else b''.join(raw_logs)
-            try:
-                return status_code, log.decode('utf-8').rstrip()
-            except UnicodeDecodeError as e:
-                return status_code, f'Output decode error. {e}'
+            if timeout is None:
+                status_code = container.wait()
+            else:
+                deadline = time.monotonic() + timeout
+                while True:
+                    container.reload()
+                    if container.status in {'exited', 'stopped', 'dead'}:
+                        status_code = container.wait()
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        with suppress(APIError):
+                            container.kill()
+                        partial_output = _read_container_logs(container)
+                        raise ContainerCommandTimeoutError(timeout=timeout, output=partial_output)
+                    time.sleep(min(0.25, remaining))
+            return status_code, _read_container_logs(container)
         finally:
             if container:
-                container.remove()
+                with suppress(APIError):
+                    container.remove(force=True)
 
 
 def run_podman_background(

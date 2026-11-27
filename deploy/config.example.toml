@@ -85,6 +85,16 @@ max_parallel_items = 4
 # Seconds without a worker heartbeat before a running node is marked failed (minimum 90).
 heartbeat_timeout = 300
 
+[agent_command]
+# Timeout limits (seconds) for agent container run_command tools.
+min_timeout = 10
+inspection_default_timeout = 30
+inspection_max_timeout = 300
+coding_default_timeout = 45
+coding_max_timeout = 600
+trial_default_timeout = 60
+trial_max_timeout = 1800
+
 [knowledge_base]
 milvus_url = "http://localhost:19530"
 embedding_model = "Qwen/Qwen3-Embedding-4B"
