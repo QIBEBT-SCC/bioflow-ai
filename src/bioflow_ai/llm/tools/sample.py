@@ -1,5 +1,6 @@
 """Sample and project-file registration tools for the project-planner agent."""
 
+import asyncio
 import uuid
 
 from anyio import Path
@@ -96,19 +97,23 @@ async def add_sample_file(
         return 'Call `add_samples` to create sample objects first.'
 
     if sample_uid := sample_maps.get(sample_name):
-        with Session(engine) as session:
-            sample_file = SampleFiles(
-                sample_uid=uuid.UUID(sample_uid),
-                file_path=f'{sample_path}',
-                tag=tag,
-            )
-            try:
-                sample_file = sample_service.add_file(session, sample_file)
-            except IntegrityError:
-                session.rollback()
-                return f'Tag "{tag}" already exists for sample {sample_name}. Choose a different tag.'
 
-        return f'Add "{sample_file.tag}" file for sample {sample_name}.'
+        def _register() -> str:
+            with Session(engine) as session:
+                sample_file = SampleFiles(
+                    sample_uid=uuid.UUID(sample_uid),
+                    file_path=f'{sample_path}',
+                    tag=tag,
+                )
+                try:
+                    added_file = sample_service.add_file(session, sample_file)
+                except IntegrityError:
+                    session.rollback()
+                    return f'Tag "{tag}" already exists for sample {sample_name}. Choose a different tag.'
+
+            return f'Add "{added_file.tag}" file for sample {sample_name}.'
+
+        return await asyncio.to_thread(_register)
 
     return f'No sample object named {sample_name} is found. Please ensure that sample_name is correct.'
 
@@ -135,19 +140,22 @@ async def add_project_file(
     if not await final_path.exists():
         return f'The sample file does not exist. The path constructed by concatenating base_dir and the provided file_path is: {final_path}. Please verify that the path is correct.'
 
-    with Session(engine) as session:
-        try:
-            project_file_mapping_service.create_mapping(
-                session,
-                runtime.context.project_id,
-                keyword,
-                f'{final_path}',
-                description,
-            )
-        except IntegrityError:
-            session.rollback()
-            return f'Project file keyword "{keyword}" already exists. Choose a different keyword.'
-    return f'Added project file "{keyword}"'
+    def _register() -> str:
+        with Session(engine) as session:
+            try:
+                project_file_mapping_service.create_mapping(
+                    session,
+                    runtime.context.project_id,
+                    keyword,
+                    f'{final_path}',
+                    description,
+                )
+            except IntegrityError:
+                session.rollback()
+                return f'Project file keyword "{keyword}" already exists. Choose a different keyword.'
+        return f'Added project file "{keyword}"'
+
+    return await asyncio.to_thread(_register)
 
 
 @tool(parse_docstring=True)

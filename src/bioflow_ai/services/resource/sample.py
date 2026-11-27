@@ -12,8 +12,7 @@ from bioflow_ai.models.resource import Sample, SampleFiles
 from bioflow_ai.models.workflow import Workflow
 from bioflow_ai.schemas.resource import SampleBatchImportResult, SampleUpdate
 from bioflow_ai.services._transaction import committing
-from bioflow_ai.utils.file.hash import calculate_file_md5
-from bioflow_ai.utils.identifiers import UUIDLike
+from bioflow_ai.utils.identifiers import UUIDLike, as_uuid
 from bioflow_ai.utils.system import get_file_size
 
 _MIN_COMPOUND_EXTENSION_COUNT = 2
@@ -50,7 +49,7 @@ def _update_project_time(session: Session, project_id: int) -> None:
         project.update_time = datetime.now(UTC)
 
 
-def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
+def _calculate_file_info(file_path: str) -> tuple[str, int]:
     path = Path(file_path)
     compression_suffixes = {'.gz', '.bz2', '.xz', '.bz', '.zip'}
     if path.suffix.lower() in compression_suffixes and len(path.suffixes) >= _MIN_COMPOUND_EXTENSION_COUNT:
@@ -59,7 +58,7 @@ def _calculate_file_info(file_path: str) -> tuple[str, int, str]:
         file_format = path.suffix.lstrip('.')
     else:
         file_format = 'unknown'
-    return file_format, get_file_size(file_path), calculate_file_md5(file_path)
+    return file_format, get_file_size(file_path)
 
 
 def create_sample(session: Session, sample: Sample) -> Sample:
@@ -113,12 +112,26 @@ def add_file(session: Session, sample_file: SampleFiles) -> SampleFiles:
     sample = sample_crud.get(session, sample_file.sample_uid)
     if sample is None:
         raise SampleNotFoundError
-    sample_file.file_format, sample_file.file_size, sample_file.md5_checksum = _calculate_file_info(
-        sample_file.file_path
-    )
+    sample_file.file_format, sample_file.file_size = _calculate_file_info(sample_file.file_path)
+    sample_file.md5_checksum = None
     with committing(session):
         sample_crud.insert_file(session, sample_file)
         _update_project_time(session, sample.project_id)
+    session.refresh(sample_file)
+    return sample_file
+
+
+def update_file_md5(session: Session, sample_uid: UUIDLike, file_uid: UUIDLike, md5_checksum: str) -> SampleFiles:
+    """Persist a computed MD5 checksum for an existing sample file."""
+    sample_file = sample_crud.get_file(session, file_uid)
+    if sample_file is None or sample_file.sample_uid != as_uuid(sample_uid):
+        raise SampleFileNotFoundError
+    sample = sample_crud.get(session, sample_file.sample_uid)
+    with committing(session):
+        sample_file.md5_checksum = md5_checksum
+        session.add(sample_file)
+        if sample is not None:
+            _update_project_time(session, sample.project_id)
     session.refresh(sample_file)
     return sample_file
 
@@ -249,7 +262,7 @@ def import_samples_from_csv(
                     file_value = row.get(column_name)
                     if file_value and str(file_value).strip():
                         file_path = str(file_value).strip()
-                        file_format, file_size, md5_checksum = _calculate_file_info(file_path)
+                        file_format, file_size = _calculate_file_info(file_path)
                         sample_crud.insert_file(
                             session,
                             SampleFiles(
@@ -258,7 +271,7 @@ def import_samples_from_csv(
                                 file_path=file_path,
                                 file_format=file_format,
                                 file_size=file_size,
-                                md5_checksum=md5_checksum,
+                                md5_checksum=None,
                             ),
                         )
             result.success += 1
