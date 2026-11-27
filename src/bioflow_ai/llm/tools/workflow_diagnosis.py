@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, load_only
 from bioflow_ai.infrastructure.database import engine
 from bioflow_ai.llm.context import WorkflowAssistantContext
 from bioflow_ai.llm.tools.container import resolve_workflow_run
-from bioflow_ai.models.workflow import NodeRun, WorkflowRun
+from bioflow_ai.models.workflow import NodeRun, ProjectWorkflow, Workflow, WorkflowRun
 from bioflow_ai.schemas.react_flow import WorkflowDefinition
 from bioflow_ai.schemas.workflow_run import NodeRunStatus, RunStatus
 from bioflow_ai.services.workflow.node_details import describe_node
@@ -292,6 +292,176 @@ def workflow_reader(
             offset,
             limit,
             failed_only=failed_only,
+            upstream_depth=upstream_depth,
+        ),
+        ensure_ascii=False,
+    )
+
+
+def _project_workflow_payload(
+    context: WorkflowAssistantContext,
+    action: str,
+    workflow_uid: str | None = None,
+    include_node_id: str | None = None,
+    subgraph_path: list[str] | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    *,
+    upstream_depth: int = 0,
+) -> dict[str, Any]:
+    if offset < 0 or not 1 <= limit <= MAX_CHILD_PAGE:
+        return {'error': 'offset must be nonnegative and limit must be between 1 and 100.'}
+    if upstream_depth < 0:
+        return {'error': 'upstream_depth must be nonnegative.'}
+    if upstream_depth and action != 'overview':
+        return {'error': 'upstream_depth is only supported for action=overview.'}
+    if upstream_depth and not include_node_id:
+        return {'error': 'upstream_depth requires node_id.'}
+    if action in {'overview', 'node'} and not workflow_uid:
+        return {'error': f'workflow_uid is required for action={action}.'}
+    if action == 'node' and not include_node_id:
+        return {'error': 'node_id is required for action=node.'}
+
+    with Session(engine) as session:
+        if action == 'list':
+            rows = session.execute(
+                select(ProjectWorkflow, Workflow)
+                .join(Workflow, ProjectWorkflow.workflow_uid == Workflow.uid)
+                .where(ProjectWorkflow.project_id == context.project_id)
+                .order_by(ProjectWorkflow.import_time, Workflow.name, Workflow.uid)
+                .offset(offset)
+                .limit(limit + 1)
+            ).all()
+            return {
+                'project_id': context.project_id,
+                **({'next_offset': offset + limit} if len(rows) > limit else {}),
+                'workflows': [
+                    {
+                        'workflow_uid': str(workflow.uid),
+                        'name': workflow.name,
+                        'execution_scope': workflow.execution_scope.name.lower(),
+                        'enabled': association.enabled,
+                        'is_current': context.workflow_uid == str(workflow.uid),
+                        'description': workflow.description,
+                        'node_count': len(workflow.workflow.nodes),
+                    }
+                    for association, workflow in rows[:limit]
+                ],
+            }
+
+        if workflow_uid is None:
+            return {'error': f'workflow_uid is required for action={action}.'}
+        try:
+            parsed_uid = uuid.UUID(workflow_uid)
+        except ValueError:
+            return {'error': 'Invalid workflow_uid.'}
+
+        row = session.execute(
+            select(ProjectWorkflow, Workflow)
+            .join(Workflow, ProjectWorkflow.workflow_uid == Workflow.uid)
+            .where(
+                ProjectWorkflow.project_id == context.project_id,
+                ProjectWorkflow.workflow_uid == parsed_uid,
+            )
+        ).first()
+        if row is None:
+            return {'error': f'Workflow not found in this project: {workflow_uid}'}
+        association, workflow = row
+
+        path = tuple(subgraph_path or ())
+        try:
+            graph, _ = enter_subgraphs(workflow.workflow, list(path))
+        except SubgraphError as error:
+            return {'error': str(error)}
+
+        graph_nodes = {node.id: node for node in graph.nodes}
+        if include_node_id is not None and include_node_id not in graph_nodes:
+            return {'error': f'Node not found: {include_node_id}'}
+
+        parents, _ = _parents_and_children(graph)
+        targets = [include_node_id] if include_node_id is not None else list(graph_nodes)
+        scoped_ids = [
+            node_id for node_id in _upstream_scope(targets, parents, upstream_depth) if node_id in graph_nodes
+        ]
+        shown_ids = scoped_ids[offset : offset + limit] if action == 'overview' else scoped_ids
+
+        nodes = []
+        for node_id in shown_ids:
+            node = graph_nodes[node_id]
+            payload: dict[str, Any] = {
+                'node_id': node.id,
+                'name': node.data.get('name') or node.id,
+                'type': node.type,
+            }
+            if node.type == 'subgraph':
+                payload['child_path'] = [*path, node.id]
+            if action == 'node':
+                payload.update(describe_node(session, graph, node, path, {}, include_results=False))
+            nodes.append(payload)
+
+        result: dict[str, Any] = {
+            'workflow': {
+                'workflow_uid': str(workflow.uid),
+                'name': workflow.name,
+                'execution_scope': workflow.execution_scope.name.lower(),
+                'enabled': association.enabled,
+                'is_current': context.workflow_uid == str(workflow.uid),
+                'source': 'project_template',
+            },
+            'subgraph_path': list(path),
+            'nodes': nodes,
+        }
+        if action == 'overview':
+            shown_set = set(shown_ids)
+            result['edges'] = [
+                edge.model_dump(include={'source', 'sourceHandle', 'target', 'targetHandle'})
+                for edge in graph.edges
+                if edge.source in shown_set and edge.target in shown_set
+            ]
+            if offset + limit < len(scoped_ids):
+                result['next_offset'] = offset + limit
+        return result
+
+
+@tool('project_workflow_reader', parse_docstring=True)
+def project_workflow_reader(
+    action: Literal['list', 'overview', 'node'],
+    runtime: ToolRuntime[WorkflowAssistantContext],
+    workflow_uid: str | None = None,
+    node_id: str | None = None,
+    subgraph_path: list[str] | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    *,
+    upstream_depth: int = 0,
+) -> str:
+    """List or inspect static workflow templates belonging to the current project.
+
+    Reads database workflow definitions (including disabled workflows) within the current
+    project without runtime statuses, logs, or recorded outputs. Use ``list`` to discover
+    project workflows, ``overview`` to browse nodes and edges in a workflow or subgraph, and
+    ``node`` to inspect one node's static configuration, command template, code, and handles.
+
+    Args:
+        action: ``list`` returns paginated summaries of workflows in the current project;
+            ``overview`` returns paginated node summaries and edges for one workflow;
+            ``node`` returns static configuration, commands, code, and input/output handles for one node.
+        workflow_uid: Workflow UID returned by ``list``, required for ``overview`` and ``node``.
+        node_id: Local node ID, required for ``node`` and for ``overview`` when ``upstream_depth`` is set.
+        subgraph_path: Nested subgraph node IDs to enter in the selected workflow template.
+        offset: First workflow or scoped node to list. Follow ``next_offset`` when present.
+        limit: Maximum workflows or scoped nodes to list (1 to 100, default 20).
+        upstream_depth: Overview only. Number of upstream edge hops from ``node_id`` (default 0).
+    """
+    return json.dumps(
+        _project_workflow_payload(
+            runtime.context,
+            action,
+            workflow_uid,
+            node_id,
+            subgraph_path,
+            offset,
+            limit,
             upstream_depth=upstream_depth,
         ),
         ensure_ascii=False,

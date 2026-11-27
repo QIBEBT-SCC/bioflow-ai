@@ -225,6 +225,11 @@ def _agent_tool_details(name: str, args: Mapping[str, Any]) -> dict[str, Any] | 
     if name in {'workflow_reader', 'fix_subgraph'}:
         details = {'action': _text_arg(args, 'action'), 'subject': _text_arg(args, 'node_id')}
         return {key: value for key, value in details.items() if value is not None}
+    if name == 'project_workflow_reader':
+        action = _text_arg(args, 'action')
+        subject = _text_arg(args, 'node_id') if action == 'node' else _text_arg(args, 'workflow_uid')
+        details = {'action': action, 'subject': subject}
+        return {key: value for key, value in details.items() if value is not None}
     if name == 'run_command':
         details = {'subject': _text_arg(args, 'source'), 'command': _text_arg(args, 'command')}
         return {key: value for key, value in details.items() if value is not None}
