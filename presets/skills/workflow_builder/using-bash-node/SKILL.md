@@ -51,19 +51,25 @@ complete script.
 The request must state:
 
 - the exact deterministic transformation to perform;
-- the meaning and expected file or directory type of each bound input;
+- the meaning and expected type (mounted file/directory path vs literal text value) of each bound input;
 - every deterministic output file name that a later workflow node will consume;
 - any important validation, filtering, sorting, formatting, or preservation rules.
 
-Before adding the code node, create one `bind_param` node per input and use a distinct short option for each one. The
-manager reads these bindings and gives their exact option names to the coding model. After the node is returned, inspect
-the generated code before connecting downstream nodes.
+Before adding the code node, create one `bind_param` node per input and use a distinct short option for each one across
+both `input_files` and `input_values`. Connect file or directory bindings to `input_files`, and connect dynamic text
+value bindings (`value_string`, `read_file_content`, or a subgraph boundary input) to `input_values`. Use `input_values`
+only for dynamic values such as `sample:<key>` metadata, upstream `read_file_content` values, or subgraph-exposed
+parameters; keep fixed constants directly in the Bash script. The manager reads these bindings and gives their exact
+option names and kinds to the coding model. After the node is returned, inspect the generated code before connecting
+downstream nodes.
 
 ### bind_param Node
 
-To map input files to parameters defined in the Bash code, first connect the file to a `bind_param` node and set the node's `parameter` field to the corresponding option, such as `-f`.
-The output of this node is a special definition of the file bound to that parameter, which is then connected to the input of the code node. Note that this node can bind only one parameter at a time;
-if the code node requires multiple input parameters, multiple `bind_param` nodes must be used.
+To map input files, directories, or text values to parameters defined in the Bash code, first connect the upstream node
+to a `bind_param` node and set the node's `parameter` field to the corresponding option, such as `-f` or `-s`.
+The output of this node is bound to that parameter and connected to the code node's `input_files` (for paths) or
+`input_values` (for text values). Note that this node can bind only one parameter at a time;
+if the code node requires multiple input parameters, multiple `bind_param` nodes must be used with unique options.
 
 ### select_file_in_folder Node
 

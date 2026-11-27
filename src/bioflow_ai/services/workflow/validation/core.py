@@ -16,6 +16,7 @@ from bioflow_ai.services.workflow.batch_graph import lower_batch_subgraphs
 from bioflow_ai.services.workflow.subgraphs import MAX_SUBGRAPH_DEPTH, definition_id
 from bioflow_ai.services.workflow.validation._expansion import _flatten_workflow
 from bioflow_ai.services.workflow.validation._rules import (
+    _check_code_binding_sources,
     _check_code_node_edges,
     _check_edge_handles,
     _check_ncbi_genome_edges,
@@ -549,6 +550,16 @@ def run_rules(
                         node_id=node.id,
                         parents=parents,
                     )
+                node_types = {nid: item.type for nid, item in by_id.items()}
+                bind_params = {
+                    nid: str(item.data.get('parameter', '')).strip()
+                    for nid, item in by_id.items()
+                    if item.type == 'bind_param'
+                }
+                for error in _check_code_binding_sources(
+                    incoming[node.id], node_types, incoming, bind_parameters=bind_params
+                ):
+                    report('code.source', error, location, node_id=node.id, parents=parents)
             if node.type == 'image_preview' and len(edges) > 1:
                 report(
                     'input.multiple',
@@ -613,6 +624,48 @@ def run_rules(
                     diagnostic.node_id = origin.node_id
                     diagnostic.subgraph_path = origin.subgraph_path
                 result.diagnostics.append(diagnostic)
+            flat_types = {item.id: item.type for item in flattened.nodes}
+            flat_bind_params = {
+                item.id: str(item.data.get('parameter', '')).strip()
+                for item in flattened.nodes
+                if item.type == 'bind_param'
+            }
+            flat_incoming: defaultdict[str, list[BuildEdge]] = defaultdict(list)
+            for edge in flattened.edges:
+                flat_incoming[edge.target].append(
+                    BuildEdge(
+                        source_node=edge.source,
+                        source_handle=edge.sourceHandle.removeprefix(f'{edge.source}-out-'),
+                        target_node=edge.target,
+                        target_handle=edge.targetHandle.removeprefix(f'{edge.target}-in-'),
+                    )
+                )
+            display_ids = {
+                key.removeprefix('node:'): loc.node_id
+                for key, loc in source_map.items()
+                if key.startswith('node:') and loc.node_id is not None
+            }
+            reported_code_sources = {
+                (d.node_id, tuple(d.subgraph_path), d.message) for d in result.diagnostics if d.code == 'code.source'
+            }
+            for flat_node in flattened.nodes:
+                if flat_node.type not in CODE_NODE_TYPES:
+                    continue
+                origin = source_map.get('node:' + flat_node.id)
+                mapped_path = origin.path if origin else ''
+                mapped_node_id = origin.node_id if origin else flat_node.id
+                mapped_parents = tuple(origin.subgraph_path) if origin else ()
+                for error in _check_code_binding_sources(
+                    flat_incoming[flat_node.id],
+                    flat_types,
+                    flat_incoming,
+                    bind_parameters=flat_bind_params,
+                    display_ids=display_ids,
+                ):
+                    key = (mapped_node_id, mapped_parents, error)
+                    if key not in reported_code_sources:
+                        reported_code_sources.add(key)
+                        report('code.source', error, mapped_path, node_id=mapped_node_id, parents=mapped_parents)
             bindings = set()
             for edge in flattened.edges:
                 key = (edge.source, edge.sourceHandle, edge.target, edge.targetHandle)

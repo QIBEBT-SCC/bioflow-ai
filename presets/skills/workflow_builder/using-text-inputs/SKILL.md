@@ -151,3 +151,25 @@ already exposes a required text handle, supply its upstream node even when the c
 constant. This does not mean ordinary static settings need new handles: keep thread counts,
 thresholds, and other settings in the existing editable parameters unless the tool contract
 specifically requires an upstream text value.
+
+## 3. Connect Text to CODE Node Parameters
+
+Python, R, and Bash CODE nodes expose a dedicated `input_values` handle alongside `input_files`:
+
+```text
+value_string [value = "sample:organism"].value
+  -> bind_param [parameter = "--organism"].file
+  -> bind_param.file_with_param
+  -> code_python.input_values
+
+read_file_content.value
+  -> bind_param [parameter = "-g"].file
+  -> bind_param.file_with_param
+  -> code_bash.input_values
+```
+
+- Connect text sources (`value_string` or `read_file_content`, or a subgraph input carrying text) to `bind_param.file`,
+  then connect `bind_param.file_with_param` to `input_values` (never `input_files`).
+- Option names must be unique across both `input_files` and `input_values` on the same CODE node.
+- Reserve `input_values` for dynamic values (such as `sample:<key>`, upstream `read_file_content`, or subgraph-exposed
+  parameters); write fixed constants directly inside the script.

@@ -82,7 +82,7 @@ def build_code_inputs(
 
         upstream_edge = next((item for item in exist_edges if item.target_node == bind_node.id), None)
         if upstream_edge is None:
-            msg = f'bind_param node "{bind_node.id}" is not connected to an upstream file'
+            msg = f'bind_param node "{bind_node.id}" is not connected to an upstream input'
             raise ValueError(msg)
         upstream_node = nodes_by_id.get(upstream_edge.source_node)
         if upstream_node is None:
@@ -96,14 +96,17 @@ def build_code_inputs(
             msg = f'upstream node "{upstream_node.id}" has no output handle named "{upstream_edge.source_handle}"'
             raise ValueError(msg)
 
+        input_kind = 'value' if edge.target_handle == 'input_values' else 'file'
         code_input: dict[str, Any] = {
             'parameter': parameter,
+            'kind': input_kind,
             'source_node': upstream_node.name,
             'source_handle': source_handle.name,
             'description': source_handle.description,
         }
         if (
-            upstream_node.type == 'subgraph'
+            input_kind == 'file'
+            and upstream_node.type == 'subgraph'
             and source_handle.name == 'results_folder'
             and any(
                 item.target_node == upstream_node.id

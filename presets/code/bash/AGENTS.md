@@ -39,6 +39,7 @@ workspace/
 
 - Parse inputs with `getopts` and require one short option for every input.
 - Use option names exactly as provided, including the leading `-`; never rely on argument order.
+- Treat file or directory path inputs (`input_files`) as mounted paths; treat text value inputs (`input_values`) as literal strings rather than filesystem paths.
 - Quote paths and variable expansions so inputs containing spaces or shell metacharacters are handled correctly.
 - Write every generated file, including final results, intermediate files, and logs, directly into the existing
   `output/` directory using a deterministic plain file name. Keep the directory flat: do not create subdirectories.

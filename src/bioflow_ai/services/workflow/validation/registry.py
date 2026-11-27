@@ -48,14 +48,20 @@ NODE_SPECS.update(
         for name, value in RESOURCES.items()
     }
 )
-for name in CODE_NODE_TYPES | {'downstream_summary'}:
+for name in CODE_NODE_TYPES:
     NODE_SPECS[name] = NodeSpec(
-        input_handles=(Handle(name='input_files', description='Bound CODE inputs'),),
-        output_handles=()
-        if name == 'downstream_summary'
-        else (Handle(name='output_folder', description='CODE results'),),
-        input_policy='many' if name == 'downstream_summary' else 'none',
+        input_handles=(
+            Handle(name='input_files', description='Bound CODE file or directory inputs'),
+            Handle(name='input_values', description='Bound CODE text value inputs'),
+        ),
+        output_handles=(Handle(name='output_folder', description='CODE results'),),
+        input_policy='none',
     )
+NODE_SPECS['downstream_summary'] = NodeSpec(
+    input_handles=(Handle(name='input_files', description='Bound CODE inputs'),),
+    output_handles=(),
+    input_policy='many',
+)
 NODE_SPECS.update(
     {
         'tool': NodeSpec(input_policy='one'),

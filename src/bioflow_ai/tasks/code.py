@@ -37,36 +37,58 @@ def normalize_python_dependencies(dependencies: list[str] | str | None) -> list[
     return normalized
 
 
+def _parse_bound_code_input(
+    kwarg: TaskInput,
+    language: str,
+    seen_parameters: set[str],
+    *,
+    expect_path: bool,
+) -> tuple[str, str, str | None]:
+    """Decode one bound CODE input and enforce unique option names across handles."""
+    json_str, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
+    bound_input = json.loads(json_str)
+    if not isinstance(bound_input, dict) or len(bound_input) != 1:
+        msg = f'Each {language} code input must come from one bind_param node'
+        raise ValueError(msg)
+
+    parameter, raw_value = next(iter(bound_input.items()))
+    if not isinstance(parameter, str) or not parameter.startswith('-'):
+        msg = f'{language} code input parameter must start with "-": {parameter}'
+        raise ValueError(msg)
+    if parameter in seen_parameters:
+        msg = f'Duplicate {language} code input parameter: {parameter}'
+        raise ValueError(msg)
+    if not isinstance(raw_value, str):
+        kind = 'file or directory path' if expect_path else 'text value'
+        msg = f'{language} code input {parameter} must resolve to a {kind}'
+        raise TypeError(msg)
+
+    seen_parameters.add(parameter)
+    return parameter, raw_value, sample_name
+
+
 def _resolve_container_code_inputs(
     inputs: dict[str, TaskInput | list[TaskInput]],
     language: str,
 ) -> tuple[list[str], list[ContainerMount], list[str | None]]:
     """Resolve bind_param outputs into container arguments and read-only mounts."""
-    raw_inputs = inputs.get('input_files', [])
-    kwargs = raw_inputs if isinstance(raw_inputs, list) else [raw_inputs]
+    raw_file_inputs = inputs.get('input_files', [])
+    file_kwargs = raw_file_inputs if isinstance(raw_file_inputs, list) else [raw_file_inputs]
+    raw_value_inputs = inputs.get('input_values', [])
+    value_kwargs = raw_value_inputs if isinstance(raw_value_inputs, list) else [raw_value_inputs]
 
     arguments: list[str] = []
     mounts: list[ContainerMount] = []
     sample_names: list[str | None] = []
     seen_parameters: set[str] = set()
 
-    for index, kwarg in enumerate(kwargs, start=1):
-        json_str, sample_name = get_node_output(kwarg.source_uid, kwarg.source_k)
-        bound_input = json.loads(json_str)
-        if not isinstance(bound_input, dict) or len(bound_input) != 1:
-            msg = f'Each {language} code input must come from one bind_param node'
-            raise ValueError(msg)
-
-        parameter, file_path_value = next(iter(bound_input.items()))
-        if not isinstance(parameter, str) or not parameter.startswith('-'):
-            msg = f'{language} code input parameter must start with "-": {parameter}'
-            raise ValueError(msg)
-        if parameter in seen_parameters:
-            msg = f'Duplicate {language} code input parameter: {parameter}'
-            raise ValueError(msg)
-        if not isinstance(file_path_value, str):
-            msg = f'{language} code input {parameter} must resolve to a file or directory path'
-            raise TypeError(msg)
+    for index, kwarg in enumerate(file_kwargs, start=1):
+        parameter, file_path_value, sample_name = _parse_bound_code_input(
+            kwarg,
+            language,
+            seen_parameters,
+            expect_path=True,
+        )
 
         host_path = Path(file_path_value).absolute()
         if not host_path.exists():
@@ -77,7 +99,16 @@ def _resolve_container_code_inputs(
         mounts.append(ContainerMount(source=str(host_path), target=container_path, read_only=True))
         arguments.extend([parameter, container_path])
         sample_names.append(sample_name)
-        seen_parameters.add(parameter)
+
+    for kwarg in value_kwargs:
+        parameter, text_value, sample_name = _parse_bound_code_input(
+            kwarg,
+            language,
+            seen_parameters,
+            expect_path=False,
+        )
+        arguments.extend([parameter, text_value])
+        sample_names.append(sample_name)
 
     return arguments, mounts, sample_names
 

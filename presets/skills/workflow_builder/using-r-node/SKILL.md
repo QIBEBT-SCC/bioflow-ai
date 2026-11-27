@@ -11,9 +11,20 @@ Prefer a tool node for bioinformatics command-line software and `downstream_summ
 
 ## Inputs and Request
 
-Every upstream file or directory must pass through its own `bind_param` processor before connecting to the R node's `input_files` handle. Use a distinct named option such as `--counts` or `--metadata` for each input.
+Every upstream input must pass through its own `bind_param` processor before connecting to the R node:
 
-In the node manager's `request`, describe the exact transformation, the meaning and expected type of every input, every deterministic output file name, and any additional CRAN packages. Do not write the script yourself; the dedicated coding model generates R 4.4.3-compatible code that parses `commandArgs(trailingOnly = TRUE)`.
+- Connect file or directory inputs to `input_files`.
+- Connect dynamic text value inputs (`value_string`, `read_file_content`, or a subgraph boundary input carrying text) to
+  `input_values`.
+
+Use a distinct named option such as `--counts`, `--metadata`, or `--organism` for each input; option names must be
+unique across both handles. Use `input_values` only for dynamic values such as `sample:<key>` metadata, upstream
+`read_file_content` values, or subgraph-exposed parameters; keep fixed constants directly in the R script.
+
+In the node manager's `request`, describe the exact transformation, the meaning and expected type of every input
+(including whether each parameter is a path or a text value), every deterministic output file name, and any additional
+CRAN packages. Do not write the script yourself; the dedicated coding model generates R 4.4.3-compatible code that
+parses `commandArgs(trailingOnly = TRUE)`.
 
 ## Outputs
 
@@ -27,8 +38,8 @@ consumed by another node, with `file_name` exactly matching the plain file name 
 ## Construction Order
 
 1. Confirm the task is a small R transformation rather than a tool invocation or terminal downstream analysis.
-2. Add one `bind_param` node per upstream input and assign distinct named options.
-3. Add the R code node with all binding outputs connected to `input_files`.
+2. Add one `bind_param` node per upstream input and assign distinct named options across all bindings.
+3. Add the R code node with file/directory bindings connected to `input_files` and text bindings connected to `input_values`.
 4. Inspect the returned source for R 4.4.3 compatibility, package setup, exact option parsing, and output file names.
 5. Add `select_file_in_folder` nodes for every result required later in the workflow.
 
