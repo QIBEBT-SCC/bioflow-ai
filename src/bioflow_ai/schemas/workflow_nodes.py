@@ -232,10 +232,20 @@ PROCESSORS: dict[str, NodeSchema] = {
     },
     'bind_param': {
         'name': 'Bind Parameter',
-        'description': 'This node binds a file from another node to a specified parameter name for use by the CODE node. Its output can only be used as input for a CODE node.',
+        'description': (
+            'This node binds an upstream file, directory, or text value (`value_string` or `read_file_content`) '
+            'to a specified CLI parameter name for use by a CODE node. Connect its output to a CODE node '
+            '`input_files` handle for files/directories or `input_values` handle for text values.'
+        ),
         'args': BindParamSchema,
-        'input_handles': [Handle(name='file', description='File corresponding to the parameter')],
-        'output_handles': [Handle(name='file_with_param', description='Available for code node input')],
+        'input_handles': [
+            Handle(name='file', description='Upstream file, directory, or text value corresponding to the parameter')
+        ],
+        'output_handles': [
+            Handle(
+                name='file_with_param', description='Bound input available for CODE node input_files or input_values'
+            )
+        ],
     },
     'select_file_in_folder': {
         'name': 'Select File in Folder',

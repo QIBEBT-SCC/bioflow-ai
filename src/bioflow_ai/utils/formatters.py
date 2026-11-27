@@ -138,13 +138,28 @@ def format_code_inputs(inputs: list[dict[str, Any]]) -> str:
     """Describe bound input parameters and ForEach manifests in readable Markdown."""
     if not inputs:
         return 'No upstream input parameters are bound to this script.'
-    parameters = [
-        f'- `{item["parameter"]}`: {item["description"]} '
-        f'(from `{item["source_node"]}`, output `{item["source_handle"]}`).'
-        for item in inputs
-    ]
-    sections = ['This script expects the following input parameters:\n\n' + '\n'.join(parameters)]
-    for item in inputs:
+
+    def format_item(item: dict[str, Any]) -> str:
+        return (
+            f'- `{item["parameter"]}`: {item["description"]} '
+            f'(from `{item["source_node"]}`, output `{item["source_handle"]}`).'
+        )
+
+    file_inputs = [item for item in inputs if item.get('kind', 'file') != 'value']
+    value_inputs = [item for item in inputs if item.get('kind') == 'value']
+    sections: list[str] = []
+    if file_inputs:
+        sections.append(
+            'This script expects the following file or directory path parameters '
+            '(mounted read-only in the container):\n\n' + '\n'.join(format_item(item) for item in file_inputs)
+        )
+    if value_inputs:
+        sections.append(
+            'This script expects the following text value parameters '
+            '(passed directly as literal CLI strings, not filesystem paths):\n\n'
+            + '\n'.join(format_item(item) for item in value_inputs)
+        )
+    for item in file_inputs:
         if not (input_format := item.get('format_contract')):
             continue
         schema = input_format['schema']

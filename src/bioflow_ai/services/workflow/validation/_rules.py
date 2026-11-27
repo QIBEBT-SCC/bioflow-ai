@@ -8,6 +8,8 @@ from bioflow_ai.schemas.tools import Handle
 from bioflow_ai.schemas.workflow_build import BuildEdge, BuildNode
 
 MARK_NODE_TYPES = {'project_mark', 'sample_mark'}
+TEXT_VALUE_NODE_TYPES = frozenset({'value_string', 'read_file_content'})
+DEFERRED_CODE_UPSTREAM_TYPES = frozenset({'subgraph', 'subgraph_inputs', 'resource_frozen_path'})
 
 
 def _validate_note_anchor(anchor_node_id: str | None, exist_nodes: list[BuildNode]) -> str | None:
@@ -87,6 +89,55 @@ def _check_code_node_edges(input_edges: list[BuildEdge], exist_nodes: list[Build
         )
 
     return None
+
+
+def _check_code_binding_sources(
+    code_edges: list[BuildEdge],
+    node_types: Mapping[str, str],
+    incoming_by_target: Mapping[str, list[BuildEdge]],
+    bind_parameters: Mapping[str, str] | None = None,
+    display_ids: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Validate CODE-node parameter uniqueness and file-vs-text upstream compatibility."""
+    errors: list[str] = []
+    seen_parameters: set[str] = set()
+
+    def label(node_id: str) -> str:
+        return display_ids.get(node_id, node_id) if display_ids is not None else node_id
+
+    for edge in code_edges:
+        if node_types.get(edge.source_node) != 'bind_param':
+            continue
+        if bind_parameters is not None:
+            param = bind_parameters.get(edge.source_node, '').strip()
+            if param and param in seen_parameters:
+                errors.append(f'Duplicate CODE node input parameter `{param}` across bound inputs.')
+            elif param:
+                seen_parameters.add(param)
+
+        for upstream_edge in incoming_by_target.get(edge.source_node, []):
+            if upstream_edge.source_node == '@subgraph_inputs':
+                continue
+            upstream_type = node_types.get(upstream_edge.source_node)
+            if upstream_type is None or upstream_type in DEFERRED_CODE_UPSTREAM_TYPES:
+                continue
+            bind_label = label(edge.source_node)
+            upstream_label = label(upstream_edge.source_node)
+            if edge.target_handle == 'input_values' and upstream_type not in TEXT_VALUE_NODE_TYPES:
+                errors.append(
+                    f'CODE node `input_values` only accepts `bind_param` inputs from text value nodes '
+                    f'(`value_string` or `read_file_content`). `bind_param` "{bind_label}" receives input '
+                    f'from "{upstream_label}" (`{upstream_type}`); connect file or directory inputs to '
+                    f'`input_files` instead.'
+                )
+            elif edge.target_handle == 'input_files' and upstream_type in TEXT_VALUE_NODE_TYPES:
+                errors.append(
+                    f'CODE node `input_files` expects file or directory inputs, not text values. '
+                    f'`bind_param` "{bind_label}" receives input from "{upstream_label}" '
+                    f'(`{upstream_type}`); connect text value inputs to `input_values` instead.'
+                )
+
+    return errors
 
 
 def _check_processor_edges(

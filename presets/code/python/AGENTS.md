@@ -48,7 +48,8 @@ directly.
 
 - Define one required Click option for every input.
 - Use option names exactly as provided, including the leading `--`.
-- Use `pathlib.Path` for filesystem operations.
+- For file or directory path parameters (`input_files`), use `click.Path(exists=True, path_type=Path)` or `pathlib.Path` for filesystem operations.
+- For text value parameters (`input_values`), accept a `str` (or the requested scalar type) directly; never treat or open a text value parameter as a filesystem path.
 - Write every generated file, including final results, intermediate files, logs, and plots, directly into `output` directory using a deterministic plain file name. Keep the directory flat: do not create subdirectories.
 - Build output paths with `Path.cwd() / 'output' / 'filename.ext'`. Do not hardcode `/workspace` paths or create another subdirectory inside `output/` directory.
 - Never modify or write beside upstream inputs.

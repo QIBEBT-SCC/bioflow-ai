@@ -45,8 +45,7 @@ workspace/
 
 - Parse `commandArgs(trailingOnly = TRUE)` and require one named option for every input.
 - Use option names exactly as provided, including their leading hyphens; never rely on argument order.
-- Reject unknown options, missing option values, and missing required inputs. Validate that every input exists and
-  matches the expected file or directory type before reading it.
+- Reject unknown options, missing option values, and missing required inputs. For file or directory path inputs (`input_files`), validate that every path exists and matches the expected file or directory type before reading it. Treat text value inputs (`input_values`) as literal strings rather than filesystem paths, and do not check them with `file.exists()` or `dir.exists()`.
 - Run from the workspace root during authoring checks and workflow execution.
 - Write every generated file, including final results, intermediate files, and plots, directly into the
   existing `output/` directory using a deterministic plain file name. Keep the directory flat: do not create subdirectories.
